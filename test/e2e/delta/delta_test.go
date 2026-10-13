@@ -278,7 +278,6 @@ func osFleetSpec(harness *e2e.Harness, fleetName, imageTag string, policy *v1bet
 }
 
 func requireDeltaGenerationSupport(harness *e2e.Harness, deviceId string) {
-	infra.RequireOciDeltaAvailable(harness.Context, setup.GetDefaultProviders())
 	device, err := harness.GetDevice(deviceId)
 	if err != nil {
 		Fail(fmt.Sprintf("get device %s: %v", deviceId, err))

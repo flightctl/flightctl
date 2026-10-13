@@ -2557,3 +2557,40 @@ spec:
 		})
 	}
 }
+
+func TestQuadletCollectNativeVMImageTargets(t *testing.T) {
+	const launcher = "quay.io/acme/vm-launcher:v2"
+	const disk = "quay.io/acme/vm-disk:v2"
+	const config = "quay.io/acme/vm-config:v2"
+	for _, owner := range []v1beta1.Username{v1beta1.CurrentProcessUsername, "vm-user"} {
+		t.Run("When native VM Quadlets use owner "+string(owner)+" it should collect image and volume targets in that store", func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			resolver := dependency.NewMockPullConfigResolver(ctrl)
+			resolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption { return nil }).AnyTimes()
+			app := v1beta1.QuadletApplication{Name: lo.ToPtr("native-vm"), AppType: v1beta1.AppTypeQuadlet}
+			if !owner.IsCurrentProcessUser() {
+				app.RunAs = owner
+			}
+			require.NoError(app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: []v1beta1.ApplicationContent{
+				{Path: "vm.container", Content: lo.ToPtr("[Container]\nImage=launcher.image\nVolume=disk.volume:/disk\nMount=type=image,source=" + config + ",destination=/config\n")},
+				{Path: "launcher.image", Content: lo.ToPtr("[Image]\nImage=" + launcher + "\n")},
+				{Path: "disk.volume", Content: lo.ToPtr("[Volume]\nDriver=image\nImage=" + disk + "\n")},
+			}}))
+			inline, err := app.AsInlineApplicationProviderSpec()
+			require.NoError(err)
+			provider := &quadletProvider{inlineContent: inline.Inline, spec: &ApplicationSpec{Name: "native-vm", User: app.RunAsWithDefault(), QuadletApp: &app}}
+
+			targets, err := provider.collectOCITargets(context.Background(), resolver)
+			require.NoError(err)
+			require.Len(targets, 1)
+			var refs []string
+			for _, target := range targets[owner] {
+				require.Equal(dependency.OCITypePodmanImage, target.Type)
+				refs = append(refs, target.Reference)
+			}
+			require.ElementsMatch([]string{launcher, disk, config}, refs)
+		})
+	}
+}

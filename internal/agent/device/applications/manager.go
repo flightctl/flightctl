@@ -70,10 +70,11 @@ func NewManager(
 	pullConfigResolver dependency.PullConfigResolver,
 ) *manager {
 	bootTime := systemInfo.BootTime()
+	kubernetesMonitor := NewKubernetesMonitor(log, clients, rwFactory, pullConfigResolver)
 	return &manager{
 		rwFactory:          rwFactory,
 		podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
-		kubernetesMonitor:  NewKubernetesMonitor(log, clients, rwFactory),
+		kubernetesMonitor:  kubernetesMonitor,
 		podmanFactory:      podmanFactory,
 		clients:            clients,
 		pullConfigResolver: pullConfigResolver,
@@ -463,14 +464,18 @@ func addCachedParentImageDigests(results []AppStatusResult, cache *provider.OCIT
 			if digests[j].Image != entry.Parent.Reference {
 				continue
 			}
-			if digests[j].Digest == entry.Parent.Digest {
+			if digests[j].Digest != "" {
 				parentDigestFound = true
 				break
 			}
-			if digests[j].Digest == "" {
-				digests[j].Digest = entry.Parent.Digest
-				parentDigestFound = true
-				break
+		}
+		if !parentDigestFound {
+			for j := range digests {
+				if digests[j].Image == entry.Parent.Reference {
+					digests[j].Digest = entry.Parent.Digest
+					parentDigestFound = true
+					break
+				}
 			}
 		}
 		if !parentDigestFound {

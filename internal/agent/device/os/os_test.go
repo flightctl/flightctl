@@ -2,6 +2,7 @@ package os
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -23,6 +25,12 @@ import (
 )
 
 const (
+	testTargetImage  = "quay.io/acme/os@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testTargetRepo   = "quay.io/acme/os"
+	testSourceDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	testDeltaDigest  = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testHintedDelta  = "quay.io/acme-deltas/os@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
 	testDesiredImage  = "quay.io/acme/os:v2"
 	testBootedImage   = "quay.io/acme/os:v1"
 	testDeltaRef      = "quay.io/acme/os@" + testDeltaDigest
@@ -31,6 +39,7 @@ const (
 		"manifests": [
 			{
 				"digest": "` + testDeltaDigest + `",
+				"size": 100,
 				"artifactType": "application/vnd.io.github.containers.oci-delta.v1",
 				"annotations": {
 					"io.github.containers.delta.source": "` + testSourceDigest + `"
@@ -62,6 +71,17 @@ func TestManagerStatus(t *testing.T) {
 			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
 			expectedDigest:    "sha256:a0b1c2d3",
 			expectedEligible:  true,
+		},
+		{
+			name:              "When bootc observes a platform digest it should report it separately from the index reference and delta outcome",
+			caps:              Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0", OCIDeltaVersion: "oci-delta 0.2.1"},
+			bootedImage:       "quay.io/acme/os@sha256:index",
+			bootedImageDigest: "sha256:platform",
+			deltaOutcome:      lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied),
+			expectedImage:     "quay.io/acme/os@sha256:index",
+			expectedDigest:    "sha256:platform",
+			expectedEligible:  true,
+			expectedOutcome:   lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied),
 		},
 		{
 			name:              "When image mode and not delta eligible it should report DeltaEligible false",
@@ -169,6 +189,17 @@ func TestManagerStatus(t *testing.T) {
 			assert.Equal(tc.caps.OsMode, *status.SystemInfo.OsMode)
 			require.Equal(tc.expectedReason, osLastDeltaFallback(status))
 			require.Equal(tc.expectedOutcome, osLastDeltaOutcome(status))
+			if status.Os.LastDelta != nil {
+				data, err := json.Marshal(status.Os.LastDelta)
+				require.NoError(err)
+				var delta map[string]any
+				require.NoError(json.Unmarshal(data, &delta))
+				expected := map[string]any{"outcome": string(*tc.expectedOutcome)}
+				if tc.expectedReason != nil {
+					expected["fallbackReason"] = *tc.expectedReason
+				}
+				require.Equal(expected, delta)
+			}
 		})
 	}
 }
@@ -194,17 +225,27 @@ func TestManagerStatusWhenClientFails(t *testing.T) {
 }
 
 func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
+	require := require.New(t)
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockResolver := dependency.NewMockPullConfigResolver(ctrl)
 	mockClient := NewMockClient(ctrl)
 	mockClient.EXPECT().Status(gomock.Any()).
-		Return(bootcStatus(testDesiredImage, testSourceDigest), nil).Times(3)
+		Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(3)
 
-	firstManager := newTestManager(t, mockClient, executer.NewMockExecuter(ctrl), nil, Capabilities{})
+	firstManager := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
 	firstManager.deltaStatusStore = deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
 
 	target := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testDeltaRef)}
-	firstManager.startImageAttempt(target)
-	firstManager.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+	expectImageExists(mockExec, testDesiredImage, false)
+	expectPullConfig(t, mockResolver)
+	expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100, testDesiredImage)
+	expectDeltaSuccess(t, mockExec, mockClient, testDeltaRef)
+	collection, err := firstManager.CollectOCITargets(context.Background(), nil, &v1beta1.DeviceSpec{Os: target})
+	require.NoError(err)
+	require.Empty(collection.Targets)
 
 	// A new store and manager simulate restarting the agent process.
 	restartedStore := deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
@@ -215,27 +256,27 @@ func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
 		deltaStatusStore: restartedStore,
 	}
 	ctx := context.Background()
-	require.NoError(t, restartedManager.BeforeUpdate(ctx, nil, &v1beta1.DeviceSpec{Os: target}))
+	require.NoError(restartedManager.BeforeUpdate(ctx, nil, &v1beta1.DeviceSpec{Os: target}))
 
 	status := &v1beta1.DeviceStatus{}
-	require.NoError(t, restartedManager.Status(ctx, status))
-	require.NotNil(t, status.Os.LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+	require.NoError(restartedManager.Status(ctx, status))
+	require.NotNil(status.Os.LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
 
 	// A hint refresh for the same desired image does not make its persisted
 	// application outcome stale.
 	refreshedHint := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
-	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: target}, &v1beta1.DeviceSpec{Os: refreshedHint}))
+	require.NoError(restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: target}, &v1beta1.DeviceSpec{Os: refreshedHint}))
 	status = &v1beta1.DeviceStatus{}
-	require.NoError(t, restartedManager.Status(ctx, status))
-	require.NotNil(t, status.Os.LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+	require.NoError(restartedManager.Status(ctx, status))
+	require.NotNil(status.Os.LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
 
 	newTarget := &v1beta1.DeviceOsSpec{Image: "quay.io/acme/os:v3", DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
-	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: refreshedHint}, &v1beta1.DeviceSpec{Os: newTarget}))
+	require.NoError(restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: refreshedHint}, &v1beta1.DeviceSpec{Os: newTarget}))
 	status = &v1beta1.DeviceStatus{}
-	require.NoError(t, restartedManager.Status(ctx, status))
-	require.Nil(t, status.Os.LastDelta)
+	require.NoError(restartedManager.Status(ctx, status))
+	require.Nil(status.Os.LastDelta)
 }
 
 func TestSystemInfoOsMode(t *testing.T) {
@@ -380,6 +421,7 @@ func TestCollectOCITargets(t *testing.T) {
 		wantEmpty      bool
 		wantAttempted  string
 		wantStaged     *string
+		wantOutcome    *v1beta1.DeviceDeltaApplyOutcomeType
 	}{
 		{
 			name:    "When there is no OS spec it should return an empty collection",
@@ -396,7 +438,8 @@ func TestCollectOCITargets(t *testing.T) {
 			setup: func(_ *testing.T, _ *executer.MockExecuter, mockClient *MockClient, _ *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testSourceDigest), nil)
 			},
-			wantEmpty: true,
+			wantEmpty:   true,
+			wantOutcome: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeNotRequired),
 		},
 		{
 			name:    "When the desired image already exists it should return an empty collection",
@@ -406,7 +449,8 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, true)
 			},
-			wantEmpty: true,
+			wantEmpty:   true,
+			wantOutcome: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeNotRequired),
 		},
 		{
 			name:        "When a delta is already staged for the desired image it should skip collection",
@@ -442,6 +486,8 @@ func TestCollectOCITargets(t *testing.T) {
 				expectPullConfig(t, mockResolver)
 			},
 			wantRefs:      []string{testDesiredImage},
+			wantOutcome:   lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeFallback),
+			wantReason:    lo.ToPtr("OS delta application is unavailable"),
 			wantAttempted: testDesiredImage,
 		},
 		{
@@ -452,6 +498,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			},
 			wantEmpty:     true,
@@ -468,6 +515,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			},
 			wantEmpty:     true,
@@ -483,6 +531,7 @@ func TestCollectOCITargets(t *testing.T) {
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
 				expectListReferrers(mockExec, testDesiredImage, testReferrersJSON, "", 0)
+				expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100)
 				expectDeltaSuccess(t, mockExec, mockClient, testDeltaRef)
 			},
 			wantEmpty:     true,
@@ -523,6 +572,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+testHintedDelta, gomock.Any(), "--src-no-creds").
 					Return("", "Error: unauthorized", 1)
 			},
@@ -538,6 +588,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "Error: diff_id mismatch", 1)
@@ -554,6 +605,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "", 0)
@@ -572,6 +624,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "", 0)
@@ -602,6 +655,7 @@ func TestCollectOCITargets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -616,25 +670,26 @@ func TestCollectOCITargets(t *testing.T) {
 			m.stagedDeltaImage = tt.stagedDelta
 
 			collection, err := m.CollectOCITargets(context.Background(), nil, tt.desired)
-			require.NoError(t, err)
-			require.NotNil(t, collection)
+			require.NoError(err)
+			require.NotNil(collection)
 
 			if tt.wantEmpty {
-				require.Empty(t, collection.Targets)
+				require.Empty(collection.Targets)
 			} else {
 				got := collection.Targets[v1beta1.CurrentProcessUsername]
-				require.Len(t, got, len(tt.wantRefs))
+				require.Len(got, len(tt.wantRefs))
 				for i, ref := range tt.wantRefs {
-					require.Equal(t, dependency.OCITypePodmanImage, got[i].Type)
-					require.Equal(t, ref, got[i].Reference)
+					require.Equal(dependency.OCITypePodmanImage, got[i].Type)
+					require.Equal(v1beta1.PullIfNotPresent, got[i].PullPolicy)
+					require.Equal(ref, got[i].Reference)
 				}
 			}
-			require.Equal(t, tt.wantReason, m.fallbackReason)
+			require.Equal(tt.wantReason, m.fallbackReason)
 			if tt.wantAttempted != "" {
-				require.Equal(t, tt.wantAttempted, m.lastAttemptedImage)
+				require.Equal(tt.wantAttempted, m.lastAttemptedImage)
 			}
 			if tt.wantStaged != nil {
-				require.Equal(t, *tt.wantStaged, m.stagedDeltaImage)
+				require.Equal(*tt.wantStaged, m.stagedDeltaImage)
 			}
 
 			status := &v1beta1.DeviceStatus{}
@@ -642,8 +697,22 @@ func TestCollectOCITargets(t *testing.T) {
 				return
 			}
 			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
-			require.NoError(t, m.Status(context.Background(), status))
-			require.Equal(t, tt.wantReason, osLastDeltaFallback(status))
+			require.NoError(m.Status(context.Background(), status))
+			require.Equal(tt.wantReason, osLastDeltaFallback(status))
+			if len(tt.wantRefs) > 0 && tt.wantOutcome == nil {
+				outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
+				if tt.wantReason != nil {
+					outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
+				}
+				require.Equal(outcome, status.Os.LastDelta.Outcome)
+			}
+			if tt.wantReason != nil {
+				mockClient.EXPECT().Switch(gomock.Any(), tt.desired.Os.Image).Return(nil)
+				require.NoError(m.AfterUpdate(context.Background(), tt.desired))
+			}
+			if tt.wantOutcome != nil {
+				require.Equal(tt.wantOutcome, osLastDeltaOutcome(status))
+			}
 		})
 	}
 }
@@ -792,7 +861,9 @@ func expectImageExists(mockExec *executer.MockExecuter, image string, exists boo
 }
 
 func expectListReferrers(mockExec *executer.MockExecuter, image, stdout, stderr string, exitCode int) {
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image, "--no-creds").
+	expectPlatformIndex(mockExec, image, testSourceDigest)
+	referrerImage := delta.Repository(image) + "@" + testSourceDigest
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage, "--no-creds").
 		Return(stdout, stderr, exitCode)
 }
 

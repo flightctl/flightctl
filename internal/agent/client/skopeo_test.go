@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/containerd/platforms"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -464,6 +466,101 @@ func TestSkopeoListReferrers(t *testing.T) {
 			require.Equal(t, tt.wantDigest, result.Manifests[0].Digest)
 		})
 	}
+}
+
+func TestSkopeoListPlatformReferrers(t *testing.T) {
+	require := require.New(t)
+	const (
+		targetImage    = "quay.io/acme/os:latest"
+		platformDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		deltaDigest    = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	)
+	hostPlatform := platforms.DefaultSpec()
+	platform := map[string]string{
+		"os":           hostPlatform.OS,
+		"architecture": hostPlatform.Architecture,
+	}
+	if hostPlatform.Variant != "" {
+		platform["variant"] = hostPlatform.Variant
+	}
+	targetIndex, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     "application/vnd.oci.image.index.v1+json",
+		"manifests": []map[string]any{{
+			"mediaType": "application/vnd.oci.image.manifest.v1+json",
+			"digest":    platformDigest,
+			"size":      100,
+			"platform":  platform,
+		}},
+	})
+	require.NoError(err)
+	referrers := `{"schemaVersion":2,"manifests":[{"digest":"` + deltaDigest + `","artifactType":"application/vnd.io.github.containers.oci-delta.v1"}]}`
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.ErrorLevel)
+	skopeo := NewSkopeo(logger, mockExec, fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()))
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"skopeo", "inspect", "--raw", "docker://"+targetImage, "--no-creds",
+	).Return(string(targetIndex), "", 0)
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"skopeo", "list-referrers", "docker://quay.io/acme/os@"+platformDigest, "--no-creds",
+	).Return(referrers, "", 0)
+
+	result, err := skopeo.ListPlatformReferrers(context.Background(), targetImage)
+	require.NoError(err)
+	require.NotNil(result)
+	require.Equal(platformDigest, result.TargetDigest)
+	require.NotNil(result.Referrers)
+	require.Len(result.Referrers.Manifests, 1)
+	require.Equal(deltaDigest, result.Referrers.Manifests[0].Digest)
+}
+
+func TestSkopeoInspectPlatformDigestHashesExactSingleManifestBytes(t *testing.T) {
+	require := require.New(t)
+	const image = "quay.io/acme/os:latest"
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	skopeo := NewSkopeo(
+		log.NewPrefixLogger("test"),
+		mockExec,
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+	)
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds",
+	).Return(manifest+"\n", "", 0)
+
+	got, err := skopeo.InspectPlatformDigest(context.Background(), image)
+	require.NoError(err)
+	require.Equal(digest.FromBytes([]byte(manifest+"\n")).String(), got)
+}
+
+func TestSkopeoInspectPlatformDigestUsesPinnedDigestAlgorithm(t *testing.T) {
+	require := require.New(t)
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`
+	pinnedDigest := digest.SHA512.FromBytes([]byte(manifest))
+	image := "quay.io/acme/os@" + pinnedDigest.String()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	skopeo := NewSkopeo(
+		log.NewPrefixLogger("test"),
+		mockExec,
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+	)
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds",
+	).Return(manifest, "", 0)
+
+	got, err := skopeo.InspectPlatformDigest(context.Background(), image)
+	require.NoError(err)
+	require.Equal(pinnedDigest.String(), got)
 }
 
 func TestSkopeoCopyWithDefaultAuth(t *testing.T) {

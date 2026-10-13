@@ -7,12 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/platforms"
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
@@ -24,8 +28,10 @@ const (
 type OCIManifest struct {
 	MediaType    string            `json:"mediaType"`
 	ArtifactType string            `json:"artifactType,omitempty"`
+	Subject      *OCIDescriptor    `json:"subject,omitempty"`
 	Annotations  map[string]string `json:"annotations,omitempty"`
 	Config       *OCIDescriptor    `json:"config,omitempty"`
+	Layers       []OCIDescriptor   `json:"layers,omitempty"`
 	Manifests    json.RawMessage   `json:"manifests,omitempty"`
 }
 
@@ -41,6 +47,13 @@ type OCIIndex struct {
 	SchemaVersion int           `json:"schemaVersion"`
 	MediaType     string        `json:"mediaType,omitempty"`
 	Manifests     []OCIReferrer `json:"manifests"`
+}
+
+// OCIPlatformReferrers ties a referrer index to the exact platform manifest
+// digest used to query it.
+type OCIPlatformReferrers struct {
+	TargetDigest string
+	Referrers    *OCIIndex
 }
 
 // OCIReferrer is a descriptor in a Referrers index.
@@ -173,6 +186,83 @@ func (s *Skopeo) InspectDigest(ctx context.Context, image string, opts ...Client
 	return s.inspectDigest(ctx, image, options)
 }
 
+// InspectPlatformDigest resolves an image index to the manifest for this host.
+// Single-image manifests return their own content digest.
+func (s *Skopeo) InspectPlatformDigest(ctx context.Context, image string, opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	timeout := s.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	raw, err := s.inspectRaw(ctx, image, options)
+	if err != nil {
+		return "", err
+	}
+	expectedDigest, err := pinnedManifestDigest(image)
+	if err != nil {
+		return "", err
+	}
+	return platformDigestFromRawManifest(raw, expectedDigest)
+}
+
+func pinnedManifestDigest(image string) (digest.Digest, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", fmt.Errorf("parse image reference: %w", err)
+	}
+	digested, ok := named.(reference.Digested)
+	if !ok {
+		return "", nil
+	}
+	if err := digested.Digest().Validate(); err != nil {
+		return "", fmt.Errorf("invalid pinned image digest: %w", err)
+	}
+	return digested.Digest(), nil
+}
+
+func platformDigestFromRawManifest(raw string, expectedDigest digest.Digest) (string, error) {
+	var index ocispec.Index
+	if err := json.Unmarshal([]byte(raw), &index); err != nil {
+		return "", fmt.Errorf("parse image manifest: %w", err)
+	}
+	if index.MediaType != ocispec.MediaTypeImageIndex && index.MediaType != "application/vnd.docker.distribution.manifest.list.v2+json" {
+		if expectedDigest != "" {
+			verifier := expectedDigest.Verifier()
+			if _, err := verifier.Write([]byte(raw)); err != nil {
+				return "", fmt.Errorf("verify pinned image manifest: %w", err)
+			}
+			if !verifier.Verified() {
+				return "", fmt.Errorf("pinned image manifest digest mismatch")
+			}
+			return expectedDigest.String(), nil
+		}
+		return digest.FromBytes([]byte(raw)).String(), nil
+	}
+	hostPlatform := platforms.Default()
+	var selected *ocispec.Descriptor
+	for i := range index.Manifests {
+		descriptor := &index.Manifests[i]
+		if descriptor.Platform == nil || !hostPlatform.Match(*descriptor.Platform) {
+			continue
+		}
+		if selected == nil || hostPlatform.Less(*descriptor.Platform, *selected.Platform) {
+			selected = descriptor
+		}
+	}
+	if selected == nil {
+		return "", fmt.Errorf("image index has no manifest for the host platform")
+	}
+	if err := selected.Digest.Validate(); err != nil {
+		return "", fmt.Errorf("invalid platform manifest digest: %w", err)
+	}
+	return selected.Digest.String(), nil
+}
+
 // ListReferrers returns the referrers index for image.
 // On Referrers-API 404, unknown subcommand, or manifest unknown, it inspects the
 // Referrers Tag Schema tag on the same repository.
@@ -219,6 +309,24 @@ func (s *Skopeo) ListReferrers(ctx context.Context, image string, opts ...Client
 		return nil, err
 	}
 	return parseOCIIndex(raw)
+}
+
+// ListPlatformReferrers resolves image to the host platform manifest and lists
+// referrers for that exact manifest digest.
+func (s *Skopeo) ListPlatformReferrers(ctx context.Context, image string, opts ...ClientOption) (*OCIPlatformReferrers, error) {
+	repository, _ := parseImageNameAndDigest(image)
+	if repository == "" {
+		return nil, fmt.Errorf("list platform referrers: invalid image reference %q", image)
+	}
+	platformDigest, err := s.InspectPlatformDigest(ctx, image, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("inspect target platform digest: %w", err)
+	}
+	referrers, err := s.ListReferrers(ctx, repository+"@"+platformDigest, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &OCIPlatformReferrers{TargetDigest: platformDigest, Referrers: referrers}, nil
 }
 
 func (s *Skopeo) inspectDigest(ctx context.Context, image string, options *clientOptions) (string, error) {

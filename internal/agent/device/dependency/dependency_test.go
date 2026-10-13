@@ -200,7 +200,7 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 		},
 		{
-			name: "pull always policy with existing artifact returns ready",
+			name: "When an existing artifact specifies PullAlways it should reuse the cached artifact",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -218,7 +218,7 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 		},
 		{
-			name: "pull always policy with existing image returns ready",
+			name: "When an existing image specifies PullAlways it should reuse the cached image",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -357,7 +357,7 @@ func TestIsReady(t *testing.T) {
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
 				manager.mu.Lock()
-				manager.tasks[imageRef{image: image}] = &prefetchTask{
+				manager.tasks[imageRef{image: image, ociType: OCITypePodmanImage}] = &prefetchTask{
 					ociType: OCITypePodmanImage,
 					done:    state.done,
 					err:     state.err,
@@ -367,7 +367,7 @@ func TestIsReady(t *testing.T) {
 
 			// Check if target is ready
 			manager.mu.Lock()
-			task, ok := manager.tasks[imageRef{image: tt.imageToCheck}]
+			task, ok := manager.tasks[imageRef{image: tt.imageToCheck, ociType: OCITypePodmanImage}]
 			ready := ok && task.err == nil && task.done
 			manager.mu.Unlock()
 
@@ -722,7 +722,7 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "pull always policy with existing artifact",
+			name: "When an existing artifact specifies PullAlways it should reuse the cached artifact",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
 					return &OCICollection{Targets: OCIPullTargetsByUser{
@@ -739,11 +739,11 @@ func TestBeforeUpdate(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/always-artifact:latest"},
-				).Return("", "", 0) // artifact exists, but PullAlways means we still need to pull
+				).Return("", "", 0) // artifact exists
 			},
 		},
 		{
-			name: "pull always policy with existing image",
+			name: "When an existing image specifies PullAlways it should reuse the cached image",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
 					return &OCICollection{Targets: OCIPullTargetsByUser{
@@ -760,7 +760,7 @@ func TestBeforeUpdate(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "podman", []string{"image", "exists", testImageV1},
-				).Return("", "", 0) // image exists, but PullAlways means we still need to pull
+				).Return("", "", 0) // image exists
 			},
 		},
 	}
@@ -1007,7 +1007,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
 	// simulate successful pull completion
-	manager.setResult(imageRef{image: "registry.example.com/app:latest"}, nil)
+	manager.setResult(imageRef{image: "registry.example.com/app:latest", ociType: OCITypePodmanImage}, nil)
 
 	// verify the manager is now ready
 	require.True(manager.IsReady(ctx))
@@ -1216,7 +1216,7 @@ func TestCleanupPartialLayers(t *testing.T) {
 
 			// setup active pulls if needed
 			if tt.activePulls {
-				pm.tasks[imageRef{image: "test-image"}] = &prefetchTask{
+				pm.tasks[imageRef{image: "test-image", ociType: OCITypePodmanImage}] = &prefetchTask{
 					cancelFn: func() {},
 					done:     false,
 				}
@@ -1273,7 +1273,7 @@ func TestSetResultAfterCleanup(t *testing.T) {
 
 	pm := NewPrefetchManager(logger, podmanFactory, skopeoFactory, cliClients, readWriter, pullTimeout, mockResourceManager, poll.Config{})
 
-	testImage := imageRef{image: "quay.io/test/image:latest"}
+	testImage := imageRef{image: "quay.io/test/image:latest", ociType: OCITypePodmanImage}
 	pm.tasks[testImage] = &prefetchTask{
 		ociType: OCITypePodmanImage,
 		done:    false,
@@ -1302,9 +1302,9 @@ func TestSelectiveCleanup(t *testing.T) {
 	}
 
 	initialImages := []imageRef{
-		{image: "registry.example.com/app:v1"},
-		{image: "registry.example.com/sidecar:v1"},
-		{image: "registry.example.com/database:v1"},
+		{image: "registry.example.com/app:v1", ociType: OCITypePodmanImage},
+		{image: "registry.example.com/sidecar:v1", ociType: OCITypePodmanImage},
+		{image: "registry.example.com/database:v1", ociType: OCITypePodmanImage},
 	}
 	for _, ref := range initialImages {
 		manager.tasks[ref] = &prefetchTask{
@@ -1321,7 +1321,7 @@ func TestSelectiveCleanup(t *testing.T) {
 
 	newRefs := make(map[imageRef]struct{}, len(newTargets))
 	for _, target := range newTargets {
-		newRefs[imageRef{image: target.Reference}] = struct{}{}
+		newRefs[imageRef{image: target.Reference, ociType: target.Type}] = struct{}{}
 	}
 
 	manager.mu.Lock()
@@ -1329,18 +1329,18 @@ func TestSelectiveCleanup(t *testing.T) {
 	manager.mu.Unlock()
 
 	// app and sidecar tasks should still exist
-	_, appExists := manager.tasks[imageRef{image: "registry.example.com/app:v1"}]
+	_, appExists := manager.tasks[imageRef{image: "registry.example.com/app:v1", ociType: OCITypePodmanImage}]
 	require.True(t, appExists, "app:v1 task should be preserved")
 
-	_, sidecarExists := manager.tasks[imageRef{image: "registry.example.com/sidecar:v1"}]
+	_, sidecarExists := manager.tasks[imageRef{image: "registry.example.com/sidecar:v1", ociType: OCITypePodmanImage}]
 	require.True(t, sidecarExists, "sidecar:v1 task should be preserved")
 
 	// database should be removed
-	_, databaseExists := manager.tasks[imageRef{image: "registry.example.com/database:v1"}]
+	_, databaseExists := manager.tasks[imageRef{image: "registry.example.com/database:v1", ociType: OCITypePodmanImage}]
 	require.False(t, databaseExists, "database:v1 task should be removed")
 
 	// cache task should NOT exist yet
-	_, cacheExists := manager.tasks[imageRef{image: "registry.example.com/cache:v1"}]
+	_, cacheExists := manager.tasks[imageRef{image: "registry.example.com/cache:v1", ociType: OCITypePodmanImage}]
 	require.False(t, cacheExists, "cache:v1 task should not exist (not scheduled)")
 
 	require.Equal(t, 2, len(manager.tasks), "should have exactly 2 tasks remaining")
@@ -1407,7 +1407,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 
 			if len(tt.initialTargets) > 0 {
 				for _, ref := range tt.initialTargets {
-					manager.tasks[imageRef{image: ref}] = &prefetchTask{done: false}
+					manager.tasks[imageRef{image: ref, ociType: OCITypePodmanImage}] = &prefetchTask{done: false}
 				}
 			}
 
@@ -1424,7 +1424,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 
 			newRefs := make(map[imageRef]struct{}, len(newTargets))
 			for _, target := range newTargets {
-				newRefs[imageRef{image: target.Reference}] = struct{}{}
+				newRefs[imageRef{image: target.Reference, ociType: target.Type}] = struct{}{}
 			}
 
 			manager.mu.Lock()
@@ -1443,7 +1443,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 				// ensure only stale tasks were removed
 				for _, ref := range tt.newTargets {
 					if slices.Contains(tt.initialTargets, ref) {
-						_, exists := manager.tasks[imageRef{image: ref}]
+						_, exists := manager.tasks[imageRef{image: ref, ociType: OCITypePodmanImage}]
 						require.True(exists, "existing task for %s should be preserved", ref)
 					}
 				}
@@ -1451,7 +1451,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 				// tasks for removed targets should be gone
 				for _, ref := range tt.initialTargets {
 					if !slices.Contains(tt.newTargets, ref) {
-						_, exists := manager.tasks[imageRef{image: ref}]
+						_, exists := manager.tasks[imageRef{image: ref, ociType: OCITypePodmanImage}]
 						require.False(exists, "stale task for %s should be removed", ref)
 					}
 				}
@@ -1489,7 +1489,7 @@ func BenchmarkPrefetchTargetChange(b *testing.B) {
 
 				for j := 0; j < bm.initialCount; j++ {
 					ref := fmt.Sprintf("registry.example.com/image-%d:v1", j)
-					manager.tasks[imageRef{image: ref}] = &prefetchTask{
+					manager.tasks[imageRef{image: ref, ociType: OCITypePodmanImage}] = &prefetchTask{
 						done:     false,
 						cancelFn: func() {},
 					}
@@ -1514,7 +1514,7 @@ func BenchmarkPrefetchTargetChange(b *testing.B) {
 				manager.mu.Lock()
 				newRefs := make(map[imageRef]struct{}, len(allTargets))
 				for _, target := range allTargets {
-					newRefs[imageRef{image: target.Reference}] = struct{}{}
+					newRefs[imageRef{image: target.Reference, ociType: target.Type}] = struct{}{}
 				}
 				if manager.isTargetsChanged(newRefs) {
 					manager.cleanupStaleTasks(newRefs)

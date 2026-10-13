@@ -1,64 +1,65 @@
 package os
 
 import (
-	"strings"
+	"context"
+	"fmt"
 
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 )
 
-const (
-	ociDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
-	ociDeltaSourceAnnotation = "io.github.containers.delta.source"
-)
+const ociDeltaSourceAnnotation = delta.SourceAnnotation
 
-func selectOSDeltaCandidate(hint *string, targetImage, sourceDigest string, index *client.OCIIndex) string {
-	if hint != nil && *hint != "" {
-		return *hint
-	}
-	if index == nil {
-		return ""
-	}
-
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return ""
-	}
-
-	for _, ref := range index.Manifests {
-		if ref.ArtifactType != ociDeltaArtifactType {
-			continue
+func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, bootcStatus *Status, optsFn dependency.ClientOptsFn) delta.Candidate {
+	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
+		hint := *desired.Os.DeltaImage
+		candidate, err := m.inspectOSDelta(ctx, hint, bootcStatus, optsFn)
+		if err != nil {
+			m.setFallbackReason(fmt.Sprintf("delta hint is unusable: %v", err))
+			return delta.Candidate{}
 		}
-		if !digestEqual(ref.Annotations[ociDeltaSourceAnnotation], sourceDigest) {
-			continue
+		matches, err := m.osTargetPlatformDigestMatches(ctx, desired.Os.Image, candidate.TargetDigest, optsFn)
+		if err != nil {
+			m.setFallbackReason(fmt.Sprintf("delta hint is unusable: inspect delta target digest: %v", err))
+			return delta.Candidate{}
 		}
-		if ref.Digest == "" {
-			continue
+		if !matches {
+			m.setFallbackReason("delta hint is unusable: delta target digest does not match the desired OS image")
+			return delta.Candidate{}
 		}
-		return repo + "@" + ref.Digest
+		if !candidate.SourceAvailable {
+			m.setFallbackReason("delta source image is unavailable in bootc storage")
+			return delta.Candidate{}
+		}
+		return candidate
 	}
-	return ""
+	candidates := dependency.DiscoverDeltaReferrers(ctx, desired.Os.Image, m.skopeo, m.log, optsFn()...)
+	if len(candidates) == 0 {
+		return delta.Candidate{}
+	}
+	wanted := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		wanted[candidate.SourceDigest] = struct{}{}
+	}
+	sources, err := m.osDeltaSourceDigests(ctx, bootcStatus, wanted)
+	if err != nil {
+		m.log.Debugf("OS delta sources unavailable: %v", err)
+	}
+	for i := range candidates {
+		_, candidates[i].SourceAvailable = sources[candidates[i].SourceDigest]
+	}
+	return delta.Select(candidates)
 }
 
-func imageRepository(image string) string {
-	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
-	if len(matches) == 0 {
-		return ""
+func (m *manager) inspectOSDelta(ctx context.Context, reference string, bootcStatus *Status, optsFn dependency.ClientOptsFn) (delta.Candidate, error) {
+	candidate, err := dependency.InspectDeltaHint(ctx, reference, m.skopeo, optsFn()...)
+	if err != nil {
+		return delta.Candidate{}, err
 	}
-	return matches[1]
-}
-
-func digestEqual(a, b string) bool {
-	return normalizeDigest(a) == normalizeDigest(b)
-}
-
-func normalizeDigest(d string) string {
-	d = strings.TrimSpace(d)
-	if d == "" {
-		return ""
+	candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
+	if err != nil {
+		return delta.Candidate{}, fmt.Errorf("check delta source image: %w", err)
 	}
-	if strings.Contains(d, ":") {
-		return d
-	}
-	return "sha256:" + d
+	return candidate, nil
 }

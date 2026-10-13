@@ -206,6 +206,7 @@ func (s *Store) ReconcileApplicationSpecs(specKeys map[string]string) error {
 // ReconcileApplicationTargets updates per-image target identities. On an
 // incomplete collection, targets not seen yet are retained so nested images
 // discovered in a later collection pass do not discard completed results.
+// Results follow an unchanged full target key when its indexing identity changes.
 func (s *Store) ReconcileApplicationTargets(targets map[string]map[string]string, complete bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -223,20 +224,31 @@ func (s *Store) ReconcileApplicationTargets(targets map[string]map[string]string
 		if current.Targets == nil {
 			current.Targets = make(map[string]string)
 		}
+		resultsByTargetKey := make(map[string]applicationImageResult, len(current.Results))
+		for targetID, result := range current.Results {
+			if current.Targets[targetID] == result.TargetKey {
+				resultsByTargetKey[result.TargetKey] = result
+			}
+		}
 		currentTargets := targets[application]
+		currentTargetKeys := make(map[string]struct{}, len(currentTargets))
 		for targetID, targetKey := range currentTargets {
+			currentTargetKeys[targetKey] = struct{}{}
 			if current.Targets[targetID] == targetKey {
 				continue
 			}
 			current.Targets[targetID] = targetKey
 			delete(current.Results, targetID)
+			if result, exists := resultsByTargetKey[targetKey]; exists {
+				current.Results[targetID] = result
+			}
 			changed = true
 		}
-		if !complete {
-			continue
-		}
-		for targetID := range current.Targets {
+		for targetID, targetKey := range current.Targets {
 			if _, exists := currentTargets[targetID]; exists {
+				continue
+			}
+			if _, reindexed := currentTargetKeys[targetKey]; !complete && !reindexed {
 				continue
 			}
 			delete(current.Targets, targetID)

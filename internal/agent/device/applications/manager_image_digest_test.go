@@ -100,6 +100,14 @@ func TestAddCachedParentImageDigests(t *testing.T) {
 			want: []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: parentDigest}},
 		},
 		{
+			name: "When the workload reports a newer parent digest it should preserve the runtime observation",
+			result: AppStatusResult{ID: appID, Status: v1beta1.DeviceApplicationStatus{
+				ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: parentImage, Digest: workloadDigest}),
+			}},
+			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
+			want:         []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: workloadDigest}},
+		},
+		{
 			name: "When the cached parent pair is already present, it should not duplicate it",
 			result: AppStatusResult{
 				ID: appID,

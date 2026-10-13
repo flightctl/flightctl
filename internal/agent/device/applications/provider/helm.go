@@ -48,9 +48,9 @@ func helmPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOp
 	)
 }
 
-// criPullOptions returns a lazy function for resolving CRI image pull options.
+// CRIImageOptions resolves configuration shared by CRI image pulls and inspection.
 // Resolver may be nil when extracting metadata from already-pulled images (e.g., image pruning).
-func criPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
+func CRIImageOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
 	if resolver == nil {
 		return nil
 	}
@@ -331,7 +331,7 @@ func (p *helmProvider) extractNestedTargets(ctx context.Context, configProvider 
 			Type:         dependency.OCITypeCRIImage,
 			Reference:    img,
 			PullPolicy:   v1beta1.PullIfNotPresent,
-			ClientOptsFn: criPullOptions(configProvider),
+			ClientOptsFn: CRIImageOptions(configProvider),
 		})
 	}
 

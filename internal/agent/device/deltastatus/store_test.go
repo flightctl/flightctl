@@ -100,3 +100,45 @@ func TestClearApplicationResultIgnoresSupersededTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcileApplicationTargetsPreservesReindexedRuntimeResults(t *testing.T) {
+	tests := []struct {
+		name     string
+		runtime  string
+		complete bool
+	}{
+		{name: "When a Podman identity gains its runtime it should preserve only the Podman outcome", runtime: "PodmanImage", complete: true},
+		{name: "When a CRI identity gains its runtime it should preserve only the CRI outcome", runtime: "CRIImage", complete: true},
+		{name: "When collection is incomplete it should retire the previous index without resurrecting a cleared outcome", runtime: "CRIImage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/var/lib/flightctl", logger)
+			const image = "quay.io/acme/app:target"
+			legacyID := Fingerprint("", image)
+			targetKey := Fingerprint("", image, "", tt.runtime)
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {legacyID: targetKey}}, true))
+			applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+			require.NoError(store.RecordApplicationResult("app", "spec", legacyID, targetKey, applied))
+			targets := make(map[string]string)
+			for _, runtime := range []string{"PodmanImage", "CRIImage"} {
+				targets[Fingerprint("", image, runtime)] = Fingerprint("", image, "", runtime)
+			}
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": targets}, tt.complete))
+			restarted := New(rw, "/var/lib/flightctl", logger)
+			snapshot := restarted.ApplicationSnapshot("app")
+			require.Equal(targets, snapshot.Targets)
+			runtimeID := Fingerprint("", image, tt.runtime)
+			require.Len(snapshot.Results, 1)
+			require.Equal(applied, snapshot.Results[runtimeID].Status)
+			require.NoError(restarted.ClearApplicationResult("app", "spec", runtimeID, targetKey))
+			require.NoError(restarted.ReconcileApplicationTargets(map[string]map[string]string{"app": targets}, tt.complete))
+			require.Empty(New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
+		})
+	}
+}

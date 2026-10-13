@@ -1102,7 +1102,9 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 }
 
 func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
+	require := require.New(t)
 	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 	testLog := log.NewPrefixLogger("test")
 	execMock := executer.NewMockExecuter(ctrl)
 	digests := []string{"sha256:first", "sha256:second", ""}
@@ -1118,28 +1120,31 @@ func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
 		}).Times(3)
 	podman := client.NewPodman(testLog, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
 	monitor := &PodmanMonitor{
-		apps:          make(map[string]Application),
-		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil },
-		log:           testLog,
+		apps: make(map[string]Application),
+		clientFactory: func(user v1beta1.Username) (*client.Podman, error) {
+			require.Equal(v1beta1.Username("bob"), user)
+			return podman, nil
+		},
+		log: testLog,
 	}
-	app := &application{workloads: []Workload{{ID: "container-1", Name: "app-container"}}}
+	app := &application{status: &v1beta1.DeviceApplicationStatus{RunAs: "bob"}, workloads: []Workload{{ID: "container-1", Name: "app-container"}}}
 	event := &client.PodmanEvent{ID: "container-1", Image: "quay.io/acme/app:latest", Name: "app-container"}
 
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
+	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, nil)
 	workload, ok := app.Workload(event.Name)
-	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: "sha256:first"}}, workload.Images)
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: event.Image, Digest: "sha256:first"}}, workload.Images)
 
 	// The digest is cached for repeat events from the same container.
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	require.Equal(t, 1, digestCalls)
+	require.Equal(1, digestCalls)
 
 	// A new container ID can have new content behind the same mutable tag.
 	event.ID = "container-2"
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
 	workload, ok = app.Workload(event.Name)
-	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: "sha256:second"}}, workload.Images)
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: event.Image, Digest: "sha256:second"}}, workload.Images)
 
 	// If a new container event has no image reference, keep the reference but
 	// discard the old container's digest until the image can be checked again.
@@ -1147,21 +1152,21 @@ func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
 	event.Image = ""
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
 	workload, ok = app.Workload(event.Name)
-	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
 
 	// A later event with the image reference retries digest resolution.
 	event.Image = "quay.io/acme/app:latest"
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
 	workload, ok = app.Workload(event.Name)
-	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: event.Image}}, workload.Images)
-	require.Equal(t, 3, digestCalls)
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: event.Image}}, workload.Images)
+	require.Equal(3, digestCalls)
 
 	// Events with no image reference keep the last known snapshot.
 	event.Image = ""
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	require.Equal(t, []WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
+	require.Equal([]WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
 }
 
 func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {

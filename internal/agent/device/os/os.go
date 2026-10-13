@@ -233,29 +233,33 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	if isDesiredImageRunning {
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
-		m.setDeltaNotUsedIfUnset()
+		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
 		return &dependency.OCICollection{}, nil
 	}
-
 	if m.podmanClient.ImageExists(ctx, osImage) {
 		m.log.Debugf("OS image already exists in container storage: %s", osImage)
-		m.setDeltaNotUsedIfUnset()
+		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
 		return &dependency.OCICollection{}, nil
 	}
 
 	optsFn := m.osPullOptsFn()
+
 	if !m.canApplyOSDelta() {
+		if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
+			m.setFallbackReason("OS delta application is unavailable")
+		} else {
+			m.setDeltaNotUsedIfUnset()
+		}
+		return m.fullImageCollection(osImage, optsFn), nil
+	}
+
+	candidate := m.discoverOSDelta(ctx, desired, bootcStatus, optsFn)
+	if candidate.Reference == "" {
 		m.setDeltaNotUsedIfUnset()
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	candidate := m.discoverOSDelta(ctx, desired, bootcStatus.GetBootedImageDigest(), optsFn)
-	if candidate == "" {
-		m.setDeltaNotUsedIfUnset()
-		return m.fullImageCollection(osImage, optsFn), nil
-	}
-
-	if err := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); err != nil {
+	if err := m.pullAndApplyOSDelta(ctx, candidate.Reference, osImage, optsFn); err != nil {
 		m.log.Warnf("OS delta failed, falling back to full pull: %v", err)
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
@@ -323,19 +327,6 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 		}
 	}
 	m.mu.Unlock()
-}
-
-func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, sourceDigest string, optsFn dependency.ClientOptsFn) string {
-	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
-		return *desired.Os.DeltaImage
-	}
-
-	index, err := m.skopeo.ListReferrers(ctx, desired.Os.Image, optsFn()...)
-	if err != nil {
-		m.log.Debugf("OS delta referrers unavailable: %v", err)
-		return ""
-	}
-	return selectOSDeltaCandidate(nil, desired.Os.Image, sourceDigest, index)
 }
 
 func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
@@ -469,4 +460,52 @@ func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error
 
 type Status struct {
 	container.BootcHost
+}
+
+func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Status, source string) (bool, error) {
+	for _, image := range bootcImageStatuses(bootcStatus) {
+		if image.Image.ImageDigest == source {
+			return true, nil
+		}
+	}
+	return m.ociDelta.SourceImageExists(ctx, source)
+}
+
+func (m *manager) osDeltaSourceDigests(ctx context.Context, bootcStatus *Status, wanted map[string]struct{}) (map[string]struct{}, error) {
+	sources := make(map[string]struct{})
+	for _, image := range bootcImageStatuses(bootcStatus) {
+		if image.Image.ImageDigest != "" {
+			sources[image.Image.ImageDigest] = struct{}{}
+		}
+	}
+	needsCachedSources := false
+	for source := range wanted {
+		if _, found := sources[source]; !found {
+			needsCachedSources = true
+			break
+		}
+	}
+	if !needsCachedSources {
+		return sources, nil
+	}
+	cached, err := m.ociDelta.SourceImageDigests(ctx)
+	if err != nil {
+		return sources, err
+	}
+	for source := range cached {
+		sources[source] = struct{}{}
+	}
+	return sources, nil
+}
+
+func bootcImageStatuses(status *Status) []container.ImageStatus {
+	return []container.ImageStatus{status.BootcHost.Status.Booted, status.BootcHost.Status.Staged, status.BootcHost.Status.Rollback}
+}
+
+func (m *manager) osTargetPlatformDigestMatches(ctx context.Context, image, targetDigest string, optsFn dependency.ClientOptsFn) (bool, error) {
+	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
+	if err != nil {
+		return false, fmt.Errorf("inspect requested OS platform digest: %w", err)
+	}
+	return platformDigest == targetDigest, nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/opencontainers/go-digest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -259,6 +260,62 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	return response.Status.RepoDigests, nil
 }
 
+// ImageReferences finds registry references keyed by repository digest in the
+// configured CRI store with one image-list request.
+func (c *CRI) ImageReferences(ctx context.Context, opts ...ClientOption) (map[string]string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	references := make(map[string]string)
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	args := []string{}
+	if options.criConfigPath != "" {
+		exists, err := c.readWriter.PathExists(options.criConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("check CRI config path: %w", err)
+		}
+		if exists {
+			args = append(args, "--config", options.criConfigPath)
+		}
+	}
+	args = append(args, "images", "--output", "json")
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list CRI images: %w", errors.FromStderr(stderr, exitCode))
+	}
+	var response struct {
+		Images []struct {
+			RepoDigests []string `json:"repoDigests"`
+		} `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
+		return nil, fmt.Errorf("parse CRI images: %w", err)
+	}
+	for _, image := range response.Images {
+		for _, repoDigest := range image.RepoDigests {
+			named, err := reference.ParseNormalizedNamed(repoDigest)
+			if err != nil {
+				continue
+			}
+			pinned, ok := named.(reference.Digested)
+			if !ok {
+				continue
+			}
+			repositoryDigest := pinned.Digest().String()
+			if selected := references[repositoryDigest]; selected == "" || named.String() < selected {
+				references[repositoryDigest] = named.String()
+			}
+		}
+	}
+	return references, nil
+}
+
 // RuntimeInfo returns the runtime connected to crictl and, for containerd, its
 // socket path for ctr imports.
 func (c *CRI) RuntimeInfo(ctx context.Context, opts ...ClientOption) (*CRIRuntimeInfo, error) {
@@ -406,7 +463,26 @@ func (c *CRI) ImportContainerdImage(ctx context.Context, endpoint, archivePath, 
 	return nil
 }
 
+// ContainerdImagePlatformDigest resolves a locally cached image index to the
+// manifest for this host without contacting its source registry.
+func (c *CRI) ContainerdImagePlatformDigest(ctx context.Context, endpoint, repositoryDigest string, opts ...ClientOption) (string, error) {
+	expectedDigest, err := digest.Parse(repositoryDigest)
+	if err != nil {
+		return "", fmt.Errorf("parse containerd image digest: %w", err)
+	}
+	raw, err := c.executeContainerdOutput(ctx, endpoint, []string{"content", "get", repositoryDigest}, opts...)
+	if err != nil {
+		return "", err
+	}
+	return platformDigestFromRawManifest(raw, expectedDigest)
+}
+
 func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []string, opts ...ClientOption) error {
+	_, err := c.executeContainerdOutput(ctx, endpoint, args, opts...)
+	return err
+}
+
+func (c *CRI) executeContainerdOutput(ctx context.Context, endpoint string, args []string, opts ...ClientOption) (string, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -420,11 +496,11 @@ func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []str
 
 	commandArgs := []string{"--address", endpoint, "--namespace", containerdKubernetesNS}
 	commandArgs = append(commandArgs, args...)
-	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, ctrCmd, commandArgs...)
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, ctrCmd, commandArgs...)
 	if exitCode != 0 {
-		return fmt.Errorf("ctr %s: %w", strings.Join(args[:2], " "), errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("ctr %s: %w", strings.Join(args[:2], " "), errors.FromStderr(stderr, exitCode))
 	}
-	return nil
+	return stdout, nil
 }
 
 func (c *CRI) cleanupContainerdImage(ctx context.Context, endpoint, image string, opts ...ClientOption) {

@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/containerd/platforms"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -225,4 +227,114 @@ func TestCRIImageRepoDigestsConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCRIImageReferences(t *testing.T) {
+	const digestA = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const digestB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	testCases := []struct {
+		name       string
+		setupMocks func(*testing.T, *executer.MockExecuter, *fileio.MockReadWriter)
+		want       map[string]string
+		wantError  bool
+	}{
+		{
+			name: "When local repository digests are present it should select the lexical repository reference",
+			setupMocks: func(t *testing.T, mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
+				require := require.New(t)
+				imageList, err := json.Marshal(map[string]any{
+					"images": []any{
+						map[string]any{"repoDigests": []string{"quay.io/z/app@" + digestA, "quay.io/a/app@" + digestA}},
+						map[string]any{"repoDigests": []string{"quay.io/b/app@" + digestB, "invalid"}},
+						map[string]any{"repoDigests": []string{}},
+					},
+				})
+				require.NoError(err)
+				rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "--config", "/etc/crictl.yaml", "images", "--output", "json").
+					Return(string(imageList), "", 0)
+			},
+			want: map[string]string{
+				digestA: "quay.io/a/app@" + digestA,
+				digestB: "quay.io/b/app@" + digestB,
+			},
+		},
+		{
+			name: "When listing local images fails it should return an error",
+			setupMocks: func(_ *testing.T, mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
+				rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "--config", "/etc/crictl.yaml", "images", "--output", "json").
+					Return("", "crictl failed", 1)
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			rw := fileio.NewMockReadWriter(ctrl)
+			tc.setupMocks(t, mockExec, rw)
+
+			cri := NewCRI(log.NewPrefixLogger("test"), mockExec, rw, poll.Config{})
+			references, err := cri.ImageReferences(context.Background(), WithCRIConfig("/etc/crictl.yaml"))
+			if tc.wantError {
+				require.Error(err)
+				require.Nil(references)
+				return
+			}
+			require.NoError(err)
+			require.Equal(tc.want, references)
+		})
+	}
+}
+
+func TestCRIContainerdImagePlatformDigest(t *testing.T) {
+	require := require.New(t)
+	const (
+		indexDigest    = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		platformDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	)
+	hostPlatform := platforms.DefaultSpec()
+	platform := map[string]string{
+		"os":           hostPlatform.OS,
+		"architecture": hostPlatform.Architecture,
+	}
+	if hostPlatform.Variant != "" {
+		platform["variant"] = hostPlatform.Variant
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     "application/vnd.oci.image.index.v1+json",
+		"manifests": []map[string]any{{
+			"mediaType": "application/vnd.oci.image.manifest.v1+json",
+			"digest":    platformDigest,
+			"size":      100,
+			"platform":  platform,
+		}},
+	})
+	require.NoError(err)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	cri := NewCRI(log.NewPrefixLogger("test"), mockExec, rw, poll.Config{})
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "k8s.io",
+		"content", "get", indexDigest,
+	).Return(string(manifest), "", 0)
+
+	got, err := cri.ContainerdImagePlatformDigest(
+		context.Background(),
+		"/run/containerd/containerd.sock",
+		indexDigest,
+	)
+	require.NoError(err)
+	require.Equal(platformDigest, got)
 }

@@ -74,8 +74,8 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			target := imageRef{image: image}
-			workerTarget := imageRef{image: "quay.io/acme/other:target"}
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
+			workerTarget := imageRef{image: "quay.io/acme/other:target", ociType: OCITypePodmanImage}
 			manager := &prefetchManager{
 				log:             logger,
 				tasks:           map[imageRef]*prefetchTask{workerTarget: {}},
@@ -169,7 +169,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			target := imageRef{image: image}
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
 			task := &prefetchTask{ociType: OCITypePodmanImage, targetPresent: true, deltaGeneration: 1, delta: &OCIDeltaTarget{Application: "app"}}
 			manager := &prefetchManager{
 				log: logger, tasks: map[imageRef]*prefetchTask{target: task}, deltaGeneration: 1,
@@ -239,8 +239,8 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			target := imageRef{image: image}
-			delta := &OCIDeltaTarget{Application: "app", Hint: "quay.io/acme/delta:target"}
+			target := imageRef{image: image, ociType: OCITypeAuto}
+			delta := &OCIDeltaTarget{Application: "app"}
 			manager := &prefetchManager{
 				log: logger, tasks: make(map[imageRef]*prefetchTask), deltaGeneration: 1,
 				podmanFactory: func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
