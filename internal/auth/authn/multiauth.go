@@ -116,7 +116,10 @@ func (m *MultiAuth) HasProviders() bool {
 func (m *MultiAuth) GetProviderMiddleware(name string) (common.AuthNMiddleware, api.Status) {
 	// Check static providers by name
 	for _, provider := range m.staticProviders {
-		config := provider.GetAuthConfig()
+		config, err := provider.GetAuthConfig()
+		if err != nil {
+			return nil, api.StatusInternalServerError(err.Error())
+		}
 		if config.Providers != nil {
 			for _, prov := range *config.Providers {
 				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
@@ -130,7 +133,10 @@ func (m *MultiAuth) GetProviderMiddleware(name string) (common.AuthNMiddleware, 
 	m.dynamicProvidersMu.RLock()
 	defer m.dynamicProvidersMu.RUnlock()
 	for _, provider := range m.dynamicProviders {
-		config := provider.GetAuthConfig()
+		config, err := provider.GetAuthConfig()
+		if err != nil {
+			return nil, api.StatusInternalServerError(err.Error())
+		}
 		if config.Providers != nil {
 			for _, prov := range *config.Providers {
 				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
@@ -381,6 +387,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if err != nil {
 			return true, err
 		}
+		if !reflect.DeepEqual(existingOidcSpec.Prompt, newOidcSpec.Prompt) {
+			m.log.Debugf("Provider %s: changed (OIDC Prompt)", providerName)
+			return true, nil
+		}
 
 		// Compare all fields including client secret
 		// If normalization fails for either URL (malformed), treat as changed — safer than silently skipping a real change.
@@ -453,6 +463,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		newOauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return true, err
+		}
+		if !reflect.DeepEqual(existingOauth2Spec.Prompt, newOauth2Spec.Prompt) {
+			m.log.Debugf("Provider %s: changed (OAuth2 Prompt)", providerName)
+			return true, nil
 		}
 
 		// Compare all fields including client secret
@@ -904,7 +918,7 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 }
 
 // GetAuthConfig returns the auth configuration with all available providers
-func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
+func (m *MultiAuth) GetAuthConfig() (*api.AuthConfig, error) {
 	allProviders := []api.AuthProvider{}
 	orgEnabled := true // Organizations are always enabled
 	var firstStaticProviderName string
@@ -919,7 +933,10 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	// Collect all static providers in sorted order
 	for _, name := range staticProviderNames {
 		provider := m.staticProviders[name]
-		config := provider.GetAuthConfig()
+		config, err := provider.GetAuthConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build auth config for static provider %q: %w", name, err)
+		}
 
 		// Add all providers from this config (filter by enabled=true)
 		if config.Providers != nil {
@@ -937,8 +954,12 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 
 	// Collect all dynamic providers (filter by enabled=true)
 	m.dynamicProvidersMu.RLock()
-	for _, provider := range m.dynamicProviders {
-		config := provider.GetAuthConfig()
+	for providerKey, provider := range m.dynamicProviders {
+		config, err := provider.GetAuthConfig()
+		if err != nil {
+			m.dynamicProvidersMu.RUnlock()
+			return nil, fmt.Errorf("failed to build auth config for dynamic provider %q: %w", providerKey.Issuer, err)
+		}
 
 		// Add all enabled providers from this config
 		if config.Providers != nil {
@@ -950,7 +971,6 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 		}
 	}
 	m.dynamicProvidersMu.RUnlock()
-
 	// Sort providers by name for consistent ordering
 	sort.Slice(allProviders, func(i, j int) bool {
 		nameI := ""
@@ -971,7 +991,7 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 			DefaultProvider:      nil,
 			OrganizationsEnabled: &orgEnabled,
 			Providers:            &allProviders,
-		}
+		}, nil
 	}
 
 	// Set default provider to the first static provider
@@ -982,7 +1002,7 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 		DefaultProvider:      &defaultProviderName,
 		OrganizationsEnabled: &orgEnabled,
 		Providers:            &allProviders,
-	}
+	}, nil
 }
 
 // isProviderEnabled checks if a provider has enabled=true

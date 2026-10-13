@@ -1594,6 +1594,14 @@ func applyAuthDefaults(c *Config) error {
 	}
 
 	applyAuthProviderEnabledDefaults(c.Auth)
+	if c.Auth.OIDC != nil && c.Auth.OIDC.Prompt == nil {
+		prompt := api.DefaultAuthProviderPrompt
+		c.Auth.OIDC.Prompt = &prompt
+	}
+	if c.Auth.OAuth2 != nil && c.Auth.OAuth2.Prompt == nil {
+		prompt := api.DefaultAuthProviderPrompt
+		c.Auth.OAuth2.Prompt = &prompt
+	}
 	applyPAMOIDCIssuerDefaults(c)
 	applyOIDCClientDefaults(c)
 	applyOpenShiftDefaults(c)
@@ -1820,17 +1828,27 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
-	// Validate OIDC and OAuth2 provider role assignments
-	if cfg.Auth != nil {
-		if cfg.Auth.OIDC != nil {
-			if err := validateAuthProviderRoleAssignment(cfg.Auth.OIDC.RoleAssignment, string(api.Oidc)); err != nil {
-				return err
-			}
+	return validateAuthProviders(cfg.Auth)
+}
+
+func validateAuthProviders(auth *authConfig) error {
+	if auth == nil {
+		return nil
+	}
+	if auth.OIDC != nil {
+		if err := api.ValidateAuthProviderPrompt(auth.OIDC.Prompt); err != nil {
+			return fmt.Errorf("auth.oidc.prompt: %w", err)
 		}
-		if cfg.Auth.OAuth2 != nil {
-			if err := validateAuthProviderRoleAssignment(cfg.Auth.OAuth2.RoleAssignment, string(api.Oauth2)); err != nil {
-				return err
-			}
+		if err := validateAuthProviderRoleAssignment(auth.OIDC.RoleAssignment, string(api.Oidc)); err != nil {
+			return err
+		}
+	}
+	if auth.OAuth2 != nil {
+		if err := api.ValidateAuthProviderPrompt(auth.OAuth2.Prompt); err != nil {
+			return fmt.Errorf("auth.oauth2.prompt: %w", err)
+		}
+		if err := validateAuthProviderRoleAssignment(auth.OAuth2.RoleAssignment, string(api.Oauth2)); err != nil {
+			return err
 		}
 	}
 
