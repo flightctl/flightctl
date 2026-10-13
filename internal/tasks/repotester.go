@@ -160,13 +160,11 @@ func (r *GitRepoTester) TestAccess(ctx context.Context, repository *domain.Repos
 		Fetch: []config.RefSpec{"HEAD"},
 	})
 
-	listOps := &git.ListOptions{}
-	auth, err := GetAuth(ctx, repository, nil) // nil config for test
+	listOps, err := getGitOptions(ctx, repository, nil)
 	if err != nil {
 		return err
 	}
 
-	listOps.Auth = auth
 	_, err = remote.ListContext(ctx, listOps)
 	if err != nil {
 		// Extract the root cause from go-git wrapped errors

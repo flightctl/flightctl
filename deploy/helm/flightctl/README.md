@@ -59,6 +59,28 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace flightctl --create-namespace
 ```
 
+### Install from the OpenShift Software Catalog
+
+Prerequisites:
+
+- You have access to an OpenShift Kubernetes cluster (4.19+) with cluster admin permissions.
+
+Procedure:
+
+1. In the OpenShift console with the **Administrator** view selected, navigate to **Home > Projects**, click **Create Project**, enter `flightctl` as the project name, and click **Create**.
+
+2. Navigate to **Ecosystem > Software Catalog**. In the search bar below **All Items**, enter `flightcontrol`, select the **Flight Control** tile, and click **Create**.
+
+3. Verify that the selected project is `flightctl`. Optionally select a Flight Control version to install, then click **Create**.
+
+4. Navigate to **Workloads > Pods** and wait for the pods to reach `Running` or `Completed` state.
+
+5. Navigate to **Networking > Routes** and select the `flightctl-ui` route.
+
+6. Select the URL shown under **Location** to access the Flight Control UI with your current user account and credentials.
+
+If you need to access the service using the `flightctl` CLI, select **Copy login command** to view the command to use.
+
 ### Upgrade Chart
 
 Flightctl uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
@@ -410,7 +432,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Valkey |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Valkey memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Valkey (leave empty for auto-generation) |
-| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true},"tasks":{"deltaPrepareDeadline":{"schedule":{"interval":"1m"}}}}` | Periodic Configuration |
+| organizations | object | `{"initialLabelSyncMappings":[{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"system-info"},"spec":{"expression":"status.systemInfo.transformMapEntry(\n  k,\n  v,\n  k in [\n    \"agentVersion\",\n    \"architecture\",\n    \"biosVendor\",\n    \"biosVersion\",\n    \"cpuProcessors\",\n    \"deltaEligible\",\n    \"distroId\",\n    \"distroVersion\",\n    \"kernel\",\n    \"memoryTotalKb\",\n    \"productName\"\n  ],\n  {\"systeminfo.flightctl.io/\" + k: v}\n)","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"custom-info"},"spec":{"expression":"(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null\n  ? status.systemInfo.customInfo\n  : {}).transformMapEntry(\n  k,\n  v,\n  {\"custominfo.flightctl.io/\" + k: v}\n)","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"tpm-enabled"},"spec":{"expression":"has(status.systemInfo.tpmVendorInfo) && status.systemInfo.tpmVendorInfo != null\n  ? true\n  : dyn(null)","key":"feature.flightctl.io/tpm.enabled","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"gpu-present"},"spec":{"expression":"has(status.systemInfo.gpus) && status.systemInfo.gpus != null\n  ? size(status.systemInfo.gpus) > 0\n  : dyn(null)","key":"feature.flightctl.io/gpu.present","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"kvm-enabled"},"spec":{"expression":"has(status.systemInfo.kvm) && status.systemInfo.kvm != null\n  && has(status.systemInfo.kvm.enabled) && status.systemInfo.kvm.enabled != null\n  ? status.systemInfo.kvm.enabled\n  : dyn(null)","key":"feature.flightctl.io/kvm.enabled","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"os-mode"},"spec":{"expression":"status.systemInfo.osMode","key":"feature.flightctl.io/os.mode","resourceType":"Device"}}]}` | Initial LabelSyncMapping provisioning configuration |
+| organizations.initialLabelSyncMappings | list | `[{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"system-info"},"spec":{"expression":"status.systemInfo.transformMapEntry(\n  k,\n  v,\n  k in [\n    \"agentVersion\",\n    \"architecture\",\n    \"biosVendor\",\n    \"biosVersion\",\n    \"cpuProcessors\",\n    \"deltaEligible\",\n    \"distroId\",\n    \"distroVersion\",\n    \"kernel\",\n    \"memoryTotalKb\",\n    \"productName\"\n  ],\n  {\"systeminfo.flightctl.io/\" + k: v}\n)","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"custom-info"},"spec":{"expression":"(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null\n  ? status.systemInfo.customInfo\n  : {}).transformMapEntry(\n  k,\n  v,\n  {\"custominfo.flightctl.io/\" + k: v}\n)","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"tpm-enabled"},"spec":{"expression":"has(status.systemInfo.tpmVendorInfo) && status.systemInfo.tpmVendorInfo != null\n  ? true\n  : dyn(null)","key":"feature.flightctl.io/tpm.enabled","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"gpu-present"},"spec":{"expression":"has(status.systemInfo.gpus) && status.systemInfo.gpus != null\n  ? size(status.systemInfo.gpus) > 0\n  : dyn(null)","key":"feature.flightctl.io/gpu.present","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"kvm-enabled"},"spec":{"expression":"has(status.systemInfo.kvm) && status.systemInfo.kvm != null\n  && has(status.systemInfo.kvm.enabled) && status.systemInfo.kvm.enabled != null\n  ? status.systemInfo.kvm.enabled\n  : dyn(null)","key":"feature.flightctl.io/kvm.enabled","resourceType":"Device"}},{"apiVersion":"flightctl.io/v1beta1","kind":"LabelSyncMapping","metadata":{"name":"os-mode"},"spec":{"expression":"status.systemInfo.osMode","key":"feature.flightctl.io/os.mode","resourceType":"Device"}}]` | YAML sequence of LabelSyncMapping resources attempted for each new or existing organization. Replaces the defaults; set to [] to disable automatic mapping creation. |
+| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true},"tasks":{"deltaPrepareDeadline":{"schedule":{"interval":"1m"}},"labelMappingScan":{"pageSize":1000,"schedule":{"interval":"2m"},"timeBudget":"30s"}}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic-el9"` | Periodic container image |
@@ -421,6 +445,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | periodic.tasks.deltaPrepareDeadline | object | `{"schedule":{"interval":"1m"}}` | Delta prepare deadline sweep schedule |
 | periodic.tasks.deltaPrepareDeadline.schedule.interval | string | `"1m"` | How often flightctl-periodic checks for expired delta prepares |
+| periodic.tasks.labelMappingScan.pageSize | int | `1000` | Maximum number of devices in each label mapping scan page (1–1000) |
+| periodic.tasks.labelMappingScan.schedule.interval | string | `"2m"` | How often to scan devices after a label mapping changes |
+| periodic.tasks.labelMappingScan.timeBudget | string | `"30s"` | Maximum work time per label mapping scan invocation |
 | remoteAccess | object | `{"enabled":true,"env":{},"image":{"image":"quay.io/flightctl/flightctl-remote-access-el9","pullPolicy":"","tag":""},"logLevel":"info","resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}}` | Remote Access Configuration |
 | remoteAccess.enabled | bool | `true` | Enable remote access service |
 | remoteAccess.env | object | `{}` | Additional environment variables for the remote access container |

@@ -402,6 +402,46 @@
         }
       }
     },
+    "organizations": {
+      "type": "object",
+      "description": "Initial LabelSyncMapping provisioning configuration",
+      "additionalProperties": false,
+      "properties": {
+        "initialLabelSyncMappings": {
+          "type": "array",
+          "description": "YAML sequence of LabelSyncMapping resources attempted for each new or existing organization. Replaces the defaults; an empty sequence disables automatic mapping creation.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["apiVersion", "kind", "metadata", "spec"],
+            "properties": {
+              "apiVersion": { "type": "string", "enum": ["flightctl.io/v1beta1"] },
+              "kind": { "type": "string", "enum": ["LabelSyncMapping"] },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "maxLength": 253 },
+                  "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+                  "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+                }
+              },
+              "spec": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["resourceType", "expression"],
+                "properties": {
+                  "resourceType": { "type": "string", "enum": ["Device"] },
+                  "key": { "type": ["string", "null"] },
+                  "expression": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "api": {
       "type": "object",
       "description": "API server configuration",
@@ -644,6 +684,22 @@
                     "interval": { "type": "string", "description": "Interval for the delta prepare deadline sweep" }
                   }
                 }
+              }
+            },
+            "labelMappingScan": {
+              "type": "object",
+              "description": "Periodic label mapping scan configuration",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "default": "2m", "description": "Interval for the label mapping scan task" }
+                  }
+                },
+                "pageSize": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1000, "description": "Maximum number of devices in each label mapping scan page" },
+                "timeBudget": { "type": "string", "default": "30s", "description": "Maximum work time per label mapping scan invocation" }
               }
             }
           }

@@ -254,7 +254,10 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 	if err != nil {
 		return nil
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return nil
+	}
 	defer c.Stop()
 
 	switch kind {
@@ -339,6 +342,15 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		}
+	case LabelSyncMappingKind:
+		resp, err := c.ListLabelSyncMappingsWithResponse(ctx, &api.ListLabelSyncMappingsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, mapping := range resp.JSON200.Items {
+				if mapping.Metadata.Name != nil {
+					names = append(names, *mapping.Metadata.Name)
+				}
+			}
+		}
 	case TemplateVersionKind:
 		if kna.FleetName != nil {
 			resp, err := c.ListTemplateVersionsWithResponse(ctx, *kna.FleetName, &api.ListTemplateVersionsParams{})
@@ -389,7 +401,10 @@ func (kna *KindNameAutocomplete) getImageBuilderNames(ctx context.Context, o Cli
 	if err != nil {
 		return nil
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return nil
+	}
 	defer ibClient.Stop()
 
 	var names []string

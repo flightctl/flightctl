@@ -255,16 +255,18 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 	}
 
 	// Override UpToDate if the device has an OS target it cannot satisfy.
-	// Requires capabilities.osMode to be reported; legacy devices without capabilities skip this check.
+	// Requires the OS mode to be reported; legacy devices without it skip this check.
+	// Prefer status.systemInfo.osMode, falling back to the deprecated
+	// status.capabilities.osMode for devices reported by older agents.
+	osMode := domain.DeviceStatusOsMode(device.Status)
 	if device.Status.Updated.Status == domain.DeviceUpdatedStatusUpToDate &&
-		device.Spec != nil && device.Spec.Os != nil &&
-		device.Status.Capabilities != nil && device.Status.Capabilities.OsMode != nil {
+		device.Spec != nil && device.Spec.Os != nil && osMode != nil {
 		hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
 		if hasOsTarget {
 			if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
 				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 				device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
-			} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
+			} else if *osMode == domain.OsModePackage &&
 				device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
 				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 				device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")

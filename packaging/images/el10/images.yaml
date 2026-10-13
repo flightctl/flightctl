@@ -13,6 +13,9 @@ delta-worker:
 alert-exporter:
   image: quay.io/flightctl/flightctl-alert-exporter-el10
   tag: latest
+catalog-collector:
+  image: quay.io/flightctl/flightctl-catalog-collector-el10
+  tag: latest
 cli-artifacts:
   image: quay.io/flightctl/flightctl-cli-artifacts-el10
   tag: latest

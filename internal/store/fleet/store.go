@@ -452,7 +452,7 @@ func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, flee
 		"status.applicationsSummary.status",
 		"status.summary.status",
 		"status.updated.status",
-		"status.capabilities.osMode")
+		store.OsModeStatusSelector)
 	if err != nil {
 		return store.ErrorFromGormError(err)
 	}
@@ -466,7 +466,7 @@ func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, flee
 	updateStatus := statusCount.List("status.updated.status")
 	summary.UpdateStatus = updateStatus
 
-	osModeStatus := statusCount.List("status.capabilities.osMode")
+	osModeStatus := statusCount.List(store.OsModeStatusSelector)
 	summary.Capabilities = model.NewDevicesSummaryCapabilities(osModeStatus)
 
 	return nil

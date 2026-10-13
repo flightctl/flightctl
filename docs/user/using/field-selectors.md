@@ -24,14 +24,17 @@ The following table lists the fields supported for filtering for each resource k
 
 | Kind                            | Fields                                              |
 |---------------------------------|-----------------------------------------------------|
+| **Catalog Item**                | `metadata.name`<br/>`metadata.catalog`<br/>`spec.category`<br/>`spec.type`<br/>`fleet` (only `in`) |
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.capabilities.osMode`<br/>`lastSeen`<br/>`status.lifecycle.status` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
 | **Resource Sync**               | `spec.repository`                                   |
 
 ### Examples
+
+For catalog items, use `fleet in (fleet-a,fleet-b)` on `GET /api/v1/catalogitems` to list items referenced by either fleet. The filter includes OS images, application images, and application volume images. You can specify up to 100 fleet names, each at most 253 characters long.
 
 #### Example 1: Excluding a Specific Device by Name
 
@@ -62,6 +65,21 @@ flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, status.u
 This command retrieves devices that report package-mode OS management:
 
 ```bash
+flightctl get devices --field-selector 'status.systemInfo.osMode=package'
+```
+
+Devices enrolled by older agents report the mode under the deprecated
+`status.capabilities.osMode` field instead, and a given device reports only one
+of the two fields. Do not put both conditions in a single `--field-selector`:
+all conditions within one selector must match at the same time, so such a
+query returns no devices. To cover both, run a separate query for each field
+and combine the results yourself:
+
+```bash
+# Devices reporting the current field
+flightctl get devices --field-selector 'status.systemInfo.osMode=package'
+
+# Devices reporting the deprecated field (older agents)
 flightctl get devices --field-selector 'status.capabilities.osMode=package'
 ```
 

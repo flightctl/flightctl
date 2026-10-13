@@ -270,6 +270,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateWithExports(kind) },
 		func() error { return o.validateVulnerabilityFlags(kind) },
 		func() error { return o.validateCveId(kind, names) },
+		func() error { return o.validateLabelSyncMapping(kind, names) },
 	}
 
 	for _, v := range validators {
@@ -404,6 +405,26 @@ func (o *GetOptions) validateWithExports(kind ResourceKind) error {
 	return nil
 }
 
+// validateLabelSyncMapping rejects options the labelsyncmappings API does not support.
+// The v1beta1 list endpoint only accepts 'limit' and 'continue', so selector-based
+// filtering (including the field selector used to fetch several names at once) is
+// not available and must not be silently ignored.
+func (o *GetOptions) validateLabelSyncMapping(kind ResourceKind, names []string) error {
+	if kind != LabelSyncMappingKind {
+		return nil
+	}
+	if len(o.LabelSelector) > 0 {
+		return fmt.Errorf("'--selector' is not supported when getting labelsyncmappings")
+	}
+	if len(o.FieldSelector) > 0 {
+		return fmt.Errorf("'--field-selector' is not supported when getting labelsyncmappings")
+	}
+	if len(names) > 1 {
+		return fmt.Errorf("only one labelsyncmapping name can be specified at a time")
+	}
+	return nil
+}
+
 // validateVulnerabilityFlags checks that --sort-by and --order are only used with vulnerabilities.
 func (o *GetOptions) validateVulnerabilityFlags(kind ResourceKind) error {
 	if o.SortBy != "" && kind != VulnerabilityKind {
@@ -502,7 +523,9 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("creating client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return nil, nil, nil, err
+	}
 
 	listFetcher := func() (interface{}, error) {
 		response, err := o.getResourceList(ctx, c, kind)
@@ -535,7 +558,9 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return nil, nil, nil, err
+	}
 
 	var listFetcher ListFetcher
 	var singleFetcher SingleFetcher
@@ -865,6 +890,14 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		return c.ListEnrollmentHookPoliciesWithResponse(ctx, &params)
+	case LabelSyncMappingKind:
+		// The v1beta1 labelsyncmappings list endpoint only supports pagination;
+		// it exposes neither a label nor a field selector.
+		params := api.ListLabelSyncMappingsParams{
+			Limit:    util.ToPtrWithNilDefault(o.Limit),
+			Continue: util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.ListLabelSyncMappingsWithResponse(ctx, &params)
 	case CatalogKind:
 		params := apiv1alpha1.ListCatalogsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),

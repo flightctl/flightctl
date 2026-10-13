@@ -217,6 +217,24 @@ func IsDeviceEnrollmentHooksGated(device *Device) bool {
 	return cond != nil && cond.Status == ConditionStatusFalse
 }
 
+// DeviceStatusOsMode returns the effective OS management mode reported for a
+// device. It prefers the value under status.systemInfo.osMode and falls back to
+// the deprecated status.capabilities.osMode for devices reported by older agents
+// that do not yet populate systemInfo. It returns nil when neither source
+// reports a mode.
+func DeviceStatusOsMode(status *DeviceStatus) *OsModeType {
+	if status == nil {
+		return nil
+	}
+	if status.SystemInfo.OsMode != nil && *status.SystemInfo.OsMode != "" {
+		return status.SystemInfo.OsMode
+	}
+	if status.Capabilities != nil {
+		return status.Capabilities.OsMode
+	}
+	return nil
+}
+
 // GetNextDeviceRenderedVersion calculates the next rendered version for a device.
 // It takes the maximum of the service-side rendered version (from annotations)
 // and the device-reported version (from status), then increments by 1.

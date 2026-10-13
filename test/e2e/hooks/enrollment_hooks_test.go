@@ -66,7 +66,7 @@ var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel
 		Expect(waitForPathAbsenceAfterAgentPoll(harness, enrollmentHookAfterMarker)).To(Succeed())
 	})
 
-	It("blocks fleet ownership and rendering until AfterEnrolling succeeds", Label(enrollmentHookDevLabel, "90610", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
+	It("blocks fleet ownership and rendering until AfterEnrolling succeeds", Label(enrollmentHookDevLabel, "90610", "sanity", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
 		harness := e2e.GetWorkerHarness()
 		labels := enrollmentHookLabels(harness)
 

@@ -11,6 +11,8 @@ This document focuses on OCI repositories. For information on Git, HTTP, and SSH
 
 ## Repository Connectivity Status
 
+For Git repository TLS settings and certificate requirements, see [HTTPS authentication](managing-devices.md#https-authentication).
+
 Flight Control automatically performs connectivity checks on all repositories to verify they are accessible. The connectivity status is reflected in the repository's `status.conditions` field with a condition of type `RepositoryAccessible`.
 
 You can check the connectivity status of a repository using the CLI:
@@ -74,6 +76,9 @@ spec:
 
 ### Optional Fields
 
+* `repository`: Exact repository path under the registry; mutually exclusive with `namespace`
+* `namespace`: Prefix for the final segment of each target image name; mutually exclusive with `repository`. Valid for delta storage targets; ImageBuild and ImageExport destination validation rejects this field.
+* `deltaStorageTarget`: Set to `true` to use this Repository as the organization's delta storage target. Requires `accessMode: ReadWrite`. Defaults to `false`.
 * `scheme`: URL scheme for connecting to the registry
   * Values: `http` or `https` (default: `https`)
 * `accessMode`: Access permissions for the registry
@@ -140,6 +145,49 @@ flightctl apply -f repository-oci-private.yaml
 
 > [!WARNING]
 > Store repository credentials securely. Consider using secrets management systems or environment variables when providing credentials via the API.
+
+### Configuring a delta storage target
+
+OS and application delta generation requires a valid, writable OCI storage target for the organization or deployment. The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
+
+Mark one Repository as the organization's target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Creating or updating a second target is rejected. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
+
+Use the optional `repository` and `namespace` fields to choose the destination path. These fields are mutually exclusive.
+
+For the target image `quay.io/acme/os:v2` and delta registry `registry.example.com`, destination paths are:
+
+| Repository fields | Delta destination | Example |
+| ----------------- | ----------------- | ------- |
+| Registry only | Target image's repository path under the configured registry. | `registry.example.com/acme/os` |
+| `repository: my-org/deltas` | Exact repository path under the registry. | `registry.example.com/my-org/deltas` |
+| `namespace: my-org` | Namespace followed by the final segment of the target image name. | `registry.example.com/my-org/os` |
+
+For example, this Repository is a writable delta target with the exact repository path `my-org/deltas`:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: generated-deltas
+spec:
+  type: oci
+  registry: quay.io
+  repository: my-org/deltas
+  accessMode: ReadWrite
+  deltaStorageTarget: true
+  ociAuth:
+    authType: docker
+    username: <registry_username>
+    password: <registry_token>
+```
+
+The example includes `ociAuth` for a private registry. Use credentials with push access; see [Private Registry (Read-Write)](#private-registry-read-write).
+
+The deployment-level `deltaGeneration.defaultRepository` setting provides a shared default target for organizations. An organization Repository marked with `deltaStorageTarget: true` takes precedence over this default. See [Delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for registry settings, credentials, concurrency, job timeouts, and update wait defaults.
+
+For fleet wait behavior and update status, see [Configuring delta generation](managing-fleets.md#configuring-delta-generation) and [Using control-plane-generated OS deltas](managing-devices.md#using-control-plane-generated-os-deltas).
+
+[CI-published deltas](managing-devices.md#using-ci-published-os-deltas) are published in the target image's repository, where agents discover them directly.
 
 ### Curating base images
 

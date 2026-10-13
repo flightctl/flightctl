@@ -7,24 +7,6 @@ import (
 	"testing"
 )
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
-			return root
-		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			t.Fatal("could not find repo root")
-		}
-		root = parent
-	}
-}
-
 func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 	root := repoRoot(t)
 
@@ -69,5 +51,24 @@ func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 		if strings.Contains(string(functions), forbidden) {
 			t.Fatalf("functions.sh still contains %q", forbidden)
 		}
+	}
+}
+
+// repoRoot returns the repository root for packaging tests.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			return root
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			t.Fatal("could not find repo root")
+		}
+		root = parent
 	}
 }

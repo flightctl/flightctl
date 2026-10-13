@@ -15,13 +15,13 @@ import (
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 type gitLsRemoteFunc func(ctx context.Context, repoURL string, refs []string,
-	auth transport.AuthMethod) (map[string]string, error)
+	options *git.ListOptions) (map[string]string, error)
 
 type DependencySyncGit struct {
 	log              logrus.FieldLogger
@@ -113,7 +113,7 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
-// to extract the URL and auth, calls ls-remote for all revisions in the group,
+// to extract the URL and connection options, calls ls-remote for all revisions in the group,
 // and returns a probeResult per revision.
 func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	repoName string, group []*model.GitDependencyProbe) []probeResult {
@@ -130,21 +130,23 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		return nil
 	}
 
-	repo := &domain.Repository{Spec: spec}
-	auth, err := GetAuth(ctx, repo, d.cfg)
-	if err != nil {
-		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)
-		return nil
-	}
-
 	revisions := make([]string, len(group))
 	for i, p := range group {
 		revisions[i] = p.Revision
 	}
 
-	resolved, err := d.lsRemote(ctx, repoURL, revisions, auth)
+	var resolved map[string]string
+	repo := &domain.Repository{Spec: spec}
+	options, err := getGitOptions(ctx, repo, d.cfg)
 	if err != nil {
-		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
+		d.log.WithError(err).Warnf("failed getting Git options for repository %s", repoName)
+	} else {
+		resolved, err = d.lsRemote(ctx, repoURL, revisions, options)
+		if err != nil {
+			d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
+		}
+	}
+	if err != nil {
 		if d.metrics != nil {
 			d.metrics.ObserveProbeError(periodic.RefTypeGit)
 		}
@@ -175,7 +177,8 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 			newSHA:      newSHA,
 		}
 
-		if p.Fingerprint == nil {
+		// A failed initial probe creates a state row without observing a SHA.
+		if p.Fingerprint == nil || *p.Fingerprint == "" {
 			r.firstSeen = true
 		} else if newSHA != *p.Fingerprint {
 			r.changed = true

@@ -79,7 +79,7 @@ type Store interface {
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
 	GetLabelSyncMappingIDsByKeys(ctx context.Context, orgId uuid.UUID, labelKeys []string) (map[string][]uuid.UUID, error)
-	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
+	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, condition *domain.Condition) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
@@ -249,7 +249,10 @@ func (m *DeviceMutation) RequireExisting() error {
 type DeviceApplyFunc func(m *DeviceMutation) error
 
 type mutateConfig struct {
-	withTimestamp bool
+	withTimestamp                        bool
+	allowDecommissionManagedLabelCleanup bool
+	preserveOmittedManagedLabels         bool
+	explicitLabelRemovalPaths            map[string]struct{}
 }
 
 // MutateOption configures DeviceStore.Mutate.
@@ -260,6 +263,27 @@ type MutateOption func(*mutateConfig)
 func WithTimestamp() MutateOption {
 	return func(c *mutateConfig) {
 		c.withTimestamp = true
+	}
+}
+
+// WithDecommissionManagedLabelCleanup allows decommission to remove all labels
+// owned by mappings. The update still has to set lifecycle to Decommissioning
+// and clear every device label.
+func WithDecommissionManagedLabelCleanup() MutateOption {
+	return func(c *mutateConfig) {
+		c.allowDecommissionManagedLabelCleanup = true
+	}
+}
+
+// WithManagedLabelMapReplacement preserves omitted mapping-owned labels during
+// a whole-map device label replacement, except for explicitly removed paths.
+func WithManagedLabelMapReplacement(explicitRemovalPaths []string) MutateOption {
+	return func(c *mutateConfig) {
+		c.preserveOmittedManagedLabels = true
+		c.explicitLabelRemovalPaths = make(map[string]struct{}, len(explicitRemovalPaths))
+		for _, path := range explicitRemovalPaths {
+			c.explicitLabelRemovalPaths[path] = struct{}{}
+		}
 	}
 }
 
@@ -434,6 +458,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceSystemInfoOsModeIndex(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -570,6 +598,21 @@ func (s *DeviceStore) createDeviceVolumeCatalogRefIndex(db *gorm.DB) error {
 		WHERE deleted_at IS NULL`).Error
 }
 
+// createDeviceSystemInfoOsModeIndex creates an expression index on
+// devices(status->'systemInfo'->>'osMode') so that the
+// "status.systemInfo.osMode" field selector can use an index scan. The GIN
+// index on the whole "status" column does not index this extracted text
+// expression, so without this index PostgreSQL falls back to a sequential scan
+// of the devices table on large fleets.
+func (s *DeviceStore) createDeviceSystemInfoOsModeIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_system_info_os_mode
+		ON devices ((status->'systemInfo'->>'osMode'))
+		WHERE deleted_at IS NULL`).Error
+}
+
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	if db.Dialector.Name() == "postgres" {
 		triggerSQL := `
@@ -681,7 +724,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration)
+			return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
 		},
 	}
 	if cfg.withTimestamp {
@@ -853,6 +896,10 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 // Update writes a device update. Returns retry=true on lost optimistic lock / deadlock.
 // rendered is optional; when nil, rendered_* columns are left unchanged.
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool) (bool, error) {
+	return s.update(ctx, orgId, before, device, rendered, preserveGeneration, &mutateConfig{})
+}
+
+func (s *DeviceStore) update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool, cfg *mutateConfig) (bool, error) {
 	existing, err := model.NewDeviceFromApiResource(before)
 	if err != nil {
 		return false, err
@@ -864,6 +911,11 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		return false, err
 	}
 	fromAPI.OrgID = orgId
+	if cfg.preserveOmittedManagedLabels {
+		if err := s.preserveOmittedManagedLabels(ctx, orgId, existing, fromAPI, device, cfg.explicitLabelRemovalPaths); err != nil {
+			return false, err
+		}
+	}
 	if rendered != nil {
 		applyRenderedDeltaEstimates(fromAPI, rendered.DeltaEstimates)
 	} else {
@@ -917,6 +969,14 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		updates["render_timestamp"] = time.Now()
 	}
 
+	decommissionCleanup := cfg.allowDecommissionManagedLabelCleanup && device != nil &&
+		device.Status != nil && device.Status.Lifecycle.Status == domain.DeviceLifecycleStatusDecommissioning &&
+		len(lo.FromPtr(device.Metadata.Labels)) == 0
+	if !decommissionCleanup {
+		if err := s.rejectManagedLabelChanges(ctx, orgId, existing.Name, map[string]string(existing.Labels), map[string]string(fromAPI.Labels)); err != nil {
+			return false, err
+		}
+	}
 	result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(updates)
 	if result.Error != nil {
 		err := store.ErrorFromGormError(result.Error)
@@ -1391,7 +1451,7 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 		"status.applicationsSummary.status",
 		"status.summary.status",
 		"status.updated.status",
-		"status.capabilities.osMode")
+		store.OsModeStatusSelector)
 	if err != nil {
 		return nil, store.ErrorFromGormError(err)
 	}
@@ -1399,7 +1459,7 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	applicationStatus := statusCount.List("status.applicationsSummary.status")
 	summaryStatus := statusCount.List("status.summary.status")
 	updateStatus := statusCount.List("status.updated.status")
-	osModeStatus := statusCount.List("status.capabilities.osMode")
+	osModeStatus := statusCount.List(store.OsModeStatusSelector)
 	return &domain.DevicesSummary{
 		Total:             devicesCount,
 		ApplicationStatus: applicationStatus,
@@ -1668,16 +1728,16 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 	var nextContinue *string
 	var numRemaining *int64
 
+	// Decommissioning devices are outside mapping rollouts and may retain stale conditions until deletion.
 	// Build the raw SQL query with proper pagination support for JSONB
 	baseSQL := `
 		SELECT * FROM devices
 		WHERE org_id = ?
 			AND deleted_at IS NULL
+			AND spec->'decommissioning' IS NULL
 			AND service_conditions IS NOT NULL
-			AND EXISTS (
-				SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
-				WHERE elem->>'type' = ? AND elem->>'status' = ?
-			)`
+			AND (service_conditions->'conditions') @>
+				jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))`
 
 	// Handle pagination - add WHERE condition before ORDER BY
 	var args []interface{}
@@ -1708,11 +1768,11 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 			SELECT COUNT(*) FROM devices
 			WHERE org_id = ?
 				AND deleted_at IS NULL
+				AND spec->'decommissioning' IS NULL
 				AND service_conditions IS NOT NULL
-				AND EXISTS (
-					SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
-					WHERE elem->>'type' = ? AND elem->>'status' = ?
-				) AND name > ?`
+				AND (service_conditions->'conditions') @>
+					jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))
+				AND name > ?`
 
 		countArgs := []interface{}{orgId, conditionType, conditionStatus, devices[len(devices)-1].Name}
 		if err := s.getDB(ctx).Raw(countSQL, countArgs...).Scan(&count).Error; err != nil {

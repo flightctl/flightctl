@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+// A subquery template is a complete boolean predicate, so wrapping it in
+// CAST(... AS <type>) would emit malformed SQL. CAST must therefore reject
+// SUBQUERY_IN loudly instead of accepting it.
+func TestCastRejectsSubqueryIn(t *testing.T) {
+	parser, err := NewSQLParser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parser.(*SQLParser).funcs["CAST"].usedBy.Contains("SUBQUERY_IN") {
+		t.Fatal("CAST must not be usable by SUBQUERY_IN")
+	}
+}
+
+// The dispatcher must stay generic: SUBQUERY_IN opts into raw nested results
+// through a handler flag rather than a hard-coded function-name comparison.
+func TestSubqueryInPassesRawResults(t *testing.T) {
+	parser, err := NewSQLParser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parser.(*SQLParser).funcs["SUBQUERY_IN"].passRawResults {
+		t.Fatal("SUBQUERY_IN must request raw nested results")
+	}
+	for name, h := range parser.(*SQLParser).funcs {
+		if name != "SUBQUERY_IN" && h.passRawResults {
+			t.Fatalf("function %q must not request raw nested results", name)
+		}
+	}
+}
+
 func TestSQLQueries(t *testing.T) {
 	ctx := context.Background()
 	/*

@@ -169,6 +169,29 @@ func TestInstrumentedBranch_RecordsPipelineMetrics(t *testing.T) {
 	)
 }
 
+func TestInstrumentedFanoutConsumer_NilSnapshot_ReturnsError(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = mp.Shutdown(context.Background()) }()
+
+	instr, err := newSourceInstruments(mp)
+	require.NoError(t, err)
+
+	inner := &recordingConsumer{}
+	consumer := &instrumentedFanoutConsumer{
+		inner:       inner,
+		sourceID:    "test-source",
+		instruments: instr,
+	}
+
+	err = consumer.Consume(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "source emitted nil snapshot")
+
+	// Inner consumer must not be called.
+	require.Empty(t, inner.snapshots, "inner consumer must not be called for nil snapshot")
+}
+
 func TestInstrumentedBranch_RecordsFailureOutcome(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -187,6 +210,49 @@ func TestInstrumentedBranch_RecordsFailureOutcome(t *testing.T) {
 
 	err = branch.Consume(context.Background(), testSnapshot())
 	require.ErrorIs(t, err, expectedErr)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	metrics := flattenMetrics(rm)
+	assertCounterValue(t, metrics, pipelineSyncsName, 1,
+		attribute.String("pipeline.id", "test-pipeline"),
+		attribute.String("destination.id", "flightctl/local"),
+		attribute.String("outcome", "failure"),
+	)
+}
+
+func TestInstrumentedBranch_ValidationFailure_RecordsFailureOutcome(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = mp.Shutdown(context.Background()) }()
+
+	instr, err := newPipelineInstruments(mp)
+	require.NoError(t, err)
+
+	// Use a REAL destinationConsumer so that snapshot validation is exercised
+	// through the production code path rather than a fabricated error.
+	dst := &recordingConsumer{}
+	realConsumer := &destinationConsumer{
+		pipelineID:  "test-pipeline",
+		destination: dst,
+	}
+	branch := &instrumentedBranch{
+		inner:         realConsumer,
+		pipelineID:    "test-pipeline",
+		destinationID: "flightctl/local",
+		instruments:   instr,
+	}
+
+	// Submit an invalid snapshot (empty revision) to trigger real validation.
+	invalidSnap := &catalogcollector.CatalogSnapshot{Revision: ""}
+	err = branch.Consume(context.Background(), invalidSnap)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "snapshot validation failed")
+
+	// The destination must NOT have been invoked — validation should have
+	// short-circuited before reaching the destination.
+	require.Empty(t, dst.snapshots, "destination must not be called for invalid snapshot")
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(context.Background(), &rm))

@@ -66,8 +66,99 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/compute-tag
 
+  select-e2e:
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.selection.outputs.enabled }}
+      includes_sanity: ${{ steps.selection.outputs.includes_sanity }}
+      label_filter: ${{ steps.selection.outputs.label_filter }}
+      cs10_label_filter: ${{ steps.selection.outputs.cs10_label_filter }}
+    steps:
+      - name: Resolve E2E labels
+        id: selection
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          enabled=false
+          includes_sanity=false
+          declare -A seen_labels=()
+          selected_labels=()
+
+          add_label() {
+            local label="$1"
+            if [[ -z "${seen_labels[$label]+x}" ]]; then
+              selected_labels+=("${label}")
+              seen_labels["${label}"]=1
+            fi
+          }
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            while IFS= read -r pr_label; do
+              case "${pr_label}" in
+                run-e2e)
+                  enabled=true
+                  add_label sanity
+                  ;;
+                run-e2e:*)
+                  enabled=true
+                  suffix="${pr_label#run-e2e:}"
+                  if [[ "${suffix}" =~ (^|\+)[[:space:]]*(\+|$) ]]; then
+                    echo "::error::Invalid run-e2e label suffix. Use a non-empty plus-separated list of Ginkgo labels."
+                    exit 1
+                  fi
+                  IFS='+' read -r -a requested_labels <<< "${suffix}"
+                  for label in "${requested_labels[@]}"; do
+                    label="${label#"${label%%[![:space:]]*}"}"
+                    label="${label%"${label##*[![:space:]]}"}"
+                    if [[ ! "${label}" =~ ^[[:alnum:]_-]+$ ]]; then
+                      echo "::error::Invalid run-e2e label suffix. Use plus-separated Ginkgo labels containing letters, numbers, hyphens, or underscores."
+                      exit 1
+                    fi
+                    add_label "${label}"
+                  done
+                  ;;
+              esac
+            done < <(jq -r '.[]?' <<< "${PR_LABELS_JSON}")
+          else
+            enabled=true
+            add_label sanity
+          fi
+
+          for label in "${selected_labels[@]}"; do
+            if [[ "${label}" == "sanity" ]]; then
+              includes_sanity=true
+              break
+            fi
+          done
+
+          label_filter=""
+          cs10_label_filter="sanity && agent && !microshift"
+          if [[ "${enabled}" == "true" ]]; then
+            label_filter="${selected_labels[0]}"
+            for label in "${selected_labels[@]:1}"; do
+              label_filter+=" || ${label}"
+            done
+
+            for label in "${selected_labels[@]}"; do
+              if [[ "${label}" == "sanity" ]]; then
+                continue
+              fi
+              cs10_label_filter+=" || ${label} && !microshift"
+            done
+          fi
+
+          {
+            echo "enabled=${enabled}"
+            echo "includes_sanity=${includes_sanity}"
+            echo "label_filter=${label_filter}"
+            echo "cs10_label_filter=${cs10_label_filter}"
+          } >> "$GITHUB_OUTPUT"
+
   reuse-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Reuse is an optimization; failures must fall back to running E2E.
     continue-on-error: true
     permissions:
@@ -198,20 +289,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-images-and-charts:
-    needs: [compute-tag, reuse-e2e]
+    needs: [compute-tag, reuse-e2e, select-e2e]
     if: |
       !cancelled() &&
       needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   build-flightctl-cli:
-    needs: [build-images-and-charts, compute-tag]
+    needs: [build-images-and-charts, compute-tag, select-e2e]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ needs.compute-tag.outputs.tag }}
@@ -220,13 +311,13 @@ jobs:
         run: echo "CLI artifact produced by build-images-and-charts"
 
   build-rpms:
-    needs: [compute-tag, reuse-e2e]
+    needs: [compute-tag, reuse-e2e, select-e2e]
     if: |
       !cancelled() &&
       needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     strategy:
       matrix:
         include:
@@ -237,10 +328,10 @@ jobs:
       root: ${{ matrix.root }}
 
   build-agent-images-unified:
-    needs: [compute-tag, build-rpms]
+    needs: [compute-tag, build-rpms, select-e2e]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     strategy:
       matrix:
         include:
@@ -255,19 +346,20 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   discover-e2e-tests:
-    needs: [compute-tag, reuse-e2e]
+    needs: [compute-tag, reuse-e2e, select-e2e]
     if: |
       !cancelled() &&
       needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
-    runs-on: ubuntu-latest
+      needs.select-e2e.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         include:
           - label_filter: 'sanity'
             ginkgo_total_nodes: 10
+          # Explicitly selected labels also run on CS10, except microshift tests.
           - label_filter: 'sanity && agent && !microshift'
             ginkgo_total_nodes: 5
     steps:
@@ -279,15 +371,17 @@ jobs:
 
       - name: Compute label filter hash
         id: compute-hash
+        env:
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
         run: |
-          HASH=$(printf '%s' "${{ matrix.label_filter }}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s' "${GINKGO_LABEL_FILTER}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
-          echo "Label filter: ${{ matrix.label_filter }}"
+          echo "Label filter: ${GINKGO_LABEL_FILTER}"
           echo "Hash: ${HASH}"
 
       - name: Run test discovery
         env:
-          GINKGO_LABEL_FILTER: ${{ matrix.label_filter }}
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
           DISCOVERY_ONLY: "true"
           DISCOVERY_PATH: discovery.json
         run: |
@@ -295,6 +389,8 @@ jobs:
           test/scripts/run_e2e_tests.sh reports ./test/e2e/...
 
       - name: Validate discovery results
+        env:
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
         run: |
           echo "=== Discovery file info ==="
           ls -la discovery.json
@@ -306,7 +402,7 @@ jobs:
           echo ""
           echo "=== Tests found ==="
           TEST_COUNT=$(jq -r '[.[] | .SpecReports[]? | select(.LeafNodeLabels != null)] | length' discovery.json)
-          echo "Total tests found with filter '${{ matrix.label_filter }}': ${TEST_COUNT}"
+          echo "Total tests found with filter '${GINKGO_LABEL_FILTER}': ${TEST_COUNT}"
 
           if [[ "${TEST_COUNT}" -eq 0 ]]; then
             echo "ERROR: No tests found in discovery! Check for compilation errors above."
@@ -341,13 +437,14 @@ jobs:
   e2e-tests:
     needs:
       - compute-tag
+      - select-e2e
       - build-images-and-charts
       - build-flightctl-cli
       - build-agent-images-unified
       - discover-e2e-tests
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -357,9 +454,9 @@ jobs:
             backend_type: helm
             label_filter: 'sanity'
             ginkgo_total_nodes: 10
-          ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
-          ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
-          ## full microshift coverage via the v12 OKD SCOS variant.
+          ## CS10: sanity agent tests plus explicitly selected labels; microshift tests are
+          ## excluded until its kernel includes xt_conntrack/xt_comment modules required by
+          ## kube-proxy. CS9 provides full microshift coverage via the v12 OKD SCOS variant.
           - os_id: cs10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !microshift'
@@ -369,36 +466,43 @@ jobs:
       os_id: ${{ matrix.os_id }}
       backend_type: ${{ matrix.backend_type }}
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
-      ginkgo_label_filter: ${{ matrix.label_filter }}
+      ginkgo_label_filter: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   api-tests:
     needs:
       - compute-tag
+      - select-e2e
       - build-images-and-charts
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      needs.select-e2e.outputs.enabled == 'true'
     uses: ./.github/workflows/run-api-tests.yaml
     with:
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   e2e:
-    runs-on: ubuntu-latest
-    needs: [ compute-tag, reuse-e2e, e2e-tests, api-tests ]
+    runs-on: ubuntu-24.04
+    needs: [ compute-tag, select-e2e, reuse-e2e, e2e-tests, api-tests ]
     if: always()
     steps:
       - name: Check E2E Test Results
         env:
-          HAS_RUN_E2E_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}
+          E2E_SELECTION_RESULT: ${{ needs.select-e2e.result }}
+          RUN_E2E: ${{ needs.select-e2e.outputs.enabled }}
+          E2E_INCLUDES_SANITY: ${{ needs.select-e2e.outputs.includes_sanity }}
         run: |
           if [[ "${{ needs.compute-tag.outputs.any_changed }}" != "true" ]]; then
             echo "E2E tests were skipped (docs-only or ignored paths)"
             exit 0
           fi
-          # PRs skip e2e unless the run-e2e label is present; merge queue always runs e2e
-          if [[ "${{ github.event_name }}" == "pull_request" && "${HAS_RUN_E2E_LABEL}" != "true" ]]; then
-            echo "E2E tests skipped for this PR (add the 'run-e2e' label to run e2e, merge queue always runs)"
+          if [[ "${E2E_SELECTION_RESULT}" != "success" ]]; then
+            echo "E2E label selection failed; check the Resolve E2E labels job"
+            exit 1
+          fi
+          # PRs skip e2e unless a run-e2e label was selected; other events run by default.
+          if [[ "${RUN_E2E}" != "true" ]]; then
+            echo "E2E tests skipped for this PR (add 'run-e2e' or a suffixed label such as 'run-e2e:sanity+delta')"
             exit 0
           fi
           if [[ "${{ needs.reuse-e2e.outputs.reused }}" == "true" ]]; then
@@ -417,6 +521,9 @@ jobs:
           if [[ "$E2E_RESULT" == "success" ]] && \
              [[ "$API_RESULT" == "success" || "$API_RESULT" == "skipped" ]]; then
             echo "All tests passed (e2e: $E2E_RESULT, api: $API_RESULT)"
+            if [[ "${E2E_INCLUDES_SANITY}" != "true" && "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "This run did not include sanity, so it is not eligible for merge-queue E2E result reuse." >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           else
             echo "Tests failed, were cancelled, or were skipped due to a dependency failure (e2e: $E2E_RESULT, api: $API_RESULT)"
@@ -429,7 +536,8 @@ jobs:
       - name: Checkout tested tree
         if: |
           github.event_name == 'pull_request' &&
-          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.select-e2e.outputs.enabled == 'true' &&
+          needs.select-e2e.outputs.includes_sanity == 'true' &&
           needs.e2e-tests.result == 'success' &&
           needs.api-tests.result == 'success'
         uses: actions/checkout@v5
@@ -440,7 +548,8 @@ jobs:
         id: tested-tree
         if: |
           github.event_name == 'pull_request' &&
-          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.select-e2e.outputs.enabled == 'true' &&
+          needs.select-e2e.outputs.includes_sanity == 'true' &&
           needs.e2e-tests.result == 'success' &&
           needs.api-tests.result == 'success'
         env:
@@ -467,7 +576,8 @@ jobs:
       - name: Upload E2E proof candidate
         if: |
           github.event_name == 'pull_request' &&
-          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.select-e2e.outputs.enabled == 'true' &&
+          needs.select-e2e.outputs.includes_sanity == 'true' &&
           needs.e2e-tests.result == 'success' &&
           needs.api-tests.result == 'success'
         uses: actions/upload-artifact@v4

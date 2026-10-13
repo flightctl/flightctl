@@ -121,7 +121,9 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
 	defer c.Stop()
 
 	if len(args) == 1 {
@@ -146,7 +148,9 @@ func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, 
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {
@@ -192,7 +196,9 @@ func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string,
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {
@@ -238,7 +244,9 @@ func (o *DeleteOptions) runImagePromotionDelete(ctx context.Context, args []stri
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {
@@ -324,6 +332,8 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *client.Client, kind Re
 		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
 	case EnrollmentHookPolicyKind:
 		response, err = c.DeleteEnrollmentHookPolicyWithResponse(ctx, name)
+	case LabelSyncMappingKind:
+		response, err = c.DeleteLabelSyncMappingWithResponse(ctx, name)
 	case CatalogKind:
 		response, err = c.V1Alpha1().DeleteCatalogWithResponse(ctx, name)
 	case CatalogItemKind:

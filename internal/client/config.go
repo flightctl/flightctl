@@ -377,10 +377,11 @@ func (c *Client) V1Alpha1() *v1alpha1client.ClientWithResponses {
 
 // Start starts the token refresh loop if a refresher is configured.
 // The provided context is used as the parent context for the refresh loop.
-func (c *Client) Start(ctx context.Context) {
+func (c *Client) Start(ctx context.Context) error {
 	if c.refresher != nil {
-		c.refresher.Start(ctx)
+		return c.refresher.Start(ctx)
 	}
+	return nil
 }
 
 // Stop stops the token refresh loop if a refresher is configured.
@@ -415,10 +416,11 @@ type ImageBuilderClient struct {
 
 // Start starts the token refresh loop if a refresher is configured.
 // The provided context is used as the parent context for the refresh loop.
-func (c *ImageBuilderClient) Start(ctx context.Context) {
+func (c *ImageBuilderClient) Start(ctx context.Context) error {
 	if c.refresher != nil {
-		c.refresher.Start(ctx)
+		return c.refresher.Start(ctx)
 	}
+	return nil
 }
 
 // Stop stops the token refresh loop if a refresher is configured.

@@ -217,6 +217,79 @@ var _ = Describe("SyncStateStore", func() {
 		})
 	})
 
+	Context("When bulk upserting failed probes", func() {
+		It("should preserve the stored fingerprint and change time while updating failure status", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			changedAt := now.Add(-time.Hour)
+			key := "git:failed-probe/main"
+			Expect(syncStateStore.Set(ctx, orgId, &model.SyncState{
+				ResourceKey: key, Fingerprint: "previous-sha", LastCheckedAt: now, LastChangeAt: &changedAt, ProbeStatus: "Synced",
+			})).To(Succeed())
+			later := now.Add(time.Minute)
+			Expect(syncStateStore.BulkUpsert(ctx, orgId, []model.SyncState{{
+				ResourceKey: key, Fingerprint: "stale-probe-sha", LastCheckedAt: later, LastChangeAt: &later,
+				ProbeStatus: "ProbeFailed", ProbeMessage: "invalid CA bundle",
+			}})).To(Succeed())
+			state, err := syncStateStore.Get(ctx, orgId, key)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(state).ToNot(BeNil())
+			Expect(state.Fingerprint).To(Equal("previous-sha"))
+			Expect(state.LastChangeAt).ToNot(BeNil())
+			Expect(state.LastChangeAt.UTC()).To(BeTemporally("~", changedAt, time.Millisecond))
+			Expect(state.LastCheckedAt.UTC()).To(BeTemporally("~", later, time.Millisecond))
+			Expect(state.ProbeStatus).To(Equal("ProbeFailed"))
+			Expect(state.ProbeMessage).To(Equal("invalid CA bundle"))
+		})
+
+		It("should insert an initial failure without a known fingerprint or change time", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			key := "git:initial-failure/main"
+			Expect(syncStateStore.BulkUpsert(ctx, orgId, []model.SyncState{{
+				ResourceKey: key, LastCheckedAt: now, ProbeStatus: "ProbeFailed", ProbeMessage: "invalid CA bundle",
+			}})).To(Succeed())
+			state, err := syncStateStore.Get(ctx, orgId, key)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(state).ToNot(BeNil())
+			Expect(state.Fingerprint).To(BeEmpty())
+			Expect(state.LastChangeAt).To(BeNil())
+			Expect(state.ProbeStatus).To(Equal("ProbeFailed"))
+		})
+
+		It("should recover unchanged probes and still update successful changed probes in a mixed batch", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			changedAt := now.Add(-time.Hour)
+			failedKey := "git:mixed-failure/main"
+			successKey := "git:mixed-success/main"
+			for _, key := range []string{failedKey, successKey} {
+				Expect(syncStateStore.Set(ctx, orgId, &model.SyncState{
+					ResourceKey: key, Fingerprint: "previous-sha", LastCheckedAt: now, LastChangeAt: &changedAt, ProbeStatus: "Synced",
+				})).To(Succeed())
+			}
+			later := now.Add(time.Minute)
+			Expect(syncStateStore.BulkUpsert(ctx, orgId, []model.SyncState{
+				{ResourceKey: failedKey, LastCheckedAt: later, ProbeStatus: "ProbeFailed", ProbeMessage: "invalid CA bundle"},
+				{ResourceKey: successKey, Fingerprint: "updated-sha", LastCheckedAt: later, LastChangeAt: &later, ProbeStatus: "Synced"},
+			})).To(Succeed())
+			success, err := syncStateStore.Get(ctx, orgId, successKey)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(success).ToNot(BeNil())
+			Expect(success.Fingerprint).To(Equal("updated-sha"))
+			Expect(success.LastChangeAt).ToNot(BeNil())
+			Expect(success.LastChangeAt.UTC()).To(BeTemporally("~", later, time.Millisecond))
+			recoveredAt := later.Add(time.Minute)
+			Expect(syncStateStore.BulkUpdateLastCheckedAt(ctx, orgId, []string{failedKey}, recoveredAt)).To(Succeed())
+			recovered, err := syncStateStore.Get(ctx, orgId, failedKey)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(recovered).ToNot(BeNil())
+			Expect(recovered.Fingerprint).To(Equal("previous-sha"))
+			Expect(recovered.LastChangeAt).ToNot(BeNil())
+			Expect(recovered.LastChangeAt.UTC()).To(BeTemporally("~", changedAt, time.Millisecond))
+			Expect(recovered.LastCheckedAt.UTC()).To(BeTemporally("~", recoveredAt, time.Millisecond))
+			Expect(recovered.ProbeStatus).To(Equal("Synced"))
+			Expect(recovered.ProbeMessage).To(BeEmpty())
+		})
+	})
+
 	Context("When querying with org isolation", func() {
 		It("should not return records from a different org", func() {
 			now := time.Now().UTC().Truncate(time.Microsecond)

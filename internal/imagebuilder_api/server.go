@@ -28,11 +28,13 @@ import (
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -56,6 +58,7 @@ type Server struct {
 	db                *gorm.DB
 	catalogSvc        catalogservice.Service
 	organizationSvc   organizationservice.Service
+	orgProvisioner    *internalservice.OrgProvisioner
 	authProviderStore authproviderstore.Store
 	eventsSvc         events.Service
 	kvStore           kvstore.KVStore
@@ -93,10 +96,24 @@ func New(
 	// TaskQueue - events are manually enqueued to ImageBuildTaskQueue instead.
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
 	organizationStore := organizationstore.NewOrganizationStore(db)
+	labelSyncMappingStore := labelsyncmappingstore.NewStore(db, log.WithField("pkg", "labelsyncmapping-store"))
+	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, nil, nil, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed initializing LabelSyncMapping service: %w", err)
+	}
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
+	orgProvisioner, err := internalservice.NewOrgProvisionerWithInitialMappings(
+		catalogSvc,
+		labelSyncMappingSvc,
+		cfg.Organizations.InitialLabelSyncMappingsFile,
+		log,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating organization provisioner: %w", err)
+	}
 
 	svc := service.NewService(ctx, cfg, imageBuilderStore, catalogSvc, repositorySvc, eventsSvc, queueProducer, kvStore, log)
 	return &Server{
@@ -106,6 +123,7 @@ func New(
 		db:                db,
 		catalogSvc:        catalogSvc,
 		organizationSvc:   organizationSvc,
+		orgProvisioner:    orgProvisioner,
 		authProviderStore: authProviderStore,
 		eventsSvc:         eventsSvc,
 		kvStore:           kvStore,
@@ -139,11 +157,13 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing ImageBuilder API server")
 
 	// Load OpenAPI spec for request validation
-	swagger, err := api.GetSpec()
+	cachedSwagger, err := api.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading swagger spec: %w", err)
 	}
-	// Skip server name validation
+	// GetSpec hands back one cached spec shared by every caller, so skip
+	// server name validation on our own copy rather than mutating theirs.
+	swagger := *cachedSwagger
 	swagger.Servers = nil
 
 	oapiOpts := oapimiddleware.Options{
@@ -191,8 +211,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware (same as api_server)
-	orgProvisioner := internalservice.NewOrgProvisioner(s.catalogSvc, s.log)
-	identityMapper := internalservice.NewIdentityMapper(s.organizationSvc, orgProvisioner, s.log)
+	identityMapper := internalservice.NewIdentityMapper(s.organizationSvc, s.orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
@@ -229,7 +248,7 @@ func (s *Server) Run(ctx context.Context) error {
 	transportHandler := transport.NewTransportHandler(s.service, s.log)
 
 	// Create v1alpha1 OpenAPI middleware
-	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts)
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(&swagger, &oapiOpts)
 
 	// Create v1alpha1 router with OpenAPI validation and auth
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{

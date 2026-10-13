@@ -21,6 +21,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
@@ -56,6 +57,7 @@ const (
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
 	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
 	PeriodicTaskTypeDeltaPrepareDeadline   PeriodicTaskType = "delta-prepare-deadline"
+	PeriodicTaskTypeLabelMappingScan       PeriodicTaskType = "label-sync-mapping-scan"
 )
 
 type PeriodicTaskMetadata struct {
@@ -75,6 +77,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 	PeriodicTaskTypeDeltaPrepareDeadline:   {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
+	PeriodicTaskTypeLabelMappingScan:       {Interval: config.DefaultLabelMappingScanTaskInterval, SystemWide: false},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -119,6 +122,11 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 			meta.Interval = time.Duration(periodicTasks.DeltaPrepareDeadline.Schedule.Interval)
 			merged[PeriodicTaskTypeDeltaPrepareDeadline] = meta
 		}
+		if periodicTasks.LabelMappingScan.Schedule.Interval > 0 {
+			meta := merged[PeriodicTaskTypeLabelMappingScan]
+			meta.Interval = time.Duration(periodicTasks.LabelMappingScan.Schedule.Interval)
+			merged[PeriodicTaskTypeLabelMappingScan] = meta
+		}
 	}
 
 	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {
@@ -128,6 +136,23 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 	}
 
 	return merged
+}
+
+func labelMappingScanConfigFromConfig(cfg *config.Config) tasks.LabelMappingScanConfig {
+	result := tasks.LabelMappingScanConfig{
+		PageSize:   config.DefaultLabelMappingScanPageSize,
+		TimeBudget: config.DefaultLabelMappingScanTimeBudget,
+	}
+	if cfg.Periodic != nil {
+		settings := cfg.Periodic.Tasks.LabelMappingScan
+		if settings.PageSize != nil {
+			result.PageSize = *settings.PageSize
+		}
+		if settings.TimeBudget != nil {
+			result.TimeBudget = time.Duration(*settings.TimeBudget)
+		}
+	}
+	return result
 }
 
 type PeriodicTaskReference struct {
@@ -182,6 +207,24 @@ func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 type DeviceConnectionExecutor struct {
 	log       logrus.FieldLogger
 	deviceSvc deviceservice.Service
+}
+
+type LabelMappingScanExecutor struct {
+	log        logrus.FieldLogger
+	reconciler labelsyncmappingservice.Service
+	deviceSvc  deviceservice.Service
+	checkpoint checkpointservice.Service
+	config     *config.Config
+}
+
+func (e *LabelMappingScanExecutor) Execute(ctx context.Context, _ logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeLabelMappingScan)
+	task, err := tasks.NewLabelMappingScanTask(e.reconciler, e.deviceSvc, e.checkpoint, labelMappingScanConfigFromConfig(e.config), e.log)
+	if err != nil {
+		e.log.WithError(err).Error("Failed to create label-sync mapping scan task")
+		return
+	}
+	task.Poll(taskCtx, orgID)
 }
 
 func (e *DeviceConnectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -356,6 +399,7 @@ func InitializeTaskExecutors(
 	deviceSvc deviceservice.Service,
 	eventSvc eventservice.Service,
 	checkpointSvc checkpointservice.Service,
+	labelSyncMappingSvc labelsyncmappingservice.Service,
 	organizationSvc organizationservice.Service,
 	dependencyrefSvc dependencyrefservice.Service,
 	syncstateSvc syncstateservice.Service,
@@ -388,6 +432,13 @@ func InitializeTaskExecutors(
 		PeriodicTaskTypeDeviceConnection: &DeviceConnectionExecutor{
 			log:       log.WithField("pkg", "device-connection"),
 			deviceSvc: deviceSvc,
+		},
+		PeriodicTaskTypeLabelMappingScan: &LabelMappingScanExecutor{
+			log:        log.WithField("pkg", "label-sync-mapping-scan"),
+			reconciler: labelSyncMappingSvc,
+			deviceSvc:  deviceSvc,
+			checkpoint: checkpointSvc,
+			config:     cfg,
 		},
 		PeriodicTaskTypeRolloutDeviceSelection: &RolloutDeviceSelectionExecutor{
 			deviceSvc: deviceSvc,

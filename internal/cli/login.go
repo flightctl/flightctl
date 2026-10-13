@@ -550,7 +550,9 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		if cerr != nil {
 			return nil, fmt.Errorf("creating insecure client: %w", cerr)
 		}
-		newClient.Start(ctx)
+		if err := newClient.Start(ctx); err != nil {
+			return nil, err
+		}
 		defer newClient.Stop()
 		c = newClient.ClientWithResponses
 		res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})

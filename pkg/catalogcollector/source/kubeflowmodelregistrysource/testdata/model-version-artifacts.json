@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "3",
+      "name": "iris-modelcar",
+      "artifactType": "model-artifact",
+      "uri": "registry.example.com/models/modelcar-iris@sha256:bd62d86fc106e620c60f3905ebb1f8d102dc2470d049d845eada1c9b823801ba",
+      "createTimeSinceEpoch": "1700000000000",
+      "lastUpdateTimeSinceEpoch": "1700000000000"
+    }
+  ],
+  "nextPageToken": "",
+  "pageSize": 100,
+  "size": 1
+}

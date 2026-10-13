@@ -226,7 +226,9 @@ func (o *AppConsoleOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	refresher := client.NewAccessTokenRefresher(config, o.ConfigFilePath, 8080)
-	refresher.Start(ctx)
+	if err := refresher.Start(ctx); err != nil {
+		return err
+	}
 	accessToken := refresher.GetAccessToken()
 
 	if o.consoleType == "vnc" {

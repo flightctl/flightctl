@@ -60,6 +60,13 @@ data:
             schedule:
               interval: {{ default "1m" .Values.periodic.tasks.deltaPrepareDeadline.schedule.interval }}
           {{ end }}
+          {{ if .Values.periodic.tasks.labelMappingScan }}
+          labelMappingScan:
+            schedule:
+              interval: {{ default "2m" .Values.periodic.tasks.labelMappingScan.schedule.interval }}
+            pageSize: {{ default 1000 .Values.periodic.tasks.labelMappingScan.pageSize }}
+            timeBudget: {{ default "30s" .Values.periodic.tasks.labelMappingScan.timeBudget | quote }}
+          {{ end }}
         {{ end }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:

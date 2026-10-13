@@ -1,0 +1,154 @@
+{{- include "flightctl-catalog-collector.validate" . -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flightctl-catalog-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl-catalog-collector.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "flightctl-catalog-collector.selectorLabels" . | nindent 6 }}
+  {{/*
+  The collector owns the catalogs it writes; two instances reconciling the
+  same catalog at once would fight each other, so never overlap revisions.
+  */}}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "flightctl-catalog-collector.podTemplateLabels" . | nindent 8 }}
+      annotations:
+        {{/*
+        Roll the pods when the rendered configuration changes. Without this a
+        "helm upgrade" that only touches config.content would update the
+        ConfigMap and leave the running collector on the old configuration.
+
+        A template comment, not a YAML one: a YAML comment here is copied into
+        every rendered manifest and into "helm get manifest", where template
+        commentary does not belong.
+        */}}
+        {{- if not (trim (default "" .Values.config.existingName)) }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if and .Values.metrics.enabled .Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: {{ include "flightctl-catalog-collector.metricsPath" . | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "flightctl-catalog-collector.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: catalog-collector
+          image: "{{ include "flightctl-catalog-collector.image" . }}"
+          imagePullPolicy: "{{ default .Values.global.imagePullPolicy .Values.image.pullPolicy }}"
+          args:
+            - --config
+            - {{ include "flightctl-catalog-collector.configFilePath" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.health.enabled }}
+            - name: health
+              containerPort: {{ .Values.health.port }}
+              protocol: TCP
+            {{- end }}
+            {{- range .Values.service.extraPorts }}
+            - name: {{ .name }}
+              containerPort: {{ default .port .targetPort }}
+              protocol: {{ default "TCP" .protocol }}
+            {{- end }}
+          {{- if or .Values.env .Values.envFrom }}
+          {{- with .Values.env }}
+          env:
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if .Values.health.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.health.livePath }}
+              port: health
+              scheme: HTTP
+            {{- toYaml .Values.health.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.health.readyPath }}
+              port: health
+              scheme: HTTP
+            {{- toYaml .Values.health.readinessProbe | nindent 12 }}
+          {{- if .Values.health.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.health.livePath }}
+              port: health
+              scheme: HTTP
+            {{- toYaml (omit .Values.health.startupProbe "enabled") | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: {{ .Values.config.mountPath }}
+              readOnly: true
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "flightctl-catalog-collector.configMapName" . }}
+            items:
+              - key: {{ .Values.config.key }}
+                path: {{ .Values.config.key }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

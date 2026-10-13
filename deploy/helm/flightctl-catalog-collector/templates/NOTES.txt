@@ -1,0 +1,36 @@
+Flight Control catalog collector {{ .Chart.AppVersion }} installed as {{ include "flightctl-catalog-collector.fullname" . }}.
+
+Configuration source:
+{{- if trim (default "" .Values.config.existingName) }}
+  existing ConfigMap {{ .Values.config.existingName }} (key {{ .Values.config.key }})
+{{- else }}
+  ConfigMap {{ include "flightctl-catalog-collector.fullname" . }}-config (key {{ .Values.config.key }}), managed by this release
+{{- end }}
+  mounted at {{ include "flightctl-catalog-collector.configFilePath" . }}
+
+{{ if eq (int .Values.replicaCount) 0 -}}
+replicaCount is 0: the collector is installed but paused. Set replicaCount=1 to start it.
+{{ end }}
+Watch it come up:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "flightctl-catalog-collector.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
+
+{{ if not (include "flightctl-catalog-collector.serviceEnabled" .) -}}
+No Service was created{{ if .Values.service.enabled }} (metrics and health are both disabled and service.extraPorts is empty){{ end }}.
+Reach the collector with "kubectl port-forward" instead.
+{{ end -}}
+{{ if .Values.health.enabled -}}
+Health probes are served on port {{ .Values.health.port }} ({{ .Values.health.livePath }}, {{ .Values.health.readyPath }}).
+The collector configuration must enable the "healthcheck" extension on
+0.0.0.0:{{ .Values.health.port }}; bound to localhost the kubelet cannot reach it and the pod
+will never become ready.
+{{ end -}}
+{{ if .Values.metrics.enabled -}}
+Metrics are served on port {{ .Values.metrics.port }}{{ include "flightctl-catalog-collector.metricsPath" . }}. The collector configuration must set
+service.metrics.endpoint to 0.0.0.0:{{ .Values.metrics.port }} for Prometheus to scrape it. The path is
+fixed by the collector and is not a chart value.
+
+  kubectl -n {{ .Release.Namespace }} port-forward deployment/{{ include "flightctl-catalog-collector.fullname" . }} {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
+  curl -s localhost:{{ .Values.metrics.port }}{{ include "flightctl-catalog-collector.metricsPath" . }}
+{{ end -}}

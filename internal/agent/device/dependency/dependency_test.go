@@ -820,6 +820,43 @@ func TestBeforeUpdate(t *testing.T) {
 	}
 }
 
+func TestBeforeUpdateCriticalDiskAlert(t *testing.T) {
+	require := require.New(t)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockResourceManager := resource.NewMockManager(ctrl)
+	mockResourceManager.EXPECT().IsCriticalAlert(resource.MonitorType(resource.DiskMonitorType)).Return(true)
+
+	manager := NewPrefetchManager(
+		log.NewPrefixLogger("test"),
+		nil,
+		nil,
+		client.NewCLIClients(),
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+		util.Duration(5*time.Second),
+		mockResourceManager,
+		poll.Config{},
+	)
+	defer manager.Cleanup()
+
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
+		return &OCICollection{Targets: OCIPullTargetsByUser{
+			"": []OCIPullTarget{{
+				Type:       OCITypePodmanImage,
+				Reference:  testImageV1,
+				PullPolicy: v1beta1.PullIfNotPresent,
+			}},
+		}}, nil
+	}))
+
+	err := manager.BeforeUpdate(t.Context(), &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
+	require.ErrorIs(err, errors.ErrCriticalResourceAlert)
+	require.Equal("Disk", errors.GetElement(err))
+	require.Contains(err.Error(), "please clear storage")
+}
+
 func TestStatusMessage(t *testing.T) {
 	tests := []struct {
 		name         string

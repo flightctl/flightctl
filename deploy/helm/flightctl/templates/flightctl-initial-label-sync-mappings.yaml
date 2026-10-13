@@ -1,0 +1,18 @@
+{{- $namespaces := list .Release.Namespace }}
+{{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+{{- $namespaces = append $namespaces .Values.global.internalNamespace }}
+{{- end }}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" $ }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" $ | nindent 4 }}
+    flightctl.service: initial-label-sync-mappings
+data:
+  mappings.yaml: |-
+{{ toYaml $.Values.organizations.initialLabelSyncMappings | indent 4 }}
+{{- end }}

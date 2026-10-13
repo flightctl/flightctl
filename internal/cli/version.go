@@ -118,11 +118,14 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 	var serverVersion *api.Version
 	c, err := o.BuildClient()
 	if err == nil {
-		c.Start(ctx)
-		defer c.Stop()
-		var response *apiclient.GetVersionResponse
-		response, err = c.GetVersionWithResponse(ctx)
-		serverVersion, err = o.processResponse(response, err)
+		if startErr := c.Start(ctx); startErr != nil {
+			err = startErr
+		} else {
+			defer c.Stop()
+			var response *apiclient.GetVersionResponse
+			response, err = c.GetVersionWithResponse(ctx)
+			serverVersion, err = o.processResponse(response, err)
+		}
 	}
 
 	versions := struct {

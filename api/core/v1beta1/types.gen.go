@@ -111,6 +111,7 @@ const (
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
 	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
 	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
+	ConditionTypeDeviceLabelsSynced                   ConditionType = "LabelsSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
@@ -166,10 +167,11 @@ const (
 
 // Defines values for DeviceDeltaApplyOutcomeType.
 const (
-	DeviceDeltaApplyOutcomeApplied  DeviceDeltaApplyOutcomeType = "Applied"
-	DeviceDeltaApplyOutcomeFallback DeviceDeltaApplyOutcomeType = "Fallback"
-	DeviceDeltaApplyOutcomeNotUsed  DeviceDeltaApplyOutcomeType = "NotUsed"
-	DeviceDeltaApplyOutcomePartial  DeviceDeltaApplyOutcomeType = "Partial"
+	DeviceDeltaApplyOutcomeApplied     DeviceDeltaApplyOutcomeType = "Applied"
+	DeviceDeltaApplyOutcomeFallback    DeviceDeltaApplyOutcomeType = "Fallback"
+	DeviceDeltaApplyOutcomeNotRequired DeviceDeltaApplyOutcomeType = "NotRequired"
+	DeviceDeltaApplyOutcomeNotUsed     DeviceDeltaApplyOutcomeType = "NotUsed"
+	DeviceDeltaApplyOutcomePartial     DeviceDeltaApplyOutcomeType = "Partial"
 )
 
 // Defines values for DeviceIntegrityCheckStatusType.
@@ -1432,7 +1434,8 @@ type DeviceApplicationsSummaryStatus struct {
 
 // DeviceCapabilities Capabilities reported by the device agent.
 type DeviceCapabilities struct {
-	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	// OsMode Deprecated since v1.4 and will be removed in a future release. Use status.systemInfo.osMode instead. The service reads status.systemInfo.osMode and only falls back to this field for devices reported by older agents that do not populate systemInfo.
+	// Deprecated: Deprecated since v1.4 and will be removed in a future release. Use status.systemInfo.osMode instead.
 	OsMode *OsModeType `json:"osMode,omitempty"`
 }
 
@@ -1460,7 +1463,7 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
 type DeviceDeltaApplyOutcomeType string
 
 // DeviceDeltaApplyStatus Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
@@ -1468,7 +1471,7 @@ type DeviceDeltaApplyStatus struct {
 	// FallbackReason Set when one or more delta attempts failed and the agent attempted a full image pull. For an application with multiple image targets, this reports one representative failure reason.
 	FallbackReason *string `json:"fallbackReason,omitempty"`
 
-	// Outcome Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+	// Outcome Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
 	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
@@ -1476,6 +1479,39 @@ type DeviceDeltaApplyStatus struct {
 type DeviceEnrollmentHooksStatus struct {
 	// Snapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
 	Snapshot *EnrollmentHookSnapshot `json:"snapshot,omitempty"`
+}
+
+// DeviceGpu Information about a GPU device discovered on the device.
+type DeviceGpu struct {
+	// Arch GPU microarchitecture generation name as defined in the hardware map or platform lookup table (e.g., "Ada", "Ampere", "Volta", "Maxwell" for NVIDIA; "RDNA3", "CDNA3" for AMD). This is the vendor marketing name for the GPU microarchitecture, not the host CPU ISA or a compute-capability version string.
+	Arch *string `json:"arch,omitempty"`
+
+	// Features Vendor-specific GPU capability identifiers sourced from the hardware map. Values are lowercase tokens describing supported compute or display features (e.g., "cuda", "rocm", "opencl", "sriov", "mig"). The vocabulary is extensible and determined by the hardware map; no fixed enum is enforced.
+	Features *[]string `json:"features,omitempty"`
+
+	// Index Zero-based enumeration index of the GPU on the system, assigned in PCI bus discovery order.
+	Index int32 `json:"index"`
+
+	// MemoryBytes The amount of GPU memory in bytes.
+	MemoryBytes *int64 `json:"memoryBytes,omitempty"`
+
+	// Model The GPU model name (e.g., "RTX 4090", "GA10B").
+	Model *string `json:"model,omitempty"`
+
+	// PciAddress PCI bus address in BDF notation (e.g., "0000:01:00.0").
+	PciAddress *string `json:"pciAddress,omitempty"`
+
+	// PciDeviceId PCI device ID of the GPU, as read from the PCI configuration register (e.g., "0x2717").
+	PciDeviceId *string `json:"pciDeviceId,omitempty"`
+
+	// PciRevisionId PCI revision ID of the GPU (e.g., "0xa1").
+	PciRevisionId *string `json:"pciRevisionId,omitempty"`
+
+	// PciVendorId PCI vendor ID of the GPU (e.g., "0x10de" for NVIDIA).
+	PciVendorId *string `json:"pciVendorId,omitempty"`
+
+	// Vendor The GPU vendor name (e.g., "NVIDIA", "AMD", "Intel").
+	Vendor *string `json:"vendor,omitempty"`
 }
 
 // DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
@@ -1510,6 +1546,12 @@ type DeviceIntegrityStatus struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
+
+// DeviceKvm KVM virtualization information reported by the device.
+type DeviceKvm struct {
+	// Enabled Whether KVM virtualization is active and available on the device.
+	Enabled *bool `json:"enabled,omitempty"`
+}
 
 // DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
 type DeviceLastSeen struct {
@@ -1781,11 +1823,20 @@ type DeviceSystemInfo struct {
 	// DeltaEligible Whether this device can consume OCI deltas. True when the oci-delta binary is present. False when it is not. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
 
+	// Gpus List of GPU devices discovered on the device.
+	Gpus *[]DeviceGpu `json:"gpus,omitempty"`
+
+	// Kvm KVM virtualization information reported by the device.
+	Kvm *DeviceKvm `json:"kvm,omitempty"`
+
 	// OciDeltaVersion Version reported by `oci-delta --version`, or from Go module build information when that flag is unsupported. Absent when oci-delta is not installed or its version cannot be determined.
 	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.
-	OperatingSystem      string            `json:"operatingSystem"`
+	OperatingSystem string `json:"operatingSystem"`
+
+	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	OsMode               *OsModeType       `json:"osMode,omitempty"`
 	AdditionalProperties map[string]string `json:"-"`
 }
 
@@ -1857,7 +1908,7 @@ type DevicesSummary struct {
 	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
 	ApplicationStatus map[string]int64 `json:"applicationStatus"`
 
-	// Capabilities Breakdowns of devices by status.capabilities fields.
+	// Capabilities Breakdowns of devices by status.systemInfo fields, falling back to the deprecated status.capabilities fields when unavailable.
 	Capabilities *DevicesSummaryCapabilities `json:"capabilities,omitempty"`
 
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
@@ -1870,9 +1921,9 @@ type DevicesSummary struct {
 	UpdateStatus map[string]int64 `json:"updateStatus"`
 }
 
-// DevicesSummaryCapabilities Breakdowns of devices by status.capabilities fields.
+// DevicesSummaryCapabilities Breakdowns of devices by status.systemInfo fields, falling back to the deprecated status.capabilities fields when unavailable.
 type DevicesSummaryCapabilities struct {
-	// OsMode Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+	// OsMode Counts by device OS mode (e.g. image, package), taken from status.systemInfo.osMode with fallback to the deprecated status.capabilities.osMode. The key "unknown" counts devices that have not reported an OS mode.
 	OsMode *map[string]int64 `json:"osMode,omitempty"`
 }
 
@@ -4295,6 +4346,22 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 		delete(object, "deltaEligible")
 	}
 
+	if raw, found := object["gpus"]; found {
+		err = json.Unmarshal(raw, &a.Gpus)
+		if err != nil {
+			return fmt.Errorf("error reading 'gpus': %w", err)
+		}
+		delete(object, "gpus")
+	}
+
+	if raw, found := object["kvm"]; found {
+		err = json.Unmarshal(raw, &a.Kvm)
+		if err != nil {
+			return fmt.Errorf("error reading 'kvm': %w", err)
+		}
+		delete(object, "kvm")
+	}
+
 	if raw, found := object["ociDeltaVersion"]; found {
 		err = json.Unmarshal(raw, &a.OciDeltaVersion)
 		if err != nil {
@@ -4309,6 +4376,14 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'operatingSystem': %w", err)
 		}
 		delete(object, "operatingSystem")
+	}
+
+	if raw, found := object["osMode"]; found {
+		err = json.Unmarshal(raw, &a.OsMode)
+		if err != nil {
+			return fmt.Errorf("error reading 'osMode': %w", err)
+		}
+		delete(object, "osMode")
 	}
 
 	if len(object) != 0 {
@@ -4366,6 +4441,20 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Gpus != nil {
+		object["gpus"], err = json.Marshal(a.Gpus)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'gpus': %w", err)
+		}
+	}
+
+	if a.Kvm != nil {
+		object["kvm"], err = json.Marshal(a.Kvm)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'kvm': %w", err)
+		}
+	}
+
 	if a.OciDeltaVersion != nil {
 		object["ociDeltaVersion"], err = json.Marshal(a.OciDeltaVersion)
 		if err != nil {
@@ -4376,6 +4465,13 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 	object["operatingSystem"], err = json.Marshal(a.OperatingSystem)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'operatingSystem': %w", err)
+	}
+
+	if a.OsMode != nil {
+		object["osMode"], err = json.Marshal(a.OsMode)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'osMode': %w", err)
+		}
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

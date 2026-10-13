@@ -508,6 +508,74 @@ type mockProvider struct {
 	spec *ApplicationSpec
 }
 
+type nestedTargetsTestProvider struct {
+	spec          *ApplicationSpec
+	parentRef     string
+	nestedTargets []dependency.OCIPullTarget
+	extracted     int
+}
+
+func (p *nestedTargetsTestProvider) ID() string                                 { return p.spec.ID }
+func (p *nestedTargetsTestProvider) Name() string                               { return p.spec.Name }
+func (p *nestedTargetsTestProvider) Spec() *ApplicationSpec                     { return p.spec }
+func (p *nestedTargetsTestProvider) Verify(_ context.Context) error             { return nil }
+func (p *nestedTargetsTestProvider) Install(_ context.Context) error            { return nil }
+func (p *nestedTargetsTestProvider) Remove(_ context.Context) error             { return nil }
+func (p *nestedTargetsTestProvider) EnsureDependencies(_ context.Context) error { return nil }
+func (p *nestedTargetsTestProvider) collectOCITargets(_ context.Context, _ dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
+	return nil, nil
+}
+func (p *nestedTargetsTestProvider) extractNestedTargets(_ context.Context, _ dependency.PullConfigResolver) (*AppData, error) {
+	p.extracted++
+	return &AppData{Targets: p.nestedTargets}, nil
+}
+func (p *nestedTargetsTestProvider) parentIsAvailable(_ context.Context) (string, string, bool, error) {
+	return p.parentRef, "", true, nil
+}
+
+func TestCollectNestedForProvider_WhenHelmValuesChange_ItShouldInvalidateCache(t *testing.T) {
+	require := require.New(t)
+	oldValues := map[string]interface{}{"image": map[string]interface{}{"repository": "nginx"}}
+	newValues := map[string]interface{}{"image": map[string]interface{}{"repository": "nginxinc/nginx-unprivileged"}}
+
+	provider := &nestedTargetsTestProvider{
+		spec: &ApplicationSpec{
+			ID:      "hello-helm",
+			Name:    "hello-helm",
+			AppType: v1beta1.AppTypeHelm,
+			Image:   "oci://registry.example.com/charts/hello:0.1.0",
+			Path:    "/var/lib/flightctl/helm/charts/hello",
+			HelmApp: &v1beta1.HelmApplication{Values: &oldValues},
+		},
+		parentRef:     "oci://registry.example.com/charts/hello:0.1.0",
+		nestedTargets: []dependency.OCIPullTarget{{Reference: "docker.io/nginx:latest"}},
+	}
+	cache := NewOCITargetCache()
+	appDataCache := NewAppDataCache()
+	ctx := context.Background()
+	logger := log.NewPrefixLogger("test")
+
+	targets, requeue, err := collectNestedForProvider(ctx, logger, provider, nil, cache, appDataCache)
+	require.NoError(err)
+	require.False(requeue)
+	require.Equal(provider.nestedTargets, targets)
+	require.Equal(1, provider.extracted)
+
+	targets, requeue, err = collectNestedForProvider(ctx, logger, provider, nil, cache, appDataCache)
+	require.NoError(err)
+	require.False(requeue)
+	require.Equal(provider.nestedTargets, targets)
+	require.Equal(1, provider.extracted, "unchanged Helm values should use the cache")
+
+	provider.spec.HelmApp.Values = &newValues
+	provider.nestedTargets = []dependency.OCIPullTarget{{Reference: "docker.io/nginxinc/nginx-unprivileged:1.27-alpine"}}
+	targets, requeue, err = collectNestedForProvider(ctx, logger, provider, nil, cache, appDataCache)
+	require.NoError(err)
+	require.False(requeue)
+	require.Equal(provider.nestedTargets, targets)
+	require.Equal(2, provider.extracted, "changed Helm values should rerun extraction")
+}
+
 func (m *mockProvider) ID() string                                 { return m.id }
 func (m *mockProvider) Name() string                               { return m.name }
 func (m *mockProvider) Spec() *ApplicationSpec                     { return m.spec }

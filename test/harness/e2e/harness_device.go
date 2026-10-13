@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -882,7 +883,26 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
 	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+		existingLabels := lo.FromPtr(device.Metadata.Labels)
 		devLabels := make(map[string]string, len(labels)+1)
+		if annotations := lo.FromPtr(device.Metadata.Annotations); annotations != nil {
+			if managedLabelsJSON, ok := annotations[v1beta1.DeviceAnnotationManagedLabels]; ok {
+				var managedLabelKeys []string
+				if err := json.Unmarshal([]byte(managedLabelsJSON), &managedLabelKeys); err != nil {
+					// Keep the current labels if the management annotation is malformed;
+					// dropping them could make a mapped label update fail with a conflict.
+					for key, value := range existingLabels {
+						devLabels[key] = value
+					}
+				} else {
+					for _, key := range managedLabelKeys {
+						if value, ok := existingLabels[key]; ok {
+							devLabels[key] = value
+						}
+					}
+				}
+			}
+		}
 		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
 			devLabels[key] = value

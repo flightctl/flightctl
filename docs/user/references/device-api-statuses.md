@@ -103,6 +103,12 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
 
+Before a standalone device update, the service can prepare OS and application deltas. While the update is waiting for preparation, `device.status.conditions[]` includes `DeviceDeltaPreparing` with status `True`.
+
+The `device.status.deltaGeneration.completed` and `device.status.deltaGeneration.total` fields report completed image pairs and total unique image pairs. Completed pairs include successful, failed, and rejected generation jobs. When `completed` equals `total`, every pair has reached a terminal state. Check [per-pair events](../using/troubleshooting.md#inspecting-delta-generation-progress) for success or failure. `device.status.deltaGeneration.lastUpdated` records the last counter update. The condition message includes the same counts.
+
+Fleet-managed updates report preparation through the fleet's `FleetDeltaPreparing` condition. For fleet preparation, see [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation).
+
 The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called.
 
 ```mermaid
@@ -162,6 +168,31 @@ stateDiagram
     Known --> Unknown
 ```
 
+### OS delta status
+
+You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output:
+
+```console
+flightctl get device <device_name> -o yaml
+```
+
+The following device status fields describe delta capability and the result for the desired OS image:
+
+| Field | Description |
+| ----- | ----------- |
+| `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when an older agent does not report it. |
+| `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotUsed` means delta application was skipped without a delta failure, `Applied` means the delta was applied, and `Fallback` means a delta attempt failed and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
+| `device.status.os.lastDelta.fallbackReason` | The reason for a recorded delta pull or apply failure. It is omitted when the recorded outcome has no fallback reason. |
+| `device.status.os.deltaSize` | Payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta. Present when a delta was generated and its payload size is known. |
+
+OS delta application also requires bootc.
+
+OS outcomes persist across agent restarts for the same desired OS image. If no matching delta is found, the agent records `NotUsed` only when that image has no recorded outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. An already running or cached OS image is also recorded as `NotUsed` only when that image has no recorded outcome.
+
+The size field measures only the control-plane-generated delta artifact for the desired OS image. It is a payload measurement taken during generation.
+
+Use `-o yaml` or `-o json` for the detailed delta fields. Device summary capability counts report only `osMode`.
+
 ## Application Status
 
 The Application Status represents a summary of the availability and health of all applications on the system.
@@ -218,6 +249,40 @@ stateDiagram
     Unknown --> Known
     Known --> Unknown
 ```
+
+### Application delta status
+
+Each application's aggregated delta result appears in `device.status.applications[].lastDelta`. The agent tracks image targets separately and combines their outcomes into one status for the application.
+
+| Field | Description |
+| ----- | ----------- |
+| `device.status.applications[].lastDelta.outcome` | The agent-reported application result, as described in the following table. Present after the agent reports an outcome. |
+| `device.status.applications[].lastDelta.fallbackReason` | One representative reason for a full-pull fallback after a delta failure or an unusable hinted delta. Present when at least one target falls back with a recorded reason; the application outcome can be `Fallback` or `Partial`. |
+| `device.status.applications[].imageDigests[].image` | Image reference used by the application on the device. |
+| `device.status.applications[].imageDigests[].digest` | Registry digest associated with the image. For a multi-platform image, this may be the platform-specific digest selected by the runtime. If only an opaque ID is available, an immutable reference's digest may be reported. Present when a digest is known. |
+| `device.status.applications[].deltaSize` | Sum of only the control-plane-generated delta payload sizes for this application update, in IEC units. Present when at least one delta was generated and every generated payload size is known. |
+
+`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. Flight Control uses the reference and digest pairs to identify source images for delta generation.
+
+Inspect each application's generated delta payload size at `status.applications[].deltaSize` and the generated OS delta payload size at `status.os.deltaSize`.
+
+Inspect application delta fields in the device's YAML or JSON output:
+
+```console
+flightctl get device <device_name> -o yaml
+```
+
+The following outcomes describe the application as a whole. The agent reuses image targets already present with the desired digest when preparing the remaining targets. If any target applies a delta while another target uses regular preparation or falls back to a full pull, the application outcome is `Partial`. `Fallback` applies when no target applies a delta and at least one target records a failed delta attempt.
+
+| Outcome | Description |
+| ------- | ----------- |
+| `NotRequired` | All image targets are already present on the device with the correct digest. The agent reuses those images. |
+| `NotUsed` | Every target requiring preparation uses the regular image path because delta application was skipped. The agent pulls full images as needed. |
+| `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
+| `Fallback` | No target applied a delta, and at least one delta attempt failed. For an OCI artifact package with a supplied hint, the agent records this outcome and uses the regular artifact pull path. It uses full image pulls for other targets requiring preparation and reuses already matching images. |
+| `Partial` | The application combines at least one successful delta application with regular image preparation or a full-pull fallback for another image target. |
+
+Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
 
 ## Lifecycle status
 

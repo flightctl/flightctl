@@ -29,7 +29,7 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       nodes: ${{ steps.generate.outputs.nodes }}
     steps:

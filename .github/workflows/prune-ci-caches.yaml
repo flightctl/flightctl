@@ -50,7 +50,7 @@ concurrency:
 jobs:
   prune:
     name: Prune duplicate caches
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write  # required for gh cache list/delete
     strategy:
@@ -79,7 +79,7 @@ jobs:
 
   prune-branch-scoped:
     name: Prune branch-scoped duplicate caches
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write  # required for gh cache list/delete
     strategy:

@@ -59,6 +59,9 @@ spec:
               name: flightctl-imagebuilder-api-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: {{ include "flightctl.initialLabelSyncMappingsDirectory" . }}
+              name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+              readOnly: true
             - mountPath: /root/.flightctl/certs/server.crt
               name: flightctl-imagebuilder-api-server-tls
               subPath: tls.crt
@@ -94,6 +97,9 @@ spec:
         - name: flightctl-imagebuilder-api-config
           configMap:
             name: flightctl-imagebuilder-api-config
+        - name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+          configMap:
+            name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
         - name: flightctl-imagebuilder-api-server-tls
           secret:
             secretName: flightctl-imagebuilder-api-server-tls

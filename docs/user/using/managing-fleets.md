@@ -294,6 +294,39 @@ You can define policies that govern how a change to a fleet's device template ge
 
 Rollout policies in Flight Control build on label selection of devices (see [Organizing Devices](managing-devices.md#organizing-devices)) and are thus adaptable to a wide range of use cases.
 
+### Configuring delta generation
+
+When a fleet's OS or application images change, Flight Control can generate deltas while preparing the rollout. This preparation uses the current and target image digests.
+
+Before enabling generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. Ensure both the control plane and the device agent can reach the registry. See [Delta storage target access requirements](managing-repositories.md#configuring-a-delta-storage-target).
+
+Configure generation under `spec.rolloutPolicy.deltaGeneration`:
+
+| Field | Description |
+| ----- | ----------- |
+| `generateDelta` | Optional. Defaults to `true`, which requests control-plane delta generation during rollout preparation. Set `false` to disable new control-plane generation requests and start the rollout immediately. Devices can use existing deltas and discover matching CI-published deltas. |
+| `maxWaitForDelta` | Optional maximum time to wait for generation before the rollout continues. If omitted, the fleet inherits the deployment's `deltaGeneration.maxWaitForDelta` setting. The default wait ends when all generation pairs reach a terminal state. A value of `0s` starts generation and continues the rollout immediately. Applies when `generateDelta` is `true`. |
+| `deltaGenerationTimeout` | Optional deadline for each generation job. If omitted, the fleet inherits the deployment's `deltaGeneration.timeout` setting. |
+
+Configuring a storage target enables generation for eligible fleet devices by default. With neither an organization target nor a deployment default configured, rollout preparation proceeds directly to the regular update path.
+
+For example, the following fleet waits up to ten minutes for preparation, with a twenty-minute deadline per generation job. This is a fragment to merge into an existing Fleet resource:
+
+```yaml
+spec:
+  rolloutPolicy:
+    deltaGeneration:
+      generateDelta: true
+      maxWaitForDelta: 10m
+      deltaGenerationTimeout: 20m
+```
+
+To start generation and continue the rollout immediately, set `maxWaitForDelta: 0s`. Generated deltas become available to devices that prepare their images after generation completes.
+
+While a rollout is waiting for preparation, `fleet.status.conditions[]` includes `FleetDeltaPreparing` with status `True`. The `fleet.status.deltaGeneration.completed` and `fleet.status.deltaGeneration.total` fields report completed and total unique image pairs across OS and applications. Completed pairs include successful, failed, and rejected generation jobs. The condition message includes the same counts. `fleet.status.deltaGeneration.lastUpdated` records the last counter update. When `completed` equals `total`, every pair has reached a terminal state; inspect [Delta generation progress](troubleshooting.md#inspecting-delta-generation-progress) for per-pair results.
+
+See [Deployment delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for defaults shared by fleets and standalone devices. For generated hints and results, see [OS deltas](managing-devices.md#using-control-plane-generated-os-deltas) and [Application image deltas](managing-devices.md#using-application-image-deltas).
+
 ### Defining a Device Selection Strategy
 
 Currently, Flight Control only supports the `BatchSequence` strategy for device selection. This strategy defines a stepwise rollout process where devices are grouped into batches based on specific criteria.

@@ -1,0 +1,199 @@
+# Red Hat OpenShift AI (RHOAI) Model Registry -> Flight Control.
+#
+# Pipeline: Kubeflow Model Registry source -> catalog name processor ->
+#           Flight Control destination.
+#
+# Deployment shape: this example installs the collector into the same cluster
+# as the RHOAI model registry it reads. That is what lets it authenticate
+# with the pod's own ServiceAccount token, which only the API server of that
+# same cluster can review. To collect from a model registry in another
+# cluster, keep the rest of the pipeline and supply a credential that cluster
+# accepts instead.
+#
+# Prerequisites in the target namespace:
+#
+#   ServiceAccount flightctl-catalog-collector
+#     created by this chart and bound to the model registry reader role. See
+#     the chart README section "Authorizing against Red Hat OpenShift AI" for
+#     the RoleBinding and for the verification procedure.
+#
+#   Secret  flightctl-catalog-collector-oauth
+#     keys: client-id, client-secret
+#   ConfigMap flightctl-catalog-collector-ca
+#     keys: model-registry-ca.crt, flightctl-ca.crt, oidc-ca.crt
+#
+# Create them with, for example:
+#
+#   kubectl create secret generic flightctl-catalog-collector-oauth \
+#     --from-literal=client-id=<client_id> \
+#     --from-literal=client-secret=<client_secret>
+#   kubectl create configmap flightctl-catalog-collector-ca \
+#     --from-file=model-registry-ca.crt --from-file=flightctl-ca.crt \
+#     --from-file=oidc-ca.crt
+#
+# This example needs no model registry token Secret. It is not the only way
+# to present a credential the model registry accepts, but it is the one with
+# the least to maintain: the kubelet already projects the pod's own
+# ServiceAccount token at the standard location, binds it to the pod's
+# lifetime, and rotates it automatically before it expires, so a token issued
+# by hand would be one more credential to keep track of.
+#
+# Then install with the <...> placeholders replaced:
+#
+#   helm install catalog-collector deploy/helm/flightctl-catalog-collector \
+#     --values deploy/helm/flightctl-catalog-collector/examples/values-rhoai-to-flightctl.yaml
+#
+# Every path in the configuration below is a path *inside the container*: it
+# is either the kubelet-managed ServiceAccount token directory or the
+# mountPath of one of the extraVolumeMounts at the end of this file.
+
+config:
+  content: |
+    service:
+      logLevel: info
+      metrics:
+        endpoint: 0.0.0.0:8888
+
+    extensions:
+      healthcheck:
+        endpoint: 0.0.0.0:13133
+        livePath: /livez
+        readyPath: /readyz
+
+      # The RHOAI model registry sits behind kube-rbac-proxy, which
+      # authenticates the bearer token by calling the API server's
+      # TokenReview and then authorizes it with RBAC. As observed on RHOAI
+      # 3.5.1, that proxy is deployed without --auth-token-audiences, so
+      # TokenReview is asked for the default audience and only a token issued
+      # for the API server is accepted; a projected token with a custom
+      # audience is rejected with 401. Check this against the RHOAI release
+      # in use before assuming it still holds.
+      #
+      # The pod's automounted ServiceAccount token is exactly such a token,
+      # and the kubelet rotates it in place without anyone having to reissue
+      # it. Reading it straight from the standard path is therefore the
+      # simplest credential to operate here. Any other token the API server
+      # will review for the default audience works just as well; point
+      # tokenFile at wherever the deployment mounts it.
+      bearertokenauth/model-registry:
+        tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+      # Flight Control is an OIDC client application. The collector
+      # authenticates as a confidential OAuth2 client and exchanges its
+      # client credentials for a short-lived access token, obtaining a
+      # replacement as the cached one nears expiry. This avoids provisioning
+      # and rotating a long-lived bearer token for the Flight Control API.
+      oauth2client/flightctl:
+        clientIdFile: /etc/flightctl/catalog-collector/oauth/client-id
+        clientSecretFile: /etc/flightctl/catalog-collector/oauth/client-secret
+        tokenUrl: https://<oidc-issuer>/protocol/openid-connect/token
+        scopes:
+          - openid
+        certificateAuthority: /etc/flightctl/catalog-collector/certs/oidc-ca.crt
+        timeout: 30s
+        # Treat a cached token as already expired this long before it really
+        # expires. Tokens are fetched lazily, not refreshed on a background
+        # timer: when a request is about to be sent and the cached token has
+        # less than this left, a new token is obtained first and the request
+        # carries that one. It shrinks the window in which a request goes out
+        # holding a token that expires in flight; it is not a promise that a
+        # 401 can never happen.
+        expiryBuffer: 30s
+
+    sources:
+      kubeflowmodelregistry/rhoai:
+        endpoint: https://<model-registry-route>
+        catalog: rhoai-model-registry
+        pollInterval: 5m
+        requestTimeout: 30s
+        collectionTimeout: 5m
+        pageSize: 100
+        auth:
+          authenticator: bearertokenauth/model-registry
+        certificateAuthority: /etc/flightctl/catalog-collector/certs/model-registry-ca.crt
+        # Server-side selection. Defaults import only LIVE models and
+        # versions; set a filter to "" to import everything.
+        selection:
+          modelFilter: "state='LIVE'"
+          versionFilter: "state='LIVE'"
+
+    processors:
+      catalogname/rename:
+        mappings:
+          rhoai-model-registry: ai-models
+
+    destinations:
+      flightctl/service:
+        server: https://<flightctl-api-endpoint>
+        auth:
+          authenticator: oauth2client/flightctl
+        certificateAuthority: /etc/flightctl/catalog-collector/certs/flightctl-ca.crt
+        timeout: 30s
+        # orgId: <uuid>
+
+    pipelines:
+      rhoai-models:
+        source: kubeflowmodelregistry/rhoai
+        processors:
+          - catalogname/rename
+        destination: flightctl/service
+
+health:
+  enabled: true
+  port: 13133
+
+metrics:
+  enabled: true
+  port: 8888
+  serviceMonitor:
+    # Flip on where the Prometheus Operator CRDs are available, for example on
+    # OpenShift with user workload monitoring enabled.
+    enabled: false
+
+service:
+  enabled: true
+
+serviceAccount:
+  create: true
+  # The RoleBinding in the chart README grants this ServiceAccount read
+  # access to the model registry. Naming it explicitly keeps the RoleBinding
+  # independent of the Helm release name.
+  name: flightctl-catalog-collector
+  # Unlike the chart default, the pod's own token is mounted here. It is
+  # accepted by the model registry's kube-rbac-proxy because the collector
+  # runs in the same cluster, and the kubelet rotates it automatically. The
+  # RoleBinding on this ServiceAccount is what actually grants the read, so
+  # the mounted token carries no authority beyond it. Leave this off if the
+  # deployment supplies the model registry credential some other way.
+  automountServiceAccountToken: true
+
+# Only the Flight Control OAuth2 client credentials and the CA bundles are
+# mounted here; in this example the model registry token comes from the
+# automounted ServiceAccount volume the kubelet adds on its own. A deployment
+# that sources that token elsewhere would add the volume and mount for it
+# here and point tokenFile at the mountPath.
+#
+# defaultMode 0440 on the Secret volume, not 0400: the kubelet leaves a
+# regular Secret volume owned by root:root, so the owner bits are useless to
+# a container running as uid 1001. The group bit is what makes the file
+# readable, because the image's group is gid 0 (root). The equivalent
+# standalone (Quadlet) configuration needs 0640 root:root instead, because
+# there the host owns the files and the container only reads them through a
+# bind mount.
+extraVolumes:
+  - name: oauth
+    secret:
+      secretName: flightctl-catalog-collector-oauth
+      defaultMode: 0440
+  - name: ca
+    configMap:
+      name: flightctl-catalog-collector-ca
+      defaultMode: 0444
+
+extraVolumeMounts:
+  - name: oauth
+    mountPath: /etc/flightctl/catalog-collector/oauth
+    readOnly: true
+  - name: ca
+    mountPath: /etc/flightctl/catalog-collector/certs
+    readOnly: true

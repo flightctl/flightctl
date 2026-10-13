@@ -7441,11 +7441,87 @@ components:
             agent does not report the field.
         customInfo:
           $ref: "#/components/schemas/CustomDeviceInfo"
+        gpus:
+          type: array
+          description: List of GPU devices discovered on the device.
+          items:
+            $ref: "#/components/schemas/DeviceGpu"
+        kvm:
+          $ref: "#/components/schemas/DeviceKvm"
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
       additionalProperties:
         type: string
         description: |
           Optional system attributes exposed by the agent.
           Each key corresponds to a configurable internal capability.
+    DeviceGpu:
+      type: object
+      description: Information about a GPU device discovered on the device.
+      required:
+        - index
+      properties:
+        index:
+          type: integer
+          format: int32
+          description: >-
+            Zero-based enumeration index of the GPU on the system,
+            assigned in PCI bus discovery order.
+        vendor:
+          type: string
+          description: The GPU vendor name (e.g., "NVIDIA", "AMD", "Intel").
+        model:
+          type: string
+          description: The GPU model name (e.g., "RTX 4090", "GA10B").
+        pciDeviceId:
+          type: string
+          description: >-
+            PCI device ID of the GPU, as read from the PCI configuration
+            register (e.g., "0x2717").
+        pciAddress:
+          type: string
+          description: >-
+            PCI bus address in BDF notation (e.g., "0000:01:00.0").
+        pciRevisionId:
+          type: string
+          description: >-
+            PCI revision ID of the GPU (e.g., "0xa1").
+        pciVendorId:
+          type: string
+          description: >-
+            PCI vendor ID of the GPU (e.g., "0x10de" for NVIDIA).
+        memoryBytes:
+          type: integer
+          format: int64
+          description: The amount of GPU memory in bytes.
+        arch:
+          type: string
+          description: >-
+            GPU microarchitecture generation name as defined in the
+            hardware map or platform lookup table (e.g., "Ada",
+            "Ampere", "Volta", "Maxwell" for NVIDIA; "RDNA3", "CDNA3"
+            for AMD). This is the vendor marketing name for the GPU
+            microarchitecture, not the host CPU ISA or a
+            compute-capability version string.
+        features:
+          type: array
+          description: >-
+            Vendor-specific GPU capability identifiers sourced from the
+            hardware map. Values are lowercase tokens describing
+            supported compute or display features (e.g., "cuda", "rocm",
+            "opencl", "sriov", "mig"). The vocabulary is extensible and
+            determined by the hardware map; no fixed enum is enforced.
+          items:
+            type: string
+    DeviceKvm:
+      type: object
+      description: KVM virtualization information reported by the device.
+      properties:
+        enabled:
+          type: boolean
+          description: >-
+            Whether KVM virtualization is active and available on the
+            device.
     CustomDeviceInfo:
       type: object
       description: User-defined information about the device.
@@ -7785,7 +7861,17 @@ components:
       description: Capabilities reported by the device agent.
       properties:
         osMode:
-          $ref: '#/components/schemas/OsModeType'
+          allOf:
+            - $ref: '#/components/schemas/OsModeType'
+          deprecated: true
+          x-deprecated-reason: >-
+            Deprecated since v1.4 and will be removed in a future release. Use
+            status.systemInfo.osMode instead.
+          description: >-
+            Deprecated since v1.4 and will be removed in a future release.
+            Use status.systemInfo.osMode instead. The service reads
+            status.systemInfo.osMode and only falls back to this field for
+            devices reported by older agents that do not populate systemInfo.
       additionalProperties: false
     DeviceDeltaApplyStatus:
       type: object
@@ -7810,20 +7896,22 @@ components:
     DeviceDeltaApplyOutcomeType:
       type: string
       description: >-
-        Result reported by the agent for an update target. NotUsed means the
-        agent skipped delta application without a delta-apply failure; it may
-        still use a full image pull. Applied means all delta work for the target
-        succeeded. Fallback means a delta attempt failed and the agent attempted
-        a full image pull. Partial means an application applied at least one
-        delta while another image target used a full image pull or skipped delta
-        application.
+        Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed.
+        NotUsed means the agent skipped delta
+        application without a delta-apply failure; it may still use a full image
+        pull. Applied means all delta work for the target succeeded. Fallback
+        means a delta attempt failed and the agent attempted a full image pull.
+        Partial means an application applied at least one delta while another
+        image target used a full image pull or skipped delta application.
       enum:
         - NotUsed
+        - NotRequired
         - Applied
         - Fallback
         - Partial
       x-enum-varnames:
         - DeviceDeltaApplyOutcomeNotUsed
+        - DeviceDeltaApplyOutcomeNotRequired
         - DeviceDeltaApplyOutcomeApplied
         - DeviceDeltaApplyOutcomeFallback
         - DeviceDeltaApplyOutcomePartial
@@ -8683,7 +8771,7 @@ components:
           $ref: '#/components/schemas/DevicesSummaryCapabilities'
     DevicesSummaryCapabilities:
       type: object
-      description: Breakdowns of devices by status.capabilities fields.
+      description: Breakdowns of devices by status.systemInfo fields, falling back to the deprecated status.capabilities fields when unavailable.
       properties:
         osMode:
           type: object
@@ -8691,7 +8779,7 @@ components:
           additionalProperties:
             type: integer
             format: int64
-          description: Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+          description: Counts by device OS mode (e.g. image, package), taken from status.systemInfo.osMode with fallback to the deprecated status.capabilities.osMode. The key "unknown" counts devices that have not reported an OS mode.
       additionalProperties: false
     TemplateVersion:
       type: object
@@ -9063,6 +9151,7 @@ components:
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
+      - 'LabelsSynced'          # Device (service condition)
       - 'DeviceDecommissioning' # Device
       - 'FleetDeltaPreparing'   # Fleet
       - 'DeviceDeltaPreparing'  # Device
@@ -9084,6 +9173,7 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
+      - DeviceLabelsSynced
       - DeviceDecommissioning
       - FleetDeltaPreparing
       - DeviceDeltaPreparing

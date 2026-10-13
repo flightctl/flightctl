@@ -122,9 +122,11 @@ var _ = Describe("Periodic", func() {
 		resourceSyncExecutor     *mockPeriodicTaskExecutor
 		cancel                   context.CancelFunc
 		channelManager           *periodic.ChannelManager
+		workers                  *errgroup.Group
 	)
 
 	BeforeEach(func() {
+		workers = nil
 		baseCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 		baseCtx = context.WithValue(baseCtx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 		baseCtx = context.WithValue(baseCtx, consts.EventActorCtxKey, "service:flightctl-periodic")
@@ -189,9 +191,29 @@ var _ = Describe("Periodic", func() {
 	})
 
 	AfterEach(func() {
+		if cancel != nil {
+			cancel()
+		}
+
+		// Wait for workers but capture the result without aborting teardown on timeout
+		var workerErr error
+		workerTimedOut := false
+		if workers != nil {
+			workerResult := make(chan error, 1)
+			go func(group *errgroup.Group) {
+				workerResult <- group.Wait()
+			}(workers)
+			select {
+			case workerErr = <-workerResult:
+			case <-time.After(30 * time.Second):
+				workerTimedOut = true
+			}
+		}
+
 		// Stop queues provider
 		if queuesProvider != nil {
 			queuesProvider.Stop()
+			queuesProvider.Wait()
 		}
 
 		// Close kvStore (no need to DeleteAllKeys - ephemeral container handles cleanup)
@@ -200,22 +222,25 @@ var _ = Describe("Periodic", func() {
 		}
 
 		// Clean up database
-		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancelCleanup()
+		Expect(testdb.DeleteTestDB(cleanupCtx, log, cfg, db, dbName)).To(Succeed())
 
 		// Clean up channel manager
 		if channelManager != nil {
 			channelManager.Close()
 		}
 
-		if cancel != nil {
-			cancel()
-		}
+		// Assert worker shutdown after all cleanup is done
+		Expect(workerTimedOut).To(BeFalse(), "timed out waiting for workers to finish")
+		Expect(workerErr).ToNot(HaveOccurred(), "workers returned an error")
 	})
 
 	When("running periodic tasks", func() {
 		It("runs tasks on configured intervals", func() {
 			// Start consumer and publisher together
 			eg, egCtx := errgroup.WithContext(ctx)
+			workers = eg
 
 			periodicTaskConsumer, err := periodic.NewPeriodicTaskConsumer(consumerConfig)
 			Expect(err).ToNot(HaveOccurred())
@@ -251,6 +276,7 @@ var _ = Describe("Periodic", func() {
 
 			// Start consumer and publisher together
 			eg, egCtx := errgroup.WithContext(ctx)
+			workers = eg
 
 			periodicTaskConsumer, err := periodic.NewPeriodicTaskConsumer(consumerConfig)
 			Expect(err).ToNot(HaveOccurred())

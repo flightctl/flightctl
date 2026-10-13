@@ -9,7 +9,19 @@ package manifest
 
 // CurrentSchemaVersion identifies the manifest format.  Increment when the
 // schema changes in a backward-incompatible way.
-const CurrentSchemaVersion = "1"
+//
+// Version 2 added Variant.OptionalImages.  A version 1 manifest supplied via
+// MIRROR_MANIFEST is rejected rather than silently mirrored without its
+// optional groups, so an operator never ends up with a bundle that is missing
+// images they asked for.
+const CurrentSchemaVersion = "2"
+
+// OptionalGroupCatalogCollector is the opt-in group holding the catalog
+// collector image.  The collector is an add-on: most deployments never
+// install flightctl-catalog-collector, and mirroring its image by default
+// would add weight to every air-gapped bundle for a component that is not
+// going to be run.
+const OptionalGroupCatalogCollector = "catalog-collector"
 
 // Build is the top-level manifest structure embedded in the binary.
 type Build struct {
@@ -26,8 +38,16 @@ type Build struct {
 
 // Variant holds the pre-resolved image and RPM data for one chart variant.
 type Variant struct {
-	// Images is the deduplicated, sorted list of images for this variant.
+	// Images is the deduplicated, sorted list of images mirrored by default
+	// for this variant.
 	Images []Image `json:"images"`
+
+	// OptionalImages holds image groups that are mirrored only when the
+	// caller opts in with --include-optional.  Each key is a group name (see
+	// OptionalGroupCatalogCollector); the values are resolved exactly like
+	// Images.  Groups exist for add-on components that most installations do
+	// not deploy, so their images do not inflate every bundle.
+	OptionalImages map[string][]Image `json:"optional_images,omitempty"`
 
 	// RPMs is the sorted list of runtime RPM package names parsed from flightctl.spec.
 	RPMs []string `json:"rpms"`

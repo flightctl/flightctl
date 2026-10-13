@@ -14,17 +14,31 @@ import (
 )
 
 func GetTopLevelDir() string {
-	pwd := os.Getenv("PWD")
-	// split path parts
-	parts := strings.Split(pwd, "/")
-	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i] == "test" {
-			path := strings.Join(parts[:i], "/")
-			return path
+	dir := os.Getenv("PWD")
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			Fail(fmt.Sprintf("Could not determine current directory: %v", err))
+			return ""
 		}
 	}
-	Fail("Could not find top-level directory")
-	return ""
+	for {
+		_, err := os.Stat(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			return dir
+		}
+		if !os.IsNotExist(err) {
+			Fail(fmt.Sprintf("Could not stat go.mod in %q: %v", dir, err))
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			Fail("Could not find top-level directory")
+			return ""
+		}
+		dir = parent
+	}
 }
 
 func GetScriptPath(script string) string {

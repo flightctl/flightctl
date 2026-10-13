@@ -121,14 +121,18 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
 	defer c.Stop()
 
 	// Build imagebuilder client (may be nil if not configured)
 	var ibClient *client.ImageBuilderClient
 	ibClient, _ = o.BuildImageBuilderClient() // Ignore error; we'll check per-resource
 	if ibClient != nil {
-		ibClient.Start(ctx)
+		if err := ibClient.Start(ctx); err != nil {
+			return err
+		}
 		defer ibClient.Stop()
 	}
 
@@ -313,6 +317,16 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 	case AuthProviderKind:
 		response, err := c.ReplaceAuthProviderWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case LabelSyncMappingKind:
+		createResp, err := c.CreateLabelSyncMappingWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+		if err != nil {
+			return applyResult{err: err}
+		}
+		if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict {
+			replaceResp, err := c.ReplaceLabelSyncMappingWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+			return extractApplyResult(replaceResp, err)
+		}
+		return extractApplyResult(createResp, err)
 	case EnrollmentHookPolicyKind:
 		createResp, err := c.CreateEnrollmentHookPolicyWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		if err != nil {
@@ -389,6 +403,10 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	case *apiclient.ReplaceCertificateSigningRequestResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceAuthProviderResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.CreateLabelSyncMappingResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.ReplaceLabelSyncMappingResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.CreateEnrollmentHookPolicyResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)

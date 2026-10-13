@@ -87,6 +87,10 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 7. Report status and alerts
 
+Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
+
+The agent caches image-backed volume digests across unchanged reconciliations and status reports. Installing, updating, or removing an application invalidates the cache before provider changes and after runtime actions, including failed actions. Changed volume references are inspected independently, and references no longer reported are removed from the cache. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report. Volume inspection runs without holding the cache lock, allowing application updates to proceed. If an update invalidates the cache during inspection, that inspection does not repopulate the cache.
+
 ## Update Policy
 
 * **Maintenance windows**: Independently define windows for download, update, and install operations
@@ -100,6 +104,10 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 ## Status Reporting
 
 The agent continuously reports device health, application state, and resource conditions to the management service. Built-in collectors capture system info (hostname, OS, hardware, network) while user-defined custom collectors enable site-specific data. This powers fleet-wide visibility, rollout decisions, and alerting.
+
+The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
+
+If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.
 
 ## Ansible Collection
 

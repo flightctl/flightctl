@@ -1,0 +1,61 @@
+[Unit]
+Description=Flight Control catalog collector
+Documentation=https://github.com/flightctl/flightctl
+# The collector is an optional add-on with no default pipeline: a source and a
+# destination have to be chosen by an administrator. Until a configuration
+# exists the unit stays inactive instead of crash-looping on
+# "error: --config is required". Copy one of the examples in
+# /usr/share/flightctl/flightctl-catalog-collector/examples to the path below,
+# then "systemctl start flightctl-catalog-collector".
+ConditionPathExists=/etc/flightctl/flightctl-catalog-collector/config.yaml
+After=network-online.target
+Wants=network-online.target
+# Bounded restarts. A configuration the collector rejects (malformed YAML, an
+# unknown component type, an unreadable token file) fails identically on every
+# attempt, so an unbounded Restart=always would retry forever and bury the
+# real error in the journal. Five failures within five minutes put the unit
+# into "failed", where "systemctl status flightctl-catalog-collector" shows
+# the cause. After fixing the configuration, clear the latch with
+# "systemctl reset-failed flightctl-catalog-collector" and start it again.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Container]
+ContainerName=flightctl-catalog-collector
+# Replaced at RPM build time with the dist-qualified, version-pinned image.
+Image=@CATALOG_COLLECTOR_IMAGE@
+Pull=missing
+AddHost=%H:host-gateway
+# Configuration, credential files, and CA bundles all live under
+# /etc/flightctl/flightctl-catalog-collector on the host, and are mounted
+# read-only at /etc/flightctl/catalog-collector inside the container.
+#
+# Paths written *inside* config.yaml (tokenFile, certificateAuthority, and so
+# on) must use the container path, not the host path.
+#
+# The image runs as uid 1001, gid 0, so credential files have to be readable
+# by gid 0: "chown root:root" plus "chmod 0640" is sufficient and keeps them
+# unreadable by every other account. See the README for the full recipe.
+Volume=/etc/flightctl/flightctl-catalog-collector:/etc/flightctl/catalog-collector:ro,z
+Exec=--config /etc/flightctl/catalog-collector/config.yaml
+# Health (/livez, /readyz) and Prometheus metrics (/metrics). Published on
+# loopback only: neither endpoint is authenticated. The collector
+# configuration must bind both to 0.0.0.0 for the published ports to reach
+# them from outside the container.
+#
+# Ports belonging to a source (for example the HTTP snapshot listener on 8080)
+# are deliberately not published here, because most pipelines poll an upstream
+# registry and have no inbound listener at all. Publish them with a drop-in;
+# examples/vanilla-publish-8080.conf does exactly that for the vanilla example.
+PublishPort=127.0.0.1:13133:13133
+PublishPort=127.0.0.1:8888:8888
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

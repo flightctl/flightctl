@@ -310,6 +310,22 @@ func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKe
 	return s.saveLocked()
 }
 
+// ClearApplicationResult invalidates an outcome when the active target's content changes.
+// Invalidations for superseded specs or targets are ignored.
+func (s *Store) ClearApplicationResult(application, specKey, targetID, targetKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.state.Applications[application]
+	if current == nil || specKey == "" || current.SpecKey != specKey || targetKey == "" || current.Targets[targetID] != targetKey {
+		return nil
+	}
+	if _, exists := current.Results[targetID]; !exists {
+		return nil
+	}
+	delete(current.Results, targetID)
+	return s.saveLocked()
+}
+
 func (s *Store) saveLocked() error {
 	data, err := json.Marshal(s.state)
 	if err != nil {

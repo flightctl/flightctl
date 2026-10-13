@@ -1,0 +1,24 @@
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+.vscode/
+# examples/ is deliberately NOT excluded. The chart has no default pipeline,
+# so its "config.content or config.existingName must be set" failure and the
+# README both tell the operator to start from examples/values-vanilla.yaml.
+# Stripping the directory made that instruction a dead end for anyone who
+# reached the chart through "helm pull" rather than through a git checkout.
+# The two files are a few kilobytes.
+#
+# The lint values and the render tests are CI inputs rather than operator
+# documentation, and the chart templates are generated from the .gotmpl
+# sources in the repository, so those do stay out of the package.
+lint-values.yaml
+tests/
+*.gotmpl

@@ -20,3 +20,5 @@ database:
   port: 5432
   name: flightctl
 {{- end}}
+organizations:
+  initialLabelSyncMappingsFile: /etc/flightctl/label-sync/mappings.yaml

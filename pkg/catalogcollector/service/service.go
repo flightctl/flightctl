@@ -39,6 +39,11 @@ type runningExtension struct {
 	extension catalogcollector.Extension
 }
 
+type runningDestination struct {
+	id          catalogcollector.ComponentID
+	destination catalogcollector.Destination
+}
+
 // serviceHost implements [catalogcollector.Host].
 //
 // Extensions are constructed and registered sequentially during New.
@@ -99,6 +104,9 @@ func (c *destinationConsumer) Consume(
 	ctx context.Context,
 	snapshot *catalogcollector.CatalogSnapshot,
 ) error {
+	if err := catalogcollector.ValidateSnapshot(snapshot); err != nil {
+		return fmt.Errorf("snapshot validation failed: %w", err)
+	}
 	return c.destination.Reconcile(ctx, c.pipelineID, snapshot)
 }
 
@@ -148,11 +156,12 @@ func (f *fanoutConsumer) Consume(
 // Service holds the configured source and extension instances and supervises
 // their execution.
 type Service struct {
-	sources    []runningSource
-	extensions []runningExtension
-	host       *serviceHost
-	log        *logrus.Logger
-	metrics    *metricsRuntime
+	sources      []runningSource
+	destinations []runningDestination
+	extensions   []runningExtension
+	host         *serviceHost
+	log          *logrus.Logger
+	metrics      *metricsRuntime
 }
 
 type factoryMaps struct {
@@ -273,11 +282,16 @@ func New(
 
 	pipelineNames := sortedKeys(cfg.Pipelines)
 
-	destinations := make(map[string]catalogcollector.Destination)
+	destinationsByKey := make(map[string]catalogcollector.Destination)
+	destinations := make([]runningDestination, 0, len(cfg.Destinations))
 	branchesBySource := make(map[string][]pipelineBranch)
+	sourceKeys := make([]string, 0, len(cfg.Sources))
 	processorInstanceCount := 0
 
 	// Phase 1: Build the consumer branch for every pipeline.
+	//
+	// Pipelines are iterated in sorted order, so the destinations and source
+	// keys collected here are in deterministic first-encounter order.
 	for _, pipelineID := range pipelineNames {
 		pipelineConfig := cfg.Pipelines[pipelineID]
 
@@ -295,7 +309,7 @@ func New(
 		}
 
 		// Resolve or construct the shared destination.
-		destination, ok := destinations[pipelineConfig.Destination]
+		destination, ok := destinationsByKey[pipelineConfig.Destination]
 		if !ok {
 			destinationConfig := cfg.Destinations[pipelineConfig.Destination]
 			destinationFactory, factoryExists := fm.destinations[destinationConfig.ID.Type]
@@ -341,7 +355,14 @@ func New(
 				)
 			}
 
-			destinations[pipelineConfig.Destination] = destination
+			destinationsByKey[pipelineConfig.Destination] = destination
+
+			// First encounter of this destination: record the single
+			// instance for preflight.
+			destinations = append(destinations, runningDestination{
+				id:          destinationConfig.ID,
+				destination: destination,
+			})
 		}
 
 		// Bind this pipeline ID to the shared destination. Processors remain
@@ -430,6 +451,9 @@ func New(
 
 		// next is now the head consumer for this pipeline: either its first
 		// processor or its destination when no processors are configured.
+		if _, seen := branchesBySource[pipelineConfig.Source]; !seen {
+			sourceKeys = append(sourceKeys, pipelineConfig.Source)
+		}
 		branchesBySource[pipelineConfig.Source] = append(
 			branchesBySource[pipelineConfig.Source],
 			pipelineBranch{
@@ -441,8 +465,8 @@ func New(
 
 	// Phase 2: Construct every referenced source exactly once.
 	//
-	// Sorting provides deterministic construction and startup order.
-	sourceKeys := sortedKeys(branchesBySource)
+	// Sources follow the first-encounter order recorded above, which provides
+	// deterministic construction and startup order.
 	sources := make([]runningSource, 0, len(sourceKeys))
 
 	for _, sourceKey := range sourceKeys {
@@ -507,11 +531,12 @@ func New(
 	}).Info("pipeline graph built successfully")
 
 	result := &Service{
-		sources:    sources,
-		extensions: extensions,
-		host:       host,
-		log:        settings.Logger,
-		metrics:    metricsRT,
+		sources:      sources,
+		destinations: destinations,
+		extensions:   extensions,
+		host:         host,
+		log:          settings.Logger,
+		metrics:      metricsRT,
 	}
 	metricsOwned = false
 	return result, nil
@@ -592,6 +617,22 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// Discover extensions that participate in the readiness lifecycle.
 	readinessExtensions := s.discoverReadiness(s.extensions)
+
+	// Preflight: discover and invoke destinations implementing
+	// DestinationPreflight and sources implementing SourcePreflight.
+	if err := s.runPreflights(ctx); err != nil {
+		// Caller cancellation during preflight is graceful shutdown.
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			err = nil
+		}
+
+		for _, readiness := range readinessExtensions {
+			readiness.NotReady()
+		}
+		shutdownErr := s.shutdownExtensions(ctx, s.extensions)
+		metricsErr := finishMetrics()
+		return errors.Join(err, shutdownErr, metricsErr)
+	}
 
 	runContext, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
@@ -738,6 +779,54 @@ func (s *Service) discoverReadiness(
 	}
 
 	return result
+}
+
+// runPreflights discovers sources implementing SourcePreflight and
+// destinations implementing DestinationPreflight, and calls their Preflight
+// method once, in deterministic order.
+//
+// New constructs each configured source exactly once per source ID and hands
+// the single instance one fan-out consumer covering every pipeline that
+// references it, so s.sources already holds unique IDs. A source shared by
+// several pipelines is therefore preflighted exactly once without a second
+// deduplication pass here. The same holds for destinations: New constructs one
+// instance per configured destination ID and binds each pipeline branch to it
+// through a terminal destinationConsumer, so s.destinations also holds unique
+// IDs.
+//
+// Destinations are preflighted before sources so that an unreachable or
+// unauthorized write target is reported before any source is contacted. The
+// first failure aborts the sequence; no source Run goroutine is launched and
+// no readiness extension is marked ready.
+func (s *Service) runPreflights(ctx context.Context) error {
+	for _, rd := range s.destinations {
+		pf, ok := rd.destination.(catalogcollector.DestinationPreflight)
+		if !ok {
+			continue
+		}
+
+		s.log.WithField("destination_id", rd.id.String()).
+			Info("running destination preflight")
+		if err := pf.Preflight(ctx); err != nil {
+			return fmt.Errorf("destination %q preflight failed: %w", rd.id, err)
+		}
+		s.log.WithField("destination_id", rd.id.String()).
+			Info("destination preflight succeeded")
+	}
+
+	for _, rs := range s.sources {
+		pf, ok := rs.source.(catalogcollector.SourcePreflight)
+		if !ok {
+			continue
+		}
+
+		s.log.WithField("source_id", rs.id.String()).Info("running source preflight")
+		if err := pf.Preflight(ctx); err != nil {
+			return fmt.Errorf("source %q preflight failed: %w", rs.id, err)
+		}
+		s.log.WithField("source_id", rs.id.String()).Info("source preflight succeeded")
+	}
+	return nil
 }
 
 // shutdownExtensions shuts down the given extensions in reverse order.

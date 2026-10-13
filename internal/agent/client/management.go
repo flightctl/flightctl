@@ -57,6 +57,9 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		if resp.JSON400 != nil && resp.JSON400.Message != "" {
+			return fmt.Errorf("update device status failed: %s: %s", resp.Status(), resp.JSON400.Message)
+		}
 		return fmt.Errorf("update device status failed: %s", resp.Status())
 	}
 

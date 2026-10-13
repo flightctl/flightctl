@@ -4,6 +4,8 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -39,6 +41,12 @@ const (
 	CatalogItemTypeHelm      CatalogItemType = "helm"
 	CatalogItemTypeOS        CatalogItemType = "os"
 	CatalogItemTypeQuadlet   CatalogItemType = "quadlet"
+)
+
+// Defines values for DeviceFeatureBoolean.
+const (
+	DeviceFeatureBooleanFalse DeviceFeatureBoolean = "false"
+	DeviceFeatureBooleanTrue  DeviceFeatureBoolean = "true"
 )
 
 // Defines values for VulnerabilitySeverity.
@@ -383,6 +391,9 @@ type CatalogItemVersion struct {
 	// Deprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 	Deprecation *CatalogItemDeprecation `json:"deprecation,omitempty"`
 
+	// DeviceFeatures Device feature requirements that a target device must satisfy for this version to be considered compatible.
+	DeviceFeatures *DeviceFeatures `json:"deviceFeatures,omitempty"`
+
 	// Readme Detailed documentation, preferably in markdown format.
 	Readme *string `json:"readme,omitempty"`
 
@@ -487,6 +498,22 @@ type DeviceCountsBySeverity struct {
 
 	// Unknown Number of devices whose highest severity finding is unknown.
 	Unknown int64 `json:"unknown"`
+}
+
+// DeviceFeatureBoolean Value of a boolean device feature requirement, expressed as the string "true" or "false".
+type DeviceFeatureBoolean string
+
+// DeviceFeatures Device feature requirements declared by a catalog item version. Each field names a device feature that a target device must provide with a matching value for this version to be considered compatible.
+type DeviceFeatures struct {
+	// GpuPresent Whether the target device is required to have a GPU present.
+	GpuPresent *DeviceFeatureBoolean `json:"gpu.present,omitempty"`
+
+	// KvmEnabled Whether the target device is required to have KVM enabled.
+	KvmEnabled *DeviceFeatureBoolean `json:"kvm.enabled,omitempty"`
+
+	// OsMode The OS management mode the target device is required to run.
+	OsMode               *externalRef0.OsModeType `json:"os.mode,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // DeviceVulnerabilitySummaryResponse Severity summary for a single device.
@@ -998,3 +1025,101 @@ type PatchCatalogStatusApplicationJSONPatchPlusJSONRequestBody = externalRef0.Pa
 
 // ReplaceCatalogStatusJSONRequestBody defines body for ReplaceCatalogStatus for application/json ContentType.
 type ReplaceCatalogStatusJSONRequestBody = Catalog
+
+// Getter for additional properties for DeviceFeatures. Returns the specified
+// element and whether it was found
+func (a DeviceFeatures) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DeviceFeatures
+func (a *DeviceFeatures) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DeviceFeatures to handle AdditionalProperties
+func (a *DeviceFeatures) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["gpu.present"]; found {
+		err = json.Unmarshal(raw, &a.GpuPresent)
+		if err != nil {
+			return fmt.Errorf("error reading 'gpu.present': %w", err)
+		}
+		delete(object, "gpu.present")
+	}
+
+	if raw, found := object["kvm.enabled"]; found {
+		err = json.Unmarshal(raw, &a.KvmEnabled)
+		if err != nil {
+			return fmt.Errorf("error reading 'kvm.enabled': %w", err)
+		}
+		delete(object, "kvm.enabled")
+	}
+
+	if raw, found := object["os.mode"]; found {
+		err = json.Unmarshal(raw, &a.OsMode)
+		if err != nil {
+			return fmt.Errorf("error reading 'os.mode': %w", err)
+		}
+		delete(object, "os.mode")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DeviceFeatures to handle AdditionalProperties
+func (a DeviceFeatures) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.GpuPresent != nil {
+		object["gpu.present"], err = json.Marshal(a.GpuPresent)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'gpu.present': %w", err)
+		}
+	}
+
+	if a.KvmEnabled != nil {
+		object["kvm.enabled"], err = json.Marshal(a.KvmEnabled)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'kvm.enabled': %w", err)
+		}
+	}
+
+	if a.OsMode != nil {
+		object["os.mode"], err = json.Marshal(a.OsMode)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'os.mode': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}

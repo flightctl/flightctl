@@ -16,7 +16,7 @@ env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
   SUPPORTED_OS: "el9 el10"
-  SUPPORTED_IMAGES: "api pam-issuer periodic worker delta-worker cli-artifacts alert-exporter alertmanager-proxy userinfo-proxy db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access"
+  SUPPORTED_IMAGES: "api pam-issuer periodic worker delta-worker cli-artifacts alert-exporter alertmanager-proxy userinfo-proxy db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access catalog-collector"
   SUPPORTED_ARCHES: "amd64 arm64"
 
 jobs:
@@ -119,6 +119,12 @@ jobs:
               --version "${HELM_TAG}" \
               --app-version "${HELM_TAG}"
 
+          # The catalog collector ships as an independent chart so it can be
+          # installed on its own, without the Flight Control service.
+          helm package ./deploy/helm/flightctl-catalog-collector \
+              --version "${HELM_TAG}" \
+              --app-version "${HELM_TAG}"
+
       - name: Login helm
         env:
           PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
@@ -131,6 +137,7 @@ jobs:
           HELM_TAG: ${{ needs.generate-tags.outputs.helm_tag }}
         run: |
           helm push "flightctl-${HELM_TAG}.tgz" oci://${QUAY_CHARTS}/
+          helm push "flightctl-catalog-collector-${HELM_TAG}.tgz" oci://${QUAY_CHARTS}/
 
   publish-flightctl-containers:
     strategy:

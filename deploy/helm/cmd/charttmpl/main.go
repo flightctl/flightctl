@@ -33,13 +33,42 @@ type templateContext struct {
 	Images      map[string]image `yaml:"images"`
 }
 
-const (
-	chartTmplPath  = "flightctl/Chart.yaml.gotmpl"
-	chartOutPath   = "flightctl/Chart.yaml"
-	valuesTmplPath = "flightctl/values.yaml.gotmpl"
-	valuesOutPath  = "flightctl/values.yaml"
-	optsPath       = "helm-chart-opts.yaml"
-)
+// chart is one chart rendered from helm-chart-opts.yaml.
+//
+// profilePrefix selects the chart's family of profile keys. The main chart
+// uses the bare "<edition>-<os>" keys; every other chart prefixes them, which
+// also keeps the extra keys out of scripts/air-gap/generate-embed — that tool
+// resolves exactly the four unprefixed variant names, so a prefixed profile's
+// images never join the default air-gap bundle.
+type chart struct {
+	profilePrefix string
+	chartTmpl     string
+	chartOut      string
+	valuesTmpl    string
+	valuesOut     string
+}
+
+const optsPath = "helm-chart-opts.yaml"
+
+// charts lists every chart generated from helm-chart-opts.yaml. A chart that
+// is not here ships whatever its committed Chart.yaml and values.yaml say,
+// which for a downstream rebuild means a chart still naming quay.io.
+var charts = []chart{
+	{
+		profilePrefix: "",
+		chartTmpl:     "flightctl/Chart.yaml.gotmpl",
+		chartOut:      "flightctl/Chart.yaml",
+		valuesTmpl:    "flightctl/values.yaml.gotmpl",
+		valuesOut:     "flightctl/values.yaml",
+	},
+	{
+		profilePrefix: "catalog-collector-",
+		chartTmpl:     "flightctl-catalog-collector/Chart.yaml.gotmpl",
+		chartOut:      "flightctl-catalog-collector/Chart.yaml",
+		valuesTmpl:    "flightctl-catalog-collector/values.yaml.gotmpl",
+		valuesOut:     "flightctl-catalog-collector/values.yaml",
+	},
+}
 
 func runTemplate(in string, out string, templateData templateContext) error {
 	tplBytes, err := os.ReadFile(in)
@@ -62,6 +91,33 @@ func runTemplate(in string, out string, templateData templateContext) error {
 		return fmt.Errorf("executing template %s: %w", out, err)
 	}
 	return nil
+}
+
+// selectProfile returns the profile for one chart, falling back to that
+// chart's community-el9 profile when the requested one is absent.
+func selectProfile(profiles map[string]templateContext, prefix, profileKey string) (templateContext, error) {
+	if ctx, ok := profiles[prefix+profileKey]; ok {
+		return ctx, nil
+	}
+	fallback := prefix + "community-el9"
+	if ctx, ok := profiles[fallback]; ok {
+		return ctx, nil
+	}
+	return templateContext{}, fmt.Errorf("neither profile key %q nor fallback %q found in %s",
+		prefix+profileKey, fallback, optsPath)
+}
+
+// qualifyImages appends the OS suffix to flightctl images that do not already
+// carry one. All builds now have OS-qualified image names in
+// helm-chart-opts.yaml, so this is a no-op for them.
+func qualifyImages(templateData templateContext, osVersion string) {
+	for name, img := range templateData.Images {
+		if strings.Contains(img.Image, "flightctl/flightctl-") && !strings.HasSuffix(img.Image, "-"+osVersion) {
+			// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-el9 or el10
+			img.Image = img.Image + "-" + osVersion
+			templateData.Images[name] = img
+		}
+	}
 }
 
 func main() {
@@ -88,33 +144,19 @@ func main() {
 	if err := yaml.Unmarshal(optsBytes, &profiles); err != nil {
 		log.Fatalf("parsing opts %s: %v", optsPath, err)
 	}
-	// Try OS-specific profile first, fallback to community-el9 profile
-	templateData, ok := profiles[profileKey]
-	if !ok {
-		// Fallback to community-el9 profile
-		templateData, ok = profiles["community-el9"]
-		if !ok {
-			log.Fatalf("neither profile key %q nor fallback %q found in %s", profileKey, "community-el9", optsPath)
+
+	for _, c := range charts {
+		templateData, err := selectProfile(profiles, c.profilePrefix, profileKey)
+		if err != nil {
+			log.Fatalf("%v", err)
 		}
-	}
+		qualifyImages(templateData, osVersion)
 
-	// Transform image names to include OS suffix for flightctl images (only if not already qualified)
-	// All builds now have OS-qualified image names in helm-chart-opts.yaml
-	for name, img := range templateData.Images {
-		if strings.Contains(img.Image, "flightctl/flightctl-") && !strings.HasSuffix(img.Image, "-"+osVersion) {
-			// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-el9 or el10
-			img.Image = img.Image + "-" + osVersion
-			templateData.Images[name] = img
+		if err := runTemplate(c.chartTmpl, c.chartOut, templateData); err != nil {
+			log.Fatalf("rendering %s: %v", c.chartOut, err)
 		}
-	}
-
-	// Render Chart.yaml
-	if err := runTemplate(chartTmplPath, chartOutPath, templateData); err != nil {
-		log.Fatalf("rendering Chart.yaml: %v", err)
-	}
-
-	// Render values.yaml
-	if err := runTemplate(valuesTmplPath, valuesOutPath, templateData); err != nil {
-		log.Fatalf("rendering values.yaml: %v", err)
+		if err := runTemplate(c.valuesTmpl, c.valuesOut, templateData); err != nil {
+			log.Fatalf("rendering %s: %v", c.valuesOut, err)
+		}
 	}
 }

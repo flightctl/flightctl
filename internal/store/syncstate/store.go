@@ -81,6 +81,8 @@ func (s *SyncStateStore) SetLastCheckedAt(ctx context.Context, orgID uuid.UUID, 
 }
 
 // BulkUpsert inserts or updates multiple sync state rows in a single batch.
+// Failed probes update their status while preserving the existing fingerprint
+// and last change time atomically.
 func (s *SyncStateStore) BulkUpsert(ctx context.Context, orgID uuid.UUID, states []model.SyncState) error {
 	if len(states) == 0 {
 		return nil
@@ -89,8 +91,14 @@ func (s *SyncStateStore) BulkUpsert(ctx context.Context, orgID uuid.UUID, states
 		states[i].OrgID = orgID
 	}
 	return s.getDB(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}},
-		UpdateAll: true,
+		Columns: []clause.Column{{Name: "org_id"}, {Name: "resource_key"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"fingerprint":     gorm.Expr("CASE WHEN EXCLUDED.probe_status = ? THEN sync_states.fingerprint ELSE EXCLUDED.fingerprint END", "ProbeFailed"),
+			"last_change_at":  gorm.Expr("CASE WHEN EXCLUDED.probe_status = ? THEN sync_states.last_change_at ELSE EXCLUDED.last_change_at END", "ProbeFailed"),
+			"last_checked_at": gorm.Expr("EXCLUDED.last_checked_at"),
+			"probe_status":    gorm.Expr("EXCLUDED.probe_status"),
+			"probe_message":   gorm.Expr("EXCLUDED.probe_message"),
+		}),
 	}).Create(&states).Error
 }
 

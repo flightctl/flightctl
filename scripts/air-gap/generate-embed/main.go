@@ -2,9 +2,10 @@
 //
 // It reads the seven source data files, fully resolves the per-variant image
 // and RPM lists (merging helm-chart-opts.yaml with per-variant images.yaml,
-// filtering observability-only images, deduplicating), and writes a Go source
-// file to stdout containing the resulting JSON-encoded manifest as a []byte
-// variable that is compiled into the binary.
+// filtering observability-only images, splitting out opt-in image groups,
+// deduplicating), and writes a Go source file to stdout containing the
+// resulting JSON-encoded manifest as a []byte variable that is compiled into
+// the binary.
 //
 // Usage (called by "make generate-mirror-embed"):
 //
@@ -70,6 +71,23 @@ var supportedVariants = []string{
 var observabilityOnlyImages = map[string]bool{
 	"grafana":    true,
 	"prometheus": true,
+}
+
+// optionalImageGroups maps an images.yaml key to the opt-in group that owns
+// it.  Images in a group are emitted under Variant.OptionalImages instead of
+// Variant.Images, so flightctl-mirror-images only mirrors them when the
+// caller passes --include-optional <group>.
+//
+// This differs from observabilityOnlyImages, which drops the image from the
+// manifest entirely and leaves the operator to construct the reference by
+// hand.  An optional group stays fully resolved in the manifest: the
+// operator opts in with a flag and gets the correct, version-matched
+// reference for free.
+var optionalImageGroups = map[string]string{
+	// The catalog collector ships as its own RPM sub-package and its own
+	// Helm chart. Most installations never deploy it, so adding its image to
+	// every air-gapped bundle would be weight nobody asked for.
+	"catalog-collector": pkgmanifest.OptionalGroupCatalogCollector,
 }
 
 // --------------------------------------------------------------------------
@@ -143,12 +161,14 @@ func main() {
 			warnf("variant %q not found in helm-chart-opts.yaml — skipping", variant)
 			continue
 		}
-		images := resolveImages(cv, obsDataFor(variant), variant)
+		images, optional := resolveImages(cv, obsDataFor(variant), variant)
 		m.Variants[variant] = pkgmanifest.Variant{
-			Images: images,
-			RPMs:   rpms,
+			Images:         images,
+			OptionalImages: optional,
+			RPMs:           rpms,
 		}
-		infof("%s: %d images, %d RPM packages", variant, len(images), len(rpms))
+		infof("%s: %d images, %d optional groups, %d RPM packages",
+			variant, len(images), len(optional), len(rpms))
 	}
 
 	// Marshal to pretty JSON
@@ -182,11 +202,22 @@ func main() {
 // --------------------------------------------------------------------------
 
 // resolveImages builds the deduplicated, sorted image list for one variant by
-// merging helm-chart-opts.yaml images with the variant-appropriate images.yaml.
-// Observability-only images are excluded from the default list.
-func resolveImages(cv chartVariant, obsData []byte, variant string) []pkgmanifest.Image {
+// merging helm-chart-opts.yaml images with the variant-appropriate
+// images.yaml.
+//
+// It returns the default list plus the opt-in groups.  Observability-only
+// images are excluded from both: they are mirrored by hand.  Images in an
+// optional group are moved out of the default list into the group, so the
+// default bundle stays the set of images a standard installation actually
+// runs.
+func resolveImages(
+	cv chartVariant,
+	obsData []byte,
+	variant string,
+) ([]pkgmanifest.Image, map[string][]pkgmanifest.Image) {
 	seen := make(map[string]bool)
 	var images []pkgmanifest.Image
+	optional := make(map[string][]pkgmanifest.Image)
 
 	// Helm chart images
 	for _, spec := range cv.Images {
@@ -221,6 +252,12 @@ func resolveImages(cv chartVariant, obsData []byte, variant string) []pkgmanifes
 				if !strings.Contains(variant, "rhem") && strings.HasPrefix(ref, "registry.redhat.io") {
 					warnf("%s: community variant references registry.redhat.io image %q — requires downstream registry access", variant, ref)
 				}
+				if group, isOptional := optionalImageGroups[key]; isOptional {
+					infof("%s: image %q is opt-in (group %q); mirror it with --include-optional %s",
+						variant, key, group, group)
+					optional[group] = append(optional[group], pkgmanifest.Image{Ref: ref, Tag: tag})
+					continue
+				}
 				if !seen[ref] {
 					seen[ref] = true
 					images = append(images, pkgmanifest.Image{Ref: ref, Tag: tag})
@@ -233,8 +270,19 @@ func resolveImages(cv chartVariant, obsData []byte, variant string) []pkgmanifes
 	sort.Slice(images, func(i, j int) bool {
 		return images[i].Ref < images[j].Ref
 	})
+	for group := range optional {
+		groupImages := optional[group]
+		sort.Slice(groupImages, func(i, j int) bool {
+			return groupImages[i].Ref < groupImages[j].Ref
+		})
+		optional[group] = groupImages
+	}
+	if len(optional) == 0 {
+		// Keep "omitempty" effective rather than emitting an empty object.
+		optional = nil
+	}
 
-	return images
+	return images, optional
 }
 
 // canonicalTag converts "latest" or "" to "" (use effectiveTag at runtime)

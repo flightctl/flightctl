@@ -13,6 +13,9 @@ delta-worker:
 alert-exporter:
   image: flightctl-alert-exporter-el10
   tag: latest
+catalog-collector:
+  image: flightctl-catalog-collector-el10
+  tag: latest
 cli-artifacts:
   image: flightctl-cli-artifacts-el10
   tag: latest

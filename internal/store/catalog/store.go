@@ -198,8 +198,8 @@ func (s *CatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams st
 	return catalogsCount, nil
 }
 
-func (s *CatalogStore) catalogItemLabelResolver() selector.Resolver {
-	resolver, err := selector.SelectorFieldResolver(&model.CatalogItem{})
+func (s *CatalogStore) catalogItemLabelResolver(orgId uuid.UUID) selector.Resolver {
+	resolver, err := selector.SelectorFieldResolver(&model.CatalogItem{OrgID: orgId})
 	if err != nil {
 		return selector.EmptyResolver{}
 	}
@@ -215,19 +215,27 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 
 	query := db.Model(&model.CatalogItem{}).Where("org_id = ?", orgId)
 
+	// Cache the parsed selector clauses so the remaining-items count query can
+	// reuse them instead of re-parsing (which would silently drop the filters
+	// if the second parse failed).
+	var fieldSelectorQuery, labelSelectorQuery string
+	var fieldSelectorArgs, labelSelectorArgs []any
+
 	if listParams.FieldSelector != nil {
-		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
+		fieldSelectorQuery, fieldSelectorArgs = q, p
 		query = query.Where(q, p...)
 	}
 
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
+		labelSelectorQuery, labelSelectorArgs = q, p
 		query = query.Where(q, p...)
 	}
 
@@ -257,12 +265,10 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 		} else {
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND (catalog_name, app_name) >= (?, ?)", orgId, lastItem.CatalogName, lastItem.AppName)
 			if listParams.FieldSelector != nil {
-				q, p, _ := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
-				countQuery = countQuery.Where(q, p...)
+				countQuery = countQuery.Where(fieldSelectorQuery, fieldSelectorArgs...)
 			}
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
-				countQuery = countQuery.Where(q, p...)
+				countQuery = countQuery.Where(labelSelectorQuery, labelSelectorArgs...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {
 				return nil, store.ErrorFromGormError(err)
@@ -295,12 +301,18 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 	// Build base query scoped to org and catalog
 	query := db.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ?", orgId, catalogName)
 
+	// Cache the parsed label selector clause so the remaining-items count query
+	// can reuse it instead of re-parsing.
+	var labelSelectorQuery string
+	var labelSelectorArgs []any
+
 	// Apply label selector if provided
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
+		labelSelectorQuery, labelSelectorArgs = q, p
 		query = query.Where(q, p...)
 	}
 
@@ -334,8 +346,7 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 			// Count remaining items
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ? AND app_name >= ?", orgId, catalogName, lastItem.AppName)
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
-				countQuery = countQuery.Where(q, p...)
+				countQuery = countQuery.Where(labelSelectorQuery, labelSelectorArgs...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {
 				return nil, store.ErrorFromGormError(err)

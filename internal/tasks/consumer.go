@@ -104,19 +104,24 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		var taskName string
 		errorMessages := []string{}
 
-		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
-			taskName = "fleetRollout"
-			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.DependencyrefSvc, log)
-			})
-			errorMessages = appendErrorMessage(errorMessages, taskName, err)
-		}
+		var ownershipErr error
 		if shouldReconcileDeviceOwnership(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetSelectorMatching"
-			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+			ownershipErr = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
 				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.FleetSvc, log)
 			})
-			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+			errorMessages = appendErrorMessage(errorMessages, taskName, ownershipErr)
+		}
+		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
+			if ownershipErr != nil {
+				log.WithError(ownershipErr).Warn("skipping fleet rollout because device ownership reconciliation failed")
+			} else {
+				taskName = "fleetRollout"
+				err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+					return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.DependencyrefSvc, log)
+				})
+				errorMessages = appendErrorMessage(errorMessages, taskName, err)
+			}
 		}
 		if shouldReconcileDeviceLabels(ctx, eventWithOrgId.Event) {
 			taskName = "deviceLabelReconciliation"

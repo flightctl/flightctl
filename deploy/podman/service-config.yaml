@@ -99,6 +99,18 @@ service:
     authWindow: 1h
     trustedProxies: []
 
+# Optional periodic task configuration. Uncomment to override task defaults.
+# periodic:
+#   tasks:
+#     labelMappingScan:
+#       schedule:
+#         interval: 2m
+#       pageSize: 1000
+#       timeBudget: 30s
+#     deltaPrepareDeadline:
+#       schedule:
+#         interval: 1m
+
 grafana:
   oauth:
     enabled:
@@ -219,13 +231,6 @@ prometheus:
 # Controls the global polling interval for git/HTTP dependency probes.
 # dependenciesSync:
 #   pollInterval: 15m
-
-# Periodic task schedule overrides (optional).
-# periodic:
-#   tasks:
-#     deltaPrepareDeadline:
-#       schedule:
-#         interval: 1m
 
 # Profiling (optional). Uncomment to enable loopback pprof and/or Pyroscope push
 # for long-running services that load this shared config. See

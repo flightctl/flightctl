@@ -65,6 +65,30 @@ type Readiness interface {
 	NotReady()
 }
 
+// SourcePreflight is an optional capability implemented by sources that need
+// to validate external dependencies before the service becomes ready.
+//
+// Sources implementing this interface have their Preflight method called once
+// during service startup, after extensions have started and before any source
+// Run goroutine is launched.
+type SourcePreflight interface {
+	Preflight(ctx context.Context) error
+}
+
+// DestinationPreflight is an optional capability implemented by destinations
+// that need to validate external dependencies before the service becomes
+// ready.
+//
+// Destinations implementing this interface have their Preflight method called
+// once during service startup, after extensions have started and before any
+// source Run goroutine is launched. A destination shared by several pipelines
+// is constructed once and is therefore preflighted exactly once.
+//
+// What a destination validates, and how, is up to that destination.
+type DestinationPreflight interface {
+	Preflight(ctx context.Context) error
+}
+
 // Host provides components and extensions with access to configured shared
 // extensions.
 //

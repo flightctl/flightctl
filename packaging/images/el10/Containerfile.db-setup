@@ -24,7 +24,6 @@ COPY ./deploy ./deploy
 COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
-COPY ./test ./test
 
 # Convert ARGs to ENV so make can use them
 ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}

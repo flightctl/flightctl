@@ -2,6 +2,7 @@ package labelsyncmapping
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,15 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			device:         testDevice("amd64", map[string]string{"site": "east coast"}),
 			expectedScalar: true,
 			expectedMap:    map[string]string{"site": "east-coast"},
+		},
+		{
+			name:       "When transformMapEntry rewrites systemInfo keys it should return valid namespaced label keys",
+			expression: `status.systemInfo.transformMapEntry(k, v, k in ["agentVersion", "architecture", "deltaEligible", "distroId", "distroVersion"], {"systeminfo.flightctl.io/" + k: v})`,
+			device:     testDevice("amd64", nil),
+			expectedMap: map[string]string{
+				"systeminfo.flightctl.io/agentVersion": "v1.3.0",
+				"systeminfo.flightctl.io/architecture": "amd64",
+			},
 		},
 		{
 			name:           "When evaluating a conditional it should return the matching branch",
@@ -213,15 +223,15 @@ func TestEvaluatorEvaluate(t *testing.T) {
 		},
 		{
 			name:        "When evaluating a map it should return complete keys and scalar values",
-			expression:  `{"custominfo/site": "east coast", "attempts": 42, "enabled": true, "empty": null}`,
+			expression:  `{"custominfo.flightctl.io/site": "east coast", "attempts": 42, "enabled": true, "empty": null}`,
 			device:      testDevice("amd64", nil),
-			expectedMap: map[string]string{"custominfo/site": "east-coast", "attempts": "42", "enabled": "true"},
+			expectedMap: map[string]string{"custominfo.flightctl.io/site": "east-coast", "attempts": "42", "enabled": "true"},
 		},
 		{
 			name:        "When transformMapEntry rewrites customInfo keys it should return the rewritten keys",
-			expression:  `(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null ? status.systemInfo.customInfo : {}).transformMapEntry(k, v, {"custominfo/" + k: v})`,
+			expression:  `(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null ? status.systemInfo.customInfo : {}).transformMapEntry(k, v, {"custominfo.flightctl.io/" + k: v})`,
 			device:      testDevice("amd64", map[string]string{"site": "east coast", "rack": "r2"}),
-			expectedMap: map[string]string{"custominfo/site": "east-coast", "custominfo/rack": "r2"},
+			expectedMap: map[string]string{"custominfo.flightctl.io/site": "east-coast", "custominfo.flightctl.io/rack": "r2"},
 		},
 		{
 			name:        "When a conditional selects a map it should return its entries",
@@ -580,6 +590,68 @@ func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MapResult{"site": "east"}, mapResult)
 	require.Len(t, evaluatorInterface.(*evaluator).programs, 1)
+}
+
+func TestEvaluatorEvaluatesSystemInfoMappingWithAllProperties(t *testing.T) {
+	allSystemInfo := map[string]string{
+		"architecture":        "amd64",
+		"hostname":            "edge-01",
+		"kernel":              "6.12.0",
+		"cpuCores":            "4",
+		"cpuProcessors":       "8",
+		"cpuModel":            "Example-CPU",
+		"gpu":                 "Example-GPU",
+		"memoryTotalKb":       "16384000",
+		"netInterfaceDefault": "eth0",
+		"netIpDefault":        "192.0.2.10",
+		"netMacDefault":       "02:00:00:00:00:01",
+		"biosVendor":          "Example-Vendor",
+		"biosVersion":         "1.0",
+		"productName":         "Example-Device",
+		"productUuid":         "123e4567-e89b-12d3-a456-426614174000",
+		"productSerial":       "serial-01",
+		"distroName":          "Example-Linux",
+		"distroVersion":       "1",
+		"distroId":            "example",
+	}
+	require.Len(t, allSystemInfo, 19)
+
+	keys := make([]string, 0, len(allSystemInfo))
+	additionalProperties := make(map[string]string, len(allSystemInfo)-1)
+	expected := make(map[string]string, len(allSystemInfo))
+	for key, value := range allSystemInfo {
+		keys = append(keys, key)
+		if key != "architecture" {
+			additionalProperties[key] = value
+		}
+		expectedValue := value
+		if key == "netMacDefault" {
+			expectedValue = "02-00-00-00-00-01"
+		}
+		expected["systeminfo.flightctl.io/"+key] = expectedValue
+	}
+	sort.Strings(keys)
+	quotedKeys := make([]string, len(keys))
+	for index, key := range keys {
+		quotedKeys[index] = fmt.Sprintf("%q", key)
+	}
+	expression := fmt.Sprintf(
+		`status.systemInfo.transformMapEntry(k, v, k in [%s], {"systeminfo.flightctl.io/" + k: v})`,
+		strings.Join(quotedKeys, ", "),
+	)
+
+	device := testDevice(allSystemInfo["architecture"], nil)
+	device.Status.SystemInfo.AgentVersion = "1.4.0"
+	device.Status.SystemInfo.BootID = "boot-id"
+	device.Status.SystemInfo.OperatingSystem = "Example-Linux 1"
+	device.Status.SystemInfo.AdditionalProperties = additionalProperties
+	activation := testActivation(t, device)
+
+	evaluator, err := NewEvaluator()
+	require.NoError(t, err)
+	result, err := evaluator.Evaluate(expression, activation)
+	require.NoError(t, err)
+	require.Equal(t, MapResult(expected), result)
 }
 
 func TestEvaluatorEnforcesCostLimit(t *testing.T) {

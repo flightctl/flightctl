@@ -1,0 +1,46 @@
+{{- include "flightctl-catalog-collector.validate" . -}}
+{{- if .Values.service.enabled }}
+{{- if not (include "flightctl-catalog-collector.serviceHasPorts" .) }}
+{{/*
+   Nothing to publish: metrics and health are both disabled and no extraPorts
+   were given. A Service with an empty ports list is rejected by the API
+   server, so skip it rather than emit an object that cannot be applied.
+*/}}
+{{- else }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flightctl-catalog-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl-catalog-collector.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "flightctl-catalog-collector.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.health.enabled }}
+    - name: health
+      port: {{ .Values.health.port }}
+      targetPort: health
+      protocol: TCP
+    {{- end }}
+    {{- range .Values.service.extraPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ default .port .targetPort }}
+      protocol: {{ default "TCP" .protocol }}
+    {{- end }}
+{{- end }}
+{{- end }}

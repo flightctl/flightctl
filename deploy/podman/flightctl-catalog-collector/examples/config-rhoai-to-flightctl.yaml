@@ -1,0 +1,132 @@
+# Red Hat OpenShift AI (RHOAI) Model Registry -> Flight Control.
+#
+# Pipeline: Kubeflow Model Registry source -> catalog name processor ->
+#           Flight Control destination.
+#
+# The RHOAI model registry exposes the Kubeflow Model Registry REST API. The
+# collector polls it, normalizes registered models and their versions into a
+# catalog snapshot, and reconciles that snapshot into a Flight Control catalog.
+#
+# Host and container paths differ. Everything under
+# /etc/flightctl/flightctl-catalog-collector on the host is mounted read-only
+# at /etc/flightctl/catalog-collector in the container, and every path written
+# below is a *container* path. The mapping is:
+#
+#   host                                                   container
+#   /etc/flightctl/flightctl-catalog-collector/<file>  ->  /etc/flightctl/catalog-collector/<file>
+#
+# Before using this file:
+#
+#   1. Replace every <...> placeholder.
+#   2. Create the credential files listed below on the host, under
+#      /etc/flightctl/flightctl-catalog-collector/. The container runs as
+#      uid 1001, gid 0, so they must be group-readable by gid 0:
+#
+#        sudo install -d -m 0750 -o root -g root \
+#            /etc/flightctl/flightctl-catalog-collector/credentials
+#        sudo install -m 0640 -o root -g root /dev/null \
+#            /etc/flightctl/flightctl-catalog-collector/credentials/model-registry-token
+#
+#      Mode 0600 does not work: it denies gid 0 and the collector fails to
+#      start with a permission error on the token file.
+#   3. Place the CA bundles that sign the two endpoints under
+#      /etc/flightctl/flightctl-catalog-collector/certs/ (mode 0644 is fine;
+#      they are not secret), or delete the certificateAuthority keys to use
+#      the system trust store.
+#
+# Credentials may also be injected as environment variables and referenced as
+# ${env:NAME} instead of being read from disk. Use systemd credentials or a
+# root-owned EnvironmentFile drop-in for that; never put them in the unit.
+#
+# Never set insecureSkipVerify in production: the source refuses to send
+# credentials over plain HTTP, and skipping verification defeats that
+# protection on HTTPS.
+
+service:
+  logLevel: info
+  metrics:
+    endpoint: 0.0.0.0:8888
+
+extensions:
+  healthcheck:
+    endpoint: 0.0.0.0:13133
+    livePath: /livez
+    readyPath: /readyz
+
+  # Credentials for the model registry REST API. The RHOAI model registry
+  # authenticates with an OpenShift bearer token, so a static token file is
+  # the right shape here. Issue it from a dedicated ServiceAccount and
+  # overwrite the file in place before it expires; the file is re-read on
+  # every request, so a rotation does not need a restart.
+  bearertokenauth/model-registry:
+    tokenFile: /etc/flightctl/catalog-collector/credentials/model-registry-token
+
+  # Credentials for the Flight Control API. Flight Control is an OIDC client
+  # application, so the collector authenticates as a confidential OAuth2
+  # client and exchanges its client credentials for a short-lived access
+  # token, obtaining a replacement as the cached one nears expiry. This
+  # avoids pinning a long-lived bearer token into a file on every collector
+  # host.
+  oauth2client/flightctl:
+    clientIdFile: /etc/flightctl/catalog-collector/credentials/flightctl-client-id
+    clientSecretFile: /etc/flightctl/catalog-collector/credentials/flightctl-client-secret
+    tokenUrl: https://<oidc-issuer>/protocol/openid-connect/token
+    # Scopes the authorization server must grant for the Flight Control API.
+    scopes:
+      - openid
+    # CA bundle for the authorization server. Delete to use the system trust
+    # store; this is usually the same CA as the Flight Control API when both
+    # are fronted by the same ingress.
+    certificateAuthority: /etc/flightctl/catalog-collector/certs/oidc-ca.crt
+    timeout: 30s
+    # Treat a cached token as already expired this long before it really
+    # expires. Tokens are fetched lazily, not refreshed on a background timer:
+    # when a request is about to be sent and the cached token has less than
+    # this left, a new token is obtained first and the request carries that
+    # one. It shrinks the window in which a request goes out holding a token
+    # that expires in flight; it is not a promise that a 401 can never happen.
+    expiryBuffer: 30s
+
+sources:
+  kubeflowmodelregistry/rhoai:
+    endpoint: https://<model-registry-route>
+    # Name of the Flight Control Catalog this source populates.
+    catalog: rhoai-model-registry
+    pollInterval: 5m
+    requestTimeout: 30s
+    collectionTimeout: 5m
+    pageSize: 100
+    auth:
+      authenticator: bearertokenauth/model-registry
+    certificateAuthority: /etc/flightctl/catalog-collector/certs/model-registry-ca.crt
+    # Server-side selection. Omit "selection" entirely to keep the defaults,
+    # which import only models and versions in the LIVE state. Set a filter to
+    # "" to disable filtering for that endpoint and import everything.
+    selection:
+      modelFilter: "state='LIVE'"
+      versionFilter: "state='LIVE'"
+
+processors:
+  # Publish under a stable catalog name that is independent of the source
+  # configuration, so the Flight Control side does not change if the upstream
+  # registry is renamed or replaced.
+  catalogname/rename:
+    mappings:
+      rhoai-model-registry: ai-models
+
+destinations:
+  flightctl/service:
+    server: https://<flightctl-api-endpoint>
+    auth:
+      authenticator: oauth2client/flightctl
+    certificateAuthority: /etc/flightctl/catalog-collector/certs/flightctl-ca.crt
+    timeout: 30s
+    # Target organization. Omit to use the service default organization.
+    # orgId: <uuid>
+
+pipelines:
+  rhoai-models:
+    source: kubeflowmodelregistry/rhoai
+    processors:
+      - catalogname/rename
+    destination: flightctl/service

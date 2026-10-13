@@ -1,0 +1,25 @@
+{{/*
+Source for Chart.yaml. Rendered by "go generate ./deploy/helm/..." from the
+"catalog-collector-<variant>" profile in deploy/helm/helm-chart-opts.yaml, so
+a downstream build rebrands the chart name, description, icon, and OpenShift
+annotations the same way it rebrands the main flightctl chart.
+
+Edit this file and regenerate; do not edit Chart.yaml by hand.
+*/ -}}
+apiVersion: v2
+name: {{ .Name }}
+description: {{ .Description }}
+home: {{ .Home }}
+type: application
+version: 0.1.0
+appVersion: "latest" # this is replaced at packaging with the release version
+icon: {{ .Icon }}
+annotations:
+  charts.openshift.io/archs: x86_64
+  charts.openshift.io/name: {{ .Annotations.Name }}
+  charts.openshift.io/provider: {{ .Annotations.Provider }}
+  charts.openshift.io/supportURL: {{ .Annotations.SupportURL }}{{- if .Annotations.RedhatEdition }}
+  redhat.edition: {{ .Annotations.RedhatEdition }}{{- end }}{{- if .Annotations.TargetPlatform }}
+  target.platform: {{ .Annotations.TargetPlatform }}{{- end }}{{- if .Annotations.SecurityCompliance }}
+  security.compliance: {{ .Annotations.SecurityCompliance }}{{- end }}
+kubeVersion: '>= 1.32.0-0'

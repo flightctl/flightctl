@@ -213,3 +213,30 @@ func TestDeltaPrepareDeadlineTaskMetadata(t *testing.T) {
 	require.Equal(t, time.Minute, meta.Interval)
 	require.Contains(t, MergeTasksWithConfig(nil), PeriodicTaskTypeDeltaPrepareDeadline)
 }
+
+func TestLabelMappingScanTaskMetadataAndConfiguration(t *testing.T) {
+	meta, ok := periodicTasks[PeriodicTaskTypeLabelMappingScan]
+	require.True(t, ok)
+	require.False(t, meta.SystemWide)
+	require.Equal(t, config.DefaultLabelMappingScanTaskInterval, meta.Interval)
+	require.Contains(t, MergeTasksWithConfig(nil), PeriodicTaskTypeLabelMappingScan)
+
+	defaults := labelMappingScanConfigFromConfig(config.NewDefault())
+	require.Equal(t, 1000, defaults.PageSize)
+	require.Equal(t, 30*time.Second, defaults.TimeBudget)
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"periodic": {"tasks": {"labelMappingScan": {
+			"schedule": {"interval": "7m"},
+			"pageSize": 250,
+			"timeBudget": "15s"
+		}}}
+	}`), cfg))
+
+	configured := MergeTasksWithConfig(cfg)[PeriodicTaskTypeLabelMappingScan]
+	require.Equal(t, 7*time.Minute, configured.Interval)
+	taskConfig := labelMappingScanConfigFromConfig(cfg)
+	require.Equal(t, 250, taskConfig.PageSize)
+	require.Equal(t, 15*time.Second, taskConfig.TimeBudget)
+}

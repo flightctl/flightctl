@@ -314,6 +314,126 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 	})
 }
 
+func TestPatchDeviceStatusEnrollmentHooksFleetReconciliation(t *testing.T) {
+	tests := []struct {
+		name          string
+		beforeStatus  domain.ConditionStatus
+		beforeReason  string
+		afterStatus   domain.ConditionStatus
+		afterReason   string
+		wantGateEvent bool
+		wantCode      int32
+		writeFails    bool
+	}{
+		{
+			name:         "When Pending becomes Succeeded it should trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonPending,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonSucceeded,
+			wantGateEvent: true,
+		},
+		{
+			name:         "When Pending becomes Continued it should trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonPending,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonContinued,
+			wantGateEvent: true,
+		},
+		{
+			name:         "When Pending becomes Failed it should keep fleet reconciliation gated",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonPending,
+			afterStatus: domain.ConditionStatusFalse, afterReason: domain.EnrollmentHooksReasonFailed,
+		},
+		{
+			name:         "When NotifyPending is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonNotifyPending,
+			afterStatus: domain.ConditionStatusFalse, afterReason: domain.EnrollmentHooksReasonNotifyPending,
+		},
+		{
+			name:         "When Pending is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonPending,
+			afterStatus: domain.ConditionStatusFalse, afterReason: domain.EnrollmentHooksReasonPending,
+		},
+		{
+			name:         "When Failed is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonFailed,
+			afterStatus: domain.ConditionStatusFalse, afterReason: domain.EnrollmentHooksReasonFailed,
+		},
+		{
+			name:         "When Succeeded is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusTrue, beforeReason: domain.EnrollmentHooksReasonSucceeded,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonSucceeded,
+		},
+		{
+			name:         "When Continued is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusTrue, beforeReason: domain.EnrollmentHooksReasonContinued,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonContinued,
+		},
+		{
+			name:         "When ManualOverride is unchanged it should not trigger fleet reconciliation",
+			beforeStatus: domain.ConditionStatusTrue, beforeReason: domain.EnrollmentHooksReasonManualOverride,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonManualOverride,
+		},
+		{
+			name:         "When an agent tries to clear a failed gate it should reject the update without emitting a gate event",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonFailed,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonSucceeded,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:         "When an agent tries to skip notification it should reject the update without emitting a gate event",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonNotifyPending,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonSucceeded,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:         "When saving hook completion fails it should not emit a gate event",
+			beforeStatus: domain.ConditionStatusFalse, beforeReason: domain.EnrollmentHooksReasonPending,
+			afterStatus: domain.ConditionStatusTrue, afterReason: domain.EnrollmentHooksReasonSucceeded,
+			wantCode: http.StatusInternalServerError, writeFails: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			h, st, ev, orgID, name := newEnrollmentHookTestDevice(t, tt.beforeStatus, tt.beforeReason)
+			conditionPath := enrollmentHooksConditionPatchPath(t, h, orgID, name)
+			if tt.writeFails {
+				st.device.mutateErr = errors.New("write failed")
+			}
+			var statusValue any = tt.afterStatus
+			var reasonValue any = tt.afterReason
+			var agentVersion any = "v2"
+			patch := domain.PatchRequest{
+				{Op: "replace", Path: conditionPath + "/status", Value: &statusValue},
+				{Op: "replace", Path: conditionPath + "/reason", Value: &reasonValue},
+				{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion},
+			}
+			_, status := h.PatchDeviceStatus(context.Background(), orgID, name, patch)
+			wantCode := tt.wantCode
+			if wantCode == 0 {
+				wantCode = http.StatusOK
+			}
+			require.Equal(wantCode, status.Code)
+
+			gateEvents := 0
+			for _, event := range ev.created {
+				if event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
+					continue
+				}
+				details, err := event.Details.AsResourceUpdatedDetails()
+				require.NoError(err)
+				if lo.Contains(details.UpdatedFields, domain.UpdatedFieldEnrollmentHooksCondition) {
+					gateEvents++
+				}
+			}
+			if tt.wantGateEvent {
+				require.Equal(1, gateEvents)
+			} else {
+				require.Zero(gateEvents)
+			}
+		})
+	}
+}
+
 func TestSetDeviceServiceConditions_EnrollmentHookEvents(t *testing.T) {
 	ctx := context.Background()
 

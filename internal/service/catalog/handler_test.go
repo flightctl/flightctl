@@ -105,7 +105,7 @@ func (f *fakeDeviceStore) GetLabelSnapshot(context.Context, uuid.UUID, string) (
 func (f *fakeDeviceStore) GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) ApplyLabels(context.Context, uuid.UUID, string, domain.DeviceLabelSnapshot, map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
+func (f *fakeDeviceStore) ApplyLabels(context.Context, uuid.UUID, string, domain.DeviceLabelSnapshot, map[string]domain.DesiredDeviceLabel, *domain.Condition) (domain.DeviceLabelApplyResult, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) List(context.Context, uuid.UUID, devicestore.DeviceListParams) (*domain.DeviceList, error) {

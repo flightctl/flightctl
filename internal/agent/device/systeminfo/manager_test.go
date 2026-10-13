@@ -742,3 +742,107 @@ func TestCustomCollectorOutputIsSanitized(t *testing.T) {
 	require.False(exec.failed)
 	require.Equal("helloworldtest/ok", exec.value, "non-allowed characters must be stripped")
 }
+
+// newCacheTestManager builds a manager backed by a temp filesystem suitable for
+// exercising the cached GPU/KVM collection behavior.
+func newCacheTestManager(t *testing.T) (*manager, fileio.ReadWriter) {
+	t.Helper()
+	require := require.New(t)
+
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join("etc", "flightctl")
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(dataDir, 0755))
+	require.NoError(readWriter.MkdirAll("/proc/sys/kernel/random", 0755))
+	require.NoError(readWriter.WriteFile(bootIDPath, []byte("boot-id"), 0644))
+
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).AnyTimes()
+
+	manager := NewManager(log.NewPrefixLogger("test"), mockExecuter, readWriter, dataDir, nil, nil, util.Duration(5*time.Second), 0)
+	return manager, readWriter
+}
+
+// TestStatusReportsCachedGPUInventory verifies that the GPU inventory is gathered
+// during the collection cycle and served from the cache: Status reports the
+// snapshot taken at collection time and does not re-scan the filesystem on every
+// status generation. A fresh scan only happens on the next collection (here, a
+// forced one).
+func TestStatusReportsCachedGPUInventory(t *testing.T) {
+	require := require.New(t)
+	manager, readWriter := newCacheTestManager(t)
+
+	writeGPU := func(address, device string) {
+		deviceDir := filepath.Join(pciDevicesPath, address)
+		require.NoError(readWriter.MkdirAll(deviceDir, fileio.DefaultDirectoryPermissions))
+		require.NoError(readWriter.WriteFile(filepath.Join(deviceDir, "class"), []byte("0x030000"), fileio.DefaultFilePermissions))
+		require.NoError(readWriter.WriteFile(filepath.Join(deviceDir, "vendor"), []byte("0x10de"), fileio.DefaultFilePermissions))
+		require.NoError(readWriter.WriteFile(filepath.Join(deviceDir, "device"), []byte(device), fileio.DefaultFilePermissions))
+	}
+	writeGPU("0000:41:00.0", "0x2717")
+
+	require.NoError(manager.Initialize(context.Background()))
+
+	// Status (without force) serves the snapshot collected during Initialize.
+	deviceStatus := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NotNil(deviceStatus.SystemInfo.Gpus)
+	require.Len(*deviceStatus.SystemInfo.Gpus, 1)
+
+	// A second GPU appears after collection. Status must keep serving the cached
+	// snapshot rather than re-scanning on each call.
+	writeGPU("0000:42:00.0", "0x2718")
+	deviceStatus = &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NotNil(deviceStatus.SystemInfo.Gpus)
+	require.Len(*deviceStatus.SystemInfo.Gpus, 1)
+
+	// Forcing collection refreshes the cache and picks up the new GPU.
+	deviceStatus = &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus, status.WithForceCollect()))
+	require.NotNil(deviceStatus.SystemInfo.Gpus)
+	require.Len(*deviceStatus.SystemInfo.Gpus, 2)
+}
+
+// TestStatusReportsCachedKVMAvailability verifies that KVM availability is
+// gathered during the collection cycle and served from the cache: Status reports
+// the snapshot taken at collection time and does not re-scan the filesystem on
+// every status generation. A fresh scan only happens on the next collection
+// (here, a forced one).
+func TestStatusReportsCachedKVMAvailability(t *testing.T) {
+	require := require.New(t)
+	manager, readWriter := newCacheTestManager(t)
+
+	// Initialize with no KVM modules and no /dev/kvm: availability is false.
+	require.NoError(manager.Initialize(context.Background()))
+
+	deviceStatus := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NotNil(deviceStatus.SystemInfo.Kvm)
+	require.NotNil(deviceStatus.SystemInfo.Kvm.Enabled)
+	require.False(*deviceStatus.SystemInfo.Kvm.Enabled)
+
+	// KVM becomes available after collection. Writing all module names keeps the
+	// check architecture-agnostic. Status must keep serving the cached snapshot.
+	require.NoError(readWriter.MkdirAll(filepath.Dir(procModulesPath), fileio.DefaultDirectoryPermissions))
+	require.NoError(readWriter.WriteFile(procModulesPath, []byte("kvm 1 0 - Live 0x0\nkvm_intel 1 0 - Live 0x0\nkvm_amd 1 0 - Live 0x0\n"), fileio.DefaultFilePermissions))
+	require.NoError(readWriter.MkdirAll(filepath.Dir(devKVMPath), fileio.DefaultDirectoryPermissions))
+	require.NoError(readWriter.WriteFile(devKVMPath, []byte{}, fileio.DefaultFilePermissions))
+
+	deviceStatus = &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NotNil(deviceStatus.SystemInfo.Kvm)
+	require.NotNil(deviceStatus.SystemInfo.Kvm.Enabled)
+	require.False(*deviceStatus.SystemInfo.Kvm.Enabled)
+
+	// Forcing collection refreshes the cache and picks up the newly available KVM.
+	deviceStatus = &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus, status.WithForceCollect()))
+	require.NotNil(deviceStatus.SystemInfo.Kvm)
+	require.NotNil(deviceStatus.SystemInfo.Kvm.Enabled)
+	require.True(*deviceStatus.SystemInfo.Kvm.Enabled)
+}

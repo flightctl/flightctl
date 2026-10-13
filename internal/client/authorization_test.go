@@ -39,6 +39,27 @@ func TestAccessTokenRefresherWhenPersistFailsItShouldWrapTheError(t *testing.T) 
 	require.ErrorContains(err, "writing config")
 }
 
+// TestAccessTokenRefresherWhenRefreshTokenIsExpiredItShouldReturnImmediately
+// verifies that an expired refresh token stops command startup before an API
+// request can be made with the stale access token.
+func TestAccessTokenRefresherWhenRefreshTokenIsExpiredItShouldReturnImmediately(t *testing.T) {
+	require := require.New(t)
+	r := newTestAccessTokenRefresher(t, "")
+	provider := &stubAuthProvider{
+		renewErr:   fmt.Errorf("OAuth2 error: invalid_grant - Invalid or expired refresh token"),
+		loopAction: make(chan struct{}),
+	}
+	r.provider = provider
+	r.config.AuthInfo.AccessTokenExpiry = time.Now().Add(-time.Second).Format(time.RFC3339Nano)
+
+	start := time.Now()
+	err := r.Start(context.Background())
+
+	require.ErrorIs(err, ErrSessionExpired)
+	require.Less(time.Since(start), time.Second)
+	require.Equal(int64(1), provider.renewCount.Load())
+}
+
 // TestAccessTokenRefresherWhenTokenToUseIsIdItShouldReturnTheIdToken
 // verifies that GetAccessToken returns the ID token when TokenToUse is set to id.
 func TestAccessTokenRefresherWhenTokenToUseIsIdItShouldReturnTheIdToken(t *testing.T) {
@@ -105,7 +126,9 @@ func TestAccessTokenRefresherWhenStopRunsBeforeStartItShouldNotLaunchRefreshLoop
 
 	started := make(chan struct{})
 	go func() {
-		r.Start(ctx)
+		if err := r.Start(ctx); err != nil {
+			t.Errorf("starting access token refresher: %v", err)
+		}
 		close(started)
 	}()
 	waitClosed(t, started, time.Second)
@@ -130,7 +153,9 @@ func TestAccessTokenRefresherWhenStartAndStopRunConcurrentlyItShouldNotLeaveAnAc
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		r.Start(ctx)
+		if err := r.Start(ctx); err != nil {
+			t.Errorf("starting access token refresher: %v", err)
+		}
 	}()
 	go func() {
 		defer wg.Done()
@@ -154,6 +179,7 @@ func TestAccessTokenRefresherWhenStartAndStopRunConcurrentlyItShouldNotLeaveAnAc
 type stubAuthProvider struct {
 	renewCount atomic.Int64
 	loopAction chan struct{}
+	renewErr   error
 }
 
 // Auth implements login.AuthProvider and is unused in these tests.
@@ -173,6 +199,9 @@ func (s *stubAuthProvider) SetInsecureSkipVerify(bool) {}
 func (s *stubAuthProvider) Renew(string) (login.AuthInfo, error) {
 	n := s.renewCount.Add(1)
 	s.notifyLoopAction()
+	if s.renewErr != nil {
+		return login.AuthInfo{}, s.renewErr
+	}
 	expiresIn := int64(3600)
 	return login.AuthInfo{
 		AccessToken:  fmt.Sprintf("access-%d", n),

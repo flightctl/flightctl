@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/oauth2clientauthextension"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/processor/catalognameprocessor"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/httpsource"
+	"github.com/flightctl/flightctl/pkg/catalogcollector/source/kubeflowmodelregistrysource"
 )
 
 // components returns the set of source, processor, and destination factories
@@ -25,6 +26,7 @@ func components() catalogcollector.Factories {
 	return catalogcollector.Factories{
 		Sources: []catalogcollector.SourceFactory{
 			httpsource.NewFactory(),
+			kubeflowmodelregistrysource.NewFactory(),
 		},
 		Processors: []catalogcollector.ProcessorFactory{
 			catalognameprocessor.NewFactory(),
