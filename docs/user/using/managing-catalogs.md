@@ -294,22 +294,14 @@ How the collector obtains content depends on the source you configure. For examp
 
 The two mechanisms are independent. A single Flight Control deployment can use both to manage different catalogs.
 
-| | Catalog collector | ResourceSync |
-|---|---|---|
-| Source of truth | An external system with its own API | A Git repository |
-| Who runs the import | A collector process that you deploy and operate | The Flight Control service |
-| Direction | The collector writes to the Flight Control API | The service reads from Git |
-| Resource ownership | Resources carry collector labels that record which pipeline manages them | Resources are marked as owned by the ResourceSync |
-| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Restricted. The API rejects specification changes and deletion. Label updates are still accepted |
-| Deletion behavior | Resources the pipeline created but that the external system no longer reports are deleted | Resources whose definitions are removed from the repository are deleted |
-
 | Aspect | Catalog collector | ResourceSync |
 |---|---|---|
 | Source of truth | An external platform | A Git repository |
 | Who runs the import | A collector process that you deploy and operate | The Flight Control service |
 | Direction | The collector writes to the Flight Control API | The service reads from Git |
 | Resource ownership | Labels identify the pipeline managing each resource | Resources are marked as owned by the ResourceSync |
-| Synchronization behavior | Creates or updates resources from snapshots and deletes pipeline-managed resources omitted from the desired snapshot | Applies Git definitions and deletes owned resources whose definitions are removed from the repository |
+| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Restricted. The API rejects specification changes and deletion. Label updates are still accepted |
+| Synchronization behavior | Creates or updates resources from snapshots. Resources carrying the pipeline's management labels that the desired snapshot omits are pruned, regardless of which client created them | Applies Git definitions and deletes owned resources whose definitions are removed from the repository |
 
 Keep the two mechanisms on separate catalogs. The collector never adopts a resource outside its own boundary: a name collision with a resource created by hand or by a ResourceSync fails the import rather than overwriting the resource.
 

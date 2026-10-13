@@ -31,7 +31,7 @@ Install the collector using the `flightctl-catalog-collector` Helm chart.
 
 * Access to a Kubernetes cluster, with permission to install the collector in the target namespace.
 * The `helm` and `kubectl` commands installed.
-* A reachable Flight Control API endpoint.
+* A reachable Flight Control API endpoint, if any pipeline uses the Flight Control destination. Pipelines that only use the debug destination, such as the vanilla example below, require no Flight Control access.
 
 ### Procedure
 

@@ -391,9 +391,10 @@ kubectl --context <registry_cluster> \
 
 Apply the RoleBinding from the previous section in that cluster, setting its subject namespace to `<model_registry_namespace>` for this ServiceAccount.
 
-Request a token:
+Request a token. Create the file with restrictive permissions first, so the token is never readable by other users on the host:
 
 ```shell
+install -m 0600 /dev/null model-registry-token
 kubectl --context <registry_cluster> \
   --namespace <model_registry_namespace> \
   create token flightctl-catalog-collector --duration=24h \
@@ -409,6 +410,12 @@ kubectl --context <collector_cluster> \
   --namespace <collector_namespace> \
   create secret generic flightctl-catalog-collector-tokens \
   --from-file=model-registry-token
+```
+
+Remove the local token file once the Secret exists:
+
+```shell
+shred -u model-registry-token
 ```
 
 Mount it:

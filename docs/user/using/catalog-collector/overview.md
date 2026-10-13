@@ -354,7 +354,8 @@ The available verbosity levels are:
 * `normal`: Also logs catalog names and catalog item identities.
 * `detailed`: Logs the full JSON representation of each resource.
 
-Detailed output includes all catalog resource data, which may contain sensitive operational information.
+> [!WARNING]
+> Detailed output writes the full content of every catalog resource to the collector log, where any system that collects those logs can read it. This content may include internal hostnames, registry paths, and other sensitive operational information. Use `basic` or `normal` in production, and limit `detailed` to short, supervised troubleshooting sessions.
 
 For configuration settings, see [Debug destination](../../references/catalog-collector.md#debug). For HTTP request requirements and response codes, see [HTTP source](../../references/catalog-collector.md#http).
 

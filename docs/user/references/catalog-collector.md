@@ -338,7 +338,7 @@ The destination applies the following rules:
 * Existing resources are updated when their specifications or labels differ from the desired content.
 * Resources whose specifications and labels already match are left unchanged.
 * An existing resource must carry both management labels with the expected values for that pipeline. A desired name that collides with a resource outside this scope causes synchronization to fail.
-* Existing resources with a non-empty `metadata.owner`, such as resources owned by ResourceSync, are not managed.
+* The destination refuses to take over an existing resource with a non-empty `metadata.owner`, such as a resource owned by ResourceSync. A desired name that collides with such a resource causes synchronization to fail.
 * Snapshots must not set either reserved management label. The destination adds them automatically and rejects snapshots that supply them.
 
 The reserved-label check is specific to this destination.
@@ -402,7 +402,8 @@ destinations:
 
 Snapshot log entries are emitted at `info` level. Set `service.logLevel` to `info` or `debug` to see them. Setting it to `warn` or `error` suppresses these entries, regardless of `verbosity`.
 
-Enable `detailed` deliberately: the full resource content may contain sensitive operational information.
+> [!WARNING]
+> Enable `detailed` deliberately. It writes the full JSON content of every Catalog and CatalogItem in the snapshot to the collector log, where any log aggregation or monitoring system that collects collector logs can read it. Catalog content may include internal hostnames, registry paths, image references, and other sensitive operational information. Use `basic` or `normal` in production, and limit `detailed` to short, supervised troubleshooting sessions.
 
 ## Extensions
 

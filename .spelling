@@ -423,6 +423,10 @@ kubeflowmodelregistry
 automount
 automounted
 RoleBinding
+add-ons
+10-second
+ModelCar
+READMEs
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
