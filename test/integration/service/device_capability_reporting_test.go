@@ -130,6 +130,8 @@ var _ = Describe("Device capability reporting", func() {
 
 			kvm := getSystemInfo("kvm-disabled-reporter").Kvm
 			Expect(kvm).ToNot(BeNil())
+			Expect(kvm.Enabled).ToNot(BeNil(),
+				"a reported false must round-trip as a set field, not as an absent one")
 			Expect(lo.FromPtr(kvm.Enabled)).To(BeFalse(),
 				"a reported false must stay distinguishable from an unreported capability")
 		})

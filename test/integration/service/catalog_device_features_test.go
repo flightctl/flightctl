@@ -267,13 +267,16 @@ var _ = Describe("CatalogItem device feature requirements", func() {
 			})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated), status.Message)
 
-			_, status = suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, "unreporting-device", apiv1beta1.Device{
+			deployed, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, "unreporting-device", apiv1beta1.Device{
 				Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr("unreporting-device")},
 				Spec: &apiv1beta1.DeviceSpec{Os: &apiv1beta1.DeviceOsSpec{
 					CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{Catalog: catalogName, Item: "unknown-capability-os", Version: "1.0.0"},
 				}},
 			}, nil, true, true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			Expect(deployed.Spec.Os).ToNot(BeNil())
+			Expect(deployed.Spec.Os.CatalogItemRef).ToNot(BeNil())
+			Expect(deployed.Spec.Os.CatalogItemRef.Item).To(Equal("unknown-capability-os"))
 		})
 	})
 })
