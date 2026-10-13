@@ -25,6 +25,8 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 
 	testCases := []struct {
 		name              string
+		image             string
+		refreshImage      string
 		refreshExitCode   int
 		refreshStderr     string
 		wantFallback      bool
@@ -32,6 +34,11 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 	}{
 		{
 			name: "When the canonical registry reference refresh succeeds it should clear delta fallback status",
+		},
+		{
+			name:         "When the target uses a short name it should preserve runtime registry resolution during refresh",
+			image:        "nginx:latest",
+			refreshImage: "nginx@" + podmanDeltaTargetDigest,
 		},
 		{
 			name:              "When the canonical registry reference refresh fails it should full-pull and report the fallback",
@@ -44,6 +51,10 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			image, refreshImage := image, refreshImage
+			if tc.image != "" {
+				image, refreshImage = tc.image, tc.refreshImage
+			}
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)

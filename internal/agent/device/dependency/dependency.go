@@ -1080,9 +1080,13 @@ func deltaRefreshReference(targetImage, targetDigest string) (string, error) {
 	if targetDigest == "" {
 		return "", fmt.Errorf("delta target digest is missing")
 	}
-	named, err := reference.ParseNormalizedNamed(targetImage)
+	parsed, err := reference.Parse(targetImage)
 	if err != nil {
 		return "", fmt.Errorf("parse target image reference %q: %w", targetImage, err)
+	}
+	named, ok := parsed.(reference.Named)
+	if !ok {
+		return "", fmt.Errorf("target image reference %q has no repository name", targetImage)
 	}
 	return reference.TrimNamed(named).String() + "@" + targetDigest, nil
 }
