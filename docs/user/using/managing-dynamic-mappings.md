@@ -7,7 +7,7 @@ Dynamic label mappings write selected device-reported values to device labels. U
 
 ## How mappings work
 
-A `LabelSyncMapping` is an organization-scoped resource. It evaluates a Common Expression Language (CEL) expression against a device's current `metadata`, `spec`, and `status`, then writes the result to the device's labels.
+A `LabelSyncMapping` is an organization-scoped resource. It evaluates a [Common Expression Language (CEL)](https://cel.dev/overview/cel-overview) expression against a device's current `metadata`, `spec`, and `status`, then writes the result to the device's labels.
 
 Dynamic mappings are separate from the agent's enrollment-time `label-from-systeminfo` configuration. Enrollment-time mappings add labels when a device enrolls. A `LabelSyncMapping` can update labels later when Flight Control receives a device status update. The mapping does not change how the agent collects or reports system information.
 
@@ -135,7 +135,7 @@ metadata:
 
 ## CEL syntax and extensions
 
-Mapping expressions use [CEL](https://cel.dev/overview/cel-overview) over the device's `metadata`, `spec`, and `status`. The evaluator enables these extensions:
+Mapping expressions use CEL over the device's `metadata`, `spec`, and `status`. The evaluator enables these extensions:
 
 | Extension | Available syntax | Description |
 |---|---|---|
@@ -245,6 +245,6 @@ Quadlet deployments use `/etc/flightctl/label-sync/mappings.yaml` as the initial
 
 ### Update existing organizations
 
-The deployment manifest is used for new organizations and once for existing organizations during the initial migration. Later manifest edits do not update mappings already present. Update existing `LabelSyncMapping` resources with the CLI or REST API. Changes propagate asynchronously; see [Monitor propagation](#monitor-propagation).
+The deployment manifest is used when creating new organizations and during initial migration of existing organizations. Later manifest edits do not update mappings already present. Update existing `LabelSyncMapping` resources with the CLI or REST API. Changes propagate asynchronously; see [Monitor propagation](#monitor-propagation).
 
 See [Installing the Flight Control Service on Kubernetes](../installing/installing-service-on-kubernetes.md) and [Installing the Flight Control Service on Linux](../installing/installing-service-on-linux.md) for deployment instructions.
