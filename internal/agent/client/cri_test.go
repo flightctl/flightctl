@@ -231,7 +231,6 @@ func TestCRIImageRepoDigestsConfig(t *testing.T) {
 func TestCRIImageReferences(t *testing.T) {
 	const digestA = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const digestB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	const digestMissing = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 	imageList, err := json.Marshal(map[string]any{
 		"images": []any{
