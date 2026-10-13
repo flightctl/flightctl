@@ -111,6 +111,13 @@
                   "type": ["string", "null"],
                   "default": "login",
                   "pattern": "^(| *[!-~]+( +[!-~]+)* *)$",
+                  "if": {
+                    "type": "string",
+                    "pattern": "(^| )none( |$)"
+                  },
+                  "then": {
+                    "pattern": "^ *none( +none)* *$"
+                  },
                   "description": "Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login."
                 },
                 "clientId": { "type": "string", "description": "OIDC Client ID" },

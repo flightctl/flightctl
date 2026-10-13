@@ -39,6 +39,15 @@ func TestHelmAuthProviderPrompt(t *testing.T) {
 		{name: "When prompt has YAML punctuation it should preserve it", field: `prompt: 'login "custom" #extension'`, want: `login "custom" #extension`},
 		{name: "When prompt is not a string it should reject it", field: "prompt: 123", invalid: true},
 		{name: "When prompt has a tab it should reject it", field: `prompt: "login\tconsent"`, invalid: true},
+		{name: "When prompt combines none with another value it should reject it", field: `prompt: "none login"`, invalid: true},
+		{name: "When prompt is none it should preserve it", field: `prompt: "none"`, want: "none"},
+		{name: "When prompt repeats none with extra spaces it should preserve it", field: `prompt: " none  none "`, want: " none  none "},
+		{name: "When prompt contains uppercase NONE it should preserve it", field: `prompt: "NONE login"`, want: "NONE login"},
+		{name: "When prompt contains none as a substring it should preserve it", field: `prompt: "nonetheless login"`, want: "nonetheless login"},
+		{name: "When prompt contains a none extension it should preserve it", field: `prompt: "none-extension login"`, want: "none-extension login"},
+		{name: "When prompt combines another value with trailing none it should reject it", field: `prompt: "login none"`, invalid: true},
+		{name: "When prompt combines another value with middle none it should reject it", field: `prompt: " login  none consent "`, invalid: true},
+		{name: "When prompt combines none with an extension it should reject it", field: `prompt: "none none-extension"`, invalid: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
