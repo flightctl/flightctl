@@ -539,7 +539,7 @@
         "x": 0,
         "y": 20
       },
-      "id": 3,
+      "id": 4,
       "options": {
         "legend": {
           "calcs": [],
@@ -561,9 +561,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (flightctl_devices_summary{fleet=~\"$fleet_selector\"})",
+          "expr": "sum by (organization_id, status) (flightctl_devices_summary{fleet=~\"$fleet_selector\"})",
           "instant": false,
-          "legendFormat": "{{status}}",
+          "legendFormat": "{{organization_id}} / {{status}}",
           "range": true,
           "refId": "A"
         }

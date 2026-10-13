@@ -389,7 +389,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 		r.Mount("/", negotiatedRouter)
 	})
 
-	return otelhttp.NewHandler(router, "agent-http-server"), nil
+	return otelhttp.NewHandler(router, "agent-http-server", otelhttp.WithServerName(s.cfg.Service.AgentEndpointAddress)), nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers

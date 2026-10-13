@@ -18,6 +18,7 @@ type panel struct {
 		Defaults struct {
 			Unit string `json:"unit"`
 		} `json:"defaults"`
+		Overrides []panelOverride `json:"overrides"`
 	} `json:"fieldConfig"`
 	Options struct {
 		Legend struct {
@@ -25,8 +26,22 @@ type panel struct {
 		} `json:"legend"`
 	} `json:"options"`
 	Targets []target `json:"targets"`
+	ID      int      `json:"id"`
 	Title   string   `json:"title"`
 	Type    string   `json:"type"`
+}
+
+type panelOverride struct {
+	Matcher struct {
+		ID      string `json:"id"`
+		Options string `json:"options"`
+	} `json:"matcher"`
+	Properties []struct {
+		ID    string `json:"id"`
+		Value struct {
+			FixedColor string `json:"fixedColor"`
+		} `json:"value"`
+	} `json:"properties"`
 }
 
 type target struct {
@@ -74,6 +89,20 @@ func hasExpressionContaining(targets []target, want string) bool {
 	return false
 }
 
+func hasColorOverride(overrides []panelOverride, matcher, color string) bool {
+	for _, override := range overrides {
+		if override.Matcher.ID != "byRegexp" || override.Matcher.Options != matcher {
+			continue
+		}
+		for _, property := range override.Properties {
+			if property.ID == "color" && property.Value.FixedColor == color {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestFleetDashboardShowsAllFleetStatuses(t *testing.T) {
 	dashboard := loadDashboard(t, "flightctl-fleet-dashboard.json")
 
@@ -99,14 +128,24 @@ func TestFleetDashboardShowsAllFleetStatuses(t *testing.T) {
 			t.Fatalf("expected one summary target, got %d", len(summary.Targets))
 		}
 		query := summary.Targets[0]
-		for _, want := range []string{"flightctl_devices_summary", "sum by (status)", `fleet=~"$fleet_selector"`} {
+		for _, want := range []string{"flightctl_devices_summary", "sum by (organization_id, status)", `fleet=~"$fleet_selector"`} {
 			if !strings.Contains(query.Expr, want) {
 				t.Errorf("summary query does not contain %q: %s", want, query.Expr)
 			}
 		}
-		if query.LegendFormat != "{{status}}" {
-			t.Errorf("summary legend format = %q, want {{status}}", query.LegendFormat)
+		if query.LegendFormat != "{{organization_id}} / {{status}}" {
+			t.Errorf("summary legend format = %q, want {{organization_id}} / {{status}}", query.LegendFormat)
 		}
+
+		t.Run("When fleet dashboard panels are loaded they should have unique IDs", func(t *testing.T) {
+			seen := make(map[int]string, len(dashboard.Panels))
+			for _, candidate := range dashboard.Panels {
+				if previousTitle, ok := seen[candidate.ID]; ok {
+					t.Errorf("panel ID %d is used by %q and %q", candidate.ID, previousTitle, candidate.Title)
+				}
+				seen[candidate.ID] = candidate.Title
+			}
+		})
 	})
 }
 
@@ -130,8 +169,12 @@ func TestAPIDashboardSeparatesPortsAndUsesOperationalUnits(t *testing.T) {
 			if candidate.Type != "timeseries" {
 				t.Fatalf("panel type = %q, want timeseries", candidate.Type)
 			}
-			if candidate.FieldConfig.Defaults.Unit != "reqps" && testCase.kind != "latency" {
-				t.Errorf("panel unit = %q, want reqps", candidate.FieldConfig.Defaults.Unit)
+			wantUnit := "reqps"
+			if testCase.kind == "latency" {
+				wantUnit = "ms"
+			}
+			if candidate.FieldConfig.Defaults.Unit != wantUnit {
+				t.Errorf("panel unit = %q, want %s", candidate.FieldConfig.Defaults.Unit, wantUnit)
 			}
 			if !hasExpressionContaining(candidate.Targets, `server_port="`+testCase.port+`"`) {
 				t.Errorf("panel has no query for server port %s", testCase.port)
@@ -173,6 +216,17 @@ func TestAPIDashboardSeparatesPortsAndUsesOperationalUnits(t *testing.T) {
 				}
 				if hasExpressionContaining(candidate.Targets, "increase(") {
 					t.Error("errors query reports totals with increase instead of rates")
+				}
+				for _, color := range []struct {
+					matcher string
+					color   string
+				}{
+					{matcher: "^4", color: "yellow"},
+					{matcher: "^5", color: "red"},
+				} {
+					if !hasColorOverride(candidate.FieldConfig.Overrides, color.matcher, color.color) {
+						t.Errorf("errors panel has no %s override for %sxx responses", color.color, color.matcher[:2])
+					}
 				}
 			}
 		})
