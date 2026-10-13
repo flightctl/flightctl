@@ -712,8 +712,9 @@ func pruneOSHistory(current *osState) bool {
 	if current.ObservedKey != "" {
 		protected[current.ObservedKey] = struct{}{}
 	}
+	// Pending results are protected only while their target remains active.
 	for key, result := range current.History {
-		if result.Pending || current.TargetKey != "" && result.TargetKey == current.TargetKey {
+		if current.TargetKey != "" && result.TargetKey == current.TargetKey {
 			protected[key] = struct{}{}
 		}
 	}

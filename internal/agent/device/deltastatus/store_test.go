@@ -919,7 +919,7 @@ func TestWhenRecencyWriteFailsItShouldRetryBeforeEvictingByLRU(t *testing.T) {
 	require.NotNil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{first}, true))
 }
 
-func TestWhenBootedAndActiveOSResultsExceedCapacityItShouldProtectBoth(t *testing.T) {
+func TestWhenBootedAndActiveOSResultsExceedCapacityItShouldEvictSupersededResults(t *testing.T) {
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	logger := log.NewPrefixLogger("test")
@@ -933,12 +933,11 @@ func TestWhenBootedAndActiveOSResultsExceedCapacityItShouldProtectBoth(t *testin
 	require.NoError(t, store.SetOSTarget("attempt-c"))
 	require.NoError(t, store.RecordOSImageResult("attempt-c", "os:c", "sha256:c", result))
 
-	// Restart with A still booted. A, pending B, and active C are all protected,
-	// so the two-record limit temporarily overflows.
+	// Restart with A still booted. A and active C are protected; completed B is
+	// superseded and must be eligible for eviction.
 	restarted := New(rw, "/state", logger)
 	require.Equal(t, result, *restarted.ObservedOSResult("os:a", "sha256:a"))
 	require.Equal(t, result, *restarted.ObservedOSResult("os:c", "sha256:c"))
-	require.Nil(t, restarted.ObservedOSResult("os:a", "sha256:a"))
-	require.Equal(t, result, *restarted.ObservedOSResult("os:b", "sha256:b"))
-
+	require.Nil(t, restarted.ObservedOSResult("os:b", "sha256:b"))
+	require.Equal(t, result, *restarted.ObservedOSResult("os:a", "sha256:a"))
 }
