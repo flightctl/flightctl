@@ -340,7 +340,7 @@ spec:
           set -euo pipefail
 
           NAMESPACE="{{ .Release.Namespace }}"
-          TIMEOUT=300  # 5 minutes
+          TIMEOUT=300  # 5-minute total budget shared by all readiness waits
           SLEEP=5
 
           # Determine which CLI to use
@@ -410,9 +410,48 @@ spec:
 
           echo "CA bundle Secret created successfully in $NAMESPACE"
 
+          # Copy CA secrets to internal namespace if different from release namespace
+          {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+          INTERNAL_NAMESPACE="{{ .Values.global.internalNamespace }}"
+          echo "Copying CA secrets to internal namespace: $INTERNAL_NAMESPACE"
+
+          # Copy client-signer-ca secret
+          echo "Copying flightctl-client-signer-ca secret..."
+          CLIENT_SIGNER_CERT=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}')
+          CLIENT_SIGNER_KEY=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.key}')
+          cat <<EOF | $K8S_CLI apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: flightctl-client-signer-ca
+            namespace: $INTERNAL_NAMESPACE
+            labels:
+              {{- include "flightctl.standardLabels" . | nindent 14 }}
+          type: kubernetes.io/tls
+          data:
+            tls.crt: $CLIENT_SIGNER_CERT
+            tls.key: $CLIENT_SIGNER_KEY
+          EOF
+
+          # Copy CA bundle secret
+          echo "Copying flightctl-ca-bundle secret..."
+          cat <<EOF | $K8S_CLI apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: flightctl-ca-bundle
+            namespace: $INTERNAL_NAMESPACE
+            labels:
+              {{- include "flightctl.standardLabels" . | nindent 14 }}
+          data:
+            ca-bundle.crt: $CA_BUNDLE_DATA
+          EOF
+
+          echo "CA secrets copied successfully to $INTERNAL_NAMESPACE"
+          {{- end }}
+
           {{- if $routeCertificatesEnabled }}
           echo "Waiting for route certificates..."
-          start=$(date +%s)
 
           while true; do
               elapsed=$(( $(date +%s) - start ))
@@ -456,14 +495,18 @@ spec:
           patch_route_external_certificate() {
               ROUTE_NAME="$1"
               SECRET_NAME="$2"
+              ROUTE_ERROR_FILE=$(mktemp)
 
-              if ROUTE_RESULT=$($K8S_CLI get route.route.openshift.io "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls.externalCertificate.name}' 2>&1); then
+              if ROUTE_RESULT=$($K8S_CLI get route.route.openshift.io "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls.externalCertificate.name}' 2>"$ROUTE_ERROR_FILE"); then
+                  rm -f "$ROUTE_ERROR_FILE"
                   EXISTING_EXTERNAL_CERT="$ROUTE_RESULT"
               else
-                  if printf '%s' "$ROUTE_RESULT" | grep -Eiq 'notfound|not[[:space:]]+found'; then
+                  ROUTE_ERROR=$(cat "$ROUTE_ERROR_FILE")
+                  rm -f "$ROUTE_ERROR_FILE"
+                  if printf '%s' "$ROUTE_ERROR" | grep -Eiq 'notfound|not[[:space:]]+found'; then
                       return 0
                   fi
-                  echo "Failed to read Route $ROUTE_NAME: $ROUTE_RESULT" >&2
+                  echo "Failed to read Route $ROUTE_NAME: $ROUTE_ERROR" >&2
                   return 1
               fi
 
@@ -483,45 +526,6 @@ spec:
           {{- end }}
           {{- end }}
 
-          # Copy CA secrets to internal namespace if different from release namespace
-          {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
-          INTERNAL_NAMESPACE="{{ .Values.global.internalNamespace }}"
-          echo "Copying CA secrets to internal namespace: $INTERNAL_NAMESPACE"
-
-          # Copy client-signer-ca secret
-          echo "Copying flightctl-client-signer-ca secret..."
-          CLIENT_SIGNER_CERT=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}')
-          CLIENT_SIGNER_KEY=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.key}')
-          cat <<EOF | $K8S_CLI apply -f -
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: flightctl-client-signer-ca
-            namespace: $INTERNAL_NAMESPACE
-            labels:
-              {{- include "flightctl.standardLabels" . | nindent 14 }}
-          type: kubernetes.io/tls
-          data:
-            tls.crt: $CLIENT_SIGNER_CERT
-            tls.key: $CLIENT_SIGNER_KEY
-          EOF
-
-          # Copy CA bundle secret
-          echo "Copying flightctl-ca-bundle secret..."
-          cat <<EOF | $K8S_CLI apply -f -
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: flightctl-ca-bundle
-            namespace: $INTERNAL_NAMESPACE
-            labels:
-              {{- include "flightctl.standardLabels" . | nindent 14 }}
-          data:
-            ca-bundle.crt: $CA_BUNDLE_DATA
-          EOF
-
-          echo "CA secrets copied successfully to $INTERNAL_NAMESPACE"
-          {{- end }}
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
       - name: {{ .Values.global.imagePullSecretName }}
