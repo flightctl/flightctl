@@ -1476,6 +1476,27 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 
 	hintedArtifact := targetArtifact && delta != nil && delta.Hint != ""
+	if targetExists && hintedArtifact {
+		m.log.Debugf("Scheduled prefetch artifact already exists with an unusable delta hint: %s", target)
+		task := &prefetchTask{
+			ociType:              ociType,
+			targetDigest:         targetDigest,
+			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
+			clientOptsFn:         clientOptsFn,
+			done:                 true,
+			delta:                delta,
+			deltaGeneration:      m.deltaGeneration,
+		}
+		m.tasks[target] = task
+		m.recordDeltaApplyResultLocked(
+			target,
+			task,
+			deltaApplications(delta),
+			v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+			"",
+		)
+		return false, nil
+	}
 	if targetExists && !hintedArtifact {
 		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
 		targetPresent := delta != nil && supportsApplicationImageDigestCheck(ociType)

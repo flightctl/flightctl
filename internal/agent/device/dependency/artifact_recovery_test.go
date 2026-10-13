@@ -7,7 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/util"
@@ -18,7 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
+func TestCachedArtifactHintKeepsCachedArtifact(t *testing.T) {
 	const image = "quay.io/acme/compose:target"
 	const hint = "quay.io/acme/delta:target"
 	tests := []struct {
@@ -27,19 +26,18 @@ func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 		setupMocks func(*executer.MockExecuter)
 	}{
 		{
-			name:    "When a cached artifact has a delta hint it should report Fallback and pull the full artifact",
+			name:    "When a cached artifact has a delta hint it should report NotRequired without pulling the artifact",
 			ociType: OCITypePodmanArtifact,
 			setupMocks: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return("{}", "", 0)
 			},
 		},
 		{
-			name:    "When a cached auto detected artifact has a delta hint it should report Fallback and pull the full artifact",
+			name:    "When a cached auto detected artifact has a delta hint it should report NotRequired without pulling the artifact",
 			ociType: OCITypeAuto,
 			setupMocks: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return("{}", "", 0)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds").Return(`{"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.docker.compose.project"}`, "", 0)
 			},
 		},
 	}
@@ -50,8 +48,6 @@ func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
 			tt.setupMocks(exec)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "pull", image).Return("", "", 0)
 			resources := resource.NewMockManager(ctrl)
 			resources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false)
 			logger := log.NewPrefixLogger("test")
@@ -67,15 +63,13 @@ func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 			manager.RegisterOCICollector(newTestOCICollector(func(context.Context, *v1beta1.DeviceSpec, *v1beta1.DeviceSpec, ...OCICollectOpt) (*OCICollection, error) {
 				return &OCICollection{Targets: OCIPullTargetsByUser{"": {{Type: tt.ociType, Reference: image, PullPolicy: v1beta1.PullIfNotPresent, Delta: &OCIDeltaTarget{Hint: hint, Application: "compose"}}}}}, nil
 			}))
-			require.ErrorIs(manager.BeforeUpdate(t.Context(), nil, &v1beta1.DeviceSpec{}), errors.ErrPrefetchNotReady)
-			manager.processTarget(t.Context(), <-manager.queue)
+			require.NoError(manager.BeforeUpdate(t.Context(), nil, &v1beta1.DeviceSpec{}))
 			require.True(manager.IsReady(t.Context()))
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "compose"}}}
 			require.NoError(manager.Status(t.Context(), status))
 			require.NotNil(status.Applications[0].LastDelta)
-			require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, status.Applications[0].LastDelta.Outcome)
-			require.NotNil(status.Applications[0].LastDelta.FallbackReason)
-			require.Contains(*status.Applications[0].LastDelta.FallbackReason, "not supported for OCI artifacts")
+			require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, status.Applications[0].LastDelta.Outcome)
+			require.Nil(status.Applications[0].LastDelta.FallbackReason)
 		})
 	}
 }
