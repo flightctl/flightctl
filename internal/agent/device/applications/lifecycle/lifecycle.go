@@ -10,8 +10,31 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
+
+// HandlerOption configures optional dependencies shared by application lifecycle handlers.
+type HandlerOption func(*handlerOptions)
+
+type handlerOptions struct {
+	deltaStatusStore *deltastatus.Store
+}
+
+// WithDeltaStatusStore supplies the store used to record application image outcomes.
+func WithDeltaStatusStore(store *deltastatus.Store) HandlerOption {
+	return func(options *handlerOptions) {
+		options.deltaStatusStore = store
+	}
+}
+
+func applyHandlerOptions(options []HandlerOption) handlerOptions {
+	var configured handlerOptions
+	for _, option := range options {
+		option(&configured)
+	}
+	return configured
+}
 
 type ActionType string
 

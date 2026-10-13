@@ -42,16 +42,13 @@ type Quadlet struct {
 	log            *log.PrefixLogger
 }
 
-func NewQuadlet(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, systemdFactory systemd.ManagerFactory, podmanFactory client.PodmanFactory, deltaStores ...*deltastatus.Store) *Quadlet {
-	var deltaStore *deltastatus.Store
-	if len(deltaStores) > 0 {
-		deltaStore = deltaStores[0]
-	}
+func NewQuadlet(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, systemdFactory systemd.ManagerFactory, podmanFactory client.PodmanFactory, options ...HandlerOption) *Quadlet {
+	configured := applyHandlerOptions(options)
 	return &Quadlet{
 		systemdFactory: systemdFactory,
 		podmanFactory:  podmanFactory,
 		rwFactory:      rwFactory,
-		deltaStore:     deltaStore,
+		deltaStore:     configured.deltaStatusStore,
 		log:            log,
 	}
 }
@@ -509,7 +506,7 @@ func (q *Quadlet) prepareArtifactVolumePath(
 		return "", false, fmt.Errorf("inspect volume identity %w: empty inspection", errors.WithElement(volume.ID))
 	}
 	if inspection.Driver != podmanLocalVolumeDriver {
-		return "", false, fmt.Errorf("volume %q has driver %q, expected local artifact volume", volume.ID, inspection.Driver)
+		return "", false, fmt.Errorf("volume %w has driver %q, expected local artifact volume", errors.WithElement(volume.ID), inspection.Driver)
 	}
 	volumePath, err := podman.InspectVolumeMount(ctx, volume.ID)
 	if err != nil {
@@ -536,7 +533,7 @@ func (q *Quadlet) clearArtifactVolumeImage(action Action, volumeID string) error
 		return nil
 	}
 	if err := q.deltaStore.ClearApplicationVolumeImage(action.Name, action.Lifetime, volumeID); err != nil {
-		return fmt.Errorf("clear old volume identity %s: %w", volumeID, err)
+		return fmt.Errorf("clear old volume identity %w: %w", errors.WithElement(volumeID), err)
 	}
 	return nil
 }
@@ -557,7 +554,7 @@ func (q *Quadlet) recordArtifactVolumeImage(ctx context.Context, action Action, 
 		Digest:  artifactDigest,
 	}
 	if err := q.deltaStore.RecordApplicationVolumeImage(action.Name, action.Lifetime, volume.ID, inspection.CreatedAt, image); err != nil {
-		return fmt.Errorf("persist artifact identity for volume %s: %w", volume.ID, err)
+		return fmt.Errorf("persist artifact identity for volume %w: %w", errors.WithElement(volume.ID), err)
 	}
 	return nil
 }

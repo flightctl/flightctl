@@ -78,7 +78,7 @@ func NewManager(
 	for _, opt := range opts {
 		opt(manager)
 	}
-	manager.podmanMonitor = NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory, manager.deltaStatusStore)
+	manager.podmanMonitor = NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory, WithPodmanMonitorDeltaStatusStore(manager.deltaStatusStore))
 	return manager
 }
 
@@ -191,7 +191,7 @@ func (m *manager) attachApplicationLifetime(p provider.Provider) error {
 	}
 	lifetime, err := m.deltaStatusStore.EnsureApplicationLifetime(p.Spec().Name)
 	if err != nil {
-		return fmt.Errorf("ensuring application lifetime: %w", err)
+		return fmt.Errorf("ensuring application lifetime %w: %w", errors.WithElement(p.Spec().Name), err)
 	}
 	p.Spec().Lifetime = lifetime
 	return nil
@@ -216,7 +216,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
+			return fmt.Errorf("%w %w: %w", errors.ErrInstallingApplication, errors.WithElement(provider.Name()), err)
 		}
 		return m.podmanMonitor.Ensure(ctx, m.newAppFromProvider(provider))
 	case v1beta1.AppTypeHelm:
@@ -229,7 +229,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
+			return fmt.Errorf("%w %w: %w", errors.ErrInstallingApplication, errors.WithElement(provider.Name()), err)
 		}
 		return m.kubernetesMonitor.Ensure(m.newAppFromProvider(provider))
 	default:
@@ -242,11 +242,11 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 		return err
 	}
 	if err := provider.Remove(ctx); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
+		return fmt.Errorf("%w %w: %w", errors.ErrRemovingApplication, errors.WithElement(provider.Name()), err)
 	}
 	if m.deltaStatusStore != nil {
 		if err := m.deltaStatusStore.RemoveApplication(provider.Spec().Name); err != nil {
-			return fmt.Errorf("removing application delta state: %w", err)
+			return fmt.Errorf("removing application delta state %w: %w", errors.WithElement(provider.Spec().Name), err)
 		}
 	}
 

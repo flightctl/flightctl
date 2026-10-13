@@ -61,17 +61,31 @@ type pendingRecovery struct {
 	allServices        bool
 }
 
+// PodmanMonitorOption configures optional Podman monitor dependencies.
+type PodmanMonitorOption func(*podmanMonitorOptions)
+
+type podmanMonitorOptions struct {
+	deltaStatusStore *deltastatus.Store
+}
+
+// WithPodmanMonitorDeltaStatusStore supplies the store used by application lifecycle handlers.
+func WithPodmanMonitorDeltaStatusStore(store *deltastatus.Store) PodmanMonitorOption {
+	return func(options *podmanMonitorOptions) {
+		options.deltaStatusStore = store
+	}
+}
+
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podmanFactory client.PodmanFactory,
 	systemdFactory systemd.ManagerFactory,
 	bootTime string,
 	rwFactory fileio.ReadWriterFactory,
-	deltaStores ...*deltastatus.Store,
+	options ...PodmanMonitorOption,
 ) *PodmanMonitor {
-	var deltaStore *deltastatus.Store
-	if len(deltaStores) > 0 {
-		deltaStore = deltaStores[0]
+	var configured podmanMonitorOptions
+	for _, option := range options {
+		option(&configured)
 	}
 	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
 	startTime, err := time.Parse(time.RFC3339, bootTime)
@@ -83,8 +97,8 @@ func NewPodmanMonitor(
 		clientFactory:  podmanFactory,
 		systemdFactory: systemdFactory,
 		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
-			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory, deltaStore),
-			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory, deltaStore),
+			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory, lifecycle.WithDeltaStatusStore(configured.deltaStatusStore)),
+			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory, lifecycle.WithDeltaStatusStore(configured.deltaStatusStore)),
 		},
 		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),

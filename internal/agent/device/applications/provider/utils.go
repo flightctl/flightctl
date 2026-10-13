@@ -234,7 +234,7 @@ func bindQuadletImageVolumes(
 ) error {
 	entries, err := rw.ReadDir(appPath)
 	if err != nil {
-		return fmt.Errorf("reading Quadlet application directory: %w", err)
+		return fmt.Errorf("reading Quadlet application directory %w: %w", errors.WithElement(appPath), err)
 	}
 	if podman == nil {
 		logger.Warn("Cannot bind Quadlet image volumes without the owning Podman client")
@@ -248,11 +248,11 @@ func bindQuadletImageVolumes(
 		path := filepath.Join(appPath, entry.Name())
 		contents, err := rw.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("reading Quadlet volume %q: %w", entry.Name(), err)
+			return fmt.Errorf("reading Quadlet volume %w: %w", errors.WithElement(path), err)
 		}
 		unit, err := quadlet.NewUnit(contents)
 		if err != nil {
-			return fmt.Errorf("parsing Quadlet volume %q: %w", entry.Name(), err)
+			return fmt.Errorf("parsing Quadlet volume %w: %w", errors.WithElement(path), err)
 		}
 		if !unit.HasSection(quadlet.VolumeGroup) {
 			continue
@@ -275,7 +275,7 @@ func bindQuadletImageVolumes(
 		if err := unit.Transform(quadlet.VolumeGroup, quadlet.ImageKey, func(string) (string, error) {
 			return imageID, nil
 		}); err != nil {
-			return fmt.Errorf("pinning image for Quadlet volume %q: %w", entry.Name(), err)
+			return fmt.Errorf("pinning image for Quadlet volume %w: %w", errors.WithElement(path), err)
 		}
 
 		imageDigest, err := podman.ImageDigest(ctx, imageID)
@@ -291,15 +291,15 @@ func bindQuadletImageVolumes(
 				client.PodmanDeltaVolumeOCITypeLabel:     string(dependency.OCITypePodmanImage),
 			}
 			if err := setQuadletVolumeLabels(unit, labels); err != nil {
-				return fmt.Errorf("stamping Quadlet image volume %q: %w", entry.Name(), err)
+				return fmt.Errorf("stamping Quadlet image volume %w: %w", errors.WithElement(path), err)
 			}
 		}
 		updated, err := unit.Write()
 		if err != nil {
-			return fmt.Errorf("serializing Quadlet volume %q: %w", entry.Name(), err)
+			return fmt.Errorf("serializing Quadlet volume %w: %w", errors.WithElement(path), err)
 		}
 		if err := rw.WriteFile(path, updated, fileio.DefaultFilePermissions); err != nil {
-			return fmt.Errorf("writing Quadlet volume %q: %w", entry.Name(), err)
+			return fmt.Errorf("writing Quadlet volume %w: %w", errors.WithElement(path), err)
 		}
 	}
 	return nil
