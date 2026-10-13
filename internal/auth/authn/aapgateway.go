@@ -156,21 +156,23 @@ func (a *AapGatewayAuth) ValidateToken(ctx context.Context, token string) error 
 	return err
 }
 
-func (a *AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
+func (a *AapGatewayAuth) GetAuthConfig() (*api.AuthConfig, error) {
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
 		Kind:       api.AuthProviderKind,
 		Metadata:   a.metadata,
 		Spec:       api.AuthProviderSpec{},
 	}
-	_ = provider.Spec.FromAapProviderSpec(a.spec)
+	if err := provider.Spec.FromAapProviderSpec(a.spec); err != nil {
+		return nil, fmt.Errorf("failed to marshal AAP auth provider spec: %w", err)
+	}
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      a.metadata.Name,
 		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]api.AuthProvider{provider},
-	}
+	}, nil
 }
 
 func (*AapGatewayAuth) GetAuthToken(r *http.Request) (string, error) {

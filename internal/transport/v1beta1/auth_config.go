@@ -11,7 +11,11 @@ import (
 func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	authConfig := h.authN.GetAuthConfig()
+	authConfig, err := h.authN.GetAuthConfig()
+	if err != nil {
+		h.SetResponse(w, nil, api.StatusInternalServerError(err.Error()))
+		return
+	}
 	body, status := h.authprovider.GetAuthConfig(r.Context(), authConfig)
 	h.SetResponse(w, body, status)
 }

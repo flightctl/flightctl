@@ -43,7 +43,7 @@
         },
         "routeExternalCertificate": {
           "type": "string",
-          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses on fresh install and preserves existing behavior on upgrade. 'true' always uses. 'false' never uses (rely on default router cert).",
+          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses for synchronous builtin certificates, or configures it after the generated Secret exists for asynchronous certificates. 'true' uses externalCertificate and configures it after the generated Secret exists when cert-manager is used. 'false' never uses (rely on default router cert).",
           "enum": ["auto", "true", "false"]
         },
         "storageClassName": {
@@ -107,6 +107,19 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "prompt": {
+                  "type": ["string", "null"],
+                  "default": "login",
+                  "pattern": "^(| *[!-~]+( +[!-~]+)* *)$",
+                  "if": {
+                    "type": "string",
+                    "pattern": "(^| )none( |$)"
+                  },
+                  "then": {
+                    "pattern": "^ *none( +none)* *$"
+                  },
+                  "description": "Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login."
+                },
                 "clientId": { "type": "string", "description": "OIDC Client ID" },
                 "clientSecret": {
                   "type": "string",

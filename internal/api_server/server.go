@@ -465,7 +465,7 @@ func (s *Server) Run(ctx context.Context) error {
 		ws.RegisterRoutes(r)
 	})
 
-	handler := otelhttp.NewHandler(router, "http-server")
+	handler := otelhttp.NewHandler(router, "http-server", otelhttp.WithServerName(s.cfg.Service.Address))
 	srv := fcmiddleware.NewHTTPServer(handler, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {

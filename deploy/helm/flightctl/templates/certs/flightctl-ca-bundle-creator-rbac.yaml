@@ -33,6 +33,10 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "get", "patch", "update"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    resourceNames: ["flightctl-ui", "flightctl-cli-artifacts-route"]
+    verbs: ["get", "patch"]
 
 ---
 # RoleBinding to grant permissions to the ServiceAccount

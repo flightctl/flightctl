@@ -93,6 +93,22 @@ Flight Control currently recognizes the following roles with defined permissions
 
 ## Configuration
 
+### Authorization prompt configuration
+
+Set `spec.prompt` to configure the authorization prompt that the API exposes to
+login clients. OAuth2 providers use the same
+[prompt configuration rules as OIDC providers](auth-oidc.md#authorization-prompt-configuration).
+Use values supported by your provider. Login clients must support this field for
+it to affect authorization requests.
+
+For a provider configured in the service configuration file, set `auth.oauth2.prompt`.
+This setting uses the same defaults and empty string behavior as `spec.prompt`.
+Restart the affected services after changing service configuration.
+
+The standard Helm and Podman deployment templates do not configure static OAuth2
+providers; their deployment prompt settings apply to OIDC. OAuth2 AuthProvider
+resources created through the API can still set `spec.prompt`.
+
 ### Token Introspection
 
 OAuth2 providers require token introspection to validate access tokens. Flight Control supports three introspection methods:

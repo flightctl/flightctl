@@ -16,8 +16,8 @@ global:
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
   # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
-  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
-  # - true: always use externalCertificate.
+  # - auto: use externalCertificate for synchronous builtin certificates, or configure it after the generated Secret exists for asynchronous certificates.
+  # - true: use externalCertificate; with cert-manager, configure it after the generated Secret exists.
   # - false: never use externalCertificate (rely on default router cert).
   routeExternalCertificate: "auto"
   # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
@@ -55,6 +55,8 @@ global:
       # -- Optional prefix for org names from this provider (e.g. "k8s-"). Incoming org name is exposed as prefix + name.
       organizationNamePrefix: ""
     oidc:
+      # -- Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login.
+      prompt: "login"
       # -- OIDC Client ID
       clientId: "flightctl-client"
       # -- List of OIDC scopes to request (e.g. openid, profile, email, roles, offline_access)
