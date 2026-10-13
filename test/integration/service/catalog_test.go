@@ -69,6 +69,21 @@ var _ = Describe("Catalog Integration Tests", func() {
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
+		It("should accept version with OR skipRange", func() {
+			item := createValidCatalogItem("item-with-or-skip-range")
+			item.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "4.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v4.0.0"},
+					Channels:   []string{"stable"},
+					SkipRange:  lo.ToPtr("1.0.0 || 3.0.0"),
+				},
+			}
+
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
 		It("should reject version with missing references", func() {
 			item := createValidCatalogItem("item-missing-refs")
 			item.Spec.Versions = []api.CatalogItemVersion{

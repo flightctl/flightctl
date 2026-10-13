@@ -1727,8 +1727,8 @@ components:
     SemVerRange:
       type: string
       x-go-type: string
-      description: 'Semver range constraint (e.g., >=1.0.0 <2.0.0). Space-separated terms, each with optional operator (>=, <=, >, <, =, ~, ^) followed by a version.'
-      pattern: '^[>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?( [>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?)*$'
+      description: 'Semver range constraint (e.g., >=1.0.0 <2.0.0 or 1.0.0 || 3.0.0). Each alternative is a space-separated list of terms, with optional operators (>=, <=, >, <, =, ~, ^) before each version.'
+      pattern: '^[>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?( [>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?)*( *\|\| *[>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?( [>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?)*)*$'
       example: ">=1.0.0 <2.0.0"
     # Catalog-specific schemas (shared types come from v1beta1 via external refs)
     Catalog:

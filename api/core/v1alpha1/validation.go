@@ -360,26 +360,28 @@ func validateSemver(v string) error {
 
 // validateSemverRange checks if a string is a valid semver range constraint.
 func validateSemverRange(r string) error {
-	// Basic validation for semver range patterns like ">=1.0.0 <2.0.0"
-	// Allow common operators: >=, <=, >, <, =, ~, ^
-	if r == "" {
+	// Basic validation for semver range patterns like ">=1.0.0 <2.0.0" and
+	// alternatives like "1.0.0 || 3.0.0". Allow common operators: >=, <=, >, <, =, ~, ^.
+	if strings.TrimSpace(r) == "" {
 		return fmt.Errorf("semver range cannot be empty")
 	}
 
-	// Split by space to handle compound ranges like ">=1.0.0 <2.0.0"
-	parts := strings.Fields(r)
-	if len(parts) == 0 {
-		return fmt.Errorf("semver range cannot be empty")
-	}
-
-	for _, part := range parts {
-		// Strip operators
-		version := strings.TrimLeft(part, ">=<~^")
-		if version == "" {
-			return fmt.Errorf("invalid semver range: missing version after operator in %q", part)
+	for _, alternative := range strings.Split(r, "||") {
+		// Split by space to handle compound ranges like ">=1.0.0 <2.0.0".
+		parts := strings.Fields(alternative)
+		if len(parts) == 0 {
+			return fmt.Errorf("invalid semver range: empty OR alternative in %q", r)
 		}
-		if err := validateSemver(version); err != nil {
-			return fmt.Errorf("invalid semver range: %v in %q", err, part)
+
+		for _, part := range parts {
+			// Strip operators.
+			version := strings.TrimLeft(part, ">=<~^")
+			if version == "" {
+				return fmt.Errorf("invalid semver range: missing version after operator in %q", part)
+			}
+			if err := validateSemver(version); err != nil {
+				return fmt.Errorf("invalid semver range: %v in %q", err, part)
+			}
 		}
 	}
 

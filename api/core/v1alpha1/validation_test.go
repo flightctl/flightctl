@@ -1110,9 +1110,13 @@ func TestSemverRangeValidation(t *testing.T) {
 		{"valid with caret", "^1.0.0", false},
 		{"valid with tilde", "~1.0.0", false},
 		{"valid exact", "=1.0.0", false},
+		{"valid OR", "1.0.0 || 3.0.0", false},
+		{"valid compound OR", ">=1.0.0 <2.0.0 || >=3.0.0 <4.0.0", false},
 		{"invalid empty", "", true},
 		{"invalid missing version", ">=", true},
 		{"invalid bad version", ">=abc", true},
+		{"invalid empty OR alternative", "1.0.0 ||", true},
+		{"invalid repeated OR", "1.0.0 || || 3.0.0", true},
 	}
 
 	for _, tt := range tests {
@@ -1253,6 +1257,16 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 				References: map[CatalogItemArtifactType]string{"container": "v2.0.0"},
 				Channels:   []string{"stable"},
 				SkipRange:  lo.ToPtr(">=1.0.0 <2.0.0"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid skipRange with OR",
+			version: CatalogItemVersion{
+				Version:    "4.0.0",
+				References: map[CatalogItemArtifactType]string{"container": "v4.0.0"},
+				Channels:   []string{"stable"},
+				SkipRange:  lo.ToPtr("1.0.0 || 3.0.0"),
 			},
 			wantErr: false,
 		},

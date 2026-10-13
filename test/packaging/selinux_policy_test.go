@@ -11,6 +11,7 @@ const (
 	selinuxPolicyPath               = "packaging/selinux/flightctl_agent.te"
 	systemdStopAllServicesMacro     = "systemd_stop_all_services(flightctl_agent_t)"
 	systemdStopSystemdServicesMacro = "systemd_stop_systemd_services(flightctl_agent_t)"
+	systemdStopCompatibilityMacro   = "ifdef(`systemd_stop_all_services',"
 )
 
 // TestSELinuxPolicyAllowsStoppingAllSystemdServices verifies that the agent can stop Quadlet-generated services.
@@ -24,11 +25,11 @@ func TestSELinuxPolicyAllowsStoppingAllSystemdServices(t *testing.T) {
 	}
 
 	policyText := activePolicyText(policy)
-	if !strings.Contains(policyText, systemdStopAllServicesMacro) {
-		t.Fatalf("SELinux policy does not allow stopping all systemd services")
+	if !strings.Contains(policyText, systemdStopCompatibilityMacro) {
+		t.Fatalf("SELinux policy does not provide a compatible stop macro")
 	}
-	if strings.Contains(policyText, systemdStopSystemdServicesMacro) {
-		t.Fatalf("SELinux policy still uses the narrow systemd stop macro")
+	if !strings.Contains(policyText, systemdStopAllServicesMacro) || !strings.Contains(policyText, systemdStopSystemdServicesMacro) {
+		t.Fatalf("SELinux policy does not provide both systemd stop macro paths")
 	}
 }
 

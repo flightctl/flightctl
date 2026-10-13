@@ -576,7 +576,7 @@ type FleetVulnerabilitySummaryResponse struct {
 // SemVer Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1)
 type SemVer = string
 
-// SemVerRange Semver range constraint (e.g., >=1.0.0 <2.0.0). Space-separated terms, each with optional operator (>=, <=, >, <, =, ~, ^) followed by a version.
+// SemVerRange Semver range constraint (e.g., >=1.0.0 <2.0.0 or 1.0.0 || 3.0.0). Each alternative is a space-separated list of terms, with optional operators (>=, <=, >, <, =, ~, ^) before each version.
 type SemVerRange = string
 
 // Status Status is a return value for calls that don't return other objects.
