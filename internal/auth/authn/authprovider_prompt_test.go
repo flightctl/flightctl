@@ -73,7 +73,7 @@ func TestMultiAuth_PromptUpdates(t *testing.T) {
 					if previous != nil {
 						require.NotSame(t, previous, middleware, "prompt-only edits must refresh middleware")
 					}
-					config := multiAuth.GetAuthConfig()
+					config := mustGetAuthConfig(t, multiAuth)
 					require.NotNil(t, config.Providers)
 					require.Len(t, *config.Providers, 1)
 					public := (*config.Providers)[0]
@@ -97,4 +97,20 @@ func TestMultiAuth_PromptUpdates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMultiAuth_GetAuthConfigPropagatesProviderError(t *testing.T) {
+	oauth2Auth := createTestOAuth2Auth(t, createBasicOAuth2Spec(t))
+	defer oauth2Auth.Stop()
+
+	var invalidRoleAssignment api.AuthRoleAssignment
+	require.NoError(t, invalidRoleAssignment.UnmarshalJSON([]byte("{")))
+	oauth2Auth.spec.RoleAssignment = invalidRoleAssignment
+
+	multiAuth := NewMultiAuth(nil, nil, logrus.New())
+	multiAuth.AddStaticProvider("https://test-issuer.example.com", oauth2Auth)
+
+	config, err := multiAuth.GetAuthConfig()
+	require.Error(t, err)
+	require.Nil(t, config)
 }

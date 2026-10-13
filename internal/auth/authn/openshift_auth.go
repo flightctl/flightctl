@@ -141,7 +141,7 @@ func (o *OpenShiftAuth) GetAuthToken(r *http.Request) (string, error) {
 }
 
 // GetAuthConfig returns the OpenShift authentication configuration
-func (o *OpenShiftAuth) GetAuthConfig() *api.AuthConfig {
+func (o *OpenShiftAuth) GetAuthConfig() (*api.AuthConfig, error) {
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
 		Kind:       api.AuthProviderKind,
@@ -149,14 +149,16 @@ func (o *OpenShiftAuth) GetAuthConfig() *api.AuthConfig {
 		Spec:       api.AuthProviderSpec{},
 	}
 
-	_ = provider.Spec.FromOpenShiftProviderSpec(o.spec)
+	if err := provider.Spec.FromOpenShiftProviderSpec(o.spec); err != nil {
+		return nil, fmt.Errorf("failed to marshal OpenShift auth provider spec: %w", err)
+	}
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      o.metadata.Name,
 		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]api.AuthProvider{provider},
-	}
+	}, nil
 }
 
 // ValidateToken validates an OpenShift OAuth token using K8s TokenReview

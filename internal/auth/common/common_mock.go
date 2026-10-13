@@ -267,11 +267,12 @@ func (m *MockAuthNMiddleware) EXPECT() *MockAuthNMiddlewareMockRecorder {
 }
 
 // GetAuthConfig mocks base method.
-func (m *MockAuthNMiddleware) GetAuthConfig() *v1beta1.AuthConfig {
+func (m *MockAuthNMiddleware) GetAuthConfig() (*v1beta1.AuthConfig, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthConfig")
 	ret0, _ := ret[0].(*v1beta1.AuthConfig)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // GetAuthConfig indicates an expected call of GetAuthConfig.
@@ -362,11 +363,12 @@ func (m *MockMultiAuthNMiddleware) EXPECT() *MockMultiAuthNMiddlewareMockRecorde
 }
 
 // GetAuthConfig mocks base method.
-func (m *MockMultiAuthNMiddleware) GetAuthConfig() *v1beta1.AuthConfig {
+func (m *MockMultiAuthNMiddleware) GetAuthConfig() (*v1beta1.AuthConfig, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthConfig")
 	ret0, _ := ret[0].(*v1beta1.AuthConfig)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // GetAuthConfig indicates an expected call of GetAuthConfig.

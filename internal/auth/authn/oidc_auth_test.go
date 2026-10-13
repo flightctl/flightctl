@@ -386,3 +386,15 @@ func TestOIDCAuth_ensureDiscovery_TrailingSlash(t *testing.T) {
 		})
 	}
 }
+
+func TestOIDCAuth_GetAuthConfigReturnsErrorForInvalidNestedJSON(t *testing.T) {
+	oidcAuth := createTestOIDCAuth("https://issuer.example.com/jwks")
+
+	var invalidRoleAssignment api.AuthRoleAssignment
+	require.NoError(t, invalidRoleAssignment.UnmarshalJSON([]byte("{")))
+	oidcAuth.spec.RoleAssignment = invalidRoleAssignment
+
+	config, err := oidcAuth.GetAuthConfig()
+	require.Error(t, err)
+	require.Nil(t, config)
+}

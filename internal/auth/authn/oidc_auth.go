@@ -398,7 +398,7 @@ func (o *OIDCAuth) GetOIDCSpec() api.OIDCProviderSpec {
 	return o.spec
 }
 
-func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
+func (o *OIDCAuth) GetAuthConfig() (*api.AuthConfig, error) {
 	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
@@ -415,14 +415,16 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 		maskedSpec.Prompt = &defaultPrompt
 	}
 
-	_ = provider.Spec.FromOIDCProviderSpec(maskedSpec)
+	if err := provider.Spec.FromOIDCProviderSpec(maskedSpec); err != nil {
+		return nil, fmt.Errorf("failed to marshal OIDC auth provider spec: %w", err)
+	}
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      o.metadata.Name,
 		OrganizationsEnabled: &orgEnabled,
 		Providers:            &[]api.AuthProvider{provider},
-	}
+	}, nil
 }
 
 func (o *OIDCAuth) GetAuthToken(r *http.Request) (string, error) {

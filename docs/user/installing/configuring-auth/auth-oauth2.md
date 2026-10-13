@@ -105,6 +105,10 @@ For a provider configured in the service configuration file, set `auth.oauth2.pr
 This setting uses the same defaults and empty string behavior as `spec.prompt`.
 Restart the affected services after changing service configuration.
 
+The standard Helm and Podman deployment templates do not configure static OAuth2
+providers; their deployment prompt settings apply to OIDC. OAuth2 AuthProvider
+resources created through the API can still set `spec.prompt`.
+
 ### Token Introspection
 
 OAuth2 providers require token introspection to validate access tokens. Flight Control supports three introspection methods:

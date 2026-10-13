@@ -95,6 +95,7 @@ Flight Control currently recognizes the following roles with defined permissions
 Set `spec.prompt` to configure the authorization prompt that the API exposes to
 login clients. Choose values supported by your identity provider.
 Login clients must support this field for it to affect authorization requests.
+The built-in `flightctl login --web` command currently ignores this field.
 
 | Configuration | Prompt behavior |
 | --- | --- |
