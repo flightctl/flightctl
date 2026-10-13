@@ -31,6 +31,11 @@ spec:
         - name: flightctl-delta-worker
           image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.deltaWorker.image.image) }}:{{ default .Chart.AppVersion .Values.deltaWorker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.deltaWorker.image.pullPolicy }}
+          # oci-delta needs CAP_SYS_ADMIN to create its mount namespace.
+          securityContext:
+            capabilities:
+              add:
+                - SYS_ADMIN
           resources:
             {{- toYaml .Values.deltaWorker.resources | nindent 12 }}
           ports:

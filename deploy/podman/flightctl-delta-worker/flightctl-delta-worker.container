@@ -8,6 +8,8 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 ContainerName=flightctl-delta-worker
 Image={{ .DeltaWorker.Image }}:{{ .DeltaWorker.Tag }}
 Pull=missing
+# oci-delta needs CAP_SYS_ADMIN to create its mount namespace.
+AddCapability=CAP_SYS_ADMIN
 Network=flightctl.network
 AddHost=%H:host-gateway
 Environment=HOME=/root
