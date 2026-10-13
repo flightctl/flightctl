@@ -1,14 +1,22 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+)
+
+const (
+	sshdReloadTimeout       = 30 * time.Second
+	sshdReloadPollInterval  = time.Second
+	sshdProbeAttemptTimeout = 5 * time.Second
 )
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
@@ -80,9 +88,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			GinkgoWriter.Printf("the configuration %s was found in the device\n", inlineConfigName)
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded trying to login with user and password")
-			_, err = harness.VM.RunSSHWithUser([]string{"pwd"}, nil, rootUser)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(tooManyAuthFailuresError))
+			waitForSSHResult(harness, rootUser, tooManyAuthFailuresError)
 
 			By("Update the sshd config")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -97,10 +103,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded by trying to ssh with any user")
-			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
-
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(noPasswordLoginError))
+			waitForSSHResult(harness, "", noPasswordLoginError)
 
 			By("Verify that an embedded hook precedes an inline config hook with the same name")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -128,12 +131,9 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, configProviderSpec, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
-			Expect(err).ToNot(HaveOccurred())
+			waitForSSHResult(harness, "", "")
 
-			_, err = harness.VM.RunSSHWithUser([]string{"pwd"}, nil, rootUser)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(tooManyAuthFailuresError))
+			waitForSSHResult(harness, rootUser, tooManyAuthFailuresError)
 
 			By("Remove the inline hook")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -144,8 +144,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
-			Expect(err).ToNot(HaveOccurred())
+			waitForSSHResult(harness, "", "")
 
 			By("Check pre/after update and pre/after reboot hooks from inline config works")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -539,4 +538,41 @@ func newTemplateSpecProvider(name string, path string, contents string) (v1beta1
 		return provider, err
 	}
 	return provider, nil
+}
+
+// waitForSSHResult polls until SSH succeeds or returns the expected authentication error.
+func waitForSSHResult(harness *e2e.Harness, user string, expectedError string) {
+	GinkgoHelper()
+	pollContext, cancel := context.WithTimeout(context.Background(), sshdReloadTimeout)
+	defer cancel()
+
+	Eventually(func(ctx context.Context) error {
+		if harness == nil {
+			return fmt.Errorf("harness is nil")
+		}
+		if harness.VM == nil {
+			return fmt.Errorf("harness VM is nil")
+		}
+
+		attemptContext, attemptCancel := context.WithTimeout(ctx, sshdProbeAttemptTimeout)
+		defer attemptCancel()
+
+		var err error
+		if user == "" {
+			_, err = harness.VM.RunSSHContext(attemptContext, []string{"pwd"}, nil)
+		} else {
+			_, err = harness.VM.RunSSHWithUserContext(attemptContext, []string{"pwd"}, nil, user)
+		}
+
+		if expectedError == "" && err == nil {
+			return nil
+		}
+		if expectedError != "" && err != nil && strings.Contains(err.Error(), expectedError) {
+			return nil
+		}
+		if err == nil {
+			return fmt.Errorf("SSH command succeeded before observing %q", expectedError)
+		}
+		return err
+	}).WithTimeout(sshdReloadTimeout).WithPolling(sshdReloadPollInterval).WithContext(pollContext).Should(Succeed())
 }

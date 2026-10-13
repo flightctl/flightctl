@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	testinfra "github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -43,11 +44,14 @@ var _ = BeforeEach(func() {
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
+	specLabels := CurrentSpecReport().Labels()
+	if isEnrollmentHookNotifyScenario(specLabels) && !testinfra.IsQuadletEnvironment() {
+		Skip("notify webhook E2E requires a VM/Quadlet environment with host endpoint reachability")
+	}
 
 	// Setup VM from pool, revert to pristine snapshot, and start agent
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
-	specLabels := CurrentSpecReport().Labels()
 	if isEnrollmentHookScenario(specLabels) {
 		Expect(prepareImageBackedReEnrollment(harness)).To(Succeed())
 		if !isEnrollmentHookReEnrollmentScenario(specLabels) {
