@@ -518,7 +518,7 @@ func TestSkopeoListPlatformReferrers(t *testing.T) {
 	require.Equal(t, deltaDigest, result.Referrers.Manifests[0].Digest)
 }
 
-func TestSkopeoInspectPlatformDigestTrimsSingleManifestOutput(t *testing.T) {
+func TestSkopeoInspectPlatformDigestHashesExactSingleManifestBytes(t *testing.T) {
 	const image = "quay.io/acme/os:latest"
 	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`
 	ctrl := gomock.NewController(t)
@@ -534,7 +534,7 @@ func TestSkopeoInspectPlatformDigestTrimsSingleManifestOutput(t *testing.T) {
 
 	got, err := skopeo.InspectPlatformDigest(context.Background(), image)
 	require.NoError(t, err)
-	require.Equal(t, digest.FromBytes([]byte(manifest)).String(), got)
+	require.Equal(t, digest.FromBytes([]byte(manifest+"\n")).String(), got)
 }
 
 func TestSkopeoCopyWithDefaultAuth(t *testing.T) {
