@@ -706,6 +706,77 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 	}
 }
 
+func TestKubernetesMonitorReinspectsCRIDigestsForNewRepository(t *testing.T) {
+	const imageID = "containerd://sha256:config"
+	const firstDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const secondDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	cases := []struct {
+		name              string
+		firstRepoDigests  []string
+		secondRepoDigests []string
+	}{
+		{
+			name:              "When a successful inspection returns no repo digests it should retry for a new repository",
+			firstRepoDigests:  nil,
+			secondRepoDigests: []string{"quay.io/second/web@" + secondDigest},
+		},
+		{
+			name:              "When cached repo digests do not match the requested repository it should inspect again",
+			firstRepoDigests:  []string{"quay.io/first/web@" + firstDigest},
+			secondRepoDigests: []string{"quay.io/second/web@" + secondDigest},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			exec := executer.NewMockExecuter(ctrl)
+			rwFactory := fileio.NewReadWriterFactory(t.TempDir())
+			rw, err := rwFactory(v1beta1.CurrentProcessUsername)
+			require.NoError(err)
+			firstResponse, err := json.Marshal(map[string]any{"status": map[string]any{"repoDigests": tc.firstRepoDigests}})
+			require.NoError(err)
+			secondResponse, err := json.Marshal(map[string]any{"status": map[string]any{"repoDigests": tc.secondRepoDigests}})
+			require.NoError(err)
+			gomock.InOrder(
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", "sha256:config").
+					Return(string(firstResponse), "", 0),
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", "sha256:config").
+					Return(string(secondResponse), "", 0),
+			)
+
+			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
+			volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+			require.NoError(err)
+			app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
+			require.NoError(monitor.Ensure(app))
+			observe := func(image, eventType string) {
+				event := kubernetesWatchEvent{Type: eventType}
+				event.Object.Kind = "Pod"
+				event.Object.Metadata.Name = "web"
+				event.Object.Metadata.UID = "pod"
+				event.Object.Metadata.Labels = map[string]string{helm.AppLabelKey: "app"}
+				event.Object.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: image}}
+				event.Object.Status.ContainerStatuses = []kubernetesContainerStatus{{
+					Name: "web", ImageID: imageID, Ready: true,
+				}}
+				data, err := json.Marshal(event)
+				require.NoError(err)
+				monitor.HandleEvent(t.Context(), data)
+			}
+			observe("quay.io/first/web:latest", "ADDED")
+			observe("quay.io/second/web:latest", "MODIFIED")
+
+			results, err := monitor.Status()
+			require.NoError(err)
+			require.Len(results, 1)
+			require.Equal([]v1beta1.ApplicationImageDigest{{Image: "quay.io/second/web:latest", Digest: secondDigest}}, *results[0].Status.ImageDigests)
+		})
+	}
+}
+
 func TestKubernetesMonitorBoundsCRIImageDigestLookups(t *testing.T) {
 	const image = "quay.io/acme/web:latest"
 	const observed = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

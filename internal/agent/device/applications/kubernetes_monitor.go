@@ -548,7 +548,9 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 	}
 	repoDigests, cached := m.cachedCRIRepoDigests(runtimeID)
 	if cached {
-		return matchingImageRepoDigest(image, repoDigests, fallback)
+		if repoDigest := matchingImageRepoDigest(image, repoDigests, ""); repoDigest != "" {
+			return repoDigest
+		}
 	}
 	var opts []client.ClientOption
 	if optsFn := provider.CRIImageOptions(m.pullConfigResolver); optsFn != nil {
