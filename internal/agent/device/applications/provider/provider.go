@@ -455,6 +455,10 @@ func collectNestedForProvider(
 			log.Debugf("Using cached nested targets and parent extraction for app %s", p.Name())
 			return cachedEntry.Children, false, nil
 		}
+		if !hasAppData && cachedEntry.Parent.Type == "" {
+			log.Debugf("Using cached nested targets without parent extraction for app %s", p.Name())
+			return cachedEntry.Children, false, nil
+		}
 		if hasAppData {
 			cleanupAppData(log, appDataCache, p.ID())
 		}
