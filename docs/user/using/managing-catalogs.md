@@ -283,6 +283,41 @@ To list all items in a specific catalog:
 flightctl get catalogitems --catalog <catalog_name>
 ```
 
+## Importing catalogs from external sources
+
+You can import catalogs and catalog items from external sources instead of creating and maintaining them manually in Flight Control. Flight Control offers two ways to keep the imported content synchronized:
+
+* **ResourceSync**: The Flight Control service polls a Git repository containing Catalog and CatalogItem YAML files and applies their definitions. Use it when you maintain catalog definitions in Git and want review and history.
+* **The catalog collector**: A separate service imports content from an external platform, such as a model registry or an existing software catalog. A source or adapter maps that content to Catalog and CatalogItem resources, which the collector writes to the Flight Control API. Use it when another platform maintains the content.
+
+How the collector obtains content depends on the source you configure. For example, the built-in Kubeflow Model Registry source polls the registry at a configured interval, while the HTTP source receives snapshots posted by an external adapter.
+
+The two mechanisms are independent. A single Flight Control deployment can use both to manage different catalogs.
+
+| | Catalog collector | ResourceSync |
+|---|---|---|
+| Source of truth | An external system with its own API | A Git repository |
+| Who runs the import | A collector process that you deploy and operate | The Flight Control service |
+| Direction | The collector writes to the Flight Control API | The service reads from Git |
+| Resource ownership | Resources carry collector labels that record which pipeline manages them | Resources are marked as owned by the ResourceSync |
+| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Restricted. The API rejects specification changes and deletion. Label updates are still accepted |
+| Deletion behavior | Resources the pipeline created but that the external system no longer reports are deleted | Resources whose definitions are removed from the repository are deleted |
+
+| Aspect | Catalog collector | ResourceSync |
+|---|---|---|
+| Source of truth | An external platform | A Git repository |
+| Who runs the import | A collector process that you deploy and operate | The Flight Control service |
+| Direction | The collector writes to the Flight Control API | The service reads from Git |
+| Resource ownership | Labels identify the pipeline managing each resource | Resources are marked as owned by the ResourceSync |
+| Synchronization behavior | Creates or updates resources from snapshots and deletes pipeline-managed resources omitted from the desired snapshot | Applies Git definitions and deletes owned resources whose definitions are removed from the repository |
+
+Keep the two mechanisms on separate catalogs. The collector never adopts a resource outside its own boundary: a name collision with a resource created by hand or by a ResourceSync fails the import rather than overwriting the resource.
+
+> [!NOTE]
+> Make changes to imported catalog specifications in their source system or Git repository. Flight Control rejects direct specification changes to resources owned by ResourceSync. The collector overwrites such changes during the next successful synchronization.
+
+To import from an external system, see [Catalog collector overview](catalog-collector/overview.md). To import from Git, continue with the next section.
+
 ## Importing catalogs using ResourceSync
 
 Instead of creating catalogs and catalog items individually, you can store their definitions in a Git repository and import them automatically using a ResourceSync resource. Flight Control periodically polls the repository and synchronizes any changes, making Git the single source of truth for your catalog definitions.
