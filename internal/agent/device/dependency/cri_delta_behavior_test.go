@@ -25,6 +25,7 @@ type criDeltaTestCandidate struct {
 	targetDigest            string
 	manifestSize, layerSize int64
 	local                   bool
+	localIndex              bool
 	invalid                 bool
 }
 
@@ -33,6 +34,7 @@ type criDeltaTestCase struct {
 	discover    bool
 	candidates  []criDeltaTestCandidate
 	selected    string
+	sourceRef   string
 	containerd  bool
 	tagged      bool
 	failStep    string
@@ -47,9 +49,11 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 	digestA := "sha256:" + strings.Repeat("a", 64)
 	digestB := "sha256:" + strings.Repeat("b", 64)
 	platformTargetDigest := "sha256:" + strings.Repeat("9", 64)
+	localIndexDigest := "sha256:" + strings.Repeat("1", 64)
 	targetIndex, targetIndexDigest := testApplicationTargetIndex(t, platformTargetDigest)
 	tests := []criDeltaTestCase{
 		{name: "When a digest-pinned CRI-O target has a local hinted source it should import and refresh the exact reference", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
+		{name: "When containerd records an image-list digest it should resolve the local platform source", containerd: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true, localIndex: true}}, selected: hint, sourceRef: localIndexDigest},
 		{name: "When discovery has no previous application digest it should rank locally usable artifacts by total download size", discover: true, candidates: []criDeltaTestCandidate{
 			{digest: digestA, source: podmanDeltaSource, manifestSize: 10, layerSize: 80, local: true},
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
@@ -168,9 +172,15 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				localImages := make([]any, 0, len(tc.candidates))
 				for _, c := range tc.candidates {
 					if c.local && !c.invalid {
+						repoDigest := "quay.io/local/base@" + c.source
+						if c.localIndex {
+							repoDigest = "quay.io/local/base@" + localIndexDigest
+							sourceIndex, _ := testApplicationTargetIndex(t, c.source)
+							exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+repoDigest).Return(sourceIndex, "", 0)
+						}
 						localImages = append(localImages, map[string]any{
 							"id":          "opaque-id",
-							"repoDigests": []string{"quay.io/local/base@" + c.source},
+							"repoDigests": []string{repoDigest},
 						})
 					}
 				}
@@ -260,6 +270,10 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image string, tc criD
 		steps = append(steps, exec.EXPECT().ExecuteWithContext(gomock.Any(), cmd, args...).Return("", stderr, exit))
 	}
 	if tc.selected != "" {
+		sourceRef := tc.sourceRef
+		if sourceRef == "" {
+			sourceRef = podmanDeltaSource
+		}
 		runtime := "cri-o"
 		if tc.containerd {
 			runtime = "containerd"
@@ -272,7 +286,7 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image string, tc criD
 				expect("oci-delta", "import", "--tag", image, gomock.Any())
 			} else {
 				ctrArgs := []any{"--address", "/run/workload/containerd.sock", "--namespace", "k8s.io", "images"}
-				mountArgs := append(append([]any{}, ctrArgs...), "mount", "quay.io/local/base@"+podmanDeltaSource, gomock.Any())
+				mountArgs := append(append([]any{}, ctrArgs...), "mount", "quay.io/local/base@"+sourceRef, gomock.Any())
 				expect("ctr", mountArgs...)
 				if tc.failStep != "mount" {
 					expect("oci-delta", "apply", "--directory", gomock.Any(), gomock.Any(), gomock.Any())

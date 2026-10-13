@@ -259,23 +259,14 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	return response.Status.RepoDigests, nil
 }
 
-// ImageReferencesByDigest finds registry references for source digests in the
+// ImageReferences finds registry references keyed by repository digest in the
 // configured CRI store with one image-list request.
-func (c *CRI) ImageReferencesByDigest(ctx context.Context, sourceDigests []string, opts ...ClientOption) (map[string]string, error) {
+func (c *CRI) ImageReferences(ctx context.Context, opts ...ClientOption) (map[string]string, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
-	wanted := make(map[string]struct{}, len(sourceDigests))
-	for _, sourceDigest := range sourceDigests {
-		if sourceDigest != "" {
-			wanted[sourceDigest] = struct{}{}
-		}
-	}
-	references := make(map[string]string, len(wanted))
-	if len(wanted) == 0 {
-		return references, nil
-	}
+	references := make(map[string]string)
 	timeout := c.timeout
 	if options.timeout > 0 {
 		timeout = options.timeout
@@ -315,12 +306,9 @@ func (c *CRI) ImageReferencesByDigest(ctx context.Context, sourceDigests []strin
 			if !ok {
 				continue
 			}
-			sourceDigest := pinned.Digest().String()
-			if _, ok := wanted[sourceDigest]; !ok {
-				continue
-			}
-			if selected := references[sourceDigest]; selected == "" || named.String() < selected {
-				references[sourceDigest] = named.String()
+			repositoryDigest := pinned.Digest().String()
+			if selected := references[repositoryDigest]; selected == "" || named.String() < selected {
+				references[repositoryDigest] = named.String()
 			}
 		}
 	}

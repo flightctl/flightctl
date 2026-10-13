@@ -162,7 +162,7 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		if err := targetValidator.validate(ctx, candidate); err != nil {
 			return delta.Candidate{}, "", fmt.Errorf("delta hint is unusable: %w", err)
 		}
-		sourceRefs, err := cri.ImageReferencesByDigest(ctx, []string{candidate.SourceDigest}, opts...)
+		sourceRefs, err := m.criSourceReferences(ctx, cri, skopeo, []string{candidate.SourceDigest}, opts...)
 		if err != nil {
 			return delta.Candidate{}, "", fmt.Errorf("check delta source image: %w", err)
 		}
@@ -206,7 +206,7 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 	for _, candidate := range candidates {
 		sourceDigests = append(sourceDigests, candidate.SourceDigest)
 	}
-	sourceRefs, err := cri.ImageReferencesByDigest(ctx, sourceDigests, opts...)
+	sourceRefs, err := m.criSourceReferences(ctx, cri, skopeo, sourceDigests, opts...)
 	if err != nil {
 		m.log.Debugf("Could not list CRI images for delta sources: %v", err)
 		return delta.Candidate{}, "", nil
@@ -222,4 +222,46 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 	}
 	return delta.Candidate{}, "", nil
+}
+
+func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.CRI, skopeo *client.Skopeo, sourceDigests []string, opts ...client.ClientOption) (map[string]string, error) {
+	wanted := make(map[string]struct{}, len(sourceDigests))
+	for _, sourceDigest := range sourceDigests {
+		if sourceDigest != "" {
+			wanted[sourceDigest] = struct{}{}
+		}
+	}
+	sourceRefs := make(map[string]string, len(wanted))
+	if len(wanted) == 0 {
+		return sourceRefs, nil
+	}
+	repositoryRefs, err := cri.ImageReferences(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	for repositoryDigest, reference := range repositoryRefs {
+		if _, ok := wanted[repositoryDigest]; ok {
+			sourceRefs[repositoryDigest] = reference
+		}
+	}
+	if len(sourceRefs) == len(wanted) {
+		return sourceRefs, nil
+	}
+	for repositoryDigest, repositoryRef := range repositoryRefs {
+		if _, ok := wanted[repositoryDigest]; ok {
+			continue
+		}
+		platformDigest, err := skopeo.InspectPlatformDigest(ctx, repositoryRef, opts...)
+		if err != nil {
+			m.log.Debugf("Could not inspect CRI image %q for delta sources: %v", repositoryRef, err)
+			continue
+		}
+		if _, ok := wanted[platformDigest]; !ok {
+			continue
+		}
+		if selected := sourceRefs[platformDigest]; selected == "" || repositoryRef < selected {
+			sourceRefs[platformDigest] = repositoryRef
+		}
+	}
+	return sourceRefs, nil
 }
