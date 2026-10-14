@@ -20,6 +20,8 @@ const (
 	FileName                 = "delta-status.json"
 	fileMode     fs.FileMode = 0o600
 	stateVersion             = 2
+	// Retain recent identities across updates while bounding stale history.
+	applicationHistoryLimit = 128
 )
 
 // Store persists the most recent delta results independently of status delivery.
@@ -53,10 +55,11 @@ type osState struct {
 }
 
 type applicationState struct {
-	History map[string]applicationObservedResult `json:"history,omitempty"`
-	SpecKey string                               `json:"specKey"`
-	Targets map[string]string                    `json:"targets,omitempty"`
-	Results map[string]applicationImageResult    `json:"results,omitempty"`
+	HistorySequence uint64                               `json:"historySequence,omitempty"`
+	History         map[string]applicationObservedResult `json:"history,omitempty"`
+	SpecKey         string                               `json:"specKey"`
+	Targets         map[string]string                    `json:"targets,omitempty"`
+	Results         map[string]applicationImageResult    `json:"results,omitempty"`
 }
 
 type applicationImageResult struct {
@@ -74,6 +77,7 @@ type ApplicationImage struct {
 }
 
 type applicationObservedResult struct {
+	Sequence  uint64                         `json:"sequence,omitempty"`
 	Image     ApplicationImage               `json:"image"`
 	TargetKey string                         `json:"targetKey"`
 	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
@@ -262,14 +266,17 @@ func (s *Store) ReconcileApplicationSpecs(specKeys map[string]string) error {
 			continue
 		}
 		var history map[string]applicationObservedResult
+		var historySequence uint64
 		if current != nil {
 			history = current.History
+			historySequence = current.HistorySequence
 		}
 		s.state.Applications[application] = &applicationState{
-			History: history,
-			SpecKey: specKey,
-			Targets: make(map[string]string),
-			Results: make(map[string]applicationImageResult),
+			History:         history,
+			HistorySequence: historySequence,
+			SpecKey:         specKey,
+			Targets:         make(map[string]string),
+			Results:         make(map[string]applicationImageResult),
 		}
 		changed = true
 	}
@@ -419,8 +426,25 @@ func (s *Store) RecordApplicationImageResult(application, specKey, targetID, tar
 	}
 	key := applicationHistoryKey(image)
 	// An already-recorded identity keeps the outcome describing its original use.
-	if _, exists := current.History[key]; !exists {
-		current.History[key] = applicationObservedResult{Image: image, TargetKey: targetKey, Status: cloneStatus(result)}
+	if _, exists := current.History[key]; exists {
+		if s.dirty {
+			return s.saveLocked()
+		}
+		return nil
+	}
+	current.HistorySequence++
+	current.History[key] = applicationObservedResult{Image: image, TargetKey: targetKey, Status: cloneStatus(result), Sequence: current.HistorySequence}
+	// Allow at least two versions per active target for large workloads.
+	limit := max(applicationHistoryLimit, 2*len(current.Targets))
+	for len(current.History) > limit {
+		oldestKey := ""
+		var oldestSequence uint64
+		for candidate, entry := range current.History {
+			if oldestKey == "" || entry.Sequence < oldestSequence || (entry.Sequence == oldestSequence && candidate < oldestKey) {
+				oldestKey, oldestSequence = candidate, entry.Sequence
+			}
+		}
+		delete(current.History, oldestKey)
 	}
 	return s.saveLocked()
 }

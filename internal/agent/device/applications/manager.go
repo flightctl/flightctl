@@ -122,9 +122,9 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 	}
 	// Capture expected images from the installed provider, not a future desired spec.
 	app.imageCollectionComplete = spec.AppType == v1beta1.AppTypeContainer
-	// Provider images for Helm and Compose are chart and bundle references, not
-	// workload images. Compose parents are tracked separately by the OCI cache.
-	if spec.AppType != v1beta1.AppTypeHelm && spec.AppType != v1beta1.AppTypeCompose && spec.Image != "" {
+	// Charts and Compose or Quadlet bundles are package references; their
+	// workload images are tracked separately by the OCI cache.
+	if spec.AppType != v1beta1.AppTypeHelm && spec.AppType != v1beta1.AppTypeCompose && spec.AppType != v1beta1.AppTypeQuadlet && spec.Image != "" {
 		app.requiredImages = append(app.requiredImages, spec.Image)
 	}
 	if m.ociTargetCache != nil {
@@ -409,7 +409,7 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 			}
 		}
 		parentReference := ""
-		if (result.Status.AppType == v1beta1.AppTypeHelm || result.Status.AppType == v1beta1.AppTypeCompose) && m.ociTargetCache != nil {
+		if (result.Status.AppType == v1beta1.AppTypeHelm || result.Status.AppType == v1beta1.AppTypeCompose || result.Status.AppType == v1beta1.AppTypeQuadlet) && m.ociTargetCache != nil {
 			if target, found := m.ociTargetCache.Get(result.ID); found {
 				parentReference = target.Parent.Reference
 			}
@@ -427,7 +427,7 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 						}
 					}
 				}
-				// Helm charts and Compose bundles are parent references, not workloads.
+				// Charts and Compose or Quadlet bundles are parent references, not workloads.
 				isApplicationParent := !isWorkloadImage && parentReference != "" && reported.Image == parentReference
 				if !found && !isApplicationParent {
 					complete = false

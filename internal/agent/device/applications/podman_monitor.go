@@ -919,11 +919,16 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 			return image, true
 		}
 	}
-	if len(inspectData) == 1 {
-		// Container ImageDigest comes from the immutable image used to create
-		// the workload, preserving its index provenance when Podman has it.
-		// Never look up the event tag: it may already point to another image.
-		if observed, err := digest.Parse(inspectData[0].ImageDigest); err == nil {
+	if len(inspectData) == 1 && inspectData[0].Image != "" {
+		// Use the same image-inspect digest as prefetch, scoped to the immutable
+		// image used by this container. The event tag may already have moved,
+		// and container ImageDigest may retain a different index digest.
+		metadata, err := podmanClient.ImageMetadata(ctx, inspectData[0].Image)
+		if err != nil {
+			m.log.Warnf("Failed to inspect workload image %q: %v", inspectData[0].Image, err)
+			return image, true
+		}
+		if observed, err := digest.Parse(metadata.Digest); err == nil {
 			image.Digest = observed.String()
 		}
 	}

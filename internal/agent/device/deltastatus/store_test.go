@@ -267,7 +267,12 @@ func TestWhenObservedApplicationHistorySurvivesUpdateAndRestartItShouldAggregate
 		},
 		{
 			name:     "When an observed digest has no history it should withhold the aggregate",
-			images:   []ApplicationImage{{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image", Digest: "sha256:old"}, {Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image"}},
+			images:   []ApplicationImage{{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image", Digest: "sha256:old"}, {Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image", Digest: "sha256:unrecorded"}},
+			complete: true,
+		},
+		{
+			name:     "When an observed digest is empty it should withhold the aggregate",
+			images:   []ApplicationImage{{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image"}},
 			complete: true,
 		},
 		{
@@ -308,7 +313,13 @@ func TestWhenAStaleApplicationResultIsRecordedItShouldKeepTheCurrentOutcome(t *t
 
 func TestWhenARecordedImageIdentityReceivesAnotherOutcomeItShouldKeepItsOriginalOutcome(t *testing.T) {
 	require := require.New(t)
-	_, _, store, _, newer := newUpdatedApplicationHistory(t)
+	rw, logger, _, _, newer := newUpdatedApplicationHistory(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	unwritable := fileio.NewMockReadWriter(ctrl)
+	unwritable.EXPECT().ReadFile(gomock.Any()).DoAndReturn(rw.ReadFile)
+	unwritable.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).Return(errors.New("disk unavailable")).AnyTimes()
+	store := New(unwritable, "/var/lib/flightctl", logger)
 	targetID := Fingerprint(newer.Owner, newer.Image, newer.OCIType)
 	require.NoError(store.RecordApplicationImageResult("web", "new-spec", targetID, "new-target", newer,
 		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
@@ -410,4 +421,66 @@ func newUpdatedApplicationHistory(t *testing.T) (fileio.ReadWriter, *log.PrefixL
 	reason := "full pull"
 	require.NoError(store.RecordApplicationImageResult("web", "new-spec", targetID, "new-target", newer, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, FallbackReason: &reason}))
 	return rw, logger, store, image, newer
+}
+
+func TestWhenApplicationHistoryExceedsItsLimitItShouldRetainRecentOutcomesAcrossRestart(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	image := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image"}
+	targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+	for n := 0; n < 130; n++ {
+		specKey := fmt.Sprintf("spec-%d", n)
+		targetKey := fmt.Sprintf("target-%d", n)
+		require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": specKey}))
+		require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: targetKey}}, true))
+		image.Digest = fmt.Sprintf("sha256:%d", n)
+		require.NoError(store.RecordApplicationImageResult("web", specKey, targetID, targetKey, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	}
+	restarted := New(rw, "/state", logger)
+	for n := 0; n < 130; n++ {
+		image.Digest = fmt.Sprintf("sha256:%d", n)
+		observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
+		if n < 2 {
+			require.Nil(observed)
+		} else {
+			require.NotNil(observed)
+			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+		}
+	}
+}
+
+func TestWhenApplicationHistoryPersistenceFailsItShouldRetryTheSameIdentity(t *testing.T) {
+	require := require.New(t)
+	rw, logger, _, _, image := newUpdatedApplicationHistory(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	failing := fileio.NewMockReadWriter(ctrl)
+	failing.EXPECT().ReadFile(gomock.Any()).DoAndReturn(rw.ReadFile).AnyTimes()
+	fail := true
+	writeErr := errors.New("disk unavailable")
+	failing.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).DoAndReturn(func(path string, mode fs.FileMode) error {
+		if fail {
+			return writeErr
+		}
+		return rw.MkdirAll(path, mode)
+	}).AnyTimes()
+	failing.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(path string, data []byte, mode fs.FileMode, opts ...fileio.FileOption) error {
+			return rw.WriteFile(path, data, mode, opts...)
+		}).AnyTimes()
+	store := New(failing, "/var/lib/flightctl", logger)
+	targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+	image.Digest = "sha256:retry"
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.ErrorIs(store.RecordApplicationImageResult("web", "new-spec", targetID, "new-target", image, result), writeErr)
+	require.Nil(New(rw, "/var/lib/flightctl", logger).ObservedApplicationResult("web", []ApplicationImage{image}, true))
+	fail = false
+	require.NoError(store.RecordApplicationImageResult("web", "new-spec", targetID, "new-target", image, result))
+	observed := New(rw, "/var/lib/flightctl", logger).ObservedApplicationResult("web", []ApplicationImage{image}, true)
+	require.NotNil(observed)
+	require.Equal(result, *observed)
 }

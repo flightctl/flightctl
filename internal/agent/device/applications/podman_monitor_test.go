@@ -1039,7 +1039,9 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	testLog := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).
-		Return(`[{"ImageDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]`, "", 0).Times(2)
+		Return(`[{"Image":"config-id","ImageDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]`, "", 0).Times(2)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "config-id").
+		Return(`{"Id":"config-id","Digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`, "", 0).Times(2)
 	podman := client.NewPodman(testLog, mockExec, rw, util.NewPollConfig())
 	var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil }
 	var systemdFactory systemd.ManagerFactory = func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
@@ -1107,9 +1109,11 @@ func TestPodmanMonitorReportsRunningContentAfterTagMoves(t *testing.T) {
 	const newDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
 	testLog := log.NewPrefixLogger("test")
 	execMock := executer.NewMockExecuter(ctrl)
-	// The running container retains its original index after the tag moves.
+	// The running container retains its original image ID after the tag moves.
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", "running-container").
 		Return(`[{"Image":"original-config-id","ImageDigest":"`+oldDigest+`"}]`, "", 0).AnyTimes()
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "original-config-id").
+		Return(`{"Id":"original-config-id","Digest":"`+oldDigest+`"}`, "", 0)
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "docker.io/library/alpine:latest").
 		Return(newDigest, "", 0).AnyTimes()
 	podman := client.NewPodman(testLog, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
@@ -1127,6 +1131,32 @@ func TestPodmanMonitorReportsRunningContentAfterTagMoves(t *testing.T) {
 	require.NoError(err)
 	require.Len(results, 1)
 	require.Equal([]v1beta1.ApplicationImageDigest{{Image: event.Image, Digest: oldDigest}}, *results[0].Status.ImageDigests)
+}
+
+func TestWhenContainerIndexDigestDiffersItShouldReportTheImmutableImageContentDigest(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const indexDigest = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	const contentDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	logger := log.NewPrefixLogger("test")
+	execMock := executer.NewMockExecuter(ctrl)
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", "running-container").
+		Return(`[{"Image":"original-config-id","ImageDigest":"`+indexDigest+`"}]`, "", 0)
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "original-config-id").
+		Return(`{"Id":"original-config-id","Digest":"`+contentDigest+`"}`, "", 0).AnyTimes()
+	podman := client.NewPodman(logger, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	app := createTestApplicationWithType(require, "app", v1beta1.ApplicationStatusRunning, "bob", v1beta1.AppTypeCompose)
+	monitor := &PodmanMonitor{apps: map[string]Application{app.ID(): app}, log: logger,
+		clientFactory: func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+	}
+	event := mockPodmanEventSuccess("app", "bob", "service", "start")
+	event.ID = "running-container"
+	monitor.handleEvent(t.Context(), event)
+	results, err := monitor.Status()
+	require.NoError(err)
+	require.Len(results, 1)
+	require.Equal([]v1beta1.ApplicationImageDigest{{Image: event.Image, Digest: contentDigest}}, *results[0].Status.ImageDigests)
 }
 
 func TestPodmanMonitorReportsOwnedImageObservations(t *testing.T) {
@@ -1155,7 +1185,9 @@ func TestPodmanMonitorReportsOwnedImageObservations(t *testing.T) {
 				if dg == "" {
 					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", fmt.Sprintf("container-%d", n)).Return("", "container unavailable", 125).AnyTimes()
 				} else {
-					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", fmt.Sprintf("container-%d", n)).Return(`[{"Image":"config-id","ImageDigest":"`+dg+`"}]`, "", 0).AnyTimes()
+					imageID := fmt.Sprintf("config-id-%d", n)
+					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", fmt.Sprintf("container-%d", n)).Return(`[{"Image":"`+imageID+`","ImageDigest":"`+dg+`"}]`, "", 0).AnyTimes()
+					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", imageID).Return(`{"Id":"`+imageID+`","Digest":"`+dg+`"}`, "", 0).AnyTimes()
 				}
 			}
 			podman := client.NewPodman(testLog, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
