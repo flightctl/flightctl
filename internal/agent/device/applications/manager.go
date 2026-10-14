@@ -47,6 +47,10 @@ type manager struct {
 	// cache of temporary extracted app data
 	appDataCache map[string]*provider.AppData
 
+	// verified image-volume identities avoid repeating an image inspect while
+	// the same application lifetime and volume incarnation remain installed.
+	imageVolumeObservations map[imageVolumeObservationKey]cachedImageVolumeObservation
+
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
 	appConsole *appconsole.Manager
@@ -240,14 +244,14 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
 	if err := m.attachApplicationLifetime(provider); err != nil {
-		return err
+		m.log.Warnf("Failed to attach application lifetime before removing %s: %v", provider.Name(), err)
 	}
 	if err := provider.Remove(ctx); err != nil {
 		return fmt.Errorf("%w %w: %w", errors.ErrRemovingApplication, errors.WithElement(provider.Name()), err)
 	}
 	if m.deltaStatusStore != nil {
 		if err := m.deltaStatusStore.RemoveApplication(provider.Spec().Name); err != nil {
-			return fmt.Errorf("removing application delta state %w: %w", errors.WithElement(provider.Spec().Name), err)
+			m.log.Warnf("Failed to remove application delta state for %s: %v", provider.Spec().Name, err)
 		}
 	}
 
@@ -505,11 +509,24 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 				}
 				image = artifactBinding.Image
 			case string(dependency.OCITypePodmanImage):
+				image, found = m.cachedImageVolumeObservation(inspection, result.Images.ID, result.Images.Lifetime, expected.ID, owner)
+				if found {
+					break
+				}
 				var ok bool
 				image, ok = podmanImageVolumeObservation(ctx, podman, inspection, result.Images.ID, result.Images.Lifetime, owner)
 				if !ok {
 					result.Images.Complete = false
 					continue
+				}
+				if inspection.CreatedAt != "" {
+					if m.imageVolumeObservations == nil {
+						m.imageVolumeObservations = make(map[imageVolumeObservationKey]cachedImageVolumeObservation)
+					}
+					m.imageVolumeObservations[imageVolumeObservationKey{applicationID: result.Images.ID, volumeID: expected.ID, owner: owner}] = cachedImageVolumeObservation{
+						lifetime: result.Images.Lifetime, createdAt: inspection.CreatedAt,
+						imageID: inspection.Options["image"], image: image,
+					}
 				}
 			default:
 				result.Images.Complete = false
@@ -523,6 +540,43 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 			addStatusImageDigest(&result.Status, image.Image, image.Digest)
 		}
 	}
+}
+
+type imageVolumeObservationKey struct {
+	applicationID string
+	volumeID      string
+	owner         v1beta1.Username
+}
+
+type cachedImageVolumeObservation struct {
+	lifetime  string
+	createdAt string
+	imageID   string
+	image     deltastatus.ApplicationImage
+}
+
+func (m *manager) cachedImageVolumeObservation(
+	inspection *client.PodmanVolumeInspect,
+	applicationID, lifetime, volumeID string,
+	owner v1beta1.Username,
+) (deltastatus.ApplicationImage, bool) {
+	if inspection == nil || inspection.Driver != "image" || !isImmutablePodmanImageID(inspection.Options["image"]) {
+		return deltastatus.ApplicationImage{}, false
+	}
+	cached, ok := m.imageVolumeObservations[imageVolumeObservationKey{applicationID: applicationID, volumeID: volumeID, owner: owner}]
+	if !ok || inspection.CreatedAt == "" || cached.lifetime != lifetime || cached.createdAt != inspection.CreatedAt || cached.imageID != inspection.Options["image"] {
+		return deltastatus.ApplicationImage{}, false
+	}
+	labels := inspection.Labels
+	if labels[client.PodmanDeltaVolumeApplicationLabel] != applicationID ||
+		labels[client.PodmanDeltaVolumeLifetimeLabel] != lifetime ||
+		labels[client.PodmanDeltaVolumeReferenceLabel] != cached.image.Image ||
+		labels[client.PodmanDeltaVolumeOwnerLabel] != string(owner) ||
+		labels[client.PodmanDeltaVolumeOCITypeLabel] != string(dependency.OCITypePodmanImage) ||
+		labels[client.PodmanDeltaVolumeDigestLabel] != cached.image.Digest {
+		return deltastatus.ApplicationImage{}, false
+	}
+	return cached.image, true
 }
 
 func podmanImageVolumeObservation(ctx context.Context, podman *client.Podman, inspection *client.PodmanVolumeInspect, applicationID, lifetime string, owner v1beta1.Username) (deltastatus.ApplicationImage, bool) {

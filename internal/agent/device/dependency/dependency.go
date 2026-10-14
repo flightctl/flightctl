@@ -1711,9 +1711,21 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 
 	// Superseded in-flight work is cancelled and queued under a new identity.
 	if existing := m.tasks[target]; existing != nil && !existing.done && existing.deltaGeneration != m.deltaGeneration {
-		if existing.cancelFn != nil {
-			existing.cancelFn()
+		if existing.cancelFn == nil {
+			// The queued entry will read this registration when it is processed.
+			existing.deltaGeneration = m.deltaGeneration
+			existing.operationTask = nil
+			existing.ociType = ociType
+			existing.pullPolicy = pullPolicy
+			existing.targetDigest = targetDigest
+			existing.resolvedDigest = ""
+			existing.applicationTargetKey = applicationImageTargetKeyFor(target, targetDigest, ociType)
+			existing.applicationLifetimes = m.applicationLifetimesLocked(delta)
+			existing.delta = cloneOCIDeltaTarget(delta)
+			existing.clientOptsFn = clientOptsFn
+			return false, nil
 		}
+		existing.cancelFn()
 		delete(m.tasks, target)
 	}
 
@@ -1742,12 +1754,13 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
 			applicationLifetimes: m.applicationLifetimesLocked(delta),
 			clientOptsFn:         clientOptsFn,
+			targetPresent:        true,
 			done:                 true,
 			delta:                delta,
 			deltaGeneration:      m.deltaGeneration,
 		}
 		m.tasks[target] = task
-		m.recordDeltaApplyResultLocked(target, task, deltaApplications(delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
+		m.recordPresentHintedArtifactLocked(ctx, target, task, podman)
 		return false, nil
 	}
 
@@ -1790,6 +1803,16 @@ func (m *prefetchManager) prepareExistingTaskLocked(
 	if !existing.done || existing.err != nil || delta == nil {
 		return false, nil
 	}
+	if existing.targetPresent && existing.resolvedOCIType == OCITypePodmanArtifact && delta.Hint != "" {
+		existing.delta = cloneOCIDeltaTarget(delta)
+		existing.applicationLifetimes = m.applicationLifetimesLocked(delta)
+		var podman *client.Podman
+		if m.podmanFactory != nil {
+			podman, _ = m.podmanFactory(target.owner)
+		}
+		m.recordPresentHintedArtifactLocked(ctx, target, existing, podman)
+		return false, nil
+	}
 	if !supportsApplicationImageDigestCheck(existing.ociType) {
 		m.recordDeltaApplyResultLocked(target, existing, deltaApplications(delta), v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
 		return false, nil
@@ -1803,6 +1826,21 @@ func (m *prefetchManager) prepareExistingTaskLocked(
 		existing.resolvedDigest = ""
 	}
 	return m.checkCachedApplicationTask(ctx, target, existing), nil
+}
+
+func (m *prefetchManager) recordPresentHintedArtifactLocked(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman) {
+	var observedDigest string
+	if podman != nil && m.deltaStatusStore != nil {
+		if digestValue, err := podman.ArtifactDigest(ctx, target.image); err == nil && validObservedDigest(digestValue) {
+			observedDigest = digestValue
+			task.resolvedDigest = digestValue
+		}
+	}
+	if observedDigest != "" {
+		m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+		return
+	}
+	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
 }
 
 func (m *prefetchManager) resolveTargetAvailability(
@@ -1930,21 +1968,18 @@ func (m *prefetchManager) checkUncachedApplicationTask(
 	return result
 }
 
-// mu must be held on entry; may be temporarily released during registry inspection; mu is held on return.
+// mu must be held on entry; may be temporarily released during runtime inspection; mu is held on return.
 func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target imageRef, task *prefetchTask) bool {
-	result := digestUnknown
 	observedDigest := ""
-	confirmedMismatch := false
+	present := false
 	for attempt := 0; attempt < 3; attempt++ {
 		if ctx.Err() != nil {
 			return true
 		}
 		snapshot := *task
 		canRecord := m.canRecordObservedResultLocked(target, task)
-		result = digestMismatched
-		confirmedMismatch = false
 		observedDigest = ""
-		var inspectedImage applicationImageInspection
+		present = false
 		func() {
 			m.mu.Unlock()
 			defer m.mu.Lock()
@@ -1956,7 +1991,6 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			if m.podmanFactory != nil {
 				podman, _ = m.podmanFactory(target.owner)
 			}
-			present := false
 			if snapshot.ociType == OCITypeCRIImage {
 				if m.cliClients != nil && m.cliClients.CRI() != nil {
 					present = m.cliClients.CRI().ImageExists(ctx, target.image, opts...)
@@ -1965,19 +1999,10 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 				present = podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image)
 			}
 			if present {
-				result = digestUnknown
-				if !snapshot.done && m.skopeoFactory != nil {
-					skopeo, err := m.skopeoFactory(target.owner)
-					if err == nil {
-						// Revalidate cached tags against the registry. A resolved digest
-						// is reusable by the subsequent pull, but not by this cache check.
-						snapshot.resolvedDigest = ""
-						result, inspectedImage = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
-						confirmedMismatch = result == digestMismatched && snapshot.resolvedDigest != ""
-					}
-				}
-				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.ociType, podman, inspectedImage, canRecord && result != digestMismatched, opts...)
-
+				// PullIfNotPresent treats the local runtime image as the cache hit.
+				// Resolve its immutable local identity for status, but don't follow a
+				// mutable tag to the registry just to decide whether to pull it.
+				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.resolvedOCIType, podman, applicationImageInspection{}, canRecord, opts...)
 			}
 		}()
 		if m.tasks[target] != task || task.delta != snapshot.delta || task.done != snapshot.done ||
@@ -1986,16 +2011,11 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			return false
 		}
 		if task.deltaGeneration != snapshot.deltaGeneration {
-			result = digestUnknown
 			continue
 		}
-		task.resolvedDigest = snapshot.resolvedDigest
 		break
 	}
-	if result == digestMismatched {
-		if confirmedMismatch {
-			m.invalidateApplicationDeltaResultLocked(target, task)
-		}
+	if !present {
 		task.targetPresent = false
 		task.done = false
 		return true
@@ -2005,11 +2025,7 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		return false
 	}
 	task.done = true
-	outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
-	if result == digestMatched {
-		outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
-	}
-	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), outcome, "", observedDigest)
+	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
 	return false
 }
 

@@ -2,11 +2,14 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -218,6 +221,174 @@ func TestQuadlet_Execute(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWhenQuadletAddsTheSameArtifactVolumeItShouldPreserveItsContents(t *testing.T) {
+	const (
+		application = "test-app"
+		appID       = "test-id"
+		volumeID    = "test-volume"
+		reference   = "quay.io/acme/data:v1"
+		createdAt   = "2026-10-12T12:00:00Z"
+		digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	logger := log.NewPrefixLogger("test")
+	storeRoot := t.TempDir()
+	storeRW := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(storeRoot)), fileio.NewWriter(fileio.WithWriterRootDir(storeRoot)))
+	store := deltastatus.New(storeRW, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
+	lifetime := store.ApplicationLifetime(application)
+	require.NoError(t, store.RecordApplicationVolumeImage(application, lifetime, volumeID, createdAt, deltastatus.ApplicationImage{
+		Image: reference, Owner: string(api.RootUsername), OCIType: string(dependency.OCITypePodmanArtifact), Digest: digestValue,
+	}))
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockSystemd := systemd.NewMockManager(ctrl)
+	mockSystemd.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+	mockSystemd.EXPECT().ListDependencies(gomock.Any(), appID+"-flightctl-quadlet-app.target").Return([]string{appID + "-app.service"}, nil)
+	mockSystemd.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{appID + "-app.service"}).Return(
+		[]client.SystemDUnitListEntry{{Unit: appID + "-app.service", LoadState: string(api.SystemdLoadStateLoaded)}}, nil,
+	)
+	mockSystemd.EXPECT().Start(gomock.Any(), appID+"-flightctl-quadlet-app.target").Return(nil)
+	mockSystemd.EXPECT().AddExclusions(appID+"-app.service", appID+"-flightctl-quadlet-app.target")
+	mockExec := executer.NewMockExecuter(ctrl)
+	inspection, err := json.Marshal(client.PodmanVolumeInspect{Name: volumeID, Driver: "local", CreatedAt: createdAt})
+	require.NoError(t, err)
+	var commands [][]string
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, args ...string) (string, string, int) {
+			commands = append(commands, append([]string(nil), args...))
+			if len(args) >= 4 && args[0] == "volume" && args[1] == "inspect" && args[len(args)-1] == "{{json .}}" {
+				return string(inspection), "", 0
+			}
+			if len(args) >= 4 && args[0] == "volume" && args[1] == "inspect" && args[len(args)-1] == "{{.Mountpoint}}" {
+				return "/volume-data", "", 0
+			}
+			if len(args) == 1 && args[0] == "--version" {
+				return "podman version 5.5.0", "", 0
+			}
+			if len(args) >= 2 && args[0] == "artifact" && args[1] == "inspect" {
+				return fmt.Sprintf(`{"Digest":%q}`, digestValue), "", 0
+			}
+			if len(args) >= 2 && args[0] == "volume" && args[1] == "exists" {
+				return "", "", 0
+			}
+			return "", "", 0
+		},
+	).AnyTimes()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	countingRW := &removeContentsCountingReadWriter{ReadWriter: mockRW}
+	podman := client.NewPodman(logger, mockExec, mockRW, testutil.NewPollConfig())
+	q := NewQuadlet(
+		logger,
+		func(api.Username) (fileio.ReadWriter, error) { return countingRW, nil },
+		func(api.Username) (systemd.Manager, error) { return mockSystemd, nil },
+		func(api.Username) (*client.Podman, error) { return podman, nil },
+		WithDeltaStatusStore(store),
+	)
+
+	err = q.Execute(context.Background(), Actions{{
+		Type: ActionAdd, Name: application, ID: appID, Path: "/test/path", User: api.RootUsername, Lifetime: lifetime,
+		Volumes: []Volume{{ID: volumeID, Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}},
+	}})
+	require.NoError(t, err)
+	require.Zero(t, countingRW.removeContentsCalls)
+	for _, args := range commands {
+		require.False(t, len(args) >= 2 && args[0] == "artifact" && args[1] == "extract", "unexpected extraction: %v", args)
+	}
+}
+
+func TestWhenQuadletAddsAnArtifactVolumeWithANewLocalDigestItShouldReextract(t *testing.T) {
+	const (
+		application = "test-app"
+		appID       = "test-id"
+		volumeID    = "test-volume"
+		reference   = "quay.io/acme/data:v1"
+		createdAt   = "2026-10-12T12:00:00Z"
+		oldDigest   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		newDigest   = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	logger := log.NewPrefixLogger("test")
+	storeRoot := t.TempDir()
+	storeRW := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(storeRoot)), fileio.NewWriter(fileio.WithWriterRootDir(storeRoot)))
+	store := deltastatus.New(storeRW, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
+	lifetime := store.ApplicationLifetime(application)
+	require.NoError(t, store.RecordApplicationVolumeImage(application, lifetime, volumeID, createdAt, deltastatus.ApplicationImage{
+		Image: reference, Owner: string(api.RootUsername), OCIType: string(dependency.OCITypePodmanArtifact), Digest: oldDigest,
+	}))
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockSystemd := systemd.NewMockManager(ctrl)
+	mockSystemd.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+	mockSystemd.EXPECT().ListDependencies(gomock.Any(), appID+"-flightctl-quadlet-app.target").Return([]string{appID + "-app.service"}, nil)
+	mockSystemd.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{appID + "-app.service"}).Return(
+		[]client.SystemDUnitListEntry{{Unit: appID + "-app.service", LoadState: string(api.SystemdLoadStateLoaded)}}, nil,
+	)
+	mockSystemd.EXPECT().Start(gomock.Any(), appID+"-flightctl-quadlet-app.target").Return(nil)
+	mockSystemd.EXPECT().AddExclusions(appID+"-app.service", appID+"-flightctl-quadlet-app.target")
+	mockExec := executer.NewMockExecuter(ctrl)
+	inspection, err := json.Marshal(client.PodmanVolumeInspect{Name: volumeID, Driver: "local", CreatedAt: createdAt})
+	require.NoError(t, err)
+	var commands [][]string
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, args ...string) (string, string, int) {
+			commands = append(commands, append([]string(nil), args...))
+			if len(args) >= 4 && args[0] == "volume" && args[1] == "inspect" && args[len(args)-1] == "{{json .}}" {
+				return string(inspection), "", 0
+			}
+			if len(args) >= 4 && args[0] == "volume" && args[1] == "inspect" && args[len(args)-1] == "{{.Mountpoint}}" {
+				return "/volume-data", "", 0
+			}
+			if len(args) == 1 && args[0] == "--version" {
+				return "podman version 5.5.0", "", 0
+			}
+			if len(args) >= 3 && args[0] == "artifact" && args[1] == "inspect" {
+				return fmt.Sprintf(`{"Digest":%q}`, newDigest), "", 0
+			}
+			return "", "", 0
+		},
+	).AnyTimes()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	countingRW := &removeContentsCountingReadWriter{ReadWriter: mockRW}
+	podman := client.NewPodman(logger, mockExec, mockRW, testutil.NewPollConfig())
+	q := NewQuadlet(
+		logger,
+		func(api.Username) (fileio.ReadWriter, error) { return countingRW, nil },
+		func(api.Username) (systemd.Manager, error) { return mockSystemd, nil },
+		func(api.Username) (*client.Podman, error) { return podman, nil },
+		WithDeltaStatusStore(store),
+	)
+
+	err = q.Execute(context.Background(), Actions{{
+		Type: ActionAdd, Name: application, ID: appID, Path: "/test/path", User: api.RootUsername, Lifetime: lifetime,
+		Volumes: []Volume{{ID: volumeID, Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, 1, countingRW.removeContentsCalls)
+	var extracted bool
+	for _, args := range commands {
+		if len(args) == 4 && args[0] == "artifact" && args[1] == "extract" {
+			require.Equal(t, reference+"@"+newDigest, args[2])
+			extracted = true
+		}
+	}
+	require.True(t, extracted)
+	binding, found := store.ApplicationVolumeBinding(application, lifetime, volumeID)
+	require.True(t, found)
+	require.Equal(t, newDigest, binding.Image.Digest)
+}
+
+type removeContentsCountingReadWriter struct {
+	fileio.ReadWriter
+	removeContentsCalls int
+}
+
+func (rw *removeContentsCountingReadWriter) RemoveContents(string) error {
+	rw.removeContentsCalls++
+	return nil
 }
 
 func TestQuadlet_add(t *testing.T) {

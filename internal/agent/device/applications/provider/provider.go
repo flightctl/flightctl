@@ -561,6 +561,7 @@ func nestedTargetsInputsHash(p appProvider) (string, error) {
 
 func appDataMatchesParent(appData *AppData, parent dependency.OCIPullTarget) bool {
 	return appData != nil && appData.TmpPath != "" &&
+		appData.extractionAvailable() &&
 		appData.ParentReference == parent.Reference &&
 		appData.ParentDigest != "" && appData.ParentDigest == parent.Digest &&
 		appData.ParentOCIType != "" && appData.ParentOCIType == parent.Type
@@ -1185,13 +1186,18 @@ func stripLifecycleFromUnionApp[T any](app *T) {
 
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
-	Owner           v1beta1.Username
-	Targets         []dependency.OCIPullTarget
-	TmpPath         string
-	ParentReference string
-	ParentDigest    string
-	ParentOCIType   dependency.OCIType
-	CleanupFn       func() error
+	Owner            v1beta1.Username
+	Targets          []dependency.OCIPullTarget
+	TmpPath          string
+	ParentReference  string
+	ParentDigest     string
+	ParentOCIType    dependency.OCIType
+	CleanupFn        func() error
+	extractionExists func() bool
+}
+
+func (e *AppData) extractionAvailable() bool {
+	return e.extractionExists == nil || e.extractionExists()
 }
 
 // NewAppDataCache creates a new app data cache
@@ -1312,6 +1318,10 @@ func extractAppDataFromOCITarget(
 		ParentDigest:    parentDigest,
 		ParentOCIType:   ociType,
 		CleanupFn:       cleanupFn,
+		extractionExists: func() bool {
+			exists, err := readWriter.PathExists(tmpAppPath)
+			return err == nil && exists
+		},
 	}, nil
 }
 

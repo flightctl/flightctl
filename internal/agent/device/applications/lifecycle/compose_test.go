@@ -1,9 +1,11 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -15,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -116,6 +119,50 @@ func TestArtifactVolumeRecordingWithInvalidInspectionWithholdsIdentity(t *testin
 	require.NoError(t, recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, "sha256:artifact"))
 	_, found := store.ApplicationVolumeImage("app", lifetime, volume.ID, "2026-10-12T12:00:00Z")
 	require.False(t, found)
+}
+
+func TestWhenComposeAddsArtifactVolumeWithoutLifetimeItShouldNotWarnAboutMissingDigest(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	appPath := "app"
+	require.NoError(t, os.MkdirAll(filepath.Join(root, appPath), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, appPath, "docker-compose.yaml"), []byte("services: {}\n"), 0o600))
+
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.WarnLevel)
+	var logs bytes.Buffer
+	logger.SetOutput(&logs)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "exists", "data").Return("", "", 1)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "create", "data", "--label", client.ComposeDockerProjectLabelKey+"=app-id").Return("data", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "data", "--format", "{{.Mountpoint}}").Return("/volume-data", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", "artifact:seed", "/volume-data").Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContextFromDir(
+		gomock.Any(), appPath, "podman",
+		[]string{"compose", "-p", "app-id", "-f", "docker-compose.yaml", "up", "-d", "--no-recreate"},
+	).Return("", "", 0)
+
+	compose := NewCompose(logger, func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }, func(v1beta1.Username) (*client.Podman, error) {
+		return client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig()), nil
+	})
+	err := compose.Execute(context.Background(), Actions{{
+		Type: ActionAdd,
+		ID:   "app-id",
+		Name: "app",
+		Path: appPath,
+		Volumes: []Volume{{
+			ID: "data", Reference: "artifact:seed", OCIType: string(dependency.OCITypePodmanArtifact),
+		}},
+	}})
+	require.NoError(t, err)
+	require.NotContains(t, logs.String(), "Unable to pin artifact identity")
 }
 
 func TestComposeRemoveImageBackedVolumes(t *testing.T) {

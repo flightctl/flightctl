@@ -212,9 +212,10 @@ func installOCIParentContents(
 				if rmErr := rw.RemoveAll(path); rmErr != nil {
 					logger.Warnf("Failed to cleanup incomplete parent copy at %q: %v", path, rmErr)
 				}
-				return "", "", fmt.Errorf("copying collected parent contents: %w", err)
+				logger.Warnf("Failed to reuse collected parent contents at %q: %v; extracting from %q", appData.TmpPath, err, imageRef)
+			} else {
+				return appData.ParentDigest, appData.ParentOCIType, nil
 			}
-			return appData.ParentDigest, appData.ParentOCIType, nil
 		}
 	}
 	return extractOCIContentsToPathWithIdentity(ctx, podman, logger, rw, imageRef, path)

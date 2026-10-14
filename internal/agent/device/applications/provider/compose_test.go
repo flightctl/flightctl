@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -308,6 +309,50 @@ func TestComposeInstallKeepsTheCollectedParentArtifactIdentity(t *testing.T) {
 	require.Equal(t, artifactDigest, spec.ImageDigest)
 	require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
 	installed, err := rw.ReadFile(filepath.Join(installedPath, "compose.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "services: {}\n", string(installed))
+}
+
+func TestWhenCollectedParentExtractionIsMissingItShouldExtractFromTheImageAgain(t *testing.T) {
+	const (
+		imageRef    = "quay.io/acme/compose-bundle:v1"
+		imageID     = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "mount"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "mount", "compose.yaml"), []byte("services: {}\n"), 0o600))
+	volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+	require.NoError(t, err)
+	spec := &ApplicationSpec{
+		Name: "app", ID: "app-id", Path: "/installed-app", Image: imageRef,
+		Volume: volumeManager,
+	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", imageRef).Return(imageID, "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(digestValue, "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", imageID).Return("/mount", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", imageID).Return("", "", 0)
+	podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, util.NewPollConfig())
+	compose := &composeProvider{
+		imageRef: imageRef, spec: spec, readWriter: rw, podman: podman,
+		log: log.NewPrefixLogger("test"),
+		AppData: &AppData{
+			TmpPath: "/missing-collected-parent", ParentReference: imageRef,
+			ParentDigest: digestValue, ParentOCIType: dependency.OCITypePodmanImage,
+		},
+	}
+
+	require.NoError(t, compose.Install(context.Background()))
+	require.Equal(t, digestValue, spec.ImageDigest)
+	installed, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, "services: {}\n", string(installed))
 }

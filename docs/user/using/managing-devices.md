@@ -776,6 +776,8 @@ For a CI-published application image delta, follow the OCI 1.1 referrer conventi
 
 Flight Control supplies generated application deltas to the agent automatically. For each image target, the agent uses an available generated delta or discovers a matching CI-published referrer. Otherwise, it pulls the full image for the current update.
 
+For `PullIfNotPresent` workload targets, a locally cached image is reused even when its mutable registry tag has moved. The agent does not inspect that tag or pull again during a cache hit. Delta discovery and pulls happen only when the target is missing from the local runtime store.
+
 Generated deltas are downloaded from the configured storage target. CI-published deltas are discovered in the target image's repository. For diagnostics, see [Verifying delta registry access](troubleshooting.md#verifying-delta-registry-access) and [Inspecting delta image references](troubleshooting.md#inspecting-delta-image-references).
 
 The agent applies a usable delta separately for each image target. If pulling or applying a delta fails, it records the full-pull fallback for that image and attempts a full image pull for the same target. The aggregated application outcome is `Partial` when another target successfully applies a delta, or `Fallback` when all targets requiring preparation use full pulls. Application outcomes and their representative fallback reason appear in [application delta status](../references/device-api-statuses.md#application-delta-status).

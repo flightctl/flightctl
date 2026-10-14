@@ -437,9 +437,12 @@ func (q *Quadlet) ensureArtifactVolume(
 	canRecordIdentity bool,
 ) (bool, error) {
 	immutableReference, artifactDigest, digestErr := q.artifactVolumeReference(ctx, volume, podman, canRecordIdentity)
-	volumePath, created, err := q.prepareArtifactVolumePath(ctx, action, volume, podman, rw, labels)
+	volumePath, created, preserved, err := q.prepareArtifactVolumePath(ctx, action, volume, podman, rw, labels, artifactDigest)
 	if err != nil {
 		return created, err
+	}
+	if preserved {
+		return false, nil
 	}
 	if _, err := podman.ExtractArtifact(ctx, immutableReference, volumePath); err != nil {
 		return created, fmt.Errorf("extracting artifact to volume %w: %w", errors.WithElement(volume.ID), err)
@@ -487,38 +490,49 @@ func (q *Quadlet) prepareArtifactVolumePath(
 	podman *client.Podman,
 	rw fileio.ReadWriter,
 	labels []string,
-) (string, bool, error) {
+	artifactDigest string,
+) (string, bool, bool, error) {
 	if !podman.VolumeExists(ctx, volume.ID) {
 		q.log.Tracef("Creating volume %q", volume.ID)
 		if err := q.clearArtifactVolumeImage(action, volume.ID); err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		volumePath, err := podman.CreateVolume(ctx, volume.ID, labels)
-		return volumePath, err == nil, volumeCreateError(volume.ID, err)
+		return volumePath, err == nil, false, volumeCreateError(volume.ID, err)
 	}
 
 	q.log.Tracef("Volume %q already exists, updating contents", volume.ID)
 	inspection, err := podman.InspectVolume(ctx, volume.ID)
 	if err != nil {
-		return "", false, fmt.Errorf("inspect volume identity %w: %w", errors.WithElement(volume.ID), err)
+		return "", false, false, fmt.Errorf("inspect volume identity %w: %w", errors.WithElement(volume.ID), err)
 	}
 	if inspection == nil {
-		return "", false, fmt.Errorf("inspect volume identity %w: empty inspection", errors.WithElement(volume.ID))
+		return "", false, false, fmt.Errorf("inspect volume identity %w: empty inspection", errors.WithElement(volume.ID))
 	}
 	if inspection.Driver != podmanLocalVolumeDriver {
-		return "", false, fmt.Errorf("volume %w has driver %q, expected local artifact volume", errors.WithElement(volume.ID), inspection.Driver)
+		return "", false, false, fmt.Errorf("volume %w has driver %q, expected local artifact volume", errors.WithElement(volume.ID), inspection.Driver)
 	}
 	volumePath, err := podman.InspectVolumeMount(ctx, volume.ID)
 	if err != nil {
-		return "", false, fmt.Errorf("inspect volume %w: %w", errors.WithElement(volume.ID), err)
+		return "", false, false, fmt.Errorf("inspect volume %w: %w", errors.WithElement(volume.ID), err)
+	}
+	if q.deltaStore != nil && action.Name != "" && action.Lifetime != "" {
+		binding, found := q.deltaStore.ApplicationVolumeBinding(action.Name, action.Lifetime, volume.ID)
+		_, validArtifactDigest := digest.Parse(artifactDigest)
+		if found && binding.CreatedAt == inspection.CreatedAt && binding.CreatedAt != "" &&
+			binding.Image.Image == volume.Reference && binding.Image.Owner == string(action.User.WithDefault(v1beta1.RootUsername)) &&
+			binding.Image.OCIType == volume.OCIType && validArtifactDigest == nil &&
+			binding.Image.Digest == artifactDigest {
+			return volumePath, false, true, nil
+		}
 	}
 	if err := q.clearArtifactVolumeImage(action, volume.ID); err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	if err := rw.RemoveContents(volumePath); err != nil {
-		return "", false, fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
+		return "", false, false, fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
 	}
-	return volumePath, false, nil
+	return volumePath, false, false, nil
 }
 
 func volumeCreateError(volumeID string, err error) error {

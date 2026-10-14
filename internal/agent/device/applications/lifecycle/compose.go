@@ -260,7 +260,7 @@ func (c *Compose) ensurePodmanVolume(
 		artifactDigest, digestErr = podman.ArtifactDigest(ctx, imageRef)
 	}
 	immutableReference := imageRef
-	if digestErr == nil {
+	if canRecordIdentity && digestErr == nil {
 		if _, err := digest.Parse(artifactDigest); err != nil {
 			digestErr = fmt.Errorf("invalid artifact digest %q: %w", artifactDigest, err)
 		}

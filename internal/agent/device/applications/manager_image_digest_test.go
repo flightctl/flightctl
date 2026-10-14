@@ -31,11 +31,12 @@ func TestPodmanImageVolumeObservationRequiresRuntimeDigestBinding(t *testing.T) 
 	)
 
 	testCases := []struct {
-		name       string
-		runtimeOut string
-		runtimeErr int
-		label      string
-		want       bool
+		name        string
+		runtimeOut  string
+		runtimeErr  int
+		label       string
+		malformedID bool
+		want        bool
 	}{
 		{
 			name:       "When the source image ID resolves to the labeled digest it should accept the observation",
@@ -54,8 +55,9 @@ func TestPodmanImageVolumeObservationRequiresRuntimeDigestBinding(t *testing.T) 
 			label:      digestValue,
 		},
 		{
-			name:  "When the source image ID is malformed it should reject the observation without inspecting it",
-			label: digestValue,
+			name:        "When the source image ID is malformed it should reject the observation without inspecting it",
+			label:       digestValue,
+			malformedID: true,
 		},
 	}
 
@@ -79,7 +81,7 @@ func TestPodmanImageVolumeObservationRequiresRuntimeDigestBinding(t *testing.T) 
 					client.PodmanDeltaVolumeDigestLabel:      tc.label,
 				},
 			}
-			if tc.name != "When the source image ID is malformed it should reject the observation without inspecting it" {
+			if !tc.malformedID {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).
 					Return(tc.runtimeOut, "source image unavailable", tc.runtimeErr)
 			} else {
@@ -441,7 +443,7 @@ func TestWhenImageBasedQuadletHasCompleteWorkloadOutcomesItShouldReportApplied(t
 	require.NoError(quadletApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: bundle}))
 	appSpec := &provider.ApplicationSpec{
 		ID: appName, Name: appName, AppType: v1beta1.AppTypeQuadlet, User: v1beta1.RootUsername,
-		Image: bundle, ImageDigest: bundleDigest,
+		Image: bundle, ImageDigest: bundleDigest, ImageOCIType: string(dependency.OCITypePodmanArtifact),
 		QuadletApp: &quadletApp, Volume: volume,
 	}
 	targetCache := provider.NewOCITargetCache()
@@ -832,9 +834,9 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 		recreateDuringVolumeRead bool
 		wantDelta                bool
 	}{
-		{name: "complete workload, image volume, and artifact parent should aggregate", recordedWorkloadDigest: workloadIndexDigest, wantDelta: true},
-		{name: "index and platform manifest mismatch should withhold the exact match", recordedWorkloadDigest: workloadPlatformDigest},
-		{name: "a snapshot collected before application recreation should be rejected", recordedWorkloadDigest: workloadIndexDigest, recreateDuringVolumeRead: true},
+		{name: "When workload, image volume, and artifact parent are complete it should aggregate", recordedWorkloadDigest: workloadIndexDigest, wantDelta: true},
+		{name: "When the index and platform manifest differ it should withhold the exact match", recordedWorkloadDigest: workloadPlatformDigest},
+		{name: "When the application is recreated during volume inspection it should reject the stale snapshot", recordedWorkloadDigest: workloadIndexDigest, recreateDuringVolumeRead: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -884,7 +886,7 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(string(inspectionJSON), "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(string(inspectionJSON), "", 0).AnyTimes()
 			imageDigestCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", volumeImageID)
 			if tc.recreateDuringVolumeRead {
 				imageDigestCall.DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
@@ -916,6 +918,9 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 			if tc.wantDelta {
 				require.NotNil(t, reported.Applications[0].LastDelta)
 				require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+				// Repeated collection still inspects the volume, but should reuse its
+				// verified immutable image digest.
+				require.NoError(t, manager.Status(context.Background(), &v1beta1.DeviceStatus{}))
 			} else {
 				require.Nil(t, reported.Applications[0].LastDelta)
 			}

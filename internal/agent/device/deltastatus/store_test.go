@@ -495,7 +495,7 @@ func newUpdatedApplicationHistory(t *testing.T) (fileio.ReadWriter, *log.PrefixL
 	return rw, logger, store, image, newer
 }
 
-func TestWhenPendingHistoryExceedsTheSoftCapacityItShouldRetainResultsUntilObservation(t *testing.T) {
+func TestWhenPendingApplicationHistoryExceedsSoftCapacityItShouldPruneInactiveResults(t *testing.T) {
 	require := require.New(t)
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
@@ -513,12 +513,18 @@ func TestWhenPendingHistoryExceedsTheSoftCapacityItShouldRetainResultsUntilObser
 			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
 	}
 	restarted := New(rw, "/state", logger)
-	for n := 0; n < 130; n++ {
+	image.Digest = "sha256:0"
+	observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
+	require.NotNil(observed)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+	for n := 1; n < 129; n++ {
 		image.Digest = fmt.Sprintf("sha256:%d", n)
-		observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
-		require.NotNil(observed)
-		require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+		require.Nil(restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true))
 	}
+	image.Digest = "sha256:129"
+	observed = restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
+	require.NotNil(observed)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
 }
 
 func TestWhenApplicationHistoryPersistenceFailsItShouldRetryTheSameIdentity(t *testing.T) {

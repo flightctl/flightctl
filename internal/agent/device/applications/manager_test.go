@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -483,6 +486,27 @@ func TestManagerRemoveApplication(t *testing.T) {
 	require.False(manager.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
 }
 
+func TestWhenDeltaStatusPersistenceFailsItShouldStillRemoveTheApplication(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	rw := fileio.NewMockReadWriter(ctrl)
+	rw.EXPECT().ReadFile("/var/lib/flightctl/delta-status.json").Return(nil, os.ErrNotExist)
+	rw.EXPECT().MkdirAll("/var/lib/flightctl", gomock.Any()).Return(nil).AnyTimes()
+	rw.EXPECT().WriteFile("/var/lib/flightctl/delta-status.json", gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("disk full")).AnyTimes()
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+
+	appSpec := &provider.ApplicationSpec{Name: "app", ID: "app-id", AppType: v1beta1.AppTypeContainer}
+	appProvider := provider.NewMockProvider(ctrl)
+	appProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+	appProvider.EXPECT().Name().Return("app").AnyTimes()
+	appProvider.EXPECT().Remove(gomock.Any()).Return(nil)
+	appProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(errors.ErrAppDependency)
+
+	manager := &manager{log: logger, deltaStatusStore: store}
+	require.NoError(t, manager.Remove(context.Background(), appProvider))
+}
+
 func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) *gomock.Call {
 	return mockExec.EXPECT().CommandContext(
 		gomock.Any(),
@@ -816,6 +840,84 @@ func TestCollectOCITargetsCache(t *testing.T) {
 	// test clear
 	cache.Clear()
 	require.Equal(0, cache.Len())
+}
+
+func TestWhenRetainedParentExtractionIsMissingItShouldRebuildNestedTargets(t *testing.T) {
+	const (
+		application  = "compose-app"
+		image        = "quay.io/acme/compose:latest"
+		imageID      = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		parentDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "mount"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "mount", "docker-compose.yaml"), []byte("services:\n  web:\n    image: quay.io/acme/web:v1\n"), 0o600))
+	logger := log.NewPrefixLogger("test")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	var mounts int
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, args ...string) (string, string, int) {
+			if len(args) >= 2 && args[0] == "image" && args[1] == "exists" {
+				return "", "", 0
+			}
+			if len(args) >= 3 && args[0] == "image" && args[1] == "inspect" {
+				switch args[2] {
+				case "--format":
+					if len(args) == 5 && args[3] == "{{.Digest}}" {
+						return parentDigest, "", 0
+					}
+					if len(args) == 5 && args[3] == "{{.Id}}" {
+						return imageID, "", 0
+					}
+				}
+			}
+			if len(args) >= 5 && args[0] == "unshare" && args[1] == "podman" && args[2] == "image" && args[3] == "mount" {
+				mounts++
+				return "/mount", "", 0
+			}
+			return "", "", 0
+		},
+	).AnyTimes()
+	podman := client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig())
+	var app v1beta1.ComposeApplication
+	app.Name = lo.ToPtr(application)
+	app.AppType = v1beta1.AppTypeCompose
+	require.NoError(t, app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}))
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(t, appSpec.FromComposeApplication(app))
+	desired := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{appSpec}}
+	manager := &manager{
+		log:            logger,
+		podmanFactory:  func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+		rwFactory:      func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil },
+		clients:        client.NewCLIClients(),
+		ociTargetCache: provider.NewOCITargetCache(),
+		appDataCache:   provider.NewAppDataCache(),
+	}
+
+	first, err := manager.CollectOCITargets(context.Background(), nil, desired)
+	require.NoError(t, err)
+	var firstReferences []string
+	for _, target := range first.Targets.Iter() {
+		firstReferences = append(firstReferences, target.Reference)
+	}
+	require.Contains(t, firstReferences, "quay.io/acme/web:v1")
+	require.Len(t, manager.appDataCache, 1)
+	for _, appData := range manager.appDataCache {
+		require.NoError(t, rw.RemoveAll(appData.TmpPath))
+	}
+
+	second, err := manager.CollectOCITargets(context.Background(), desired, desired)
+	require.NoError(t, err)
+	var secondReferences []string
+	for _, target := range second.Targets.Iter() {
+		secondReferences = append(secondReferences, target.Reference)
+	}
+	require.Contains(t, secondReferences, "quay.io/acme/web:v1")
+	require.Equal(t, 2, mounts)
 }
 
 func TestCollectOCITargetsErrorHandling(t *testing.T) {
