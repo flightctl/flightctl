@@ -26,10 +26,9 @@ func TestDigestFromKubernetesImageID(t *testing.T) {
 			expected: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		},
 		{
-			name:     "When the declared image is immutable it should use its digest",
-			image:    "quay.io/acme/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			imageID:  "containerd://sha256:abcdef",
-			expected: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			name:    "When the declared image is immutable and the runtime ID is opaque it should remain unknown",
+			image:   "quay.io/acme/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			imageID: "containerd://sha256:abcdef",
 		},
 		{
 			name:    "When the pullable image ID is for a different repository it should remain unknown",

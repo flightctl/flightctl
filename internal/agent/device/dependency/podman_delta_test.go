@@ -24,6 +24,48 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+type storedPodmanSource struct {
+	image          string
+	digest         string
+	inspectFailure bool
+}
+
+func expectPodmanStoredSources(t *testing.T, exec *executer.MockExecuter, storedSources []storedPodmanSource) {
+	t.Helper()
+	require := require.New(t)
+	const contentDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	images := make([]string, 0, len(storedSources))
+	hasInspectFailure := false
+	for _, stored := range storedSources {
+		images = append(images, stored.image)
+		hasInspectFailure = hasInspectFailure || stored.inspectFailure
+	}
+	if !hasInspectFailure {
+		rows := make([]string, 0, len(storedSources))
+		for _, stored := range storedSources {
+			repoDigests, err := json.Marshal([]string{"quay.io/local/base@" + stored.digest})
+			require.NoError(err)
+			rows = append(rows, contentDigest+"\t"+string(repoDigests))
+		}
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", client.PodmanImageDigestsListFormat).Return(strings.Join(rows, "\n"), "", 0)
+		return
+	}
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", client.PodmanImageDigestsListFormat).Return("", "image disappeared", 1)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", gomock.Any()).Return(strings.Join(images, "\n"), "", 0)
+	for _, stored := range storedSources {
+		if stored.inspectFailure {
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", stored.image).Return("", "image disappeared", 1)
+			continue
+		}
+		inspect, err := json.Marshal(map[string]any{
+			"Digest":      contentDigest,
+			"RepoDigests": []string{"quay.io/local/base@" + stored.digest},
+		})
+		require.NoError(err)
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", stored.image).Return(string(inspect), "", 0)
+	}
+}
+
 func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 	const image = "quay.io/acme/app:target"
 	const hint = "quay.io/another-repo/delta:target"
@@ -113,11 +155,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				deltaAppTargetKeys: map[string]map[string]string{"app": {targetID: targetKey}},
 			}
 			descriptors := make([]client.OCIReferrer, 0, len(tc.candidates))
-			storedSources := make([]struct {
-				image          string
-				digest         string
-				inspectFailure bool
-			}, 0, len(tc.candidates))
+			storedSources := make([]storedPodmanSource, 0, len(tc.candidates))
 			eligibleCandidates := 0
 			targetNeedsInspection := false
 			for i, c := range tc.candidates {
@@ -150,11 +188,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 						if c.untagged {
 							image = "0123456789ab"
 						}
-						storedSources = append(storedSources, struct {
-							image          string
-							digest         string
-							inspectFailure bool
-						}{image: image, digest: c.source, inspectFailure: c.inspectFailure})
+						storedSources = append(storedSources, storedPodmanSource{image: image, digest: c.source, inspectFailure: c.inspectFailure})
 					}
 				}
 				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: delta.ArtifactType, Digest: c.digest, Size: manifestSize})
@@ -163,23 +197,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
 			}
 			if eligibleCandidates > 0 {
-				images := make([]string, 0, len(storedSources))
-				for _, stored := range storedSources {
-					images = append(images, stored.image)
-				}
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", gomock.Any()).Return(strings.Join(images, "\n"), "", 0)
-				for _, stored := range storedSources {
-					if stored.inspectFailure {
-						exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", stored.image).Return("", "image disappeared", 1)
-						continue
-					}
-					inspect, err := json.Marshal(map[string]any{
-						"Digest":      "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-						"RepoDigests": []string{"quay.io/local/base@" + stored.digest},
-					})
-					require.NoError(err)
-					exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", stored.image).Return(string(inspect), "", 0)
-				}
+				expectPodmanStoredSources(t, exec, storedSources)
 			}
 			if tc.hint == "" {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})

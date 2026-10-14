@@ -110,6 +110,68 @@ func TestPodman_ListImages(t *testing.T) {
 	}
 }
 
+func TestPodman_ListImageDigests(t *testing.T) {
+	tests := []struct {
+		name    string
+		stdout  string
+		stderr  string
+		exit    int
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:   "When the image listing contains multiple images it should return content and repository digests",
+			stdout: "sha256:first\t[\"quay.io/example/first@sha256:repo-first\"]\nsha256:second\tnull",
+			want:   []string{"sha256:first", "quay.io/example/first@sha256:repo-first", "sha256:second"},
+		},
+		{
+			name: "When the listing is empty it should return no digests",
+			want: []string{},
+		},
+		{
+			name:   "When the content digest is empty it should preserve repository digests",
+			stdout: "\t[\"quay.io/example/first@sha256:repo-first\"]",
+			want:   []string{"quay.io/example/first@sha256:repo-first"},
+		},
+		{
+			name:    "When an image row has no separator it should return an error",
+			stdout:  "not tab delimited",
+			wantErr: true,
+		},
+		{
+			name:    "When repository digest output is invalid it should return an error",
+			stdout:  "sha256:first\tnot json",
+			wantErr: true,
+		},
+		{
+			name:    "When Podman image listing fails it should return an error",
+			stderr:  "image listing failed",
+			exit:    1,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", PodmanImageDigestsListFormat).Return(tc.stdout, tc.stderr, tc.exit)
+
+			podman := NewPodman(log.NewPrefixLogger("test"), mockExec, fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()), poll.Config{})
+			got, err := podman.ListImageDigests(context.Background())
+			if tc.wantErr {
+				require.Error(err)
+				require.Nil(got)
+				return
+			}
+			require.NoError(err)
+			require.Equal(tc.want, got)
+		})
+	}
+}
+
 func TestPodman_ListArtifacts(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)

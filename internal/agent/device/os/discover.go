@@ -11,25 +11,25 @@ import (
 
 const ociDeltaSourceAnnotation = delta.SourceAnnotation
 
-func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, bootcStatus *Status, optsFn dependency.ClientOptsFn) delta.Candidate {
+func (m *manager) discoverOSDelta(ctx context.Context, targetKey string, desired *v1beta1.DeviceSpec, bootcStatus *Status, optsFn dependency.ClientOptsFn) delta.Candidate {
 	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
 		hint := *desired.Os.DeltaImage
 		candidate, err := m.inspectOSDelta(ctx, hint, bootcStatus, optsFn)
 		if err != nil {
-			m.setFallbackReason(fmt.Sprintf("delta hint is unusable: %v", err))
+			m.setFallbackReason(targetKey, fmt.Sprintf("delta hint is unusable: %v", err))
 			return delta.Candidate{}
 		}
 		matches, err := m.osTargetPlatformDigestMatches(ctx, desired.Os.Image, candidate.TargetDigest, optsFn)
 		if err != nil {
-			m.setFallbackReason(fmt.Sprintf("delta hint is unusable: inspect delta target digest: %v", err))
+			m.setFallbackReason(targetKey, fmt.Sprintf("delta hint is unusable: inspect delta target digest: %v", err))
 			return delta.Candidate{}
 		}
 		if !matches {
-			m.setFallbackReason("delta hint is unusable: delta target digest does not match the desired OS image")
+			m.setFallbackReason(targetKey, "delta hint is unusable: delta target digest does not match the desired OS image")
 			return delta.Candidate{}
 		}
 		if !candidate.SourceAvailable {
-			m.setFallbackReason("delta source image is unavailable in bootc storage")
+			m.setFallbackReason(targetKey, "delta source image is unavailable in bootc storage")
 			return delta.Candidate{}
 		}
 		return candidate

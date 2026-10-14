@@ -1717,6 +1717,6 @@ func expectPodmanDeltaTarget(t *testing.T, exec *executer.MockExecuter, image st
 
 // Registry manifest digests differ from Podman's image IDs and can appear in RepoDigests.
 func expectPodmanDeltaSource(exec *executer.MockExecuter, attempts int) {
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", gomock.Any()).Return("quay.io/local/base:cached", "", 0).Times(attempts)
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "quay.io/local/base:cached").Return(`{"Digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","RepoDigests":["quay.io/local/base@`+podmanDeltaSource+`"]}`, "", 0).Times(attempts)
+	listing := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\t[\"quay.io/local/base@" + podmanDeltaSource + "\"]"
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", client.PodmanImageDigestsListFormat).Return(listing, "", 0).Times(attempts)
 }

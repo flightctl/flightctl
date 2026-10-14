@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
 )
 
@@ -810,8 +811,9 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	status StatusType,
 	restarts int,
 	podmanClient *client.Podman,
+	inspectData []client.PodmanInspect,
 ) {
-	image, hasImage := m.resolveWorkloadImage(ctx, app, event, podmanClient)
+	image, hasImage := m.resolveWorkloadImage(ctx, app, event, podmanClient, inspectData)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -868,6 +870,7 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	app Application,
 	event *client.PodmanEvent,
 	podmanClient *client.Podman,
+	inspectData []client.PodmanInspect,
 ) (WorkloadImage, bool) {
 	if event.Image == "" {
 		return WorkloadImage{}, false
@@ -880,7 +883,7 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	// match. An empty digest is retried on a later event in case the image became
 	// available after the first lookup.
 	m.mu.Lock()
-	if workload, ok := app.Workload(event.Name); ok && workload.ID == event.ID {
+	if workload, ok := app.Workload(event.Name); ok && event.ID != "" && workload.ID == event.ID {
 		for _, previous := range workload.Images {
 			if previous.Image == event.Image && previous.Digest != "" {
 				m.mu.Unlock()
@@ -903,12 +906,25 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 		}
 	}
 
-	digest, err := podmanClient.ImageDigest(ctx, event.Image)
-	if err != nil {
-		m.log.Warnf("Failed to resolve digest for workload image %q: %v", event.Image, err)
+	if event.ID == "" {
 		return image, true
 	}
-	image.Digest = digest
+	if inspectData == nil {
+		var err error
+		inspectData, err = m.inspectContainer(ctx, event.ID, podmanClient)
+		if err != nil {
+			m.log.Warnf("Failed to inspect workload %q: %v", event.ID, err)
+			return image, true
+		}
+	}
+	if len(inspectData) == 1 {
+		// Container ImageDigest comes from the immutable image used to create
+		// the workload, preserving its index provenance when Podman has it.
+		// Never look up the event tag: it may already point to another image.
+		if observed, err := digest.Parse(inspectData[0].ImageDigest); err == nil {
+			image.Digest = observed.String()
+		}
+	}
 	return image, true
 }
 
@@ -952,7 +968,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
 		status = StatusExited
 	}
-	m.updateApplicationStatus(ctx, app, event, status, restartCount, nil)
+	m.updateApplicationStatus(ctx, app, event, status, restartCount, nil, nil)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -1054,7 +1070,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(ctx, app, event, status, restarts, client)
+	m.updateApplicationStatus(ctx, app, event, status, restarts, client, inspectData)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
