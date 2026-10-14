@@ -1638,3 +1638,49 @@ func TestWhenDeltaLifetimePersistenceFailsItShouldStillInstallApplications(t *te
 		})
 	}
 }
+
+func TestWhenInstalledParentDiffersFromCachedParentItShouldReportTheInstalledDigest(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	binDir := t.TempDir()
+	for _, name := range []string{"podman", "podman-compose", "skopeo"} {
+		require.NoError(os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o600))
+		require.NoError(os.Chmod(filepath.Join(binDir, name), 0o700))
+	}
+	t.Setenv("PATH", binDir)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	require.NoError(rw.MkdirAll("/parent", 0o700))
+	require.NoError(rw.WriteFile("/parent/compose.yaml", []byte("services: {}\n"), 0o600))
+	const parent = "quay.io/acme/bundle:latest"
+	const installedDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	app := v1beta1.ComposeApplication{Name: lo.ToPtr("app"), AppType: v1beta1.AppTypeCompose}
+	require.NoError(app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: parent}))
+	var apiSpec v1beta1.ApplicationProviderSpec
+	require.NoError(apiSpec.FromComposeApplication(app))
+	podman := client.NewPodman(logger, executer.NewMockExecuter(ctrl), rw, testutil.NewPollConfig())
+	providers, err := provider.FromDeviceSpec(t.Context(), logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, nil,
+		func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil },
+		&v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{apiSpec}},
+		provider.WithAppDataCache(map[string]*provider.AppData{"app-337945": {
+			TmpPath: "/parent", ParentReference: parent, ParentDigest: installedDigest, ParentOCIType: dependency.OCITypePodmanArtifact,
+		}}))
+	require.NoError(err)
+	cache := provider.NewOCITargetCache()
+	cache.Set(provider.CacheEntry{Name: providers[0].ID(), Parent: dependency.OCIPullTarget{
+		Reference: parent, Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Type: dependency.OCITypePodmanArtifact,
+	}})
+	m := &manager{log: logger, ociTargetCache: cache,
+		podmanMonitor:     &PodmanMonitor{apps: make(map[string]Application)},
+		kubernetesMonitor: &KubernetesMonitor{monitor: newMonitor(logger, "kubernetes")},
+	}
+	require.NoError(m.Ensure(t.Context(), providers[0]))
+	status := &v1beta1.DeviceStatus{}
+	require.NoError(m.Status(t.Context(), status))
+	require.Len(status.Applications, 1)
+	require.NotNil(status.Applications[0].ImageDigests)
+	require.Contains(*status.Applications[0].ImageDigests, v1beta1.ApplicationImageDigest{Image: parent, Digest: installedDigest})
+}

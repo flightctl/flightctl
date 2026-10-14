@@ -280,11 +280,6 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 			snapshot.Images = append(snapshot.Images, deltastatus.ApplicationImage{Image: image.Image, Owner: string(a.User().WithDefault(v1beta1.RootUsername)), OCIType: string(ociType), Digest: image.Digest})
 		}
 	}
-	for _, image := range a.requiredImages {
-		if !observed[image] {
-			snapshot.Complete = false
-		}
-	}
 	if a.parentOutcomeRequired {
 		if a.imageDigest == "" || a.imageOCIType == "" {
 			snapshot.Complete = false
@@ -304,11 +299,22 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 				OCIType:   volume.OCIType,
 				Available: volume.Available,
 			})
+			// The manager verifies these volume identities before selecting status.
+			// A volume reference is not required to also run as a workload image.
+			if volume.Available {
+				observed[volume.Reference] = true
+			}
 			if !volume.Available || volume.ID == "" || volume.Reference == "" || volume.OCIType == "" {
 				snapshot.Complete = false
 			}
 		}
 	}
+	for _, image := range a.requiredImages {
+		if !observed[image] {
+			snapshot.Complete = false
+		}
+	}
+
 	return snapshot
 }
 

@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -107,7 +108,6 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 func (m *manager) newAppFromProvider(p provider.Provider) Application {
-	m.populateCachedParentImageDigest(p)
 	spec := p.Spec()
 	app := NewApplication(p)
 	if spec.AppType == v1beta1.AppTypeHelm {
@@ -177,18 +177,6 @@ func inlineQuadletImageReferences(quadletApp *v1beta1.QuadletApplication) ([]str
 	return images, true
 }
 
-func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
-	spec := p.Spec()
-	if m.ociTargetCache == nil || spec.Image == "" {
-		return
-	}
-
-	entry, found := m.ociTargetCache.Get(p.ID())
-	if found && entry.Parent.Reference == spec.Image && entry.Parent.Digest != "" {
-		spec.ImageDigest = entry.Parent.Digest
-	}
-}
-
 func (m *manager) attachApplicationLifetime(p provider.Provider) {
 	if m.deltaStatusStore == nil || p == nil || p.Spec() == nil {
 		return
@@ -247,6 +235,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 	if err := provider.Remove(ctx); err != nil {
 		return fmt.Errorf("%w %w: %w", errors.ErrRemovingApplication, errors.WithElement(provider.Name()), err)
 	}
+	m.clearImageVolumeObservations(provider.Spec().ID)
 	if m.deltaStatusStore != nil {
 		if err := m.deltaStatusStore.RemoveApplication(provider.Spec().Name); err != nil {
 			m.log.Warnf("Failed to remove application delta state for %s: %v", provider.Spec().Name, err)
@@ -283,6 +272,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 		}
+		m.clearImageVolumeObservations(provider.Spec().ID)
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
@@ -540,6 +530,12 @@ func (m *manager) volumePodmanClient(owner v1beta1.Username) (*client.Podman, er
 		return nil, fmt.Errorf("podman factory returned nil client")
 	}
 	return podman, err
+}
+
+func (m *manager) clearImageVolumeObservations(applicationID string) {
+	maps.DeleteFunc(m.imageVolumeObservations, func(key imageVolumeObservationKey, _ cachedImageVolumeObservation) bool {
+		return key.applicationID == applicationID
+	})
 }
 
 type imageVolumeObservationKey struct {

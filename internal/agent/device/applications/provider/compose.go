@@ -120,7 +120,7 @@ func newComposeProvider(
 	}
 
 	if cfg != nil && cfg.appDataCache != nil {
-		if cachedData, found := cfg.appDataCache[appName]; found {
+		if cachedData, found := cfg.appDataCache[p.ID()]; found {
 			p.AppData = cachedData
 		}
 	}

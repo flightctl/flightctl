@@ -862,7 +862,7 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 				imageOCIType:            string(dependency.OCITypePodmanArtifact),
 				lifetime:                lifetime,
 				parentOutcomeRequired:   true,
-				requiredImages:          []string{workloadRef},
+				requiredImages:          []string{workloadRef, volumeRef},
 				imageCollectionComplete: true,
 				volume:                  volumeManager,
 				status:                  &v1beta1.DeviceApplicationStatus{Name: appName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeQuadlet},

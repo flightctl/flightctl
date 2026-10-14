@@ -13,14 +13,14 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-func recordArtifactVolumeImage(ctx context.Context, logger *log.PrefixLogger, deltaStore *deltastatus.Store, action Action, volume Volume, podman *client.Podman, artifactDigest string) error {
+func recordArtifactVolumeImage(ctx context.Context, logger *log.PrefixLogger, deltaStore *deltastatus.Store, action Action, volume Volume, podman *client.Podman, artifactDigest string) {
 	if deltaStore == nil || action.Name == "" || action.Lifetime == "" {
-		return nil
+		return
 	}
 	inspection, err := podman.InspectVolume(ctx, volume.ID)
 	if err != nil || inspection == nil || inspection.Driver != podmanLocalVolumeDriver || inspection.CreatedAt == "" {
 		logger.Warnf("Unable to bind artifact identity to volume %s: inspect failed or volume is not a created local volume: %v", volume.ID, err)
-		return nil
+		return
 	}
 	image := deltastatus.ApplicationImage{
 		Image:   volume.Reference,
@@ -29,9 +29,8 @@ func recordArtifactVolumeImage(ctx context.Context, logger *log.PrefixLogger, de
 		Digest:  artifactDigest,
 	}
 	if err := deltaStore.RecordApplicationVolumeImage(action.Name, action.Lifetime, volume.ID, inspection.CreatedAt, image); err != nil {
-		return fmt.Errorf("persist artifact identity for volume %w: %w", errors.WithElement(volume.ID), err)
+		logger.Warnf("Unable to persist artifact identity for volume %s: %v", volume.ID, err)
 	}
-	return nil
 }
 
 // artifactVolumePreparer owns the pin, invalidate, prepare, extract, and bind
@@ -63,9 +62,7 @@ func (q *artifactVolumePreparer) ensureArtifactVolume(
 		return created, fmt.Errorf("extracting artifact to volume %w: %w", errors.WithElement(volume.ID), err)
 	}
 	if canRecordIdentity && digestErr == nil && artifactDigest != "" {
-		if err := recordArtifactVolumeImage(ctx, q.log, q.deltaStore, action, volume, podman, artifactDigest); err != nil {
-			return created, err
-		}
+		recordArtifactVolumeImage(ctx, q.log, q.deltaStore, action, volume, podman, artifactDigest)
 	}
 	q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
 	return created, nil

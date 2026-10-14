@@ -86,7 +86,7 @@ func TestArtifactVolumeRecordingPreservesOwnerOCITypeAndIncarnation(t *testing.T
 	action := Action{Name: application, Lifetime: lifetime, User: "alice"}
 	volume := Volume{ID: volumeID, Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}
 
-	require.NoError(t, recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, digestValue))
+	recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, digestValue)
 	image, found := store.ApplicationVolumeImage(application, lifetime, volumeID, createdAt)
 	require.True(t, found)
 	require.Equal(t, deltastatus.ApplicationImage{
@@ -116,7 +116,7 @@ func TestArtifactVolumeRecordingWithInvalidInspectionWithholdsIdentity(t *testin
 	action := Action{Name: "app", Lifetime: lifetime, User: "alice"}
 	volume := Volume{ID: "app-data", Reference: "quay.io/acme/data:v1", OCIType: string(dependency.OCITypePodmanArtifact)}
 
-	require.NoError(t, recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, "sha256:artifact"))
+	recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, "sha256:artifact")
 	_, found := store.ApplicationVolumeImage("app", lifetime, volume.ID, "2026-10-12T12:00:00Z")
 	require.False(t, found)
 }

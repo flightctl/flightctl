@@ -42,20 +42,19 @@ type persistedState struct {
 }
 
 type osImageResult struct {
-	TargetKey string                         `json:"targetKey"`
-	Image     string                         `json:"image"`
-	Digest    string                         `json:"digest"`
-	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
-	LastUsed  uint64                         `json:"lastUsed,omitempty"`
-	Pending   bool                           `json:"pending,omitempty"`
+	Image    string                         `json:"image"`
+	Digest   string                         `json:"digest"`
+	Status   v1beta1.DeviceDeltaApplyStatus `json:"status"`
+	LastUsed uint64                         `json:"lastUsed,omitempty"`
 }
 
 type osState struct {
-	History      map[string]osImageResult        `json:"history,omitempty"`
-	TargetKey    string                          `json:"targetKey"`
-	Result       *v1beta1.DeviceDeltaApplyStatus `json:"result,omitempty"`
-	HistoryClock uint64                          `json:"historyClock,omitempty"`
-	ObservedKey  string                          `json:"observedKey,omitempty"`
+	ActiveImageKey string                          `json:"activeImageKey,omitempty"`
+	History        map[string]osImageResult        `json:"history,omitempty"`
+	TargetKey      string                          `json:"targetKey"`
+	Result         *v1beta1.DeviceDeltaApplyStatus `json:"result,omitempty"`
+	HistoryClock   uint64                          `json:"historyClock,omitempty"`
+	ObservedKey    string                          `json:"observedKey,omitempty"`
 }
 
 type applicationState struct {
@@ -215,6 +214,7 @@ func (s *Store) SetOSTarget(targetKey string) error {
 		s.state.OS = &osState{}
 	}
 	s.state.OS.TargetKey = targetKey
+	s.state.OS.ActiveImageKey = ""
 	s.state.OS.Result = nil
 	return s.saveLocked()
 }
@@ -257,10 +257,12 @@ func (s *Store) RecordOSImageResult(targetKey, image, digest string, result v1be
 		s.state.OS.History = make(map[string]osImageResult)
 	}
 	key := Fingerprint(image, digest)
+	s.state.OS.ActiveImageKey = key
 	if _, exists := s.state.OS.History[key]; exists {
 		return s.saveLocked()
 	}
-	s.state.OS.History[key] = osImageResult{TargetKey: targetKey, Image: image, Digest: digest, Status: cloneStatus(result), Pending: true}
+	s.state.OS.History[key] = osImageResult{Image: image, Digest: digest, Status: cloneStatus(result)}
+	pruneOSHistory(s.state.OS)
 	return s.saveLocked()
 }
 
@@ -283,7 +285,6 @@ func (s *Store) ObservedOSResult(image, digest string) *v1beta1.DeviceDeltaApply
 	if result, exists := os.History[key]; exists && result.Image == image && result.Digest == digest {
 		os.HistoryClock++
 		result.LastUsed = os.HistoryClock
-		result.Pending = false
 		os.History[key] = result
 		cloned := cloneStatus(result.Status)
 		selected = &cloned
@@ -589,14 +590,32 @@ func (s *Store) RecordApplicationImageResultForAttempt(attempt ApplicationAttemp
 		current.History = make(map[string]applicationObservedResult)
 	}
 	key := applicationHistoryKey(image)
+	// An accepted identity replaces earlier pending content for this target.
+	// Previous complete observations remain protected independently.
+	superseded := false
+	for previousKey, previous := range current.History {
+		if previousKey != key && previous.TargetKey == attempt.TargetKey && previous.Pending {
+			previous.Pending = false
+			current.History[previousKey] = previous
+			superseded = true
+		}
+	}
 	// An already-recorded identity keeps the outcome describing its original use.
-	if _, exists := current.History[key]; exists {
+	if existing, exists := current.History[key]; exists {
+		if superseded || !existing.Pending || existing.TargetKey != attempt.TargetKey {
+			existing.Pending = true
+			existing.TargetKey = attempt.TargetKey
+			current.History[key] = existing
+			pruneApplicationHistory(current)
+			return s.saveLocked()
+		}
 		if s.dirty {
 			return s.saveLocked()
 		}
 		return nil
 	}
 	current.History[key] = applicationObservedResult{Image: image, TargetKey: attempt.TargetKey, Status: cloneStatus(result), Pending: true}
+	pruneApplicationHistory(current)
 	return s.saveLocked()
 }
 
@@ -689,11 +708,10 @@ func pruneOSHistory(current *osState) bool {
 	if current.ObservedKey != "" {
 		protected[current.ObservedKey] = struct{}{}
 	}
-	// Pending results are protected only while their target remains active.
-	for key, result := range current.History {
-		if current.TargetKey != "" && result.TargetKey == current.TargetKey && result.Pending {
-			protected[key] = struct{}{}
-		}
+	// Only the latest accepted staged identity is still active. A stable
+	// mutable reference does not keep replaced stages protected forever.
+	if current.ActiveImageKey != "" {
+		protected[current.ActiveImageKey] = struct{}{}
 	}
 	candidates := make([]historyCandidate, 0, max(0, len(current.History)-len(protected)))
 	for key, result := range current.History {

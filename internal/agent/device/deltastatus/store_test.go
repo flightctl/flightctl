@@ -511,6 +511,9 @@ func TestWhenPendingApplicationHistoryExceedsSoftCapacityItShouldPruneInactiveRe
 		image.Digest = fmt.Sprintf("sha256:%d", n)
 		require.NoError(store.RecordApplicationImageResult("web", specKey, targetID, targetKey, image,
 			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+		if n == 0 {
+			require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{image}, true))
+		}
 	}
 	restarted := New(rw, "/state", logger)
 	image.Digest = "sha256:0"
@@ -994,4 +997,95 @@ func TestWhenVersionOneStateIsReloadedItShouldPreserveVerifiedOutcomes(t *testin
 	require.Equal(lifetime, restarted.ApplicationLifetime("web"))
 	_, found := restarted.ApplicationVolumeImage("web", lifetime, "data", "created")
 	require.True(found)
+}
+
+func TestWhenMutableApplicationAttemptsAreSupersededItShouldKeepOnlyObservedAndActiveEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sameSpec bool
+	}{
+		{name: "When the desired attempt changes it should evict superseded mutable content"},
+		{name: "When mutable content is replaced during the same attempt it should evict superseded content", sameSpec: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/state", logger)
+			outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+			observed := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:observed"}
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "initial"}))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"image": "mutable-target"}}, true))
+			require.NoError(store.RecordApplicationImageResult("web", "initial", "image", "mutable-target", observed, outcome))
+			require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{observed}, true))
+			var first, latest ApplicationImage
+			for i := 1; i <= 8; i++ {
+				spec := fmt.Sprintf("update-%d", i)
+				if tc.sameSpec {
+					spec = "initial"
+				}
+				require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": spec}))
+				require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"image": "mutable-target"}}, true))
+				latest = observed
+				latest.Digest = fmt.Sprintf("sha256:pending-%d", i)
+				if i == 1 {
+					first = latest
+				}
+				require.NoError(store.RecordApplicationImageResult("web", spec, "image", "mutable-target", latest, outcome))
+				require.Nil(store.ObservedApplicationResult("web", nil, false))
+			}
+			require.Nil(New(rw, "/state", logger).ObservedApplicationResult("web", []ApplicationImage{first}, true), "superseded evidence should be evicted while collection remains incomplete")
+			restarted := New(rw, "/state", logger)
+			require.NotNil(restarted.ObservedApplicationResult("web", []ApplicationImage{observed}, true), "incomplete collection must preserve previous observed evidence")
+			require.NotNil(restarted.ObservedApplicationResult("web", []ApplicationImage{latest}, true), "the active update must survive restart before its first report")
+			require.Nil(restarted.ObservedApplicationResult("web", []ApplicationImage{first}, true), "superseded unobserved attempts must become evictable even when the target key is unchanged")
+		})
+	}
+}
+func TestWhenMutableOSStagesAreReplacedItShouldKeepTheBootedAndLatestStagedEvidence(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const image = "quay.io/acme/os:latest"
+	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(store.SetOSTarget("mutable-target"))
+	require.NoError(store.RecordOSImageResult("mutable-target", image, "sha256:booted", outcome))
+	require.NotNil(store.ObservedOSResult(image, "sha256:booted"))
+	for i := 1; i <= 8; i++ {
+		require.NoError(store.RecordOSImageResult("mutable-target", image, fmt.Sprintf("sha256:stage-%d", i), outcome))
+		require.NotNil(store.ObservedOSResult(image, "sha256:booted"))
+	}
+	require.NoError(store.RecordOSResult("mutable-target", outcome))
+	restarted := New(rw, "/state", logger)
+	require.NotNil(restarted.ObservedOSResult(image, "sha256:booted"))
+	require.NotNil(restarted.ObservedOSResult(image, "sha256:stage-8"), "the most recently accepted stage must survive restart")
+	require.Nil(restarted.ObservedOSResult(image, "sha256:stage-1"), "replaced stages are no longer active even if the mutable target key is unchanged")
+}
+
+func TestWhenAnUnobservedCachedImageIsReusedItShouldKeepItsEvidenceAcrossSpecChanges(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	booted := ApplicationImage{Image: "quay.io/acme/old:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:observed"}
+	cached := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:pending"}
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "initial"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"old": "old-target", "cached": "cached-target"}}, true))
+	require.NoError(store.RecordApplicationImageResult("web", "initial", "old", "old-target", booted, outcome))
+	require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{booted}, true))
+	require.NoError(store.RecordApplicationImageResult("web", "initial", "cached", "cached-target", cached, outcome))
+	// An environment-only change can reuse cached content without generating a
+	// new outcome when a mutable desired digest cannot be verified.
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "changed-environment"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"cached": "cached-target", "other": "other-target"}}, true))
+	for i := 0; i < 32; i++ {
+		image := ApplicationImage{Image: "quay.io/acme/other:latest", Owner: "root", OCIType: "PodmanImage", Digest: fmt.Sprintf("sha256:replacement-%d", i)}
+		require.NoError(store.RecordApplicationImageResult("web", "changed-environment", "other", "other-target", image, outcome))
+		require.Nil(store.ObservedApplicationResult("web", nil, false))
+	}
+	require.NotNil(New(rw, "/state", log.NewPrefixLogger("test")).ObservedApplicationResult("web", []ApplicationImage{cached}, true), "the latest accepted content of an unchanged active target must remain protected")
 }

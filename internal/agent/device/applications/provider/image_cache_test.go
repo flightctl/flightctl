@@ -53,12 +53,12 @@ func TestNestedTargetCacheRequiresExactParentAndOwnerIdentity(t *testing.T) {
 		inputsHash string
 		want       bool
 	}{
-		{name: "same parent and owner", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "alice", want: true},
-		{name: "same parent with changed owner", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "bob"},
-		{name: "same reference with a changed digest", ref: "quay.io/acme/app:latest", digest: "sha256:new", owner: "alice"},
-		{name: "same reference with unknown digest", ref: "quay.io/acme/app:latest", owner: "alice"},
-		{name: "changed reference with same digest", ref: "quay.io/acme/app:v2", digest: "sha256:old", owner: "alice"},
-		{name: "empty owner normalizes to root only for root-owned cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "", want: false},
+		{name: "When the parent and owner match it should reuse the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "alice", want: true},
+		{name: "When the owner changes it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "bob"},
+		{name: "When the parent digest changes it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:new", owner: "alice"},
+		{name: "When the parent digest is unknown it should invalidate the cache", ref: "quay.io/acme/app:latest", owner: "alice"},
+		{name: "When the parent reference changes it should invalidate the cache", ref: "quay.io/acme/app:v2", digest: "sha256:old", owner: "alice"},
+		{name: "When the default owner differs from the cached owner it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "", want: false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, entry.IsValid(tt.ref, tt.digest, tt.owner, tt.inputsHash))

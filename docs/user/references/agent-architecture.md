@@ -93,6 +93,12 @@ For each application status report, the agent inspects available installed image
 
 Application delta status uses one owned image snapshot for each application update. It includes observed workload images, required image-backed volumes, and an applicable Quadlet parent OCI image or artifact. Helm chart packages and Compose bundle references remain visible in reported image digests but do not join the delta-outcome snapshot. Each identity retains its registry reference, digest, OCI type, and storage owner. A volume identity is tied to the volume's creation time and the application lifetime, so replacing the volume cannot reuse evidence from its earlier contents.
 
+Verified volume observations are reused between status cycles and cleared when an application is removed or reinstalled. A volume image does not need to appear as a workload image to participate in the complete snapshot.
+
+The agent installs retained parent contents with their observed digest. A cached digest never replaces the identity reported by installation. A failed artifact-volume identity write is logged after extraction and does not discard successfully prepared contents. Existing bindings must still be invalidated before changing volume contents.
+
+History protects the previous complete observed set and the current update. Replacing pending content behind a mutable reference releases superseded content for eviction, including when observation is incomplete. OS history protects the booted identity and the latest accepted identity for the active target. Protected records may temporarily exceed the capacity limit.
+
 ## Update Policy
 
 * **Maintenance windows**: Independently define windows for download, update, and install operations

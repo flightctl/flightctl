@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"os"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -1669,4 +1671,65 @@ func TestQuadlet_LifecycleHandler(t *testing.T) {
 		err := q.Stop(context.Background(), testAction)
 		require.Error(err)
 	})
+}
+
+func TestWhenArtifactBindingPersistenceFailsItShouldKeepThePreparedVolume(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	stateRW := fileio.NewMockReadWriter(ctrl)
+	stateRW.EXPECT().ReadFile(gomock.Any()).Return(nil, os.ErrNotExist)
+	stateRW.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	failWrites := false
+	stateRW.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, []byte, fs.FileMode, ...fileio.FileOption) error {
+			if failWrites {
+				return fmt.Errorf("state filesystem is full")
+			}
+			return nil
+		}).AnyTimes()
+	store := deltastatus.New(stateRW, "/state", logger)
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+	lifetime := store.ApplicationLifetime("app")
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	const reference = "quay.io/acme/data:v1"
+	const digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", reference).Return(`{"Digest":"`+digestValue+`"}`, "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "exists", "data").Return("", "", 1)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "create", "data", "--label", client.QuadletProjectLabelKey+"=app-id").Return("data", "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "data", "--format", "{{.Mountpoint}}").Return("/volume-data", "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", reference+"@"+digestValue, "/volume-data").DoAndReturn(
+		func(context.Context, string, ...string) (string, string, int) {
+			require.NoError(rw.WriteFile("/volume-data/payload", []byte("installed contents"), 0o600))
+			failWrites = true
+			return "", "", 0
+		})
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "data", "--format", "{{json .}}").Return(`{"Name":"data","Driver":"local","CreatedAt":"created"}`, "", 0)
+	// Removing the prepared volume would discard successfully installed content.
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "rm", "data").DoAndReturn(
+		func(context.Context, string, ...string) (string, string, int) {
+			require.NoError(rw.RemoveAll("/volume-data"))
+			return "", "", 0
+		}).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("", "", 0).AnyTimes()
+	systemdClient := systemd.NewMockManager(ctrl)
+	systemdClient.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+	systemdClient.EXPECT().DaemonReload(gomock.Any()).Return(nil).AnyTimes()
+	systemdClient.EXPECT().ListDependencies(gomock.Any(), "app-id-flightctl-quadlet-app.target").Return([]string{"app-id-web.service"}, nil).AnyTimes()
+	systemdClient.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return([]client.SystemDUnitListEntry{{Unit: "app-id-web.service", LoadState: string(api.SystemdLoadStateLoaded)}}, nil).AnyTimes()
+	systemdClient.EXPECT().Start(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	systemdClient.EXPECT().AddExclusions(gomock.Any(), gomock.Any()).AnyTimes()
+	podman := client.NewPodman(logger, exec, rw, testutil.NewPollConfig())
+	q := NewQuadlet(logger, func(api.Username) (fileio.ReadWriter, error) { return rw, nil },
+		func(api.Username) (systemd.Manager, error) { return systemdClient, nil },
+		func(api.Username) (*client.Podman, error) { return podman, nil }, WithDeltaStatusStore(store))
+	require.NoError(q.Execute(t.Context(), Actions{{Type: ActionAdd, Name: "app", ID: "app-id", Path: "/app", User: api.RootUsername, Lifetime: lifetime,
+		Volumes: []Volume{{ID: "data", Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}}}}))
+	contents, err := rw.ReadFile("/volume-data/payload")
+	require.NoError(err)
+	require.Equal("installed contents", string(contents))
 }

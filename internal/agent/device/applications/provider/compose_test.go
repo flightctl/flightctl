@@ -271,14 +271,19 @@ func expectComposeImageExtraction(mockExec *executer.MockExecuter, imageRef, ima
 	}
 }
 
-func TestComposeInstallKeepsTheCollectedParentArtifactIdentity(t *testing.T) {
+func TestWhenProvidersInstallCollectedParentsItShouldPreserveTheExtractedIdentity(t *testing.T) {
 	const (
 		imageRef       = "quay.io/acme/compose-bundle:v1"
 		artifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	for _, tc := range []struct{ name, digest string }{
-		{name: "When retained parent contents have a verified digest it should keep that identity", digest: artifactDigest},
-		{name: "When retained parent contents have no digest it should install without identity evidence"},
+	for _, tc := range []struct {
+		name, digest string
+		appType      v1beta1.AppType
+	}{
+		{name: "When Compose parent contents have a verified digest it should keep that identity", digest: artifactDigest, appType: v1beta1.AppTypeCompose},
+		{name: "When Compose parent contents have no digest it should install without identity evidence", appType: v1beta1.AppTypeCompose},
+		{name: "When Quadlet parent contents have a verified digest it should keep that identity", digest: artifactDigest, appType: v1beta1.AppTypeQuadlet},
+		{name: "When Quadlet parent contents have no digest it should install without identity evidence", appType: v1beta1.AppTypeQuadlet},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -291,29 +296,43 @@ func TestComposeInstallKeepsTheCollectedParentArtifactIdentity(t *testing.T) {
 				installedPath = "/installed-app"
 			)
 			require.NoError(t, rw.MkdirAll(extractedPath, fileio.DefaultDirectoryPermissions))
+			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "web.container"), []byte("[Container]\nImage=quay.io/acme/web:v1\n"), fileio.DefaultFilePermissions))
 			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
-			volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
-			require.NoError(t, err)
-
-			spec := &ApplicationSpec{
-				Name: "app", ID: "app-id", Path: installedPath, Image: imageRef,
-				Volume: volumeManager, ImageDigest: "stale-digest", ImageOCIType: "stale-type",
+			binDir := t.TempDir()
+			for _, name := range []string{"podman", "podman-compose", "skopeo"} {
+				require.NoError(t, os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o600))
+				require.NoError(t, os.Chmod(filepath.Join(binDir, name), 0o700))
 			}
+			t.Setenv("PATH", binDir)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			podman := client.NewPodman(log.NewPrefixLogger("test"), executer.NewMockExecuter(ctrl), rw, util.NewPollConfig())
-			compose := &composeProvider{
-				podman:     podman,
-				imageRef:   imageRef,
-				spec:       spec,
-				readWriter: rw,
-				log:        log.NewPrefixLogger("test"),
-				AppData: &AppData{
-					TmpPath: extractedPath, ParentReference: imageRef, ParentDigest: tc.digest,
-					ParentOCIType: dependency.OCITypePodmanArtifact,
-				},
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, executer.NewMockExecuter(ctrl), rw, util.NewPollConfig())
+			var apiSpec v1beta1.ApplicationProviderSpec
+			if tc.appType == v1beta1.AppTypeCompose {
+				app := v1beta1.ComposeApplication{Name: lo.ToPtr("app"), AppType: tc.appType}
+				require.NoError(t, app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: imageRef}))
+				require.NoError(t, apiSpec.FromComposeApplication(app))
+			} else {
+				app := v1beta1.QuadletApplication{Name: lo.ToPtr("app"), AppType: tc.appType}
+				require.NoError(t, app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: imageRef}))
+				require.NoError(t, apiSpec.FromQuadletApplication(app))
 			}
-
+			cache := map[string]*AppData{"app-337945": {
+				TmpPath: extractedPath, ParentReference: imageRef, ParentDigest: tc.digest,
+				ParentOCIType: dependency.OCITypePodmanArtifact,
+			}}
+			providers, err := FromDeviceSpec(t.Context(), logger,
+				func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, nil,
+				func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil },
+				&v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{apiSpec}}, WithAppDataCache(cache))
+			require.NoError(t, err)
+			require.Len(t, providers, 1)
+			compose := providers[0]
+			spec := compose.Spec()
+			spec.Path = installedPath
+			spec.ImageDigest = "stale-digest"
+			spec.ImageOCIType = "stale-type"
 			require.NoError(t, compose.Install(context.Background()))
 			require.Equal(t, tc.digest, spec.ImageDigest)
 			require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
