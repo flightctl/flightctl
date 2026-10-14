@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -258,4 +259,185 @@ func TestWhenHelmChartReferenceIsPresentItShouldReportWorkloadOutcome(t *testing
 	require.Contains(*reported.Applications[0].ImageDigests, v1beta1.ApplicationImageDigest{Image: workloadImage, Digest: digest})
 	require.NotNil(reported.Applications[0].LastDelta)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+}
+
+func TestWhenManySharedWorkloadImagesHaveAppliedOrNotRequiredResultsItShouldReportApplied(t *testing.T) {
+	require := require.New(t)
+	const appName = "web"
+
+	store, _, logger := newApplicationOutcomeStore(t)
+	images := make([]deltastatus.ApplicationImage, 12)
+	for i := range images {
+		images[i] = applicationOutcomeImage(
+			fmt.Sprintf("quay.io/acme/workload-%d:latest", i),
+			fmt.Sprintf("sha256:workload-%d", i),
+		)
+	}
+	targets := prepareApplicationOutcomeTargets(t, store, appName, append(images, images[0]))
+	for i, image := range images {
+		outcome := v1beta1.DeviceDeltaApplyOutcomeApplied
+		if i == 0 {
+			outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+		}
+		recordApplicationOutcome(t, store, appName, targets, image, v1beta1.DeviceDeltaApplyStatus{Outcome: outcome})
+	}
+
+	manager, wantImageDigests := newApplicationOutcomeManager(t, appName, [][]deltastatus.ApplicationImage{
+		images[:6],
+		append([]deltastatus.ApplicationImage{images[0]}, images[6:]...),
+	}, store, logger)
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Len(reported.Applications, 1)
+	require.ElementsMatch(wantImageDigests, *reported.Applications[0].ImageDigests)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+}
+
+func TestWhenMixedWorkloadVersionsHaveDifferentOutcomesItShouldReportPartial(t *testing.T) {
+	require := require.New(t)
+	const (
+		appName = "web"
+		image   = "quay.io/acme/web:latest"
+	)
+
+	store, _, logger := newApplicationOutcomeStore(t)
+	oldImage := applicationOutcomeImage(image, "sha256:old")
+	newImage := applicationOutcomeImage(image, "sha256:new")
+	targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{oldImage, newImage})
+	recordApplicationOutcome(t, store, appName, targets, oldImage, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+	reason := "full pull"
+	recordApplicationOutcome(t, store, appName, targets, newImage, v1beta1.DeviceDeltaApplyStatus{
+		Outcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
+		FallbackReason: &reason,
+	})
+
+	manager, wantImageDigests := newApplicationOutcomeManager(t, appName, [][]deltastatus.ApplicationImage{{oldImage}, {newImage}}, store, logger)
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Len(reported.Applications, 1)
+	require.ElementsMatch(wantImageDigests, *reported.Applications[0].ImageDigests)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomePartial, reported.Applications[0].LastDelta.Outcome)
+	require.Equal(reason, *reported.Applications[0].LastDelta.FallbackReason)
+}
+
+func TestWhenWorkloadOutcomeArrivesLateAndSurvivesRestartItShouldReportTheCompleteAggregate(t *testing.T) {
+	require := require.New(t)
+	const appName = "web"
+
+	store, rw, logger := newApplicationOutcomeStore(t)
+	firstImage := applicationOutcomeImage("quay.io/acme/web:latest", "sha256:web")
+	secondImage := applicationOutcomeImage("quay.io/acme/sidecar:latest", "sha256:sidecar")
+	images := []deltastatus.ApplicationImage{firstImage, secondImage}
+	targets := prepareApplicationOutcomeTargets(t, store, appName, images)
+	recordApplicationOutcome(t, store, appName, targets, firstImage, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+
+	workloads := [][]deltastatus.ApplicationImage{{firstImage, secondImage}}
+	manager, wantImageDigests := newApplicationOutcomeManager(t, appName, workloads, store, logger)
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), reported))
+	require.ElementsMatch(wantImageDigests, *reported.Applications[0].ImageDigests)
+	require.Nil(reported.Applications[0].LastDelta)
+
+	reason := "full pull"
+	recordApplicationOutcome(t, store, appName, targets, secondImage, v1beta1.DeviceDeltaApplyStatus{
+		Outcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
+		FallbackReason: &reason,
+	})
+	reported = &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), reported))
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomePartial, reported.Applications[0].LastDelta.Outcome)
+	require.Equal(reason, *reported.Applications[0].LastDelta.FallbackReason)
+
+	restartedStore := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	restartedManager, _ := newApplicationOutcomeManager(t, appName, workloads, restartedStore, logger)
+	reported = &v1beta1.DeviceStatus{}
+	require.NoError(restartedManager.Status(context.Background(), reported))
+	require.ElementsMatch(wantImageDigests, *reported.Applications[0].ImageDigests)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomePartial, reported.Applications[0].LastDelta.Outcome)
+	require.Equal(reason, *reported.Applications[0].LastDelta.FallbackReason)
+}
+
+func newApplicationOutcomeStore(t *testing.T) (*deltastatus.Store, fileio.ReadWriter, *log.PrefixLogger) {
+	t.Helper()
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	return deltastatus.New(rw, "/var/lib/flightctl", logger), rw, logger
+}
+
+func applicationOutcomeImage(image, digest string) deltastatus.ApplicationImage {
+	return deltastatus.ApplicationImage{
+		Image:   image,
+		Owner:   string(v1beta1.RootUsername),
+		OCIType: string(dependency.OCITypePodmanImage),
+		Digest:  digest,
+	}
+}
+
+func prepareApplicationOutcomeTargets(t *testing.T, store *deltastatus.Store, appName string, images []deltastatus.ApplicationImage) map[string]string {
+	t.Helper()
+	require := require.New(t)
+	const specKey = "spec"
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{appName: specKey}))
+	targets := make(map[string]string, len(images))
+	for _, image := range images {
+		targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
+		targets[targetID] = "target-" + targetID
+	}
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{appName: targets}, true))
+	return targets
+}
+
+func recordApplicationOutcome(t *testing.T, store *deltastatus.Store, appName string, targets map[string]string, image deltastatus.ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) {
+	t.Helper()
+	require := require.New(t)
+	const specKey = "spec"
+	targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
+	require.NoError(store.RecordApplicationImageResult(appName, specKey, targetID, targets[targetID], image, result))
+}
+
+func newApplicationOutcomeManager(t *testing.T, appName string, workloadImages [][]deltastatus.ApplicationImage, store *deltastatus.Store, logger *log.PrefixLogger) (*manager, []v1beta1.ApplicationImageDigest) {
+	t.Helper()
+	require := require.New(t)
+	volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeContainer, v1beta1.RootUsername, nil)
+	require.NoError(err)
+	workloads := make([]Workload, len(workloadImages))
+	requiredImages := make(map[string]struct{})
+	wantImageDigests := make(map[v1beta1.ApplicationImageDigest]struct{})
+	for i, images := range workloadImages {
+		workload := Workload{Name: fmt.Sprintf("workload-%d", i), Status: StatusRunning}
+		for _, image := range images {
+			workload.Images = append(workload.Images, WorkloadImage{Image: image.Image, Digest: image.Digest})
+			requiredImages[image.Image] = struct{}{}
+			wantImageDigests[v1beta1.ApplicationImageDigest{Image: image.Image, Digest: image.Digest}] = struct{}{}
+		}
+		workloads[i] = workload
+	}
+	app := &application{
+		id:                      appName,
+		requiredImages:          make([]string, 0, len(requiredImages)),
+		imageCollectionComplete: true,
+		workloads:               workloads,
+		volume:                  volume,
+		status:                  &v1beta1.DeviceApplicationStatus{Name: appName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeContainer},
+	}
+	for image := range requiredImages {
+		app.requiredImages = append(app.requiredImages, image)
+	}
+	want := make([]v1beta1.ApplicationImageDigest, 0, len(wantImageDigests))
+	for imageDigest := range wantImageDigests {
+		want = append(want, imageDigest)
+	}
+	manager := &manager{
+		log:               logger,
+		deltaStatusStore:  store,
+		ociTargetCache:    provider.NewOCITargetCache(),
+		podmanMonitor:     &PodmanMonitor{apps: map[string]Application{app.ID(): app}},
+		kubernetesMonitor: &KubernetesMonitor{monitor: newMonitor(logger, "kubernetes")},
+	}
+	return manager, want
 }
