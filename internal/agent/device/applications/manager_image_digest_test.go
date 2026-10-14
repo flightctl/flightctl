@@ -2,15 +2,18 @@ package applications
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestAddCachedParentImageDigests(t *testing.T) {
@@ -142,39 +145,117 @@ func TestAddCachedParentImageDigests(t *testing.T) {
 }
 
 func TestManagerReportsMatchingWorkloadOutcome(t *testing.T) {
+	require := require.New(t)
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	logger := log.NewPrefixLogger("test")
 	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
 	image := deltastatus.ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: "sha256:old"}
 	targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
-	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
-	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "target"}}, true))
-	require.NoError(t, store.RecordApplicationImageResult("web", "spec", targetID, "target", image, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "target"}}, true))
+	require.NoError(store.RecordApplicationImageResult("web", "spec", targetID, "target", image, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
 	volume, err := provider.NewVolumeManager(logger, "web", v1beta1.AppTypeContainer, "root", nil)
-	require.NoError(t, err)
+	require.NoError(err)
 	app := &application{id: "web-id", imageRef: image.Image, requiredImages: []string{image.Image}, imageCollectionComplete: true, volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "web", RunAs: "root", AppType: v1beta1.AppTypeContainer}, workloads: []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image.Image, Digest: image.Digest}}}}}
 	manager := &manager{log: logger, deltaStatusStore: store, ociTargetCache: provider.NewOCITargetCache(), podmanMonitor: &PodmanMonitor{apps: map[string]Application{app.ID(): app}}, kubernetesMonitor: &KubernetesMonitor{monitor: &monitor{apps: map[string]Application{}}}}
 	reported := &v1beta1.DeviceStatus{}
-	require.NoError(t, manager.Status(context.Background(), reported))
-	require.Equal(t, image.Digest, (*reported.Applications[0].ImageDigests)[0].Digest)
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Equal(image.Digest, (*reported.Applications[0].ImageDigests)[0].Digest)
 	firstReport := reported.Applications[0]
-	require.NotNil(t, reported.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
 	// A missing expected image must not be inferred from a flattened known set.
 	app.requiredImages = append(app.requiredImages, "quay.io/acme/sidecar:latest")
-	require.NoError(t, manager.Status(context.Background(), reported))
-	require.Nil(t, reported.Applications[0].LastDelta)
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Nil(reported.Applications[0].LastDelta)
 	app.requiredImages = app.requiredImages[:1]
 	app.workloads = append(app.workloads, Workload{Name: "unknown-replica", Status: StatusRunning, Images: []WorkloadImage{{Image: image.Image}}})
-	require.NoError(t, manager.Status(context.Background(), reported))
-	require.Nil(t, reported.Applications[0].LastDelta)
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Nil(reported.Applications[0].LastDelta)
 	// An installed provider observation must not replace an unknown running image.
 	app.workloads = app.workloads[1:]
 	app.imageDigest = "sha256:desired"
-	require.NoError(t, manager.Status(context.Background(), reported))
-	require.Nil(t, reported.Applications[0].LastDelta)
-	require.Empty(t, (*reported.Applications[0].ImageDigests)[0].Digest)
-	require.Equal(t, image.Digest, (*firstReport.ImageDigests)[0].Digest)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, firstReport.LastDelta.Outcome)
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Nil(reported.Applications[0].LastDelta)
+	require.Empty((*reported.Applications[0].ImageDigests)[0].Digest)
+	require.Equal(image.Digest, (*firstReport.ImageDigests)[0].Digest)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, firstReport.LastDelta.Outcome)
+}
+
+func TestWhenHelmChartReferenceIsPresentItShouldReportWorkloadOutcome(t *testing.T) {
+	require := require.New(t)
+	const (
+		appName       = "web"
+		chart         = "oci://quay.io/acme/charts/web:1.0.0"
+		workloadImage = "quay.io/acme/web:latest"
+		digest        = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+
+	ctx := context.Background()
+	logger := log.NewPrefixLogger("test")
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	image := deltastatus.ApplicationImage{
+		Image: workloadImage, Owner: string(v1beta1.RootUsername), OCIType: string(dependency.OCITypeCRIImage), Digest: digest,
+	}
+	targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{appName: "spec"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{appName: {targetID: "target"}}, true))
+	require.NoError(store.RecordApplicationImageResult(appName, "spec", targetID, "target", image,
+		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+
+	volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeHelm, v1beta1.RootUsername, nil)
+	require.NoError(err)
+	appSpec := &provider.ApplicationSpec{
+		ID: appName, Name: appName, AppType: v1beta1.AppTypeHelm, User: v1beta1.RootUsername,
+		Image: chart, Volume: volume,
+	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	appProvider := provider.NewMockProvider(ctrl)
+	appProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+	appProvider.EXPECT().Install(gomock.Any()).Return(nil)
+	appProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+	appProvider.EXPECT().ID().Return(appName).AnyTimes()
+
+	targetCache := provider.NewOCITargetCache()
+	targetCache.Set(provider.CacheEntry{
+		Name:   appName,
+		Parent: dependency.OCIPullTarget{Reference: chart},
+		Children: []dependency.OCIPullTarget{{
+			Type: dependency.OCITypeCRIImage, Reference: workloadImage, Digest: digest,
+		}},
+	})
+	kubernetesMonitor := &KubernetesMonitor{monitor: newMonitor(logger, "kubernetes")}
+	manager := &manager{
+		log:               logger,
+		deltaStatusStore:  store,
+		ociTargetCache:    targetCache,
+		podmanMonitor:     &PodmanMonitor{apps: make(map[string]Application)},
+		kubernetesMonitor: kubernetesMonitor,
+	}
+	require.NoError(manager.Ensure(ctx, appProvider))
+
+	event := kubernetesWatchEvent{Type: "ADDED"}
+	event.Object.Kind = "Pod"
+	event.Object.Metadata.Name = "web"
+	event.Object.Metadata.UID = "web-pod"
+	event.Object.Metadata.Labels = map[string]string{helm.AppLabelKey: appName}
+	event.Object.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: workloadImage}}
+	event.Object.Status.ContainerStatuses = []kubernetesContainerStatus{{
+		Name: "web", ImageID: "docker-pullable://quay.io/acme/web@" + digest, Ready: true,
+	}}
+	eventData, err := json.Marshal(event)
+	require.NoError(err)
+	kubernetesMonitor.HandleEvent(ctx, eventData)
+
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(ctx, reported))
+	require.Len(reported.Applications, 1)
+	require.Contains(*reported.Applications[0].ImageDigests, v1beta1.ApplicationImageDigest{Image: chart})
+	require.Contains(*reported.Applications[0].ImageDigests, v1beta1.ApplicationImageDigest{Image: workloadImage, Digest: digest})
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
 }

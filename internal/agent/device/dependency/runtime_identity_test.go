@@ -110,3 +110,63 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 		})
 	}
 }
+
+func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestTogether(t *testing.T) {
+	require := require.New(t)
+	const (
+		appName = "web"
+		image   = "quay.io/acme/web:latest"
+		digest  = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		imageID = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+
+	ctx := context.Background()
+	logger := log.NewPrefixLogger("test")
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	exec := executer.NewMockExecuter(ctrl)
+	resources := resource.NewMockManager(ctrl)
+	resources.EXPECT().IsCriticalAlert(resource.MonitorType(resource.DiskMonitorType)).Return(false)
+	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 1))
+	skopeo := client.NewSkopeo(logger, exec, rw)
+
+	firstExists := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
+	secondExists := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
+	localDigests := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
+		Return(`{"Digest":"`+digest+`"}`, "", 0)
+	remoteDigest := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).
+		Return(digest, "", 0)
+	identityAndDigest := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}} {{.Digest}}", image).
+		Return(imageID+" "+digest, "", 0)
+	gomock.InOrder(firstExists, secondExists, localDigests, remoteDigest, identityAndDigest)
+
+	name := appName
+	app := v1beta1.ContainerApplication{Name: &name, AppType: v1beta1.AppTypeContainer}
+	require.NoError(app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}))
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromContainerApplication(app))
+	desired := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{appSpec}}
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	manager := NewPrefetchManager(logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+		func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+		client.NewCLIClients(), rw, util.Duration(time.Minute), resources, poll.Config{},
+		WithDeltaStatusStore(store))
+	defer manager.Cleanup()
+	manager.RegisterOCICollector(newTestOCICollector(func(context.Context, *v1beta1.DeviceSpec, *v1beta1.DeviceSpec, ...OCICollectOpt) (*OCICollection, error) {
+		return &OCICollection{Targets: OCIPullTargetsByUser{v1beta1.RootUsername: []OCIPullTarget{{
+			Type: OCITypePodmanImage, Reference: image, Digest: digest,
+			Delta: &OCIDeltaTarget{Application: appName},
+		}}}}, nil
+	}))
+
+	require.NoError(manager.BeforeUpdate(ctx, nil, desired))
+	require.True(manager.IsReady(ctx))
+	result := store.ObservedApplicationResult(appName, []deltastatus.ApplicationImage{{
+		Image: image, Owner: string(v1beta1.RootUsername), OCIType: string(OCITypePodmanImage), Digest: digest,
+	}}, true)
+	require.NotNil(result)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, result.Outcome)
+}

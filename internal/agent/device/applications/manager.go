@@ -120,7 +120,8 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 	}
 	// Capture expected images from the installed provider, not a future desired spec.
 	app.imageCollectionComplete = p.Spec().AppType == v1beta1.AppTypeContainer
-	if p.Spec().Image != "" {
+	// A Helm provider's image is its chart package, not a rendered workload image.
+	if p.Spec().AppType != v1beta1.AppTypeHelm && p.Spec().Image != "" {
 		app.requiredImages = append(app.requiredImages, p.Spec().Image)
 	}
 	if m.ociTargetCache != nil {
@@ -358,16 +359,28 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 				}
 			}
 		}
+		helmChartReference := ""
+		if result.Status.AppType == v1beta1.AppTypeHelm && m.ociTargetCache != nil {
+			if target, found := m.ociTargetCache.Get(result.ID); found {
+				helmChartReference = target.Parent.Reference
+			}
+		}
 		if result.Status.ImageDigests != nil {
 			for _, reported := range *result.Status.ImageDigests {
 				found := false
+				isWorkloadImage := false
 				for _, image := range result.Images.Images {
-					if image.Image == reported.Image && image.Digest == reported.Digest {
-						found = true
-						break
+					if image.Image == reported.Image {
+						isWorkloadImage = true
+						if image.Digest == reported.Digest {
+							found = true
+							break
+						}
 					}
 				}
-				if !found {
+				// The cached Helm chart package is not a rendered workload image.
+				isHelmChartPackage := !isWorkloadImage && helmChartReference != "" && reported.Image == helmChartReference
+				if !found && !isHelmChartPackage {
 					complete = false
 				}
 			}

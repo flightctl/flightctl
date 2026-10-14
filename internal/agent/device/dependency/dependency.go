@@ -1343,9 +1343,9 @@ func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target 
 	if ociType == OCITypeCRIImage {
 		observed = m.observedCRIImageDigest(ctx, target, opts...)
 	} else if podman != nil {
-		imageID, err := podman.ImageID(ctx, target.image)
+		imageID, imageDigest, err := podman.ImageIDAndDigest(ctx, target.image)
 		if err == nil && imageID != "" {
-			observed, _ = podman.ImageDigest(ctx, imageID)
+			observed = imageDigest
 		}
 	}
 	if _, err := digest.Parse(observed); err != nil {

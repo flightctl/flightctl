@@ -281,16 +281,19 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	return exitCode == 0
 }
 
-// ImageID returns the immutable local identity selected by an image reference.
-// Callers use it transiently to inspect held content independently of moved tags.
-func (p *Podman) ImageID(ctx context.Context, image string) (string, error) {
+// ImageIDAndDigest returns the local image ID and digest from one inspection.
+func (p *Podman) ImageIDAndDigest(ctx context.Context, image string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
-	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "image", "inspect", "--format", "{{.Id}}", image)
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "image", "inspect", "--format", "{{.Id}} {{.Digest}}", image)
 	if exitCode != 0 {
-		return "", fmt.Errorf("get image ID: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
+		return "", "", fmt.Errorf("get image ID and digest: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
-	return strings.TrimSpace(stdout), nil
+	fields := strings.Fields(stdout)
+	if len(fields) != 2 {
+		return "", "", fmt.Errorf("parse image ID and digest for %s: expected two fields", image)
+	}
+	return fields[0], fields[1], nil
 }
 
 // ImageDigest returns the digest of the specified image.
