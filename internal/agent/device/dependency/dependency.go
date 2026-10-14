@@ -222,6 +222,12 @@ type applicationDeltaApplyResult struct {
 	targetKey      string
 }
 
+type applicationImageInspection struct {
+	currentDigests  []string
+	runtimeImageRef string
+	podmanMetadata  *client.PodmanImageMetadata
+}
+
 type applicationDeltaPersistence struct {
 	application        string
 	target             imageRef
@@ -1346,14 +1352,22 @@ func (m *prefetchManager) recordObservedDeltaResult(ctx context.Context, target 
 
 // observedCachedImageDigest verifies a held image without following a mutable
 // reference after its immutable runtime identity has been captured.
-func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target imageRef, ociType OCIType, podman *client.Podman, metadata *client.PodmanImageMetadata, eligible bool, opts ...client.ClientOption) string {
+func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target imageRef, ociType OCIType, podman *client.Podman, inspection applicationImageInspection, eligible bool, opts ...client.ClientOption) string {
 	if !eligible {
 		return ""
 	}
 	observed := ""
 	if ociType == OCITypeCRIImage {
-		observed = m.observedCRIImageDigest(ctx, target, target.image, opts...)
+		runtimeImageRef := inspection.runtimeImageRef
+		if runtimeImageRef == "" && m.cliClients != nil && m.cliClients.CRI() != nil {
+			metadata, err := m.cliClients.CRI().ImageMetadata(ctx, target.image, opts...)
+			if err == nil {
+				runtimeImageRef = metadata.ID
+			}
+		}
+		observed = m.observedCRIImageDigest(ctx, target, runtimeImageRef, opts...)
 	} else if podman != nil {
+		metadata := inspection.podmanMetadata
 		if metadata == nil {
 			inspected, err := podman.ImageMetadata(ctx, target.image)
 			if err == nil {
@@ -1820,7 +1834,7 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		result = digestMismatched
 		confirmedMismatch = false
 		observedDigest = ""
-		var inspectedMetadata *client.PodmanImageMetadata
+		var inspectedImage applicationImageInspection
 		func() {
 			m.mu.Unlock()
 			defer m.mu.Lock()
@@ -1848,11 +1862,11 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 						// Revalidate cached tags against the registry. A resolved digest
 						// is reusable by the subsequent pull, but not by this cache check.
 						snapshot.resolvedDigest = ""
-						result, inspectedMetadata = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
+						result, inspectedImage = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
 						confirmedMismatch = result == digestMismatched && snapshot.resolvedDigest != ""
 					}
 				}
-				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.ociType, podman, inspectedMetadata, canRecord && result != digestMismatched, opts...)
+				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.ociType, podman, inspectedImage, canRecord && result != digestMismatched, opts...)
 
 			}
 		}()
@@ -1923,7 +1937,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	skopeo *client.Skopeo,
 	resolvedDigest *string,
 	opts ...client.ClientOption,
-) (digestCheckResult, *client.PodmanImageMetadata) {
+) (digestCheckResult, applicationImageInspection) {
 	application := ""
 	hintPresent := false
 	sourceDigest := ""
@@ -1932,13 +1946,13 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		hintPresent = delta.Hint != ""
 		sourceDigest = delta.SourceDigest
 	}
-	var imageMetadata *client.PodmanImageMetadata
-	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) (digestCheckResult, *client.PodmanImageMetadata) {
+	var imageInspection applicationImageInspection
+	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) (digestCheckResult, applicationImageInspection) {
 		m.log.Debugf(
 			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t sourceDigest=%q comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
 			application, target.image, ociType, targetPresent, hintPresent, sourceDigest, comparisonDigests, desiredDigest, result == digestMatched, reason,
 		)
-		return result, imageMetadata
+		return result, imageInspection
 	}
 	if delta == nil || !supportsApplicationImageDigestCheck(ociType) {
 		return logCheck(digestUnknown, nil, "", "delta metadata missing or OCI type does not support digest checks")
@@ -1970,20 +1984,20 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		return logCheck(digestUnknown, nil, "", "could not determine image type")
 	}
 
-	currentDigests, imageMetadata, ok := m.applicationDeltaCheckCurrentDigests(
+	imageInspection, ok = m.applicationDeltaCheckCurrentDigests(
 		ctx, target, imageType, targetPresent, podman, opts...,
 	)
 	if !ok {
 		return logCheck(digestMismatched, nil, "", "could not inspect local image digest")
 	}
-	if !targetPresent && len(currentDigests) == 0 && delta.SourceDigest != "" {
-		currentDigests = append(currentDigests, delta.SourceDigest)
+	if !targetPresent && len(imageInspection.currentDigests) == 0 && delta.SourceDigest != "" {
+		imageInspection.currentDigests = append(imageInspection.currentDigests, delta.SourceDigest)
 	}
-	if len(currentDigests) == 0 {
-		return logCheck(digestUnknown, currentDigests, "", "no current or source digest available")
+	if len(imageInspection.currentDigests) == 0 {
+		return logCheck(digestUnknown, imageInspection.currentDigests, "", "no current or source digest available")
 	}
 	if skopeo == nil {
-		return logCheck(digestUnknown, currentDigests, "", "Skopeo client unavailable")
+		return logCheck(digestUnknown, imageInspection.currentDigests, "", "Skopeo client unavailable")
 	}
 
 	targetDigest := *resolvedDigest
@@ -1992,16 +2006,16 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		targetDigest, err = skopeo.InspectDigest(ctx, target.image, inspectOpts...)
 		if err != nil {
 			m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: %v", target, err)
-			return logCheck(digestUnknown, currentDigests, "", fmt.Sprintf("could not inspect requested digest: %v", err))
+			return logCheck(digestUnknown, imageInspection.currentDigests, "", fmt.Sprintf("could not inspect requested digest: %v", err))
 		}
 	}
 	targetDigest = applicationImageDigest(targetDigest)
 	*resolvedDigest = targetDigest
 	if targetDigest == "" {
 		m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: empty digest", target)
-		return logCheck(digestUnknown, currentDigests, "", "requested digest inspection returned an empty digest")
+		return logCheck(digestUnknown, imageInspection.currentDigests, "", "requested digest inspection returned an empty digest")
 	}
-	matches := applicationImageDigestsMatch(currentDigests, targetDigest)
+	matches := applicationImageDigestsMatch(imageInspection.currentDigests, targetDigest)
 	reason := "digest mismatch"
 	if matches {
 		reason = "digest match"
@@ -2010,7 +2024,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	if matches {
 		result = digestMatched
 	}
-	return logCheck(result, currentDigests, targetDigest, reason)
+	return logCheck(result, imageInspection.currentDigests, targetDigest, reason)
 }
 
 func (m *prefetchManager) applicationDeltaCheckImageType(
@@ -2049,38 +2063,38 @@ func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
 	targetPresent bool,
 	podman *client.Podman,
 	opts ...client.ClientOption,
-) ([]string, *client.PodmanImageMetadata, bool) {
+) (applicationImageInspection, bool) {
 	if !targetPresent {
-		return nil, nil, true
+		return applicationImageInspection{}, true
 	}
 	switch imageType {
 	case OCITypePodmanImage:
 		if podman == nil {
-			return nil, nil, false
+			return applicationImageInspection{}, false
 		}
 		metadata, err := podman.ImageMetadata(ctx, target.image)
 		if err != nil {
 			m.log.Debugf("Could not inspect local digests for %s while checking delta necessity: %v", target, err)
-			return nil, nil, false
+			return applicationImageInspection{}, false
 		}
-		digests := metadata.Digests()
-		if len(digests) == 0 {
+		imageInspection := applicationImageInspection{currentDigests: metadata.Digests(), runtimeImageRef: metadata.ID, podmanMetadata: &metadata}
+		if len(imageInspection.currentDigests) == 0 {
 			m.log.Debugf("Local digest inspection returned no digests for %s while checking delta necessity", target)
-			return digests, &metadata, true
+			return imageInspection, true
 		}
-		return digests, &metadata, true
+		return imageInspection, true
 	case OCITypeCRIImage:
 		if m.cliClients == nil || m.cliClients.CRI() == nil {
-			return nil, nil, false
+			return applicationImageInspection{}, false
 		}
-		digests, err := m.cliClients.CRI().ImageRepoDigests(ctx, target.image, opts...)
+		metadata, err := m.cliClients.CRI().ImageMetadata(ctx, target.image, opts...)
 		if err != nil {
 			m.log.Debugf("Could not inspect local CRI digests for %s while checking delta necessity: %v", target, err)
-			return nil, nil, false
+			return applicationImageInspection{}, false
 		}
-		return digests, nil, true
+		return applicationImageInspection{currentDigests: metadata.RepoDigests, runtimeImageRef: metadata.ID}, true
 	default:
-		return nil, nil, false
+		return applicationImageInspection{}, false
 	}
 }
 
