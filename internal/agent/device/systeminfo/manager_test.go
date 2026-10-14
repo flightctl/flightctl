@@ -82,6 +82,107 @@ func TestManager(t *testing.T) {
 	require.True(manager.IsRebooted())
 }
 
+// TestLastTransitionTimePreservedAcrossRestart verifies that lastTransitionTime
+// is preserved across agent restarts when the collected value has not changed.
+// This is the regression test for EDM-6247: without persistence, all transition
+// times would reset to the current time on every boot.
+func TestLastTransitionTimePreservedAcrossRestart(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join("etc", "flightctl")
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(dataDir, 0755))
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "site.sh"),
+		[]byte("#!/bin/sh\necho stable-value\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+
+	collectTimeout := util.Duration(time.Second)
+	originalTime := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	laterTime := time.Date(2026, time.June, 15, 8, 0, 0, 0, time.UTC)
+
+	// --- First boot: collect and record lastTransitionTime ---
+	m1 := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		dataDir,
+		nil,
+		nil,
+		collectTimeout,
+		0,
+	)
+	m1.now = func() time.Time { return originalTime }
+	m1.collect(context.Background())
+
+	status1 := &v1beta1.DeviceStatus{}
+	require.NoError(m1.Status(context.Background(), status1))
+	require.Equal("stable-value", (*status1.SystemInfo.CustomInfo)["site"])
+	firstTransitionTime := status1.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime
+	require.False(firstTransitionTime.IsZero())
+	require.Equal(originalTime.Truncate(time.Second), firstTransitionTime)
+
+	// --- Second boot: create a new manager (simulating agent restart) ---
+	// The script output is unchanged, so lastTransitionTime must be preserved.
+	m2 := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		dataDir,
+		nil,
+		nil,
+		collectTimeout,
+		0,
+	)
+	m2.now = func() time.Time { return laterTime }
+	// loadExecutorCache + rebuildCollectors restores the cached state
+	m2.loadExecutorCache()
+	m2.rebuildCollectors()
+	m2.collect(context.Background())
+
+	status2 := &v1beta1.DeviceStatus{}
+	require.NoError(m2.Status(context.Background(), status2))
+	require.Equal("stable-value", (*status2.SystemInfo.CustomInfo)["site"])
+	secondTransitionTime := status2.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime
+	require.Equal(firstTransitionTime, secondTransitionTime,
+		"lastTransitionTime must be preserved when the value has not changed across restart")
+
+	// --- Third boot: value changes, lastTransitionTime must update ---
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "site.sh"),
+		[]byte("#!/bin/sh\necho changed-value\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+	evenLaterTime := time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC)
+	m3 := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		dataDir,
+		nil,
+		nil,
+		collectTimeout,
+		0,
+	)
+	m3.now = func() time.Time { return evenLaterTime }
+	m3.loadExecutorCache()
+	m3.rebuildCollectors()
+	m3.collect(context.Background())
+
+	status3 := &v1beta1.DeviceStatus{}
+	require.NoError(m3.Status(context.Background(), status3))
+	require.Equal("changed-value", (*status3.SystemInfo.CustomInfo)["site"])
+	thirdTransitionTime := status3.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime
+	require.NotEqual(firstTransitionTime, thirdTransitionTime,
+		"lastTransitionTime must update when the value changes")
+	require.Equal(evenLaterTime.Truncate(time.Second), thirdTransitionTime)
+}
+
 func TestReloadConfig(t *testing.T) {
 	tests := []struct {
 		name        string
