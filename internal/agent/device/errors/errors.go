@@ -507,6 +507,9 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
+	case errors.Is(err, ErrImageNotFound):
+		// An image may be published after the desired spec references it.
+		return true
 	case errors.Is(err, ErrAuthenticationFailed):
 		return false
 	case errors.Is(err, ErrKubeconfigNotFound):

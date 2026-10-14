@@ -14,6 +14,7 @@ func TestFromStderr(t *testing.T) {
 		exitCode   int
 		expected   error
 		shouldWrap bool
+		retryable  bool
 	}{
 		{
 			name:       "unauthorized returns ErrImageUnauthorized",
@@ -21,6 +22,14 @@ func TestFromStderr(t *testing.T) {
 			exitCode:   125,
 			expected:   ErrImageUnauthorized,
 			shouldWrap: true,
+		},
+		{
+			name:       "When the manifest is unknown it should retry ErrImageNotFound",
+			stderr:     "Error: manifest unknown",
+			exitCode:   1,
+			expected:   ErrImageNotFound,
+			shouldWrap: true,
+			retryable:  true,
 		},
 		{
 			name:       "authentication required returns ErrAuthenticationFailed",
@@ -55,6 +64,7 @@ func TestFromStderr(t *testing.T) {
 			} else {
 				require.Equal(tc.expected, err)
 			}
+			require.Equal(tc.retryable, IsRetryable(err))
 		})
 	}
 }
