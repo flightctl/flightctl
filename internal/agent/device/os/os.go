@@ -305,12 +305,10 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 		targetKey = deltastatus.Fingerprint(osSpec.Image)
 	}
 
-	var persisted *v1beta1.DeviceDeltaApplyStatus
 	if m.deltaStatusStore != nil {
 		if err := m.deltaStatusStore.SetOSTarget(targetKey); err != nil {
 			m.log.Warnf("Failed to reconcile persisted OS delta target: %v", err)
 		}
-		persisted = m.deltaStatusStore.OSResult(targetKey)
 	}
 
 	m.mu.Lock()
@@ -323,13 +321,6 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 	m.lastAttemptedImage = osImage
 	if m.stagedDeltaImage != "" && m.stagedDeltaImage != osImage {
 		m.stagedDeltaImage = ""
-	}
-	if persisted != nil {
-		m.deltaOutcome = &persisted.Outcome
-		if persisted.FallbackReason != nil {
-			reason := *persisted.FallbackReason
-			m.fallbackReason = &reason
-		}
 	}
 	m.mu.Unlock()
 }
