@@ -130,6 +130,7 @@ func WithIgnoreNotFound() HelmOption {
 	}
 }
 
+// helmTimeout returns the operation timeout configured for a Helm invocation.
 func helmTimeout(options *helmOptions, defaultTimeout time.Duration) time.Duration {
 	if options.timeout > 0 {
 		return options.timeout
@@ -137,6 +138,8 @@ func helmTimeout(options *helmOptions, defaultTimeout time.Duration) time.Durati
 	return defaultTimeout
 }
 
+// helmProcessTimeout returns the outer timeout for the Helm process, including
+// time for Helm to report a wait failure and complete an atomic rollback.
 func helmProcessTimeout(operationTimeout time.Duration, options *helmOptions) time.Duration {
 	if options.atomic || options.rollbackOnFailure {
 		// Helm needs time after its Kubernetes wait expires to report the
@@ -146,6 +149,8 @@ func helmProcessTimeout(operationTimeout time.Duration, options *helmOptions) ti
 	return operationTimeout
 }
 
+// appendHelmWaitTimeout adds the Helm wait timeout for operations that wait
+// for resources and may roll back on failure.
 func appendHelmWaitTimeout(args []string, options *helmOptions, operationTimeout time.Duration) []string {
 	if options.atomic || options.rollbackOnFailure {
 		args = append(args, "--timeout", operationTimeout.String())

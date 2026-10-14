@@ -637,21 +637,27 @@ func TestHelm_Upgrade_WhenWaitEnabledAndHelmTimesOut_ItShouldPreserveHelmDiagnos
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			start := time.Now()
+			var deadline time.Time
 
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 				"upgrade", "myapp", "/tmp/charts/myapp",
 				tc.waitFlag,
 				"--timeout", "5m0s",
 			}).DoAndReturn(func(ctx context.Context, _ string, _ ...string) (string, string, int) {
-				deadline, ok := ctx.Deadline()
+				contextDeadline, ok := ctx.Deadline()
 				require.True(ok)
-				require.WithinDuration(start.Add(defaultHelmTimeout+helmProcessGracePeriod), deadline, time.Second)
+				deadline = contextDeadline
 				return "", "Error: timed out waiting for the condition", 1
 			})
 
 			helm := NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.Upgrade(context.Background(), "myapp", "/tmp/charts/myapp", tc.waitOpt)
 
+			require.Eventually(func() bool {
+				return !deadline.IsZero() &&
+					deadline.After(start.Add(defaultHelmTimeout+helmProcessGracePeriod-time.Second)) &&
+					deadline.Before(start.Add(defaultHelmTimeout+helmProcessGracePeriod+time.Second))
+			}, time.Second, time.Millisecond)
 			require.Error(err)
 			require.Contains(err.Error(), "timed out waiting for the condition")
 		})
