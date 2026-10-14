@@ -200,6 +200,68 @@ func TestUpdateCritical_NoDiffNoPatch(t *testing.T) {
 	require.NoError(mgr.UpdateCritical(ctx))
 }
 
+func TestUpdateCritical_ResolveAfterFirePushes(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceName := "test-device"
+	ctx := context.Background()
+	mockClient := client.NewMockManagement(ctrl)
+
+	mgr := NewManager(deviceName, log.NewPrefixLogger(""))
+	mgr.SetClient(mockClient)
+	populateRealisticStatus(mgr.device.Status)
+	// The state the last periodic collect produced: the disk alert is
+	// firing at warning severity.
+	mgr.device.Status.Resources.Disk = v1beta1.DeviceResourceStatusWarning
+	mgr.device.Status.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
+	mgr.device.Status.Summary.Info = lo.ToPtr("Degraded resource alert: Disk")
+
+	exporter := NewMockExporter(ctrl)
+	mgr.RegisterCriticalExporter(exporter)
+
+	// Firing edge: the alert escalates to critical.
+	exporter.EXPECT().Status(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, s *v1beta1.DeviceStatus, _ ...CollectorOpt) error {
+			s.Resources.Disk = v1beta1.DeviceResourceStatusCritical
+			s.Summary.Status = v1beta1.DeviceSummaryStatusError
+			s.Summary.Info = lo.ToPtr("Critical resource alert: Disk")
+			return nil
+		},
+	)
+	var firedPatch v1beta1.PatchRequest
+	mockClient.EXPECT().PatchDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Do(
+		func(_ context.Context, _ string, patch v1beta1.PatchRequest, _ ...any) {
+			firedPatch = patch
+		},
+	).Return(nil)
+	require.NoError(mgr.UpdateCritical(ctx))
+	require.NotEmpty(firedPatch, "the firing edge must push")
+
+	// Resolving edge: the alert settles back to the exact state the last
+	// periodic collect produced. The periodic collect has not run since, so
+	// the in-memory status is unchanged from before the firing edge — the
+	// resolve must still push, diffed against what the previous patch left
+	// the server holding.
+	exporter.EXPECT().Status(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, s *v1beta1.DeviceStatus, _ ...CollectorOpt) error {
+			s.Resources.Disk = v1beta1.DeviceResourceStatusWarning
+			s.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
+			s.Summary.Info = lo.ToPtr("Degraded resource alert: Disk")
+			return nil
+		},
+	)
+	var resolvedPatch v1beta1.PatchRequest
+	mockClient.EXPECT().PatchDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Do(
+		func(_ context.Context, _ string, patch v1beta1.PatchRequest, _ ...any) {
+			resolvedPatch = patch
+		},
+	).Return(nil)
+	require.NoError(mgr.UpdateCritical(ctx))
+	require.NotEmpty(resolvedPatch, "a resolve edge following a pushed firing edge must also push")
+}
+
 func TestUpdateCritical_SummaryChangeOnly(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
