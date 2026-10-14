@@ -531,8 +531,9 @@ func (a *application) collectImageDigests() {
 	}
 
 	// Parent artifacts are independent reported inputs even when a workload
-	// happens to use the same reference in the executable image store.
-	if a.parentRequired {
+	// happens to use the same reference in the executable image store. Helm chart
+	// references remain visible in status, but are not required delta images.
+	if a.parentRequired || (a.AppType() == v1beta1.AppTypeHelm && a.imageRef != "") {
 		add(a.imageRef, a.imageDigest)
 	}
 
