@@ -212,6 +212,10 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			}
 
 			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, tc, outcome)
+			// These task-processing fixtures have no verified runtime observation.
+			exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "crictl", "--config", "/etc/workload-cri.yaml", "inspecti", "--output", "json", image,
+			).Return(`{"status":{"repoDigests":[]}}`, "", 0).AnyTimes()
 
 			if tc.containerd && tc.failStep == "" {
 				const chart = "oci://quay.io/acme/charts/workload:1.0.0"
@@ -235,7 +239,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 
 			task.done = true
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "helm-app"}}}
-			require.NoError(manager.Status(context.Background(), status))
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, context.Background(), status))
 			require.NotNil(status.Applications[0].LastDelta)
 			require.Equal(outcome, status.Applications[0].LastDelta.Outcome)
 			require.Equal(outcome, deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("helm-app")[id].Status.Outcome)

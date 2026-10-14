@@ -232,7 +232,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 			}
 			task.done = true
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
-			require.NoError(manager.Status(context.Background(), status))
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, context.Background(), status))
 			require.NotNil(status.Applications[0].LastDelta)
 			require.Equal(tc.outcome, status.Applications[0].LastDelta.Outcome)
 			if tc.reason != "" {
@@ -339,7 +339,7 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 				task.done = true
 			}
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "compose"}}}
-			require.NoError(manager.Status(context.Background(), status))
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, context.Background(), status))
 			require.NotNil(status.Applications[0].LastDelta)
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomePartial, status.Applications[0].LastDelta.Outcome)
 			if parentHint != "" {

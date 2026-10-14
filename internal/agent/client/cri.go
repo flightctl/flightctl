@@ -43,6 +43,12 @@ type CRIRuntimeInfo struct {
 	Endpoint string
 }
 
+// CRIImageMetadata is the local image identity and repository metadata reported by CRI.
+type CRIImageMetadata struct {
+	ID          string
+	RepoDigests []string
+}
+
 // CRI provides a client for executing crictl CLI commands.
 type CRI struct {
 	exec       executer.Executer
@@ -63,7 +69,7 @@ func NewCRI(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.Rea
 	}
 }
 
-// Pull pulls an image using crictl with optional authentication.
+// Pull pulls an image using crictl and returns the runtime's image reference.
 // Logs progress periodically while the operation is in progress.
 func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
 	options := &clientOptions{}
@@ -132,7 +138,12 @@ func (c *CRI) pull(ctx context.Context, image string, options *clientOptions) (s
 	}
 
 	c.log.Debugf("CRI image %s pulled successfully", image)
-	return strings.TrimSpace(stdout), nil
+	const imageRefPrefix = "Image is up to date for "
+	imageRef, ok := strings.CutPrefix(strings.TrimSpace(stdout), imageRefPrefix)
+	if !ok {
+		return "", nil
+	}
+	return strings.TrimSpace(imageRef), nil
 }
 
 // RemoveImage removes an image using crictl rmi.
@@ -218,6 +229,15 @@ func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOptio
 
 // ImageRepoDigests returns the registry digests recorded for a local CRI image.
 func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...ClientOption) ([]string, error) {
+	metadata, err := c.ImageMetadata(ctx, image, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return metadata.RepoDigests, nil
+}
+
+// ImageMetadata returns the runtime identity and repository digests for a local CRI image.
+func (c *CRI) ImageMetadata(ctx context.Context, image string, opts ...ClientOption) (CRIImageMetadata, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -234,7 +254,7 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	if options.criConfigPath != "" {
 		exists, err := c.readWriter.PathExists(options.criConfigPath)
 		if err != nil {
-			return nil, fmt.Errorf("check CRI config path: %w", err)
+			return CRIImageMetadata{}, fmt.Errorf("check CRI config path: %w", err)
 		}
 		if !exists {
 			c.log.Errorf("CRI config path does not exist: %s", options.criConfigPath)
@@ -246,18 +266,19 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 
 	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("inspect CRI image %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return CRIImageMetadata{}, fmt.Errorf("inspect CRI image %s: %w", image, errors.FromStderr(stderr, exitCode))
 	}
 
 	var response struct {
 		Status struct {
+			ID          string   `json:"id"`
 			RepoDigests []string `json:"repoDigests"`
 		} `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &response); err != nil {
-		return nil, fmt.Errorf("parse CRI image status for %s: %w", image, err)
+		return CRIImageMetadata{}, fmt.Errorf("parse CRI image status for %s: %w", image, err)
 	}
-	return response.Status.RepoDigests, nil
+	return CRIImageMetadata{ID: response.Status.ID, RepoDigests: response.Status.RepoDigests}, nil
 }
 
 // ImageReferences finds registry references keyed by repository digest in the

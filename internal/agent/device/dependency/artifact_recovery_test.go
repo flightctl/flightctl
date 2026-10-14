@@ -66,7 +66,7 @@ func TestCachedArtifactHintKeepsCachedArtifact(t *testing.T) {
 			require.NoError(manager.BeforeUpdate(t.Context(), nil, &v1beta1.DeviceSpec{}))
 			require.True(manager.IsReady(t.Context()))
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "compose"}}}
-			require.NoError(manager.Status(t.Context(), status))
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, t.Context(), status))
 			require.NotNil(status.Applications[0].LastDelta)
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, status.Applications[0].LastDelta.Outcome)
 			require.Nil(status.Applications[0].LastDelta.FallbackReason)

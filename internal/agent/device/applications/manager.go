@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
+	"github.com/flightctl/flightctl/internal/appspec"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -31,6 +33,7 @@ type volumeImageKey struct {
 }
 
 type manager struct {
+	deltaStatusStore   *deltastatus.Store
 	podmanMonitor      *PodmanMonitor
 	kubernetesMonitor  *KubernetesMonitor
 	clients            client.CLIClients
@@ -68,10 +71,11 @@ func NewManager(
 	systemInfo systeminfo.Manager,
 	systemdFactory systemd.ManagerFactory,
 	pullConfigResolver dependency.PullConfigResolver,
+	opts ...ManagerOption,
 ) *manager {
 	bootTime := systemInfo.BootTime()
 	kubernetesMonitor := NewKubernetesMonitor(log, clients, rwFactory, pullConfigResolver)
-	return &manager{
+	manager := &manager{
 		rwFactory:          rwFactory,
 		podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
 		kubernetesMonitor:  kubernetesMonitor,
@@ -83,6 +87,17 @@ func NewManager(
 		ociTargetCache:     provider.NewOCITargetCache(),
 		appDataCache:       provider.NewAppDataCache(),
 	}
+	for _, opt := range opts {
+		opt(manager)
+	}
+	return manager
+}
+
+// ManagerOption configures optional application reporting state.
+type ManagerOption func(*manager)
+
+func WithDeltaStatusStore(store *deltastatus.Store) ManagerOption {
+	return func(m *manager) { m.deltaStatusStore = store }
 }
 
 func isDeferrableAppError(osUpdatePending bool, err error) bool {
@@ -100,7 +115,73 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 func (m *manager) newAppFromProvider(p provider.Provider) Application {
-	return NewApplication(p)
+	spec := p.Spec()
+	app := NewApplication(p)
+	if spec.AppType == v1beta1.AppTypeHelm {
+		app = NewHelmApplication(p)
+	}
+	// Capture expected images from the installed provider, not a future desired spec.
+	app.imageCollectionComplete = spec.AppType == v1beta1.AppTypeContainer
+	// Charts and Compose or Quadlet bundles are package references; their
+	// workload images are tracked separately by the OCI cache.
+	if spec.AppType != v1beta1.AppTypeHelm && spec.AppType != v1beta1.AppTypeCompose && spec.AppType != v1beta1.AppTypeQuadlet && spec.Image != "" {
+		app.requiredImages = append(app.requiredImages, spec.Image)
+	}
+	if m.ociTargetCache != nil {
+		if entry, found := m.ociTargetCache.Get(p.ID()); found {
+			app.imageCollectionComplete = true
+			for _, target := range entry.Children {
+				app.requiredImages = append(app.requiredImages, target.Reference)
+			}
+		}
+	}
+	if spec.AppType == v1beta1.AppTypeCompose && spec.Image == "" {
+		images, complete := inlineComposeWorkloadImages(spec.ComposeApp)
+		app.requiredImages = append(app.requiredImages, images...)
+		app.imageCollectionComplete = complete
+	}
+	if spec.AppType == v1beta1.AppTypeQuadlet && spec.Image == "" {
+		images, complete := inlineQuadletImageReferences(spec.QuadletApp)
+		app.requiredImages = append(app.requiredImages, images...)
+		app.imageCollectionComplete = complete
+	}
+	return app
+}
+
+func inlineComposeWorkloadImages(composeApp *v1beta1.ComposeApplication) ([]string, bool) {
+	if composeApp == nil {
+		return nil, false
+	}
+	inline, err := composeApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, false
+	}
+	composeSpec, err := appspec.ParseComposeFromSpec(inline.Inline)
+	if err != nil {
+		return nil, false
+	}
+	images := make([]string, 0, len(composeSpec.Services))
+	for _, service := range composeSpec.Services {
+		if service.Image != "" {
+			images = append(images, service.Image)
+		}
+	}
+	return images, true
+}
+
+func inlineQuadletImageReferences(quadletApp *v1beta1.QuadletApplication) ([]string, bool) {
+	if quadletApp == nil {
+		return nil, false
+	}
+	inline, err := quadletApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, false
+	}
+	images, err := appspec.ParseQuadletImageReferencesFromSpec(inline.Inline)
+	if err != nil {
+		return nil, false
+	}
+	return images, true
 }
 
 func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
@@ -149,7 +230,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.kubernetesMonitor.Ensure(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Ensure(m.newAppFromProvider(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -204,7 +285,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.kubernetesMonitor.Update(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Update(m.newAppFromProvider(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -314,6 +395,49 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 	m.addVolumeImageDigests(ctx, allResults)
 	addCachedParentImageDigests(allResults, m.ociTargetCache)
 
+	for i := range allResults {
+		result := &allResults[i]
+		result.Status.LastDelta = nil
+		complete := result.Images.Complete
+		// Volume and parent association coverage is added independently; until then
+		// extra reported identities must not masquerade as complete workload coverage.
+		if result.Status.Volumes != nil {
+			for _, volume := range *result.Status.Volumes {
+				if volume.Reference != "" {
+					complete = false
+				}
+			}
+		}
+		parentReference := ""
+		if (result.Status.AppType == v1beta1.AppTypeHelm || result.Status.AppType == v1beta1.AppTypeCompose || result.Status.AppType == v1beta1.AppTypeQuadlet) && m.ociTargetCache != nil {
+			if target, found := m.ociTargetCache.Get(result.ID); found {
+				parentReference = target.Parent.Reference
+			}
+		}
+		if result.Status.ImageDigests != nil {
+			for _, reported := range *result.Status.ImageDigests {
+				found := false
+				isWorkloadImage := false
+				for _, image := range result.Images.Images {
+					if image.Image == reported.Image {
+						isWorkloadImage = true
+						if image.Digest == reported.Digest {
+							found = true
+							break
+						}
+					}
+				}
+				// Charts and Compose or Quadlet bundles are parent references, not workloads.
+				isApplicationParent := !isWorkloadImage && parentReference != "" && reported.Image == parentReference
+				if !found && !isApplicationParent {
+					complete = false
+				}
+			}
+		}
+		if m.deltaStatusStore != nil {
+			result.Status.LastDelta = m.deltaStatusStore.ObservedApplicationResult(result.Status.Name, result.Images.Images, complete)
+		}
+	}
 	statuses, summary := aggregateAppStatuses(allResults)
 	status.ApplicationsSummary = summary
 	status.Applications = statuses

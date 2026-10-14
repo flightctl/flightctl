@@ -78,7 +78,7 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			workerTarget := imageRef{image: "quay.io/acme/other:target", ociType: OCITypePodmanImage}
 			manager := &prefetchManager{
 				log:             logger,
-				tasks:           map[imageRef]*prefetchTask{workerTarget: {}},
+				tasks:           map[imageRef]*prefetchTask{workerTarget: {deltaGeneration: 1}},
 				deltaGeneration: 1,
 				podmanFactory:   func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
 				skopeoFactory:   func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
@@ -98,8 +98,9 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 				t.Fatal("cache inspection did not start")
 			}
 			workerCompleted := make(chan struct{})
+			workerOperation := manager.tasks[workerTarget]
 			go func() {
-				manager.setResult(workerTarget, nil)
+				manager.setResult(workerTarget, nil, workerOperation)
 				close(workerCompleted)
 			}()
 			select {
@@ -247,7 +248,8 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
 			}
 			if testCase.checkOnly {
-				require.Equal(digestUnknown, manager.applicationImageDigestMatchesTarget(context.Background(), target, OCITypeAuto, delta, true, podman, nil, nil))
+				result, _ := manager.applicationImageDigestMatchesTarget(context.Background(), target, OCITypeAuto, delta, true, podman, nil, nil)
+				require.Equal(digestUnknown, result)
 				return
 			}
 			if !testCase.completed {

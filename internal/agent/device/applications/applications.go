@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
@@ -122,6 +123,8 @@ type Application interface {
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// ImageSnapshot returns the complete workload image observation for this installed application.
+	ImageSnapshot() ImageSnapshot
 	// SetDesiredState records the operator-intended lifecycle state for this application.
 	// Called after a successful stop/start/restart to inform Status() of intent.
 	SetDesiredState(state v1beta1.ApplicationDesiredState)
@@ -155,17 +158,24 @@ type WorkloadImage struct {
 	Digest string
 }
 
+type ImageSnapshot struct {
+	Images   []deltastatus.ApplicationImage
+	Complete bool
+}
+
 type application struct {
-	id                string
-	path              string
-	imageRef          string
-	imageDigest       string
-	workloads         []Workload
-	volume            provider.VolumeManager
-	status            *v1beta1.DeviceApplicationStatus
-	actionSpec        lifecycle.ActionSpec
-	desiredState      v1beta1.ApplicationDesiredState
-	restartGeneration int
+	requiredImages          []string
+	imageCollectionComplete bool
+	id                      string
+	path                    string
+	imageRef                string
+	imageDigest             string
+	workloads               []Workload
+	volume                  provider.VolumeManager
+	status                  *v1beta1.DeviceApplicationStatus
+	actionSpec              lifecycle.ActionSpec
+	desiredState            v1beta1.ApplicationDesiredState
+	restartGeneration       int
 }
 
 // NewApplication creates a new application from an application provider.
@@ -225,6 +235,35 @@ func NewHelmApplication(p provider.Provider) *application {
 		ProviderValuesPath: providerValuesPath,
 	}
 	return app
+}
+
+// ImageSnapshot preserves every workload's identity, including unknown replicas.
+// Callers collect it while holding the owning monitor lock.
+func (a *application) ImageSnapshot() ImageSnapshot {
+	snapshot := ImageSnapshot{Complete: len(a.workloads) > 0 && a.imageCollectionComplete}
+	observed := make(map[string]bool)
+	ociType := dependency.OCITypePodmanImage
+	if a.AppType() == v1beta1.AppTypeHelm {
+		ociType = dependency.OCITypeCRIImage
+	}
+	for _, workload := range a.workloads {
+		if len(workload.Images) == 0 {
+			snapshot.Complete = false
+		}
+		for _, image := range workload.Images {
+			if image.Image == "" || image.Digest == "" {
+				snapshot.Complete = false
+			}
+			observed[image.Image] = true
+			snapshot.Images = append(snapshot.Images, deltastatus.ApplicationImage{Image: image.Image, Owner: string(a.User().WithDefault(v1beta1.RootUsername)), OCIType: string(ociType), Digest: image.Digest})
+		}
+	}
+	for _, image := range a.requiredImages {
+		if !observed[image] {
+			snapshot.Complete = false
+		}
+	}
+	return snapshot
 }
 
 func (a *application) ID() string {
@@ -445,7 +484,7 @@ func (a *application) collectImageDigests() {
 	}
 
 	// Use the provider observation only when no workload has observed this image.
-	if len(byImage[a.imageRef]) == 0 {
+	if _, observed := byImage[a.imageRef]; !observed {
 		add(a.imageRef, a.imageDigest)
 	}
 
