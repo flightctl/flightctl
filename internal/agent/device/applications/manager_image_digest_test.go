@@ -261,6 +261,159 @@ func TestWhenHelmChartReferenceIsPresentItShouldReportWorkloadOutcome(t *testing
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
 }
 
+func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(t *testing.T) {
+	require := require.New(t)
+	const (
+		appName       = "web"
+		bundle        = "quay.io/acme/compose/web:1.0.0"
+		bundleDigest  = "sha256:bundle"
+		workloadImage = "quay.io/acme/web:latest"
+		workloadHash  = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+
+	store, _, logger := newApplicationOutcomeStore(t)
+	bundleImage := deltastatus.ApplicationImage{
+		Image: bundle, Owner: string(v1beta1.RootUsername), OCIType: string(dependency.OCITypePodmanArtifact), Digest: bundleDigest,
+	}
+	workload := applicationOutcomeImage(workloadImage, workloadHash)
+	targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{bundleImage, workload})
+	recordApplicationOutcome(t, store, appName, targets, bundleImage, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired})
+	recordApplicationOutcome(t, store, appName, targets, workload, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+
+	volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+	require.NoError(err)
+	var composeApp v1beta1.ComposeApplication
+	require.NoError(composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: bundle}))
+	appSpec := &provider.ApplicationSpec{
+		ID: appName, Name: appName, AppType: v1beta1.AppTypeCompose, User: v1beta1.RootUsername,
+		Image: bundle, ImageDigest: bundleDigest,
+		ComposeApp: &composeApp, Volume: volume,
+	}
+	targetCache := provider.NewOCITargetCache()
+	targetCache.Set(provider.CacheEntry{
+		Name: appName,
+		Parent: dependency.OCIPullTarget{
+			Reference: bundle, Digest: bundleDigest, Type: dependency.OCITypePodmanArtifact,
+		},
+		Children: []dependency.OCIPullTarget{{
+			Type: dependency.OCITypePodmanImage, Reference: workloadImage, Digest: workloadHash,
+		}},
+	})
+	manager, app := newTestComposeOutcomeManager(t, appSpec, targetCache, store, logger)
+	app.workloads = []Workload{{
+		Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: workloadImage, Digest: workloadHash}},
+	}}
+
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), reported))
+	require.Len(reported.Applications, 1)
+	require.ElementsMatch([]v1beta1.ApplicationImageDigest{
+		{Image: bundle, Digest: bundleDigest},
+		{Image: workloadImage, Digest: workloadHash},
+	}, *reported.Applications[0].ImageDigests)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+}
+
+func TestWhenInlineComposeHasTwoServiceImagesItShouldRequireBothObservedImages(t *testing.T) {
+	const (
+		appName        = "web"
+		frontendImage  = "quay.io/acme/frontend:latest"
+		frontendDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		backendImage   = "quay.io/acme/backend:latest"
+		backendDigest  = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+
+	for _, tc := range []struct {
+		name             string
+		observedWorkload []Workload
+		wantOutcome      bool
+	}{
+		{
+			name: "all service images observed",
+			observedWorkload: []Workload{
+				{Name: "frontend", Status: StatusRunning, Images: []WorkloadImage{{Image: frontendImage, Digest: frontendDigest}}},
+				{Name: "backend", Status: StatusRunning, Images: []WorkloadImage{{Image: backendImage, Digest: backendDigest}}},
+			},
+			wantOutcome: true,
+		},
+		{
+			name: "one service image missing",
+			observedWorkload: []Workload{
+				{Name: "frontend", Status: StatusRunning, Images: []WorkloadImage{{Image: frontendImage, Digest: frontendDigest}}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			store, _, logger := newApplicationOutcomeStore(t)
+			frontend := applicationOutcomeImage(frontendImage, frontendDigest)
+			backend := applicationOutcomeImage(backendImage, backendDigest)
+			targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{frontend, backend})
+			recordApplicationOutcome(t, store, appName, targets, frontend, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+			recordApplicationOutcome(t, store, appName, targets, backend, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+
+			volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+			require.NoError(err)
+			composeYAML := "services:\n  frontend:\n    image: " + frontendImage + "\n  backend:\n    image: " + backendImage + "\n"
+			var composeApp v1beta1.ComposeApplication
+			require.NoError(composeApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{{Path: "docker-compose.yml", Content: &composeYAML}},
+			}))
+			appSpec := &provider.ApplicationSpec{
+				ID: appName, Name: appName, AppType: v1beta1.AppTypeCompose, User: v1beta1.RootUsername,
+				ComposeApp: &composeApp, Volume: volume,
+			}
+			targetCache := provider.NewOCITargetCache()
+			targetCache.Set(provider.CacheEntry{Name: appName})
+			manager, app := newTestComposeOutcomeManager(t, appSpec, targetCache, store, logger)
+			app.workloads = tc.observedWorkload
+
+			reported := &v1beta1.DeviceStatus{}
+			require.NoError(manager.Status(context.Background(), reported))
+			require.Len(reported.Applications, 1)
+			if !tc.wantOutcome {
+				require.Nil(reported.Applications[0].LastDelta)
+				return
+			}
+			require.NotNil(reported.Applications[0].LastDelta)
+			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
+func newTestComposeOutcomeManager(
+	t *testing.T,
+	appSpec *provider.ApplicationSpec,
+	targetCache *provider.OCITargetCache,
+	store *deltastatus.Store,
+	logger *log.PrefixLogger,
+) (*manager, *application) {
+	t.Helper()
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	appProvider := provider.NewMockProvider(ctrl)
+	appProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+	appProvider.EXPECT().Install(gomock.Any()).Return(nil)
+	appProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+	appProvider.EXPECT().ID().Return(appSpec.ID).AnyTimes()
+
+	manager := &manager{
+		log:              logger,
+		deltaStatusStore: store,
+		ociTargetCache:   targetCache,
+		podmanMonitor:    &PodmanMonitor{apps: make(map[string]Application)},
+		kubernetesMonitor: &KubernetesMonitor{
+			monitor: newMonitor(logger, "kubernetes"),
+		},
+	}
+	require.NoError(manager.Ensure(context.Background(), appProvider))
+	app, ok := manager.podmanMonitor.apps[appSpec.ID].(*application)
+	require.True(ok)
+	return manager, app
+}
+
 func TestWhenManySharedWorkloadImagesHaveAppliedOrNotRequiredResultsItShouldReportApplied(t *testing.T) {
 	require := require.New(t)
 	const appName = "web"

@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
+	"github.com/flightctl/flightctl/internal/appspec"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -114,15 +115,17 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 func (m *manager) newAppFromProvider(p provider.Provider) Application {
+	spec := p.Spec()
 	app := NewApplication(p)
-	if p.Spec().AppType == v1beta1.AppTypeHelm {
+	if spec.AppType == v1beta1.AppTypeHelm {
 		app = NewHelmApplication(p)
 	}
 	// Capture expected images from the installed provider, not a future desired spec.
-	app.imageCollectionComplete = p.Spec().AppType == v1beta1.AppTypeContainer
-	// A Helm provider's image is its chart package, not a rendered workload image.
-	if p.Spec().AppType != v1beta1.AppTypeHelm && p.Spec().Image != "" {
-		app.requiredImages = append(app.requiredImages, p.Spec().Image)
+	app.imageCollectionComplete = spec.AppType == v1beta1.AppTypeContainer
+	// Provider images for Helm and Compose are chart and bundle references, not
+	// workload images. Compose parents are tracked separately by the OCI cache.
+	if spec.AppType != v1beta1.AppTypeHelm && spec.AppType != v1beta1.AppTypeCompose && spec.Image != "" {
+		app.requiredImages = append(app.requiredImages, spec.Image)
 	}
 	if m.ociTargetCache != nil {
 		if entry, found := m.ociTargetCache.Get(p.ID()); found {
@@ -132,7 +135,33 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 			}
 		}
 	}
+	if spec.AppType == v1beta1.AppTypeCompose && spec.Image == "" {
+		images, complete := inlineComposeWorkloadImages(spec.ComposeApp)
+		app.requiredImages = append(app.requiredImages, images...)
+		app.imageCollectionComplete = complete
+	}
 	return app
+}
+
+func inlineComposeWorkloadImages(composeApp *v1beta1.ComposeApplication) ([]string, bool) {
+	if composeApp == nil {
+		return nil, false
+	}
+	inline, err := composeApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, false
+	}
+	composeSpec, err := appspec.ParseComposeFromSpec(inline.Inline)
+	if err != nil {
+		return nil, false
+	}
+	images := make([]string, 0, len(composeSpec.Services))
+	for _, service := range composeSpec.Services {
+		if service.Image != "" {
+			images = append(images, service.Image)
+		}
+	}
+	return images, true
 }
 
 func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
@@ -359,10 +388,10 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 				}
 			}
 		}
-		helmChartReference := ""
-		if result.Status.AppType == v1beta1.AppTypeHelm && m.ociTargetCache != nil {
+		parentReference := ""
+		if (result.Status.AppType == v1beta1.AppTypeHelm || result.Status.AppType == v1beta1.AppTypeCompose) && m.ociTargetCache != nil {
 			if target, found := m.ociTargetCache.Get(result.ID); found {
-				helmChartReference = target.Parent.Reference
+				parentReference = target.Parent.Reference
 			}
 		}
 		if result.Status.ImageDigests != nil {
@@ -378,9 +407,9 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 						}
 					}
 				}
-				// The cached Helm chart package is not a rendered workload image.
-				isHelmChartPackage := !isWorkloadImage && helmChartReference != "" && reported.Image == helmChartReference
-				if !found && !isHelmChartPackage {
+				// Helm charts and Compose bundles are parent references, not workloads.
+				isApplicationParent := !isWorkloadImage && parentReference != "" && reported.Image == parentReference
+				if !found && !isApplicationParent {
 					complete = false
 				}
 			}
