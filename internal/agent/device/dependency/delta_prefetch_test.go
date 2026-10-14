@@ -1964,17 +1964,19 @@ func TestWhenCRITagMovesAfterPullItShouldRecordThePulledImage(t *testing.T) {
 	oldDigest := digest.FromString(oldManifest).String()
 	newDigest := digest.FromString(newManifest).String()
 	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	lifetime := store.ApplicationLifetime("web")
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
-	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey}
+	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationLifetimes: map[string]string{"web": lifetime}}
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
 	manager := &prefetchManager{
-		log:              logger,
-		tasks:            map[imageRef]*prefetchTask{target: task},
-		cliClients:       client.NewCLIClients(client.WithCRIClient(cri)),
-		skopeoFactory:    func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
-		deltaStatusStore: store,
-		deltaAppSpecKeys: map[string]string{"web": "spec"},
+		log:               logger,
+		tasks:             map[imageRef]*prefetchTask{target: task},
+		cliClients:        client.NewCLIClients(client.WithCRIClient(cri)),
+		skopeoFactory:     func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+		deltaStatusStore:  store,
+		deltaAppSpecKeys:  map[string]string{"web": "spec"},
+		deltaAppLifetimes: map[string]string{"web": lifetime},
 		deltaAppTargetKeys: map[string]map[string]string{
 			"web": {target.targetID(): targetKey},
 		},
@@ -2013,19 +2015,21 @@ func TestWhenCRICacheTagMovesAfterValidationItShouldRecordTheValidatedImage(t *t
 	oldDigest := digest.FromString(oldManifest).String()
 	newDigest := digest.FromString(newManifest).String()
 	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	lifetime := store.ApplicationLifetime("web")
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	manager := &prefetchManager{
-		log:              logger,
-		tasks:            make(map[imageRef]*prefetchTask),
-		deltaGeneration:  1,
-		cliClients:       client.NewCLIClients(client.WithCRIClient(cri)),
-		podmanFactory:    func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
-		skopeoFactory:    func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
-		deltaStatusStore: store,
-		deltaAppSpecKeys: map[string]string{"web": "spec"},
+		log:               logger,
+		tasks:             make(map[imageRef]*prefetchTask),
+		deltaGeneration:   1,
+		cliClients:        client.NewCLIClients(client.WithCRIClient(cri)),
+		podmanFactory:     func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+		skopeoFactory:     func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+		deltaStatusStore:  store,
+		deltaAppSpecKeys:  map[string]string{"web": "spec"},
+		deltaAppLifetimes: map[string]string{"web": lifetime},
 		deltaAppTargetKeys: map[string]map[string]string{
 			"web": {target.targetID(): targetKey},
 		},

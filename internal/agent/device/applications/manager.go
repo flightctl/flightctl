@@ -104,6 +104,7 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 func (m *manager) newAppFromProvider(p provider.Provider) Application {
+	m.populateCachedParentImageDigest(p)
 	spec := p.Spec()
 	app := NewApplication(p)
 	if spec.AppType == v1beta1.AppTypeHelm {

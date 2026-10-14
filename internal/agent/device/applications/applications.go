@@ -184,7 +184,7 @@ type application struct {
 	imageDigest             string
 	imageOCIType            string
 	lifetime                string
-	parentRequired          bool
+	parentOutcomeRequired   bool
 	workloads               []Workload
 	volume                  provider.VolumeManager
 	status                  *v1beta1.DeviceApplicationStatus
@@ -206,13 +206,13 @@ func NewApplication(p provider.Provider) *application {
 		}
 	}
 	return &application{
-		id:             spec.ID,
-		path:           spec.Path,
-		imageRef:       spec.Image,
-		imageDigest:    spec.ImageDigest,
-		imageOCIType:   spec.ImageOCIType,
-		lifetime:       spec.Lifetime,
-		parentRequired: spec.Image != "" && (spec.AppType == v1beta1.AppTypeCompose || spec.AppType == v1beta1.AppTypeQuadlet),
+		id:                    spec.ID,
+		path:                  spec.Path,
+		imageRef:              spec.Image,
+		imageDigest:           spec.ImageDigest,
+		imageOCIType:          spec.ImageOCIType,
+		lifetime:              spec.Lifetime,
+		parentOutcomeRequired: spec.Image != "" && spec.AppType == v1beta1.AppTypeQuadlet,
 		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
@@ -285,7 +285,7 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 			snapshot.Complete = false
 		}
 	}
-	if a.parentRequired {
+	if a.parentOutcomeRequired {
 		if a.imageDigest == "" || a.imageOCIType == "" {
 			snapshot.Complete = false
 		}
@@ -531,9 +531,9 @@ func (a *application) collectImageDigests() {
 	}
 
 	// Parent artifacts are independent reported inputs even when a workload
-	// happens to use the same reference in the executable image store. Helm chart
-	// references remain visible in status, but are not required delta images.
-	if a.parentRequired || (a.AppType() == v1beta1.AppTypeHelm && a.imageRef != "") {
+	// happens to use the same reference in the executable image store. Helm charts
+	// and Compose bundles stay visible in status without joining the delta snapshot.
+	if a.parentOutcomeRequired || a.AppType() == v1beta1.AppTypeCompose || (a.AppType() == v1beta1.AppTypeHelm && a.imageRef != "") {
 		add(a.imageRef, a.imageDigest)
 	}
 

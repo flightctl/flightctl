@@ -131,7 +131,7 @@ func TestWhenManagerObservesMatchingWorkloadImagesItShouldReportTheirOutcome(t *
 				{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image, Digest: digest}}},
 				{Name: "unknown-replica", Status: StatusRunning, Images: []WorkloadImage{{Image: image}}},
 			},
-			wantImageDigest: digest,
+			wantImageDigest: "",
 		},
 		{
 			name:            "When only the provider digest is known it should not invent an observed digest",
@@ -328,7 +328,7 @@ func TestWhenInlineQuadletWorkloadsAreObservedItShouldReportOnlyCompleteOutcomes
 			require.NoError(err)
 			appSpec := &provider.ApplicationSpec{
 				ID: appName, Name: appName, AppType: v1beta1.AppTypeQuadlet,
-				User: v1beta1.RootUsername, QuadletApp: &quadlet, Volume: volume,
+				User: v1beta1.RootUsername, Lifetime: store.ApplicationLifetime(appName), QuadletApp: &quadlet, Volume: volume,
 			}
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -363,7 +363,7 @@ func TestWhenInlineQuadletWorkloadsAreObservedItShouldReportOnlyCompleteOutcomes
 	}
 }
 
-func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(t *testing.T) {
+func TestWhenImageBasedComposeBundleHasNoDeltaHistoryItShouldReportWorkloadOutcome(t *testing.T) {
 	require := require.New(t)
 	const (
 		appName       = "web"
@@ -379,7 +379,6 @@ func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(
 	}
 	workload := applicationOutcomeImage(workloadImage, workloadHash)
 	targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{bundleImage, workload})
-	recordApplicationOutcome(t, store, appName, targets, bundleImage, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired})
 	recordApplicationOutcome(t, store, appName, targets, workload, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
 
 	volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
@@ -848,7 +847,7 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 				{Image: volumeRef, Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: volumeDigest},
 			}
 			lifetime := recordApplicationImageOutcomes(t, store, appName, appSpecKey, images)
-			volumeManager, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+			volumeManager, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeQuadlet, v1beta1.RootUsername, nil)
 			require.NoError(t, err)
 			volumeManager.Add(&provider.Volume{
 				Name: "data", ID: volumeID, Reference: volumeRef,
@@ -860,11 +859,11 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 				imageDigest:             parentDigest,
 				imageOCIType:            string(dependency.OCITypePodmanArtifact),
 				lifetime:                lifetime,
-				parentRequired:          true,
+				parentOutcomeRequired:   true,
 				requiredImages:          []string{workloadRef},
 				imageCollectionComplete: true,
 				volume:                  volumeManager,
-				status:                  &v1beta1.DeviceApplicationStatus{Name: appName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeCompose},
+				status:                  &v1beta1.DeviceApplicationStatus{Name: appName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeQuadlet},
 				workloads:               []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: workloadRef, Digest: workloadIndexDigest}}}},
 			}
 

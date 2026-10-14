@@ -307,32 +307,11 @@ func (c *Compose) ensurePodmanVolume(
 		}
 	}
 	if canRecordIdentity && digestErr == nil && artifactDigest != "" {
-		if err := c.recordArtifactVolumeImage(ctx, *action, volume, podman, artifactDigest); err != nil {
+		if err := recordArtifactVolumeImage(ctx, c.log, c.deltaStore, *action, volume, podman, artifactDigest); err != nil {
 			return err
 		}
 	}
 
-	return nil
-}
-
-func (c *Compose) recordArtifactVolumeImage(ctx context.Context, action Action, volume Volume, podman *client.Podman, artifactDigest string) error {
-	if c.deltaStore == nil || action.Name == "" || action.Lifetime == "" {
-		return nil
-	}
-	inspection, err := podman.InspectVolume(ctx, volume.ID)
-	if err != nil || inspection == nil || inspection.Driver != "local" || inspection.CreatedAt == "" {
-		c.log.Warnf("Unable to bind artifact identity to volume %s: inspect failed or volume is not a created local volume: %v", volume.ID, err)
-		return nil
-	}
-	image := deltastatus.ApplicationImage{
-		Image:   volume.Reference,
-		Owner:   string(action.User.WithDefault(v1beta1.RootUsername)),
-		OCIType: volume.OCIType,
-		Digest:  artifactDigest,
-	}
-	if err := c.deltaStore.RecordApplicationVolumeImage(action.Name, action.Lifetime, volume.ID, inspection.CreatedAt, image); err != nil {
-		return fmt.Errorf("persist artifact identity for volume %w: %w", errors.WithElement(volume.ID), err)
-	}
 	return nil
 }
 

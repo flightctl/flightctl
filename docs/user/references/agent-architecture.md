@@ -89,7 +89,9 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-Applications with image-backed volumes omit `lastDelta` until the agent can verify the volume image identities.
+For each application status report, the agent inspects available installed image-backed volumes and builds the delta snapshot from their observed runtime identities. Podman image volumes are checked against their immutable image ID and digest labels; artifact volumes are matched to their recorded creation time and artifact binding. Missing or inconsistent identities make the snapshot incomplete. Status reporting does not resolve a mutable image reference in place of observing the volume.
+
+Application delta status uses one owned image snapshot for each application update. It includes observed workload images, required image-backed volumes, and an applicable Quadlet parent OCI image or artifact. Helm chart packages and Compose bundle references remain visible in reported image digests but do not join the delta-outcome snapshot. Each identity retains its registry reference, digest, OCI type, and storage owner. A volume identity is tied to the volume's creation time and the application lifetime, so replacing the volume cannot reuse evidence from its earlier contents.
 
 ## Update Policy
 
@@ -139,7 +141,7 @@ After restart, the agent restores verified OS image history and starts a fresh u
 
 When digest validation confirms that an application image tag now refers to different content, the agent clears the result for the active prefetch attempt before preparing that content. It retains the verified result for the old digest while workloads still use that content. If the image is absent after restart, its source digest can confirm the tag change. An unavailable digest inspection does not invalidate saved history.
 
-Application outcomes retain per-image associations with a verified registry digest, storage owner, reference, and OCI target type. Status combines matching recorded outcomes from the complete observed workload image set, including old and new versions during a rollout. Shared images reuse their recorded outcome. Preparing a new desired image retains recent history across restart. Each application retains up to 128 image identities, or two versions per active target when that requires more entries. Status omits outcomes for identities whose history has been evicted.
+Application outcomes retain per-image associations with a verified registry digest, storage owner, reference, and OCI target type. Status combines matching recorded outcomes from the complete observed workload image set, including old and new versions during a rollout. Shared images reuse their recorded outcome. Preparing a new desired image retains recent history across restart. Status omits outcomes for identities whose history has been evicted.
 
 Unknown workload identities, missing expected images, unmatched results, or incomplete collection omit application `lastDelta`. A known digest from another replica cannot cover an unknown image. Desired prefetch results alone do not establish an observed association. Applications requiring parent or volume evidence also omit the outcome until all required image associations can be verified.
 

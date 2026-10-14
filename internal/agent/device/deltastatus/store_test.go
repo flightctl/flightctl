@@ -744,7 +744,7 @@ func TestWhenApplicationHasManyScopedImagesItShouldScaleHistoryByDistinctObserve
 	require.Nil(t, store.ObservedApplicationResultForLifetime(application, lifetime, images[12:18], true))
 }
 
-func TestWhenCollectionIsIncompleteItShouldKeepObservedAndPendingResults(t *testing.T) {
+func TestWhenCollectionIsIncompleteItShouldKeepObservedAndActivePendingResults(t *testing.T) {
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	logger := log.NewPrefixLogger("test")
@@ -769,7 +769,7 @@ func TestWhenCollectionIsIncompleteItShouldKeepObservedAndPendingResults(t *test
 	require.Equal(t, result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
 
 	// This normal state write persists the prior complete observation before B
-	// completes. B then remains protected as a completed, unreported result.
+	// completes. B is pending until a complete observation includes it.
 	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetIDs[1]: targetKeys[1]}}, true))
 	require.NoError(t, store.RecordApplicationImageResultForLifetime(application, lifetime, spec, targetIDs[1], targetKeys[1], images[1], result))
 	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetIDs[2]: targetKeys[2]}}, true))
@@ -779,16 +779,61 @@ func TestWhenCollectionIsIncompleteItShouldKeepObservedAndPendingResults(t *test
 	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, false))
 	// The incomplete collection did not replace A as the protected observed set.
 	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
-	// A complete collection of C releases A. B stays protected because it has
-	// not yet been included in an emitted application outcome.
+	// A complete collection of C keeps the active result. Superseded pending B
+	// is eligible for LRU eviction, while the recent A result fits within capacity.
 	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
-	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
 
-	// Selection updates protection only in memory. The next normal state write
-	// persists B's pending state and allows a new process to select it.
+	// Selection updates retention only in memory. The next normal state write
+	// persists the eviction for a new process.
 	require.NoError(t, restarted.SetOSTarget("flush-application-lru"))
 	postWriteRestart := New(rw, "/state", logger)
-	require.Equal(t, result, *postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
+	require.Nil(t, postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
+	require.Equal(t, result, *postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Equal(t, result, *postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
+}
+
+func TestWhenSupersededPendingResultsExceedCapacityItShouldKeepOnlyObservedAndActiveTargets(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const application = "web"
+	const spec = "spec"
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	images := []ApplicationImage{
+		{Image: "quay.io/acme/web:a", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"},
+		{Image: "quay.io/acme/web:b", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"},
+		{Image: "quay.io/acme/web:c", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"},
+		{Image: "quay.io/acme/web:d", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:d"},
+	}
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	var activeTarget map[string]string
+	for i, image := range images {
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		targetKey := fmt.Sprintf("target-%s", image.Digest)
+		activeTarget = map[string]string{targetID: targetKey}
+		require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{application: activeTarget}, true))
+		require.NoError(store.RecordApplicationImageResultForLifetime(application, lifetime, spec, targetID, targetKey, image, result))
+
+		observed := images[0]
+		if i == 0 {
+			observed = image
+		}
+		require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{observed}, true))
+	}
+
+	// Persist the latest observations before checking the retained history.
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{application: activeTarget}, true))
+	restarted := New(rw, "/state", logger)
+	for _, superseded := range images[1:3] {
+		require.Nil(restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{superseded}, true))
+	}
+	require.Equal(result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Equal(result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[3]}, true))
 }
 
 func TestWhenProtectedHistoryOverflowsItShouldKeepUnknownObservedKeysSafe(t *testing.T) {
@@ -813,11 +858,10 @@ func TestWhenProtectedHistoryOverflowsItShouldKeepUnknownObservedKeysSafe(t *tes
 	}
 	unknown := ApplicationImage{Image: "quay.io/acme/web:a", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"}
 	require.Nil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{unknown}, true))
-	// All three completed results are still pending; the missing observed key
-	// protects no history entry, so the protected overflow must remain safe.
-	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
-	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
+	// The unknown observed key protects no history entry. Pruning keeps the
+	// active target available while removing superseded pending history as needed.
 	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
+	require.Len(t, store.state.Applications[application].History, 2)
 }
 
 func TestWhenCompleteStatusUsesHistoryItShouldPersistRecencyWithNextWrite(t *testing.T) {

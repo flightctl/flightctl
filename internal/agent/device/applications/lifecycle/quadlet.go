@@ -445,7 +445,7 @@ func (q *Quadlet) ensureArtifactVolume(
 		return created, fmt.Errorf("extracting artifact to volume %w: %w", errors.WithElement(volume.ID), err)
 	}
 	if canRecordIdentity && digestErr == nil && artifactDigest != "" {
-		if err := q.recordArtifactVolumeImage(ctx, action, volume, podman, artifactDigest); err != nil {
+		if err := recordArtifactVolumeImage(ctx, q.log, q.deltaStore, action, volume, podman, artifactDigest); err != nil {
 			return created, err
 		}
 	}
@@ -534,27 +534,6 @@ func (q *Quadlet) clearArtifactVolumeImage(action Action, volumeID string) error
 	}
 	if err := q.deltaStore.ClearApplicationVolumeImage(action.Name, action.Lifetime, volumeID); err != nil {
 		return fmt.Errorf("clear old volume identity %w: %w", errors.WithElement(volumeID), err)
-	}
-	return nil
-}
-
-func (q *Quadlet) recordArtifactVolumeImage(ctx context.Context, action Action, volume Volume, podman *client.Podman, artifactDigest string) error {
-	if q.deltaStore == nil || action.Name == "" || action.Lifetime == "" {
-		return nil
-	}
-	inspection, err := podman.InspectVolume(ctx, volume.ID)
-	if err != nil || inspection == nil || inspection.Driver != podmanLocalVolumeDriver || inspection.CreatedAt == "" {
-		q.log.Warnf("Unable to bind artifact identity to volume %s: inspect failed or volume is not a created local volume: %v", volume.ID, err)
-		return nil
-	}
-	image := deltastatus.ApplicationImage{
-		Image:   volume.Reference,
-		Owner:   string(action.User.WithDefault(v1beta1.RootUsername)),
-		OCIType: volume.OCIType,
-		Digest:  artifactDigest,
-	}
-	if err := q.deltaStore.RecordApplicationVolumeImage(action.Name, action.Lifetime, volume.ID, inspection.CreatedAt, image); err != nil {
-		return fmt.Errorf("persist artifact identity for volume %w: %w", errors.WithElement(volume.ID), err)
 	}
 	return nil
 }

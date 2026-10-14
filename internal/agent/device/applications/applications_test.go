@@ -419,9 +419,9 @@ func TestCollectImageDigests(t *testing.T) {
 	t.Run("When parent and workloads report image pairs it should deduplicate and sort them", func(t *testing.T) {
 		const nginx = "quay.io/acme/nginx:latest"
 		app := &application{
-			imageRef:       nginx,
-			imageDigest:    "sha256:parent",
-			parentRequired: true,
+			imageRef:              nginx,
+			imageDigest:           "sha256:parent",
+			parentOutcomeRequired: true,
 			workloads: []Workload{
 				{Images: []WorkloadImage{
 					{Image: nginx},

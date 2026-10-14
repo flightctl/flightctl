@@ -64,98 +64,58 @@ func TestArtifactVolumeRecordingPreservesOwnerOCITypeAndIncarnation(t *testing.T
 		digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
 
-	for _, testCase := range []struct {
-		name   string
-		record func(*deltastatus.Store, *client.Podman, Action, Volume) error
-	}{
-		{
-			name: "Compose artifact volume",
-			record: func(store *deltastatus.Store, podman *client.Podman, action Action, volume Volume) error {
-				return (&Compose{deltaStore: store, log: log.NewPrefixLogger("test")}).recordArtifactVolumeImage(context.Background(), action, volume, podman, digestValue)
-			},
-		},
-		{
-			name: "Quadlet artifact volume",
-			record: func(store *deltastatus.Store, podman *client.Podman, action Action, volume Volume) error {
-				return (&Quadlet{deltaStore: store, log: log.NewPrefixLogger("test")}).recordArtifactVolumeImage(context.Background(), action, volume, podman, digestValue)
-			},
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			root := t.TempDir()
-			rw := fileio.NewReadWriter(
-				fileio.NewReader(fileio.WithReaderRootDir(root)),
-				fileio.NewWriter(fileio.WithWriterRootDir(root)),
-			)
-			logger := log.NewPrefixLogger("test")
-			store := deltastatus.New(rw, "/var/lib/flightctl", logger)
-			require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
-			lifetime := store.ApplicationLifetime(application)
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(
-				fmt.Sprintf(`{"Name":%q,"Driver":"local","CreatedAt":%q,"Labels":{},"Options":{}}`, volumeID, createdAt), "", 0,
-			)
-			podman := client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig())
-			action := Action{Name: application, Lifetime: lifetime, User: "alice"}
-			volume := Volume{ID: volumeID, Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
+	lifetime := store.ApplicationLifetime(application)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(
+		fmt.Sprintf(`{"Name":%q,"Driver":"local","CreatedAt":%q,"Labels":{},"Options":{}}`, volumeID, createdAt), "", 0,
+	)
+	podman := client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig())
+	action := Action{Name: application, Lifetime: lifetime, User: "alice"}
+	volume := Volume{ID: volumeID, Reference: reference, OCIType: string(dependency.OCITypePodmanArtifact)}
 
-			require.NoError(t, testCase.record(store, podman, action, volume))
-			image, found := store.ApplicationVolumeImage(application, lifetime, volumeID, createdAt)
-			require.True(t, found)
-			require.Equal(t, deltastatus.ApplicationImage{
-				Image: reference, Owner: "alice", OCIType: string(dependency.OCITypePodmanArtifact), Digest: digestValue,
-			}, image)
-			_, found = store.ApplicationVolumeImage(application, lifetime, volumeID, "another-volume-incarnation")
-			require.False(t, found)
-			require.NoError(t, store.RemoveApplication(application))
-			newLifetime, err := store.EnsureApplicationLifetime(application)
-			require.NoError(t, err)
-			_, found = store.ApplicationVolumeImage(application, newLifetime, volumeID, createdAt)
-			require.False(t, found)
-		})
-	}
+	require.NoError(t, recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, digestValue))
+	image, found := store.ApplicationVolumeImage(application, lifetime, volumeID, createdAt)
+	require.True(t, found)
+	require.Equal(t, deltastatus.ApplicationImage{
+		Image: reference, Owner: "alice", OCIType: string(dependency.OCITypePodmanArtifact), Digest: digestValue,
+	}, image)
+	_, found = store.ApplicationVolumeImage(application, lifetime, volumeID, "another-volume-incarnation")
+	require.False(t, found)
+	require.NoError(t, store.RemoveApplication(application))
+	newLifetime, err := store.EnsureApplicationLifetime(application)
+	require.NoError(t, err)
+	_, found = store.ApplicationVolumeImage(application, newLifetime, volumeID, createdAt)
+	require.False(t, found)
 }
 
 func TestArtifactVolumeRecordingWithInvalidInspectionWithholdsIdentity(t *testing.T) {
-	for _, testCase := range []struct {
-		name   string
-		record func(*deltastatus.Store, *client.Podman, Action, Volume) error
-	}{
-		{
-			name: "Compose artifact volume",
-			record: func(store *deltastatus.Store, podman *client.Podman, action Action, volume Volume) error {
-				return (&Compose{deltaStore: store, log: log.NewPrefixLogger("test")}).recordArtifactVolumeImage(context.Background(), action, volume, podman, "sha256:artifact")
-			},
-		},
-		{
-			name: "Quadlet artifact volume",
-			record: func(store *deltastatus.Store, podman *client.Podman, action Action, volume Volume) error {
-				return (&Quadlet{deltaStore: store, log: log.NewPrefixLogger("test")}).recordArtifactVolumeImage(context.Background(), action, volume, podman, "sha256:artifact")
-			},
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			root := t.TempDir()
-			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
-			logger := log.NewPrefixLogger("test")
-			store := deltastatus.New(rw, "/var/lib/flightctl", logger)
-			require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
-			lifetime := store.ApplicationLifetime("app")
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "app-data", "--format", "{{json .}}").Return("null", "", 0)
-			podman := client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig())
-			action := Action{Name: "app", Lifetime: lifetime, User: "alice"}
-			volume := Volume{ID: "app-data", Reference: "quay.io/acme/data:v1", OCIType: string(dependency.OCITypePodmanArtifact)}
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+	lifetime := store.ApplicationLifetime("app")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "app-data", "--format", "{{json .}}").Return("null", "", 0)
+	podman := client.NewPodman(logger, mockExec, rw, testutil.NewPollConfig())
+	action := Action{Name: "app", Lifetime: lifetime, User: "alice"}
+	volume := Volume{ID: "app-data", Reference: "quay.io/acme/data:v1", OCIType: string(dependency.OCITypePodmanArtifact)}
 
-			require.NoError(t, testCase.record(store, podman, action, volume))
-			_, found := store.ApplicationVolumeImage("app", lifetime, volume.ID, "2026-10-12T12:00:00Z")
-			require.False(t, found)
-		})
-	}
+	require.NoError(t, recordArtifactVolumeImage(context.Background(), logger, store, action, volume, podman, "sha256:artifact"))
+	_, found := store.ApplicationVolumeImage("app", lifetime, volume.ID, "2026-10-12T12:00:00Z")
+	require.False(t, found)
 }
 
 func TestComposeRemoveImageBackedVolumes(t *testing.T) {

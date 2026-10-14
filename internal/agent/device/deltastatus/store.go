@@ -760,8 +760,7 @@ func pruneApplicationHistory(current *applicationState) bool {
 		protected[key] = struct{}{}
 	}
 	for key, result := range current.History {
-		_, active := activeTargetKeys[result.TargetKey]
-		if result.Pending || active {
+		if _, active := activeTargetKeys[result.TargetKey]; active {
 			protected[key] = struct{}{}
 		}
 	}
