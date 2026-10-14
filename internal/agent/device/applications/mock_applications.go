@@ -337,6 +337,20 @@ func (mr *MockApplicationMockRecorder) ID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockApplication)(nil).ID))
 }
 
+// ImageSnapshot mocks base method.
+func (m *MockApplication) ImageSnapshot() ImageSnapshot {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImageSnapshot")
+	ret0, _ := ret[0].(ImageSnapshot)
+	return ret0
+}
+
+// ImageSnapshot indicates an expected call of ImageSnapshot.
+func (mr *MockApplicationMockRecorder) ImageSnapshot() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImageSnapshot", reflect.TypeOf((*MockApplication)(nil).ImageSnapshot))
+}
+
 // IsEmbedded mocks base method.
 func (m *MockApplication) IsEmbedded() bool {
 	m.ctrl.T.Helper()
