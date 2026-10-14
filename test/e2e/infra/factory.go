@@ -23,6 +23,10 @@ type Providers struct {
 	RBAC      RBACProvider
 	Secrets   SecretsProvider
 	TPM       TPMProvider
+	// Charts installs auxiliary Helm charts (e.g. the catalog collector) into
+	// the cluster under test. Nil for deployment types that do not use Helm;
+	// suites that need it skip when it is nil.
+	Charts ChartDeployer
 }
 
 // EnvironmentConfig holds configuration for the test environment.
