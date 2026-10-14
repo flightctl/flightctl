@@ -283,51 +283,64 @@ func TestWhenAnotherOSIsStagedItShouldReportTheBootedOutcomeAcrossRestart(t *tes
 }
 
 func TestStagedOSVerificationRecoversBeforeReboot(t *testing.T) {
-	t.Run("When staging verification fails transiently it should retain Applied after reboot and restart", func(t *testing.T) {
-		require := require.New(t)
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockExec := executer.NewMockExecuter(ctrl)
-		mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-		mockClient := NewMockClient(ctrl)
-		observed := bootcStatus(testBootedImage, testSourceDigest)
-		observed.Status.Staged.Image.Image.Image = testDesiredImage
-		observed.Status.Staged.Image.ImageDigest = testDeltaDigest
-		m := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
-		m.deltaStatusStore = deltastatus.New(m.readWriter, "/var/lib/flightctl", m.log)
-		desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testDeltaRef)}}
-		expectImageExists(mockExec, testDesiredImage, false)
-		expectPullConfig(t, mockResolver)
-		expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100, testDesiredImage)
-		expectDeltaCopy(mockExec, testDeltaRef)
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).Return("", "", 0)
-		mockClient.EXPECT().SwitchOCI(gomock.Any(), gomock.Any()).Return(nil)
-		mockClient.EXPECT().SwitchRegistry(gomock.Any(), testDesiredImage).Return(nil)
-		gomock.InOrder(
-			mockClient.EXPECT().Status(gomock.Any()).Return(observed, nil),
-			mockClient.EXPECT().Status(gomock.Any()).Return(nil, errors.New("bootc status temporarily unavailable")),
-			mockClient.EXPECT().Status(gomock.Any()).DoAndReturn(func(context.Context) (*Status, error) { return observed, nil }).AnyTimes(),
-		)
-		mockClient.EXPECT().RebootStaged(gomock.Any()).DoAndReturn(func(context.Context) error {
-			observed.Status.Booted = observed.Status.Staged
-			return nil
+	tests := []struct {
+		name       string
+		setupMocks func(*MockClient, *Status)
+	}{
+		{
+			name: "When staging verification fails transiently it should retain Applied after reboot and restart",
+			setupMocks: func(mockClient *MockClient, observed *Status) {
+				gomock.InOrder(
+					mockClient.EXPECT().Status(gomock.Any()).Return(observed, nil),
+					mockClient.EXPECT().Status(gomock.Any()).Return(nil, errors.New("bootc status temporarily unavailable")),
+					mockClient.EXPECT().Status(gomock.Any()).DoAndReturn(func(context.Context) (*Status, error) { return observed, nil }).AnyTimes(),
+				)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
+			mockClient := NewMockClient(ctrl)
+			observed := bootcStatus(testBootedImage, testSourceDigest)
+			observed.Status.Staged.Image.Image.Image = testDesiredImage
+			observed.Status.Staged.Image.ImageDigest = testDeltaDigest
+			m := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
+			m.deltaStatusStore = deltastatus.New(m.readWriter, "/var/lib/flightctl", m.log)
+			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testDeltaRef)}}
+			expectImageExists(mockExec, testDesiredImage, false)
+			expectPullConfig(t, mockResolver)
+			expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100, testDesiredImage)
+			expectDeltaCopy(mockExec, testDeltaRef)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).Return("", "", 0)
+			mockClient.EXPECT().SwitchOCI(gomock.Any(), gomock.Any()).Return(nil)
+			mockClient.EXPECT().SwitchRegistry(gomock.Any(), testDesiredImage).Return(nil)
+			tt.setupMocks(mockClient, observed)
+			mockClient.EXPECT().RebootStaged(gomock.Any()).DoAndReturn(func(context.Context) error {
+				observed.Status.Booted = observed.Status.Staged
+				return nil
+			})
+
+			_, err := m.CollectOCITargets(t.Context(), nil, desired)
+			require.NoError(err)
+			require.NoError(m.AfterUpdate(t.Context(), desired))
+			require.NoError(m.Reboot(t.Context(), desired))
+
+			restarted := NewManager(m.log, mockClient, Capabilities{}, m.readWriter, nil, nil, nil, nil, 0,
+				WithDeltaStatusStore(deltastatus.New(m.readWriter, "/var/lib/flightctl", m.log)))
+			_, err = restarted.CollectOCITargets(t.Context(), nil, desired)
+			require.NoError(err)
+			status := &v1beta1.DeviceStatus{}
+			require.NoError(restarted.Status(t.Context(), status))
+			require.Equal(testDesiredImage, status.Os.Image)
+			require.Equal(testDeltaDigest, status.Os.ImageDigest)
+			require.Equal(&v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}, status.Os.LastDelta)
 		})
-
-		_, err := m.CollectOCITargets(t.Context(), nil, desired)
-		require.NoError(err)
-		require.NoError(m.AfterUpdate(t.Context(), desired))
-		require.NoError(m.Reboot(t.Context(), desired))
-
-		restarted := NewManager(m.log, mockClient, Capabilities{}, m.readWriter, nil, nil, nil, nil, 0,
-			WithDeltaStatusStore(deltastatus.New(m.readWriter, "/var/lib/flightctl", m.log)))
-		_, err = restarted.CollectOCITargets(t.Context(), nil, desired)
-		require.NoError(err)
-		status := &v1beta1.DeviceStatus{}
-		require.NoError(restarted.Status(t.Context(), status))
-		require.Equal(testDesiredImage, status.Os.Image)
-		require.Equal(testDeltaDigest, status.Os.ImageDigest)
-		require.Equal(&v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}, status.Os.LastDelta)
-	})
+	}
 }
 
 func TestBootedOSOutcomeAfterRestart(t *testing.T) {
