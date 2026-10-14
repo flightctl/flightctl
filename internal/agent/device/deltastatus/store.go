@@ -19,10 +19,9 @@ import (
 
 const (
 	// FileName is the dedicated on-disk state file for agent-reported delta outcomes.
-	FileName             = "delta-status.json"
-	fileMode fs.FileMode = 0o600
-	// Version 4 adds lifetime-bound volume provenance; versions 1–3 are migrated on load.
-	stateVersion = 4
+	FileName                 = "delta-status.json"
+	fileMode     fs.FileMode = 0o600
+	stateVersion             = 1
 )
 
 // Store persists the most recent delta results independently of status delivery.
@@ -60,16 +59,14 @@ type osState struct {
 }
 
 type applicationState struct {
-	// HistorySequence is read when migrating FIFO history from state version 2.
-	HistorySequence uint64                               `json:"historySequence,omitempty"`
-	History         map[string]applicationObservedResult `json:"history,omitempty"`
-	Lifetime        string                               `json:"lifetime,omitempty"`
-	SpecKey         string                               `json:"specKey"`
-	Targets         map[string]string                    `json:"targets,omitempty"`
-	Results         map[string]applicationImageResult    `json:"results,omitempty"`
-	Volumes         map[string]applicationVolumeImage    `json:"volumes,omitempty"`
-	HistoryClock    uint64                               `json:"historyClock,omitempty"`
-	ObservedKeys    []string                             `json:"observedKeys,omitempty"`
+	History      map[string]applicationObservedResult `json:"history,omitempty"`
+	Lifetime     string                               `json:"lifetime,omitempty"`
+	SpecKey      string                               `json:"specKey"`
+	Targets      map[string]string                    `json:"targets,omitempty"`
+	Results      map[string]applicationImageResult    `json:"results,omitempty"`
+	Volumes      map[string]applicationVolumeImage    `json:"volumes,omitempty"`
+	HistoryClock uint64                               `json:"historyClock,omitempty"`
+	ObservedKeys []string                             `json:"observedKeys,omitempty"`
 }
 
 type applicationImageResult struct {
@@ -87,8 +84,6 @@ type ApplicationImage struct {
 }
 
 type applicationObservedResult struct {
-	// Sequence is read when migrating FIFO history from state version 2.
-	Sequence  uint64                         `json:"sequence,omitempty"`
 	Image     ApplicationImage               `json:"image"`
 	TargetKey string                         `json:"targetKey"`
 	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
@@ -147,21 +142,16 @@ func New(readWriter fileio.ReadWriter, dataDir string, logger *log.PrefixLogger)
 		logger.Warnf("Ignoring invalid persisted delta status: %v", err)
 		return store
 	}
-	if persisted.Version != 1 && persisted.Version != 2 && persisted.Version != 3 && persisted.Version != stateVersion {
+	if persisted.Version != stateVersion {
 		logger.Warnf("Ignoring persisted delta status with unsupported version %d", persisted.Version)
 		return store
 	}
-	if persisted.Version == 1 && persisted.OS != nil {
-		// Legacy outcomes cannot establish an observed image association.
-		persisted.OS.Result = nil
-		persisted.OS.History = nil
-	}
-	persisted.Version = stateVersion
+
 	if persisted.Applications == nil {
 		persisted.Applications = make(map[string]*applicationState)
 	}
 	for application, appState := range persisted.Applications {
-		if appState == nil {
+		if appState == nil || appState.Lifetime == "" {
 			delete(persisted.Applications, application)
 			continue
 		}
@@ -174,20 +164,7 @@ func New(readWriter fileio.ReadWriter, dataDir string, logger *log.PrefixLogger)
 		if appState.Volumes == nil {
 			appState.Volumes = make(map[string]applicationVolumeImage)
 		}
-		if appState.HistorySequence > appState.HistoryClock {
-			appState.HistoryClock = appState.HistorySequence
-		}
-		for key, result := range appState.History {
-			if result.LastUsed == 0 && result.Sequence > 0 {
-				result.LastUsed = result.Sequence
-			}
-			if result.LastUsed > appState.HistoryClock {
-				appState.HistoryClock = result.LastUsed
-			}
-			result.Sequence = 0
-			appState.History[key] = result
-		}
-		appState.HistorySequence = 0
+
 		slices.Sort(appState.ObservedKeys)
 		appState.ObservedKeys = slices.Compact(appState.ObservedKeys)
 		for targetID, result := range appState.Results {
@@ -333,7 +310,7 @@ func (s *Store) ReconcileApplicationSpecs(specKeys map[string]string) error {
 	changed := false
 	for application, specKey := range specKeys {
 		current := s.state.Applications[application]
-		if current != nil && current.SpecKey == specKey && current.Lifetime != "" {
+		if current != nil && current.SpecKey == specKey {
 			continue
 		}
 		var history map[string]applicationObservedResult
@@ -416,27 +393,11 @@ func (s *Store) EnsureApplicationLifetime(application string) (string, error) {
 	if s.state.Applications == nil {
 		s.state.Applications = make(map[string]*applicationState)
 	}
-	var history map[string]applicationObservedResult
-	var volumes map[string]applicationVolumeImage
-	var specKey string
-	var historyClock uint64
-	var observedKeys []string
-	if current := s.state.Applications[application]; current != nil {
-		history = current.History
-		volumes = current.Volumes
-		specKey = current.SpecKey
-		historyClock = current.HistoryClock
-		observedKeys = current.ObservedKeys
-	}
 	s.state.Applications[application] = &applicationState{
-		History:      history,
-		Lifetime:     lifetime,
-		SpecKey:      specKey,
-		Targets:      make(map[string]string),
-		Results:      make(map[string]applicationImageResult),
-		Volumes:      volumes,
-		HistoryClock: historyClock,
-		ObservedKeys: observedKeys,
+		Lifetime: lifetime,
+		Targets:  make(map[string]string),
+		Results:  make(map[string]applicationImageResult),
+		Volumes:  make(map[string]applicationVolumeImage),
 	}
 	if err := s.saveLocked(); err != nil {
 		return "", err
@@ -610,7 +571,7 @@ func (s *Store) RecordApplicationResultForAttempt(attempt ApplicationAttempt, re
 }
 
 // RecordApplicationImageResult persists verified history only for an active attempt.
-// Legacy attempt-only results remain useful for scheduling, never for publication.
+// Attempt-only results are used for scheduling, never for publication.
 func (s *Store) RecordApplicationImageResult(application, specKey, targetID, targetKey string, image ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) error {
 	return s.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: s.ApplicationLifetime(application), SpecKey: specKey, TargetID: targetID, TargetKey: targetKey}, image, result)
 }

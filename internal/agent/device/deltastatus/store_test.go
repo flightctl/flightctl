@@ -124,12 +124,12 @@ func TestReconcileApplicationTargetsPreservesReindexedRuntimeResults(t *testing.
 			logger := log.NewPrefixLogger("test")
 			store := New(rw, "/var/lib/flightctl", logger)
 			const image = "quay.io/acme/app:target"
-			legacyID := Fingerprint("", image)
+			unresolvedID := Fingerprint("", image)
 			targetKey := Fingerprint("", image, "", tt.runtime)
 			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
-			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {legacyID: targetKey}}, true))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {unresolvedID: targetKey}}, true))
 			applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
-			require.NoError(store.RecordApplicationResult("app", "spec", legacyID, targetKey, applied))
+			require.NoError(store.RecordApplicationResult("app", "spec", unresolvedID, targetKey, applied))
 			targets := make(map[string]string)
 			for _, runtime := range []string{"PodmanImage", "CRIImage"} {
 				targets[Fingerprint("", image, runtime)] = Fingerprint("", image, "", runtime)
@@ -290,12 +290,14 @@ func newFailingReadWriter(t *testing.T, ctrl *gomock.Controller, failWrite *bool
 	return rw
 }
 
-func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testing.T) {
+func TestWhenStateIsCorruptOrUnsupportedItShouldStartWithoutOutcomes(t *testing.T) {
 	cases := []struct {
-		name, data  string
-		appRetained bool
+		name, data string
 	}{
-		{name: "When legacy state has no digest association it should retain unrelated application records", data: `{"version":1,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}},"applications":{"web":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","status":{"outcome":"Fallback"}}}}}}`, appRetained: true},
+		{name: "When state has version two it should reject the unsupported format", data: `{"version":2,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When state has version three it should reject the unsupported format", data: `{"version":3,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When state has version four it should reject the unsupported format", data: `{"version":4,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When an application has no lifetime it should discard unscoped evidence", data: `{"version":1,"applications":{"web":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","status":{"outcome":"Applied"}}}}}}`},
 		{name: "When state is corrupt it should start without an outcome", data: `{incomplete`},
 		{name: "When state has an unsupported version it should start without an outcome", data: `{"version":999,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
 	}
@@ -315,9 +317,7 @@ func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testi
 			require.NoError(store.RecordOSImageResult("next-attempt", "os:a", "sha256:a", applied))
 			restarted := New(rw, "/state", logger)
 			require.Equal(applied, *restarted.ObservedOSResult("os:a", "sha256:a"))
-			if tt.appRetained {
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, restarted.ApplicationResults("web")["image"].Status.Outcome)
-			}
+			require.Nil(restarted.ApplicationSnapshot("web"))
 		})
 	}
 }
@@ -626,78 +626,6 @@ func TestApplicationVolumeImageEvidencePersistsAndIsLifetimeScoped(t *testing.T)
 	require.NoError(restarted.RecordApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z", image))
 	_, ok = restarted.ApplicationVolumeImage("web", newLifetime, "web_data", "2026-10-12T12:00:00Z")
 	require.False(ok)
-}
-
-func TestWhenMigratingApplicationWithoutLifetimeItShouldKeepVerifiedEvidenceUntilRemoval(t *testing.T) {
-	for _, prepareLifetime := range []struct {
-		name string
-		fn   func(*Store) (string, error)
-	}{
-		{
-			name: "EnsureApplicationLifetime",
-			fn: func(store *Store) (string, error) {
-				return store.EnsureApplicationLifetime("web")
-			},
-		},
-		{
-			name: "ReconcileApplicationSpecs",
-			fn: func(store *Store) (string, error) {
-				err := store.ReconcileApplicationSpecs(map[string]string{"web": "new-spec"})
-				return store.ApplicationLifetime("web"), err
-			},
-		},
-	} {
-		t.Run(prepareLifetime.name, func(t *testing.T) {
-			require := require.New(t)
-			root := t.TempDir()
-			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
-			logger := log.NewPrefixLogger("test")
-			image := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:old"}
-			legacyStatus := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
-			persisted := persistedState{
-				Version: stateVersion - 1,
-				Applications: map[string]*applicationState{
-					"web": {
-						SpecKey: "old-spec",
-						History: map[string]applicationObservedResult{
-							applicationHistoryKey(image): {Image: image, TargetKey: "old-target", Status: legacyStatus},
-						},
-						Volumes: map[string]applicationVolumeImage{
-							"web_data": {CreatedAt: "2026-10-12T12:00:00Z", Image: image},
-						},
-					},
-				},
-			}
-			data, err := json.Marshal(persisted)
-			require.NoError(err)
-			require.NoError(rw.MkdirAll("/state", 0o700))
-			require.NoError(rw.WriteFile("/state/"+FileName, data, 0o600))
-
-			store := New(rw, "/state", logger)
-			lifetime, err := prepareLifetime.fn(store)
-			require.NoError(err)
-			require.NotEmpty(lifetime)
-			require.Equal(legacyStatus, *store.ObservedApplicationResultForLifetime("web", lifetime, []ApplicationImage{image}, true))
-			volume, found := store.ApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z")
-			require.True(found)
-			require.Equal(image, volume)
-
-			restarted := New(rw, "/state", logger)
-			require.Equal(lifetime, restarted.ApplicationLifetime("web"))
-			require.Equal(legacyStatus, *restarted.ObservedApplicationResultForLifetime("web", lifetime, []ApplicationImage{image}, true))
-			volume, found = restarted.ApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z")
-			require.True(found)
-			require.Equal(image, volume)
-
-			require.NoError(restarted.RemoveApplication("web"))
-			newLifetime, err := restarted.EnsureApplicationLifetime("web")
-			require.NoError(err)
-			require.NotEqual(lifetime, newLifetime)
-			require.Nil(restarted.ObservedApplicationResultForLifetime("web", newLifetime, []ApplicationImage{image}, true))
-			_, found = restarted.ApplicationVolumeImage("web", newLifetime, "web_data", "2026-10-12T12:00:00Z")
-			require.False(found)
-		})
-	}
 }
 
 func TestWhenApplicationHasManyScopedImagesItShouldScaleHistoryByDistinctObservedCount(t *testing.T) {
@@ -1040,4 +968,30 @@ func TestWhenAMutableApplicationTargetChangesDigestItShouldEvictSupersededHistor
 	require.Nil(store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true), "old observed content must become evictable even when its mutable target key stays active")
 	image.Digest = "sha256:c"
 	require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true), "the active unobserved result must remain protected")
+}
+
+func TestWhenVersionOneStateIsReloadedItShouldPreserveVerifiedOutcomes(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(store.SetOSTarget("attempt"))
+	require.NoError(store.RecordOSImageResult("attempt", "quay.io/acme/os:v1", "sha256:verified", applied))
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	lifetime := store.ApplicationLifetime("web")
+	require.NoError(store.RecordApplicationVolumeImage("web", lifetime, "data", "created", ApplicationImage{
+		Image: "quay.io/acme/data:v1", Owner: "root", OCIType: "PodmanArtifact", Digest: "sha256:artifact",
+	}))
+	data, err := rw.ReadFile("/state/" + FileName)
+	require.NoError(err)
+	var document map[string]json.RawMessage
+	require.NoError(json.Unmarshal(data, &document))
+	require.JSONEq("1", string(document["version"]))
+	restarted := New(rw, "/state", logger)
+	require.Equal(applied, *restarted.ObservedOSResult("quay.io/acme/os:v1", "sha256:verified"))
+	require.Equal(lifetime, restarted.ApplicationLifetime("web"))
+	_, found := restarted.ApplicationVolumeImage("web", lifetime, "data", "created")
+	require.True(found)
 }

@@ -133,7 +133,7 @@ Image digests remain separate from `lastDelta`, which contains only the delta ou
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
-OS outcomes are associated with the image reference and digest observed by bootc after staging. For delta-staged images, the agent retries this verification before reboot, allowing a transient staging-status failure to recover its outcome association. Status selects the result for the booted image and digest. Preparing another image retains the previous booted result, including across restart. An unknown booted identity or a legacy record without a verified association omits `lastDelta`.
+OS outcomes are associated with the image reference and digest observed by bootc after staging. For delta-staged images, the agent retries this verification before reboot, allowing a transient staging-status failure to recover its outcome association. Status selects the result for the booted image and digest. Preparing another image retains the previous booted result, including across restart. An unknown booted identity or a result without a verified association omits `lastDelta`.
 
 When the desired OS image is already booted, the agent preserves a saved outcome only for that exact image reference and digest. Otherwise, it records `NotRequired` for the booted identity. A different digest behind the same tag does not inherit an earlier `Applied` or `Fallback` outcome.
 
