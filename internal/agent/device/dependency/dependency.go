@@ -1000,9 +1000,9 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		if task.delta.Hint != "" {
 			return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("OCI delta client is unavailable"), opts...)
 		}
-		_, err := cri.Pull(ctx, target.image, opts...)
+		imageRef, err := cri.Pull(ctx, target.image, opts...)
 		if err == nil {
-			m.recordObservedDeltaResult(ctx, target, task, nil, "", v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", opts...)
+			m.recordObservedDeltaResult(ctx, target, task, nil, imageRef, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", opts...)
 		}
 		return err
 	}
@@ -1016,9 +1016,9 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
 	if candidate.Reference == "" {
-		_, err := cri.Pull(ctx, target.image, opts...)
+		imageRef, err := cri.Pull(ctx, target.image, opts...)
 		if err == nil {
-			m.recordObservedDeltaResult(ctx, target, task, nil, "", v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", opts...)
+			m.recordObservedDeltaResult(ctx, target, task, nil, imageRef, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", opts...)
 		}
 		return err
 	}
@@ -1071,12 +1071,13 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
-	if _, err := cri.Pull(ctx, refreshImage, opts...); err != nil {
+	imageRef, err := cri.Pull(ctx, refreshImage, opts...)
+	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task,
 			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
 	}
 
-	m.recordObservedDeltaResult(ctx, target, task, nil, "", v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
+	m.recordObservedDeltaResult(ctx, target, task, nil, imageRef, v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate.Reference)
 	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
@@ -1145,10 +1146,11 @@ func deltaRefreshReference(targetImage, targetDigest string) (string, error) {
 
 func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, deltaErr error, opts ...client.ClientOption) error {
 	m.recordDeltaFallback(target, task, deltaErr)
-	if _, err := m.cliClients.CRI().Pull(ctx, target.image, opts...); err != nil {
+	imageRef, err := m.cliClients.CRI().Pull(ctx, target.image, opts...)
+	if err != nil {
 		return fmt.Errorf("application delta failed: %w; full CRI image pull failed: %w", deltaErr, err)
 	}
-	m.recordObservedDeltaResult(ctx, target, task, nil, "", v1beta1.DeviceDeltaApplyOutcomeFallback, deltaErr.Error(), opts...)
+	m.recordObservedDeltaResult(ctx, target, task, nil, imageRef, v1beta1.DeviceDeltaApplyOutcomeFallback, deltaErr.Error(), opts...)
 	return nil
 }
 
@@ -1319,16 +1321,16 @@ func (m *prefetchManager) canRecordObservedResultLocked(target imageRef, task *p
 	return false
 }
 
-func (m *prefetchManager) recordObservedDeltaResult(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, imageID string, outcome v1beta1.DeviceDeltaApplyOutcomeType, reason string, opts ...client.ClientOption) {
+func (m *prefetchManager) recordObservedDeltaResult(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, runtimeImageRef string, outcome v1beta1.DeviceDeltaApplyOutcomeType, reason string, opts ...client.ClientOption) {
 	observed := ""
 	m.mu.Lock()
 	canRecord := m.canRecordObservedResultLocked(target, task)
 	m.mu.Unlock()
 	if canRecord {
 		if task.ociType == OCITypeCRIImage {
-			observed = m.observedCRIImageDigest(ctx, target, opts...)
-		} else if podman != nil && imageID != "" {
-			value, err := podman.ImageDigest(ctx, imageID)
+			observed = m.observedCRIImageDigest(ctx, target, runtimeImageRef, opts...)
+		} else if podman != nil && runtimeImageRef != "" {
+			value, err := podman.ImageDigest(ctx, runtimeImageRef)
 			if err == nil {
 				observed = value
 			}
@@ -1350,7 +1352,7 @@ func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target 
 	}
 	observed := ""
 	if ociType == OCITypeCRIImage {
-		observed = m.observedCRIImageDigest(ctx, target, opts...)
+		observed = m.observedCRIImageDigest(ctx, target, target.image, opts...)
 	} else if podman != nil {
 		if metadata == nil {
 			inspected, err := podman.ImageMetadata(ctx, target.image)
@@ -1370,8 +1372,8 @@ func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target 
 
 // observedCRIImageDigest verifies a selected platform manifest against the same
 // local runtime image's repository metadata. RepoDigests ordering is not evidence.
-func (m *prefetchManager) observedCRIImageDigest(ctx context.Context, target imageRef, opts ...client.ClientOption) string {
-	if m.cliClients == nil || m.cliClients.CRI() == nil || m.skopeoFactory == nil {
+func (m *prefetchManager) observedCRIImageDigest(ctx context.Context, target imageRef, runtimeImageRef string, opts ...client.ClientOption) string {
+	if runtimeImageRef == "" || m.cliClients == nil || m.cliClients.CRI() == nil || m.skopeoFactory == nil {
 		return ""
 	}
 	cri := m.cliClients.CRI()
@@ -1383,7 +1385,7 @@ func (m *prefetchManager) observedCRIImageDigest(ctx context.Context, target ima
 	if err != nil {
 		return ""
 	}
-	repoDigests, err := cri.ImageRepoDigests(ctx, target.image, opts...)
+	repoDigests, err := cri.ImageRepoDigests(ctx, runtimeImageRef, opts...)
 	if err != nil {
 		return ""
 	}

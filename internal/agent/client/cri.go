@@ -63,7 +63,7 @@ func NewCRI(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.Rea
 	}
 }
 
-// Pull pulls an image using crictl with optional authentication.
+// Pull pulls an image using crictl and returns the runtime's image reference.
 // Logs progress periodically while the operation is in progress.
 func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
 	options := &clientOptions{}
@@ -132,7 +132,12 @@ func (c *CRI) pull(ctx context.Context, image string, options *clientOptions) (s
 	}
 
 	c.log.Debugf("CRI image %s pulled successfully", image)
-	return strings.TrimSpace(stdout), nil
+	const imageRefPrefix = "Image is up to date for "
+	imageRef, ok := strings.CutPrefix(strings.TrimSpace(stdout), imageRefPrefix)
+	if !ok {
+		return "", nil
+	}
+	return strings.TrimSpace(imageRef), nil
 }
 
 // RemoveImage removes an image using crictl rmi.

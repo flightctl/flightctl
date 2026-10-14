@@ -1858,6 +1858,7 @@ func TestWhenCRIPullFindsLocalImagesItShouldRecordOnlyVerifiedPlatform(t *testin
 			logger := log.NewPrefixLogger("test")
 			store := deltastatus.New(rw, "/var/lib/flightctl", logger)
 			target := imageRef{image: "quay.io/acme/web:latest", ociType: OCITypeCRIImage}
+			const pulledImageID = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			const targetKey = "target"
 			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
 			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
@@ -1865,12 +1866,12 @@ func TestWhenCRIPullFindsLocalImagesItShouldRecordOnlyVerifiedPlatform(t *testin
 			cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
 			manager := &prefetchManager{log: logger, tasks: map[imageRef]*prefetchTask{target: task}, cliClients: client.NewCLIClients(client.WithCRIClient(cri)), skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil }, deltaStatusStore: store, deltaAppSpecKeys: map[string]string{"web": "spec"}, deltaAppTargetKeys: map[string]map[string]string{"web": {target.targetID(): targetKey}}}
-			exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", target.image}, gomock.Any()).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", target.image}, gomock.Any()).Return("Image is up to date for "+pulledImageID, "", 0)
 			if inspectFails {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", target.image).Return("", "not available", 1)
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", pulledImageID).Return("", "not available", 1)
 			} else {
 				// Index first is deliberately not an ordered preference for the reported digest.
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", target.image).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q,%q]}}`, "quay.io/acme/web@"+indexDigest, "quay.io/acme/web@"+platform), "", 0)
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", pulledImageID).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q,%q]}}`, "quay.io/acme/web@"+indexDigest, "quay.io/acme/web@"+platform), "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/acme/web@"+indexDigest, "--no-creds").Return(index, "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/acme/web@"+platform, "--no-creds").Return(manifest, "", 0)
 			}
@@ -1885,4 +1886,53 @@ func TestWhenCRIPullFindsLocalImagesItShouldRecordOnlyVerifiedPlatform(t *testin
 			}
 		})
 	}
+}
+
+func TestWhenCRITagMovesAfterPullItShouldRecordThePulledImage(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	exec := executer.NewMockExecuter(ctrl)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	target := imageRef{image: "quay.io/acme/web:latest", ociType: OCITypeCRIImage}
+	const targetKey = "target"
+	const pulledImageID = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	oldManifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","annotations":{"version":"pulled"}}`
+	newManifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","annotations":{"version":"retagged"}}`
+	oldDigest := digest.FromString(oldManifest).String()
+	newDigest := digest.FromString(newManifest).String()
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
+	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey}
+	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
+	skopeo := client.NewSkopeo(logger, exec, rw)
+	manager := &prefetchManager{
+		log:              logger,
+		tasks:            map[imageRef]*prefetchTask{target: task},
+		cliClients:       client.NewCLIClients(client.WithCRIClient(cri)),
+		skopeoFactory:    func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+		deltaStatusStore: store,
+		deltaAppSpecKeys: map[string]string{"web": "spec"},
+		deltaAppTargetKeys: map[string]map[string]string{
+			"web": {target.targetID(): targetKey},
+		},
+	}
+
+	exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", target.image}, gomock.Any()).Return("Image is up to date for "+pulledImageID, "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", pulledImageID).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, "quay.io/acme/web@"+oldDigest), "", 0).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", target.image).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, "quay.io/acme/web@"+newDigest), "", 0).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/acme/web@"+oldDigest, "--no-creds").Return(oldManifest, "", 0).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/acme/web@"+newDigest, "--no-creds").Return(newManifest, "", 0).AnyTimes()
+
+	require.NoError(manager.pullCRIImage(context.Background(), target, task, skopeo))
+	oldImage := deltastatus.ApplicationImage{Image: target.image, Owner: "root", OCIType: string(target.ociType), Digest: oldDigest}
+	newImage := deltastatus.ApplicationImage{Image: target.image, Owner: "root", OCIType: string(target.ociType), Digest: newDigest}
+	oldResult := store.ObservedApplicationResult("web", []deltastatus.ApplicationImage{oldImage}, true)
+	newResult := store.ObservedApplicationResult("web", []deltastatus.ApplicationImage{newImage}, true)
+	require.NotNil(oldResult)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, oldResult.Outcome)
+	require.Nil(newResult)
 }
