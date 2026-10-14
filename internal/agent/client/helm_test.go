@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -446,6 +447,7 @@ func TestHelm_Install(t *testing.T) {
 					"--values", "/tmp/values.yaml",
 					"--kubeconfig", "/tmp/kubeconfig",
 					"--atomic",
+					"--timeout", "5m0s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -565,6 +567,7 @@ func TestHelm_Upgrade(t *testing.T) {
 					"--values", "/tmp/values.yaml",
 					"--kubeconfig", "/tmp/kubeconfig",
 					"--atomic",
+					"--timeout", "5m0s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -602,6 +605,55 @@ func TestHelm_Upgrade(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestHelm_Upgrade_WhenWaitEnabledAndHelmTimesOut_ItShouldPreserveHelmDiagnostics(t *testing.T) {
+	testCases := []struct {
+		name     string
+		waitOpt  HelmOption
+		waitFlag string
+	}{
+		{
+			name:     "atomic",
+			waitOpt:  WithAtomic(),
+			waitFlag: "--atomic",
+		},
+		{
+			name:     "rollback on failure",
+			waitOpt:  WithRollbackOnFailure(),
+			waitFlag: "--rollback-on-failure",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			start := time.Now()
+
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+				"upgrade", "myapp", "/tmp/charts/myapp",
+				tc.waitFlag,
+				"--timeout", "5m0s",
+			}).DoAndReturn(func(ctx context.Context, _ string, _ ...string) (string, string, int) {
+				deadline, ok := ctx.Deadline()
+				require.True(ok)
+				require.WithinDuration(start.Add(defaultHelmTimeout+helmProcessGracePeriod), deadline, time.Second)
+				return "", "Error: timed out waiting for the condition", 1
+			})
+
+			helm := NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
+			err := helm.Upgrade(context.Background(), "myapp", "/tmp/charts/myapp", tc.waitOpt)
+
+			require.Error(err)
+			require.Contains(err.Error(), "timed out waiting for the condition")
 		})
 	}
 }
