@@ -24,8 +24,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-const podmanImageDigestsListFormat = `{{printf "%s\t%s" .Digest (json .RepoDigests)}}`
-
 type storedPodmanSource struct {
 	image          string
 	digest         string
@@ -49,10 +47,10 @@ func expectPodmanStoredSources(t *testing.T, exec *executer.MockExecuter, stored
 			require.NoError(err)
 			rows = append(rows, contentDigest+"\t"+string(repoDigests))
 		}
-		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", podmanImageDigestsListFormat).Return(strings.Join(rows, "\n"), "", 0)
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", client.PodmanImageDigestsListFormat).Return(strings.Join(rows, "\n"), "", 0)
 		return
 	}
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", podmanImageDigestsListFormat).Return("", "image disappeared", 1)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", client.PodmanImageDigestsListFormat).Return("", "image disappeared", 1)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", gomock.Any()).Return(strings.Join(images, "\n"), "", 0)
 	for _, stored := range storedSources {
 		if stored.inspectFailure {

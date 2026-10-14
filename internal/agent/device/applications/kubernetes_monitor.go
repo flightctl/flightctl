@@ -554,7 +554,7 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 	}
 	repoDigests, cached := m.digestCache.get(runtimeID)
 	if cached {
-		if repoDigest := matchingImageRepoDigest(image, repoDigests); repoDigest != "" {
+		if repoDigest, matched := matchingImageRepoDigest(image, repoDigests); matched {
 			return repoDigest
 		}
 	}
@@ -568,7 +568,8 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 		return observedID
 	}
 	m.digestCache.set(runtimeID, repoDigests)
-	return matchingImageRepoDigest(image, repoDigests)
+	repoDigest, _ := matchingImageRepoDigest(image, repoDigests)
+	return repoDigest
 }
 
 func (c *criDigestCache) get(runtimeID string) ([]string, bool) {
@@ -600,7 +601,9 @@ func (c *criDigestCache) set(runtimeID string, repoDigests []string) {
 	c.entry[runtimeID] = append([]string(nil), repoDigests...)
 }
 
-func matchingImageRepoDigest(image string, repoDigests []string) string {
+// matchingImageRepoDigest distinguishes missing repository metadata from a
+// known ambiguous observation, which remains unknown without another lookup.
+func matchingImageRepoDigest(image string, repoDigests []string) (string, bool) {
 	var observed string
 	for _, repoDigest := range repoDigests {
 		digest := digestFromKubernetesImageID(image, pullableImagePrefix+repoDigest)
@@ -610,11 +613,11 @@ func matchingImageRepoDigest(image string, repoDigests []string) string {
 		// Repo digests can include both an index and its platform manifest.
 		// Their order cannot establish which registry object was observed.
 		if observed != "" && observed != digest {
-			return ""
+			return "", true
 		}
 		observed = digest
 	}
-	return observed
+	return observed, observed != ""
 }
 
 func (m *KubernetesMonitor) mapPodPhaseToStatus(pod *kubernetesPod) StatusType {

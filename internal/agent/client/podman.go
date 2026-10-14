@@ -25,7 +25,8 @@ import (
 const (
 	podmanCmd              = "podman"
 	defaultPullLogInterval = 30 * time.Second
-	imageDigestsListFormat = `{{printf "%s\t%s" .Digest (json .RepoDigests)}}`
+	// PodmanImageDigestsListFormat lists registry digests in one Podman invocation.
+	PodmanImageDigestsListFormat = `{{printf "%s\t%s" .Digest (json .RepoDigests)}}`
 )
 
 const (
@@ -321,7 +322,7 @@ func (p *Podman) ListImageDigests(ctx context.Context) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"image", "ls", "--format", imageDigestsListFormat}
+	args := []string{"image", "ls", "--format", PodmanImageDigestsListFormat}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list image digests: %w", deviceerrors.FromStderr(stderr, exitCode))

@@ -157,7 +157,7 @@ func TestPodman_ListImageDigests(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", imageDigestsListFormat).Return(tc.stdout, tc.stderr, tc.exit)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", PodmanImageDigestsListFormat).Return(tc.stdout, tc.stderr, tc.exit)
 
 			podman := NewPodman(log.NewPrefixLogger("test"), mockExec, fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()), poll.Config{})
 			got, err := podman.ListImageDigests(context.Background())

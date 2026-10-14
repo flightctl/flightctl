@@ -476,7 +476,7 @@ func TestOSDeltaReportsAppliedAfterCanonicalStaging(t *testing.T) {
 			staged := bootcStatus(testBootedImage, testSourceDigest)
 			staged.Status.Staged.Image.Image.Image = tt.image
 			staged.Status.Staged.Image.ImageDigest = testDeltaDigest
-			mockClient.EXPECT().Status(gomock.Any()).Return(staged, nil)
+			mockClient.EXPECT().Status(gomock.Any()).Return(staged, nil).Times(2)
 			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: tt.image, DeltaImage: lo.ToPtr(testHintedDelta)}}
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)

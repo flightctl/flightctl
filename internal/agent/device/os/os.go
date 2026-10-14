@@ -460,13 +460,12 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) 
 	}
 	m.mu.Lock()
 	deltaStaged := m.stagedDeltaImage == desired.Os.Image
-	m.mu.Unlock()
-	if deltaStaged {
-		return nil
-	}
-	m.mu.Lock()
 	targetKey := m.activeDeltaTargetKey
 	m.mu.Unlock()
+	if deltaStaged {
+		m.recordStagedOSResult(ctx, targetKey, desired.Os.Image)
+		return nil
+	}
 	if err := m.client.Switch(ctx, desired.Os.Image); err != nil {
 		return err
 	}
