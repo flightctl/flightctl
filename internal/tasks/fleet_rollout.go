@@ -864,12 +864,13 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, co
 		deviceName := lo.FromPtr(device.Metadata.Name)
 		ownerFleetName, _, _ := getOwnerFleet(device)
 		refs = append(refs, model.DependencyRef{
-			FleetName:      &ownerFleetName,
-			DeviceName:     &deviceName,
-			RefType:        "git",
-			ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
-			RepositoryName: &gitSpec.GitRef.Repository,
-			Revision:       &gitSpec.GitRef.TargetRevision,
+			FleetName:          &ownerFleetName,
+			DeviceName:         &deviceName,
+			RefType:            "git",
+			ResourceKey:        fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+			RepositoryName:     &gitSpec.GitRef.Repository,
+			Revision:           &gitSpec.GitRef.TargetRevision,
+			ConfigProviderName: gitSpec.Name,
 		})
 	}
 

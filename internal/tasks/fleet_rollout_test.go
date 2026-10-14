@@ -1159,6 +1159,7 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 		assert.Equal(t, "feature-a", *refs[0].Revision)
 		assert.Equal(t, "git:my-repo/feature-a", refs[0].ResourceKey)
 		assert.Equal(t, "my-repo", *refs[0].RepositoryName)
+		assert.Equal(t, "git-cfg", refs[0].ConfigProviderName)
 	})
 
 	t.Run("When targetRevision is not parameterized it should return no refs", func(t *testing.T) {
