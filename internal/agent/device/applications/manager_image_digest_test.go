@@ -388,7 +388,7 @@ func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(
 	require.NoError(composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: bundle}))
 	appSpec := &provider.ApplicationSpec{
 		ID: appName, Name: appName, AppType: v1beta1.AppTypeCompose, User: v1beta1.RootUsername,
-		Image: bundle, ImageDigest: bundleDigest,
+		Image: bundle, ImageDigest: bundleDigest, ImageOCIType: string(dependency.OCITypePodmanArtifact),
 		ComposeApp: &composeApp, Volume: volume,
 	}
 	targetCache := provider.NewOCITargetCache()
