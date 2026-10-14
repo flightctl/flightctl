@@ -4,7 +4,7 @@ Welcome to the Flight Control user documentation.
 
 **[Introduction](introduction.md)** - An introduction to the project, basic concepts, and Flight Control's high-level architecture.
 
-**Installing Flight Control** - How to install the Flight Control service, agent, and CLI.
+**Installing Flight Control** - How to install the Flight Control service, agent, CLI, and optional add-ons.
 
 * **Deploying the Flight Control Service**
 
@@ -54,6 +54,8 @@ Welcome to the Flight Control user documentation.
   * [Integrating with Greenboot](installing/configuring-device-greenboot.md)
   * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
 
+* **[Installing the Catalog Collector](installing/installing-catalog-collector.md)**
+
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
 * **[Using the CLI](using/cli/overview.md)** - How to use the Flight Control CLI
@@ -95,8 +97,13 @@ Welcome to the Flight Control user documentation.
 * **[Software Catalog](using/managing-catalogs.md)** - How to organize and distribute versioned software components using catalogs.
   * [Catalogs](using/managing-catalogs.md#catalogs)
   * [Catalog items](using/managing-catalogs.md#catalog-items)
+  * [Importing catalogs from external sources](using/managing-catalogs.md#importing-catalogs-from-external-sources)
   * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
   * [Referencing catalog items in device specifications](using/managing-catalogs.md#referencing-catalog-items-in-device-specifications)
+  * [Catalog collector overview](using/catalog-collector/overview.md)
+    * [Quickstart](using/catalog-collector/overview.md)
+    * [Importing a Kubeflow Model Registry](using/catalog-collector/kubeflow-model-registry.md)
+    * [Installing the catalog collector](installing/installing-catalog-collector.md)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
   * [ImageBuild resource](using/managing-image-builds.md#imagebuild-resource)
   * [ImageExport resource](using/managing-image-builds.md#imageexport-resource)
@@ -130,4 +137,5 @@ Welcome to the Flight Control user documentation.
 * [Events](references/events.md)
 * [Alerts and Monitoring](references/alerts.md)
 * [Metrics Configuration](references/metrics.md)
+* [Catalog Collector Configuration](references/catalog-collector.md)
 * [Security Guidelines](references/security-guidelines.md)

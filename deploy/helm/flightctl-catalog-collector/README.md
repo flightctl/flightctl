@@ -2,219 +2,241 @@
 
 Helm chart for the Flight Control catalog collector.
 
-The collector reads catalogs from an external source (for example a Kubeflow
-Model Registry, as exposed by Red Hat OpenShift AI) and reconciles them into
-Flight Control `Catalog` and `CatalogItem` resources.
+The collector obtains catalog snapshots from configured sources and delivers them through pipelines to destinations. With the `flightctl` destination, it synchronizes Flight Control `Catalog` and `CatalogItem` resources. Other destinations, such as `debug`, can be used to inspect snapshots.
 
-This is an **independent chart**. It is deliberately not a sub-chart of
-`flightctl`: the collector can run in a different namespace, in a different
-cluster, or against a remote Flight Control service, and it is upgraded on its
-own cadence.
+This chart is installed and upgraded independently of the Flight Control service. The collector can run in another namespace or cluster, provided it can reach its configured sources and destinations.
 
 ## Install
 
-The chart has no default pipeline, so `helm install` with no values fails on
-purpose, naming the template Helm happened to render first:
+The chart has no default pipeline. Set exactly one of `config.content` or `config.existingName`; installing without either fails during rendering.
 
-```text
-Error: execution error at (flightctl-catalog-collector/templates/servicemonitor.yaml:1:4):
-flightctl-catalog-collector: one of config.content or config.existingName must be set.
-The collector has no usable default pipeline; start from examples/values-vanilla.yaml,
-or point config.existingName at a ConfigMap managed outside the chart
-```
-
-Start from an example instead:
+From the repository root, start with the vanilla example:
 
 ```shell
 helm install catalog-collector deploy/helm/flightctl-catalog-collector \
+  --namespace <collector_namespace> \
   --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
 ```
 
-The `examples/` directory is part of the packaged chart, so the same files are
-there after a `helm pull` and `tar xf`, without a clone of this repository:
+Replace `<collector_namespace>` with an existing namespace.
+
+The `examples/` directory is included in the packaged chart. If you have downloaded the chart archive, extract it:
 
 ```shell
 tar xf flightctl-catalog-collector-<version>.tgz
+```
+
+Then install using the packaged example:
+
+```shell
 helm install catalog-collector ./flightctl-catalog-collector \
+  --namespace <collector_namespace> \
   --values ./flightctl-catalog-collector/examples/values-vanilla.yaml
 ```
 
+The vanilla example uses an HTTP snapshot source and a debug destination. It requires no external registry or Flight Control service.
+
 ## Configuration
 
-Exactly one of `config.content` and `config.existingName` must be set; setting
-both, or neither, fails the render with an explicit message.
+Exactly one of `config.content` and `config.existingName` must be set.
 
 | Value | Meaning |
-|-------|---------|
-| `config.content` | Inline collector configuration. The chart renders it into a ConfigMap it owns and adds a `checksum/config` pod annotation so `helm upgrade` restarts the collector when the configuration changes. The value is passed through `tpl`, so Helm template expressions may be used in it. Empty by default: a source and a destination are site-specific choices, and a plausible-looking default would mean a bare `helm install` deploys a pipeline nobody asked for. |
-| `config.existingName` | Name of a ConfigMap managed outside the chart. Use this when the configuration is produced by GitOps or by an operator. No checksum annotation is added, because the chart cannot see the content: roll the deployment yourself after changing it. |
-| `config.key` | Key inside the ConfigMap holding the configuration. Default `config.yaml`. |
-| `config.mountPath` | Directory the ConfigMap is mounted into. The container runs with `--config <mountPath>/<key>`. |
+|---|---|
+| `config.content` | Collector configuration supplied as a YAML string. The chart renders it into a ConfigMap and adds a `checksum/config` pod annotation so configuration changes trigger a rollout. The value is processed through Helm's `tpl` function. Empty by default. |
+| `config.existingName` | Name of a ConfigMap managed outside the chart, in the collector's namespace. No configuration checksum is added. Restart the Deployment after changing its contents. |
+| `config.key` | ConfigMap key containing the configuration. Default: `config.yaml`. |
+| `config.mountPath` | Directory where the configuration is mounted. Default: `/etc/flightctl/catalog-collector`. The container starts with `--config <mountPath>/<key>`. |
+
+The chart validates its Helm settings during rendering. The collector validates the collector configuration during startup.
+
+For collector YAML fields, see the [Catalog collector configuration reference](https://github.com/flightctl/flightctl/blob/main/docs/user/references/catalog-collector.md).
 
 ### Image
 
 | Value | Meaning |
-|-------|---------|
-| `image.image` | Image repository, without a tag. Defaults to the repository the chart was built for — `quay.io/flightctl/flightctl-catalog-collector-el9` upstream, a `registry.redhat.io/rhem/...` repository in a Red Hat Edge Manager build. Override it to pull from a mirror or a private registry. |
-| `image.tag` | Image tag. Empty by default, which resolves to the chart `appVersion`, so the collector moves with the chart version rather than drifting from it. Set it to pin a specific build. |
-| `image.pullPolicy` | Container `imagePullPolicy`. Empty by default, which falls back to `global.imagePullPolicy` (`IfNotPresent`). |
+|---|---|
+| `image.image` | Image repository without a tag. The default comes from the chart's build profile. The upstream EL9 profile uses `quay.io/flightctl/flightctl-catalog-collector-el9`. Override it for a mirror or another repository. |
+| `image.tag` | Image tag. Empty by default, which uses the chart's `appVersion`. |
+| `image.pullPolicy` | Container pull policy. Empty by default, which uses `global.imagePullPolicy`; its default is `IfNotPresent`. |
 
-Set `global.imagePullSecretName` to attach an `imagePullSecret` to the pod
-when the registry needs credentials; empty (the default) attaches none.
+Set `global.imagePullSecretName` to reference an image pull Secret in the collector's namespace. An empty value attaches no image pull Secret.
 
-The default repository is not hand-written into `values.yaml`. Both that file
-and `Chart.yaml` are generated by `deploy/helm/cmd/charttmpl` from the
-`.gotmpl` sources beside them and the `catalog-collector-<edition>-<os>`
-profile in [`deploy/helm/helm-chart-opts.yaml`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/helm-chart-opts.yaml),
-which is also what lets a downstream build rebrand the chart name,
-description, icon, and OpenShift annotations. Change the `.gotmpl` or the
-profile and regenerate with `go generate ./deploy/helm/...`; editing the
-generated files directly is overwritten on the next run.
+`values.yaml` and `Chart.yaml` are generated from the adjacent `.gotmpl` files and the `catalog-collector-<edition>-<os>` profile in [`deploy/helm/helm-chart-opts.yaml`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/helm-chart-opts.yaml).
+
+To change generated defaults or branding, edit those inputs and regenerate from the repository root:
+
+```shell
+go generate ./deploy/helm/...
+```
+
+Direct edits to the generated files are overwritten during regeneration.
 
 ### Replica count
 
-`replicaCount` accepts only `0` or `1`. Anything larger fails the render
-rather than being silently clamped: the collector owns the catalogs it writes,
-so two instances would poll the same upstream registry and reconcile the same
-catalog concurrently, racing each other into conflicting updates. Use
-`replicaCount=0` to pause the collector without uninstalling the release.
-Fractional values such as `0.5` are rejected as well, rather than being
-truncated into range and then rejected by the API server.
+`replicaCount` accepts only the integers `0` and `1`. Other values, including fractional values, fail rendering.
 
-The deployment strategy is `Recreate` for the same reason: a rolling update
-would briefly run the old and new pods together.
+Use `replicaCount: 0` to pause the collector without uninstalling the release.
+
+The Deployment uses the `Recreate` strategy to avoid overlapping old and new pods during an upgrade. With the Flight Control destination, concurrent instances using the same pipeline identifier and organization can update or prune the same resources.
+
+Run only one active collector instance for each pipeline identifier in the target organization. The chart's replica restriction does not coordinate separate Helm releases or collectors deployed elsewhere.
 
 ### Service
 
-A `Service` is created only when it would carry at least one port. With
-`metrics.enabled=false`, `health.enabled=false`, and no
-`service.extraPorts`, the chart skips it, because a `Service` with an empty
-`ports` list is rejected by the API server. Use `kubectl port-forward` in that
-case.
+The chart creates a Service when `service.enabled` is `true` and at least one port is configured through:
 
-### Pod labels, annotations, and ports
+* `metrics.enabled`
+* `health.enabled`
+* `service.extraPorts`
 
-`podLabels` and `podAnnotations` are merged into the pod template, with three
-keys reserved by the chart:
+If none of these supplies a port, the Service is omitted.
 
-| Reserved key | Why |
-|--------------|-----|
-| `app.kubernetes.io/name` | Part of the `Deployment` selector, which is immutable after the first install. A different value renders a pod template the selector cannot match and the API server rejects the `Deployment`. |
-| `app.kubernetes.io/instance` | Same. |
-| `checksum/config` | Carries the hash of the chart-owned `ConfigMap`, which is what makes a `config.content` change roll the pods. Overriding it would pin the value and stop those rollouts. Free to use when `config.existingName` is set, because the chart emits no checksum then. |
+The default Service type is `ClusterIP`. You can use `kubectl port-forward` against the Deployment when no Service is created.
 
-Setting one of these to a conflicting value fails the render with a message
-naming the key. Every other label and annotation is yours, and repeating a
-selector label with the value the chart already uses is accepted.
+### Pod labels and annotations
 
-The `metrics` and `health` ports are added to the container and to the
-`Service` by the chart, so `service.extraPorts` must not reuse the names
-`metrics` or `health`. Duplicate port names are rejected by the API server;
-the chart rejects them at render time instead, naming the value responsible
-rather than a list index.
+Use `podLabels` and `podAnnotations` to customize the pod template.
 
-Each `service.extraPorts` entry must also set a non-empty `name`, and its
-`targetPort`, when given, must be a number rather than a port name. Each entry
-becomes a container port as well as a `Service` port: a missing name renders
-`name: null` on both, which the API server rejects on a multi-port `Service`,
-and a named `targetPort` renders `containerPort: snap`, which it rejects on
-the `Deployment`. Omit `targetPort` to reuse `port`.
+The chart protects the following keys:
 
-Port numbers are not checked. Kubernetes allows several `Service` ports to
-target the same container port, and a TCP and a UDP entry may share a number,
-so a repeated number is a legitimate configuration rather than an error.
+| Key | Restriction |
+|---|---|
+| `app.kubernetes.io/name` | A `podLabels` value must match the chart's Deployment selector. Repeating the existing value is accepted. |
+| `app.kubernetes.io/instance` | A `podLabels` value must match the release's Deployment selector. Repeating the existing value is accepted. |
+| `checksum/config` | `podAnnotations` must not set this key when `config.content` is used. Any override is rejected because the chart owns the configuration checksum. The key can be supplied when using `config.existingName`. |
+
+Other labels and annotations can be supplied through these values.
+
+### Additional ports
+
+Each `service.extraPorts` entry also creates a container port:
+
+```yaml
+service:
+  extraPorts:
+    - name: snapshots
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+```
+
+Each entry must have a non-empty name. Names must be unique across the additional ports and the chart's enabled health and metrics ports.
+
+When health is enabled, its port name is `health`. When metrics are enabled, its port name is `metrics`.
+
+`targetPort`, when supplied, must represent a numeric port because it is also used as the container's `containerPort`. Omit it to use `port`.
+
+The chart does not validate port ranges or every Kubernetes port constraint. Multiple Service ports can target the same container port, and TCP and UDP ports can share a number. Ensure the resulting Service and container ports satisfy Kubernetes validation.
 
 ### Health and metrics
 
-The chart wires the probes and the metrics port, but the endpoints themselves
-come from the **collector configuration**, so the two have to agree:
+Helm values configure ports, probes, and discovery. The collector configuration enables the actual servers. These settings must agree:
 
-| Chart value | Collector configuration | Default |
-|-------------|------------------------|---------|
-| `health.port`, `health.livePath`, `health.readyPath` | `extensions.healthcheck.endpoint`, `.livePath`, `.readyPath` | `0.0.0.0:13133`, `/livez`, `/readyz` |
-| `metrics.port` | `service.metrics.endpoint` | `0.0.0.0:8888` |
+| Chart value | Matching collector setting | Chart default |
+|---|---|---|
+| `health.port` | Port in `extensions.healthcheck.endpoint` | `13133` |
+| `health.livePath` | `extensions.healthcheck.livePath` | `/livez` |
+| `health.readyPath` | `extensions.healthcheck.readyPath` | `/readyz` |
+| `metrics.port` | Port in `service.metrics.endpoint` | `8888` |
 
-Both endpoints must bind `0.0.0.0`. The collector defaults to `localhost`,
-which is unreachable from the kubelet and from Prometheus: the pod would never
-become ready and would never be scraped.
+Use a bind address reachable through the Pod IP, such as `0.0.0.0` in the shipped examples:
 
-The metrics **path** is fixed at `/metrics` and is not a chart value. The
-collector registers its Prometheus registry there and
-`service.metrics.endpoint` is a `host:port` pair with no path component, so a
-chart value could only have retargeted the `Service` annotations and the
-`ServiceMonitor` at a path the collector answers with 404 — Prometheus would
-have stopped collecting without reporting an error.
+```yaml
+service:
+  metrics:
+    endpoint: 0.0.0.0:8888
 
-Set `health.enabled=false` only if the collector configuration omits the
-`healthcheck` extension; otherwise the probes would target a closed port.
+extensions:
+  healthcheck:
+    endpoint: 0.0.0.0:13133
+    livePath: /livez
+    readyPath: /readyz
+```
 
-Metrics can be exposed to Prometheus in two ways:
+The collector's default endpoint addresses use `localhost`. Those addresses are reachable inside the pod network namespace, but not through the Pod IP used by kubelet HTTP probes and ordinary Prometheus scraping.
 
-- `metrics.podAnnotations` (default `true`) adds the `prometheus.io/*`
-  annotations used by annotation-based discovery.
-- `metrics.serviceMonitor.enabled` creates a `ServiceMonitor`. It requires the
-  Prometheus Operator CRDs and `service.enabled`.
+If the collector configuration omits `healthcheck`, set `health.enabled: false`. Otherwise, enabled probes target an endpoint that is not running.
 
-Neither the metrics endpoint nor the health endpoint authenticates its
-callers. A `ClusterIP` `Service` keeps them inside the cluster, which is why
-that is the default; do not put an Ingress, a Route, or a
-`type: LoadBalancer` in front of this `Service` without an authenticating
-proxy. The equivalent standalone unit binds both ports to the host loopback
-interface for the same reason.
+Similarly, when chart metrics are enabled, configure `service.metrics` with the matching port and a reachable bind address.
 
-All series the collector exports are prefixed `flightctl_catalogcollector_`.
-Scrape the endpoint to see the set exported by the version you are running.
+Disabling a chart setting removes its chart-managed ports, probes, or discovery configuration. It does not disable an endpoint that remains enabled in the collector YAML.
+
+The metrics path is fixed at `/metrics`. It is not configurable through the chart. A scrape configured for an unsupported path fails, and Prometheus reports the target as unhealthy.
+
+Metrics discovery can use either of these mechanisms:
+
+* `metrics.podAnnotations: true`, the default, adds `prometheus.io/*` pod annotations when metrics are enabled.
+* `metrics.serviceMonitor.enabled: true` creates a ServiceMonitor when metrics are enabled. It requires the Prometheus Operator CRDs and `service.enabled: true`.
+
+Set `metrics.serviceMonitor.labels` when your Prometheus instance requires particular labels to select ServiceMonitors.
+
+Collector operational metrics use the `flightctl_catalogcollector_` prefix. Exporter metadata metrics can use other names. Scrape the endpoint to inspect the series exposed by your collector version.
+
+Neither the health endpoint nor the metrics endpoint authenticates callers. A ClusterIP Service does not authenticate clients either. Restrict access as appropriate for your environment, and use an authenticating proxy with TLS if exposing these endpoints beyond trusted networks.
 
 ### Security context
 
-The pod runs as non-root with a read-only root filesystem, no privilege
-escalation, all capabilities dropped, and the `RuntimeDefault` seccomp profile.
-These defaults satisfy the OpenShift `restricted-v2` SCC. The collector never
-writes to the filesystem, so the read-only root filesystem needs no
-`emptyDir` scratch volume.
+The default security settings run the collector as non-root with:
+
+* A read-only root filesystem.
+* Privilege escalation disabled.
+* All Linux capabilities dropped.
+* The `RuntimeDefault` seccomp profile.
+
+These defaults are compatible with OpenShift's `restricted-v2` SCC. The shipped collector components require no writable scratch volume.
 
 ### Credentials and CA bundles
 
-Mount them with `extraVolumes` / `extraVolumeMounts` and reference **the
-mounted path inside the container** from the collector configuration
-(`tokenFile`, `clientIdFile`, `clientSecretFile`, `certificateAuthority`). A
-path that exists on your workstation, on a node, or in another namespace is
-meaningless to the collector.
+Mount credential files and CA bundles using `extraVolumes` and `extraVolumeMounts`. Reference their paths inside the container through fields such as:
 
-Values can also be injected as environment variables through `env` / `envFrom`
-and referenced in the configuration as `${env:NAME}`.
+* `tokenFile`
+* `clientIdFile`
+* `clientSecretFile`
+* `certificateAuthority`
+
+For example:
+
+```yaml
+extraVolumes:
+  - name: oauth
+    secret:
+      secretName: flightctl-catalog-collector-oauth
+      defaultMode: 0440
+
+extraVolumeMounts:
+  - name: oauth
+    mountPath: /etc/flightctl/catalog-collector/oauth
+    readOnly: true
+```
+
+The Secret must exist in the collector's namespace.
+
+Values can also be supplied through `env` or `envFrom` and referenced as `${env:NAME}` in supported collector configuration fields. Environment references are resolved during startup; changing them requires restarting the collector.
 
 #### File permissions
 
-The container runs as **uid 1001, gid 0**. Under the OpenShift
-`restricted-v2` SCC the uid is replaced with one from the namespace range,
-but the gid stays 0, which is why gid 0 is the only reliable thing to grant.
+The official container images specify UID `1001` and GID `0`. OpenShift can assign a UID from the namespace's permitted range.
 
-On Kubernetes and OpenShift a regular (non-projected) Secret volume is
-mounted `root:root`; the kubelet does **not** chown it to the uid the
-container runs as. `defaultMode: 0400` therefore grants the bits to an owner
-the collector is not, and the read fails with "permission denied". Use
-`defaultMode: 0440`: the group bits are the ones that apply, because the
-container's group is gid 0 and the files are group-owned by root. Do not add
-`fsGroup`; it is not needed once the group bit is set, and it forces a
-recursive ownership change on every volume.
+Use group-readable credential files, such as `defaultMode: 0440` in the Secret volume examples. This avoids depending on a fixed container UID.
 
-The standalone (Podman/Quadlet) deployment needs different modes, because
-there the host owns the files and the container reads them through a bind
-mount. See the [standalone README](https://github.com/flightctl/flightctl/blob/main/deploy/podman/flightctl-catalog-collector/README.md)
-for that procedure.
+File access also depends on the pod's effective groups, admission policy, and volume ownership handling. An `fsGroup` can affect mounted ownership and permissions, so do not assume that every Secret volume always remains `root:root` or that `0400` behaves identically in every deployment.
+
+The chart does not require an explicit `fsGroup` for its documented image and mounts. If you customize group settings, ensure they satisfy the cluster's admission policy and allow access to the mounted files. Do not assume that `fsGroup: 0` is permitted on OpenShift.
+
+For standalone bind-mount paths and host file permissions, see the [standalone README](https://github.com/flightctl/flightctl/blob/main/deploy/podman/flightctl-catalog-collector/README.md).
 
 ### Authenticating to Flight Control
 
-The Flight Control destination accepts any configured authenticator
-extension. Prefer `oauth2client` over a static bearer token:
+The Flight Control destination can use an authentication extension implementing `extensionauth.HTTPClient`.
+
+For OAuth 2.0 client credentials:
 
 ```yaml
 extensions:
   oauth2client/flightctl:
     clientIdFile: /etc/flightctl/catalog-collector/oauth/client-id
     clientSecretFile: /etc/flightctl/catalog-collector/oauth/client-secret
-    tokenUrl: https://<oidc_issuer>/protocol/openid-connect/token
+    tokenUrl: https://sso.example.com/realms/flightctl/protocol/openid-connect/token
     scopes:
       - openid
     certificateAuthority: /etc/flightctl/catalog-collector/certs/oidc-ca.crt
@@ -222,41 +244,30 @@ extensions:
 
 destinations:
   flightctl/service:
-    server: https://<flightctl_api_endpoint>
+    server: https://flightctl.example.com
     auth:
       authenticator: oauth2client/flightctl
 ```
 
-The collector exchanges the client credentials for a short-lived access
-token, so no long-lived token is stored anywhere. `expiryBuffer` makes the
-token cache treat a token as expired that much early, narrowing the window
-for one expiring in flight; it does not make a 401 impossible.
+The token URL above is a Keycloak example. Use your authorization server's actual token endpoint, usually published as `token_endpoint` in its OpenID Connect discovery document. Configure scopes according to that provider.
 
-Register a confidential client in the same identity provider
-Flight Control authenticates against, grant it the permissions the
-destination needs (create and update `Catalog` and `CatalogItem`), and mount
-its id and secret as separate keys of one Secret. `clientId` and
-`clientSecret` may be given inline instead of as files, but then the values
-land in the ConfigMap and in `helm get values`: prefer the file form.
+The extension obtains and caches an access token using the client-credentials grant. `expiryBuffer` causes replacement before the token's expiry, reducing the chance of expiry during a request. It does not guarantee that requests cannot receive `401 Unauthorized`.
+
+Authorize the client to read/list, create, update, and delete both Catalog and CatalogItem resources in the target organization. Delete permission is required for pruning.
+
+Prefer `clientIdFile` and `clientSecretFile` to inline credentials. Literal inline values are stored in the rendered ConfigMap and Helm release values.
+
+Credential files are read when a new token is acquired. Rotating those files takes effect when the cached token is next replaced.
 
 ## Authorizing against Red Hat OpenShift AI
 
-The RHOAI model registry sits behind `kube-rbac-proxy`. It authenticates the
-bearer token on the request by calling the API server's `TokenReview`, then
-authorizes the resulting identity with RBAC. The collector therefore needs a
-ServiceAccount, a RoleBinding granting that ServiceAccount read access to the
-registry, and a token that the API server will review.
+For a Model Registry protected by a Kubernetes RBAC proxy, the collector needs a token accepted by the registry and a RoleBinding granting that identity access.
 
-This section assumes the collector runs **in the same cluster as the model
-registry**. That assumption is what makes the pod's own ServiceAccount token
-usable: only the API server that issued a token can review it. For a registry
-in a different cluster see
-[Collecting from another cluster](#collecting-from-another-cluster).
+The following setup uses the collector pod's ServiceAccount and assumes the collector runs in the same cluster as the registry. For another cluster, see [Collecting from another cluster](#collecting-from-another-cluster).
 
 ### 1. Create the ServiceAccount
 
-The chart creates it for you. Name it explicitly so the RoleBinding does not
-have to track the generated release name, and turn the automount on:
+Configure a named ServiceAccount and enable token automount:
 
 ```yaml
 serviceAccount:
@@ -265,29 +276,21 @@ serviceAccount:
   automountServiceAccountToken: true
 ```
 
-`automountServiceAccountToken: true` is what delivers the credential. The
-kubelet projects the ServiceAccount token into the pod at
-`/var/run/secrets/kubernetes.io/serviceaccount/token`, binds it to the pod's
-lifetime, and renews it before it expires. Nothing else has to exist: no
-`kubectl create token`, no Secret holding a registry token, no rotation job,
-and no restart when the token is renewed.
+The kubelet mounts the pod-bound ServiceAccount token at:
 
-The token carries no authority of its own. It presents the pod's
-ServiceAccount identity to the registry; the RoleBinding in the next step is
-what grants the read.
+```text
+/var/run/secrets/kubernetes.io/serviceaccount/token
+```
 
-The chart default is `automountServiceAccountToken: false`, and it stays that
-way. Most pipelines authenticate with something other than a Kubernetes
-identity — an OAuth2 client, a static token, nothing at all — and a chart that
-mounted a cluster credential by default would hand one to deployments that
-never asked for it. Turning it on is a per-deployment decision, which is what
-[`examples/values-rhoai-to-flightctl.yaml`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-catalog-collector/examples/values-rhoai-to-flightctl.yaml)
-does.
+The kubelet renews this token before it expires.
 
-### 2. Grant read access to the model registry
+The chart defaults to `automountServiceAccountToken: false`. Enable it when the collector needs its local ServiceAccount identity.
 
-The registry ships a `registry-user-<registry_name>` role in the model
-registry namespace. Bind the collector's ServiceAccount to it:
+### 2. Grant access to the model registry
+
+The Model Registry operator provides a `registry-user-<model_registry_name>` Role granting access to the registry's Service.
+
+Bind the collector's ServiceAccount to that Role:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -305,63 +308,64 @@ roleRef:
   name: registry-user-<model_registry_name>
 ```
 
-Note the two different namespaces: the RoleBinding lives where the registry
-lives, and the subject points back at the namespace the collector runs in.
-The collector only ever reads, so no write permission is required.
+The RoleBinding belongs in the registry namespace. Its subject identifies the collector's ServiceAccount and namespace.
 
-Confirm the binding took effect before deploying anything:
+Check access to the specific Service named in the Role's rules:
 
 ```shell
-kubectl auth can-i get services \
+kubectl auth can-i get services/<model_registry_service_name> \
   --as=system:serviceaccount:<collector_namespace>:flightctl-catalog-collector \
-  -n <model_registry_namespace>
+  --namespace <model_registry_namespace>
 ```
 
-### 3. Point the collector at the automounted token
+Replace `<model_registry_service_name>` with the actual Service name. Checking unnamed `services` can return `no` when the Role permits access only to a named Service.
+
+The collector performs read requests against the registry. The Role grants access through the registry's authorization mechanism; it does not by itself describe permissions for individual Model Registry API operations.
+
+### 3. Configure bearer authentication
+
+Point the bearer token extension at the automounted token:
 
 ```yaml
 extensions:
   bearertokenauth/model-registry:
     tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+sources:
+  kubeflowmodelregistry/rhoai:
+    endpoint: https://model-registry.example.com
+    catalog: ai-models
+    auth:
+      authenticator: bearertokenauth/model-registry
 ```
 
-That path is the standard location the kubelet uses for the automounted
-ServiceAccount token; it needs no `extraVolumes` or `extraVolumeMounts` entry
-of its own. The extension re-reads `tokenFile` on **every** request, so a
-renewal the kubelet writes in place takes effect without restarting the
-collector.
+Configure a CA bundle when the registry certificate is not trusted by the system trust store.
 
-Leave the token's audience alone. As observed on RHOAI 3.5.1 the registry's
-`kube-rbac-proxy` is deployed without `--auth-token-audiences`, so
-`TokenReview` is performed against the default API-server audience and only a
-token issued for that audience is accepted; a token projected with a custom
-audience is rejected with 401. The automounted token already carries the
-default audience. Re-check this against the RHOAI release in use before
-assuming it still holds.
+The bearer token extension reads the file on every request, so kubelet token rotation takes effect without restarting the collector.
 
-The only Secret the RHOAI example mounts holds the Flight Control OAuth2
-client id and secret — see
-[Authenticating to Flight Control](#authenticating-to-flight-control).
+The token audience must match what the registry's authentication proxy accepts. The automounted token uses the API server's default audience. Check the deployed proxy's requirements before choosing a custom audience.
 
 #### Projecting the token explicitly
 
-An explicit projection works just as well, and is worth using when the
-deployment wants to choose the path or the expiry. Leave `audience` unset so
-the token is issued for the default API-server audience:
+Use an explicit projection when you need to choose the mounted path or request a token lifetime:
 
 ```yaml
 extraVolumes:
   - name: registry-token
     projected:
+      defaultMode: 0440
       sources:
         - serviceAccountToken:
             path: model-registry-token
             expirationSeconds: 3600
+
 extraVolumeMounts:
   - name: registry-token
     mountPath: /var/run/secrets/model-registry
     readOnly: true
 ```
+
+Reference the projected file:
 
 ```yaml
 extensions:
@@ -369,31 +373,52 @@ extensions:
     tokenFile: /var/run/secrets/model-registry/model-registry-token
 ```
 
-The kubelet renews a projected token in place exactly as it renews the
-automounted one. The projection is an independent volume, so it does not
-require `automountServiceAccountToken` to be either on or off; set that value
-on its own merits.
+Omitting `audience` requests the API server's default audience. Set it explicitly only when required by the registry's authentication configuration.
+
+The kubelet rotates projected tokens. This volume is independent of `automountServiceAccountToken`, so automount can remain disabled when using an explicit projection.
 
 #### Collecting from another cluster
 
-The pod's own token is only useful to a registry whose API server can review
-it, which means the same cluster. A model registry in a different cluster
-needs a credential that cluster accepts, supplied separately: create the
-ServiceAccount and the RoleBinding of step 2 *there*, issue a token for it
-there, and deliver it to the collector as a Secret. Leave
-`automountServiceAccountToken` at the chart default of `false` in that case —
-the local token would only be dead weight.
+Supply a credential issued by, and accepted by, the registry cluster. Do not assume that the collector cluster's local ServiceAccount token is accepted there.
+
+In the registry cluster, create a ServiceAccount and bind it to the registry Role. For example, create it in the registry namespace:
 
 ```shell
-kubectl --context <registry_cluster> create token \
-  flightctl-catalog-collector --duration=24h > model-registry-token
-kubectl --context <collector_cluster> create secret generic \
-  flightctl-catalog-collector-tokens --from-file=model-registry-token
+kubectl --context <registry_cluster> \
+  --namespace <model_registry_namespace> \
+  create serviceaccount flightctl-catalog-collector
 ```
 
-Mount it and point the `bearertokenauth` extension at the mounted path.
-`defaultMode: 0440` grants the read through the group bit, which is the only
-one that applies: see [File permissions](#file-permissions).
+Apply the RoleBinding from the previous section in that cluster, setting its subject namespace to `<model_registry_namespace>` for this ServiceAccount.
+
+Request a token. Create the file with restrictive permissions first, so the token is never readable by other users on the host:
+
+```shell
+install -m 0600 /dev/null model-registry-token
+kubectl --context <registry_cluster> \
+  --namespace <model_registry_namespace> \
+  create token flightctl-catalog-collector --duration=24h \
+  > model-registry-token
+```
+
+The requested duration is not a guarantee: the API server can issue a token with a different lifetime. Arrange rotation based on the issued token's actual expiry.
+
+Create a Secret in the collector cluster and namespace:
+
+```shell
+kubectl --context <collector_cluster> \
+  --namespace <collector_namespace> \
+  create secret generic flightctl-catalog-collector-tokens \
+  --from-file=model-registry-token
+```
+
+Remove the local token file once the Secret exists:
+
+```shell
+shred -u model-registry-token
+```
+
+Mount it:
 
 ```yaml
 extraVolumes:
@@ -401,11 +426,14 @@ extraVolumes:
     secret:
       secretName: flightctl-catalog-collector-tokens
       defaultMode: 0440
+
 extraVolumeMounts:
   - name: tokens
     mountPath: /etc/flightctl/catalog-collector/tokens
     readOnly: true
 ```
+
+Configure the extension:
 
 ```yaml
 extensions:
@@ -413,76 +441,106 @@ extensions:
     tokenFile: /etc/flightctl/catalog-collector/tokens/model-registry-token
 ```
 
-A token issued this way is time-bound and nothing renews it, so rotation
-becomes your job: refresh the Secret on a schedule shorter than the token
-lifetime. No restart is needed — the kubelet refreshes a mounted Secret within
-about a minute and the extension re-reads the file on every request.
+Keep `automountServiceAccountToken: false` unless another component requires the collector cluster's local token.
+
+A manually issued token is not renewed by the kubelet. Refresh the Secret before expiry, allowing time for the mounted contents to update. Secret updates propagate eventually; the delay depends on kubelet synchronization and change detection.
+
+The bearer token extension uses the refreshed file on subsequent requests without a restart. Do not use a `subPath` mount for a rotating token file because such mounts do not receive automatic Secret updates.
 
 ### 4. Verify
 
-The collector preflights each configured destination and source during
-startup, **before** it reports ready, and fails fast on the first failure.
+The Kubeflow Model Registry source performs two startup queries, checking access to the registered-model and model-version endpoints with their configured filters.
+
+When using the `flightctl` destination, its preflight runs first and checks read-only list access to Catalogs and CatalogItems. It does not verify create, update, or delete permissions.
+
+A preflight failure stops startup before sources run or readiness is reported. Inspect the Deployment and logs:
 
 ```shell
-kubectl -n <collector_namespace> rollout status \
-  deployment/catalog-collector-flightctl-catalog-collector
-kubectl -n <collector_namespace> logs \
+kubectl --namespace <collector_namespace> rollout status \
   deployment/catalog-collector-flightctl-catalog-collector
 ```
 
-Readiness says nothing about the work that follows it. Collecting a full
-snapshot from the registry and reconciling it into Flight Control happen after
-startup, on the poll interval, and either can fail on its own — the first on a
-registry error, the second on a destination or Flight Control authentication
-error. The collector's metrics report both; confirm the endpoint is reachable
-and then read them there, allowing at least one poll interval to elapse:
+```shell
+kubectl --namespace <collector_namespace> logs \
+  deployment/catalog-collector-flightctl-catalog-collector
+```
+
+These commands assume the release name `catalog-collector` and the upstream chart's default naming. Adjust the Deployment name if either differs.
+
+Readiness confirms that startup checks passed; it does not confirm a successful import. The first collection starts immediately after startup. Later successful cycles are separated by `pollInterval`; failures use retry backoff.
+
+To inspect metrics, run port-forwarding in one terminal and leave it running:
 
 ```shell
-kubectl -n <collector_namespace> port-forward \
+kubectl --namespace <collector_namespace> port-forward \
   deployment/catalog-collector-flightctl-catalog-collector 8888:8888
-curl -s localhost:8888/metrics | grep flightctl_catalogcollector_
 ```
 
-If nothing has advanced, the pod log names the failing stage.
+In another terminal:
+
+```shell
+curl -fsS http://127.0.0.1:8888/metrics \
+  | grep '^flightctl_catalogcollector_'
+```
+
+Check that collection and pipeline synchronization success counters advance for the expected source and pipeline. A successful collection alone does not establish that synchronization succeeded.
+
+For metric descriptions, see [Metrics](https://github.com/flightctl/flightctl/blob/main/docs/user/references/catalog-collector.md#metrics). For checking imported resources, see [Verifying the import](https://github.com/flightctl/flightctl/blob/main/docs/user/using/catalog-collector/kubeflow-model-registry.md#verifying-the-import).
 
 ## Examples
 
 | File | Pipeline |
-|------|----------|
-| [`examples/values-vanilla.yaml`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml) | HTTP snapshot source to debug destination. No external dependencies; use it to verify the image, probes, and metrics work in your cluster. |
-| [`examples/values-rhoai-to-flightctl.yaml`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-catalog-collector/examples/values-rhoai-to-flightctl.yaml) | Kubeflow Model Registry (Red Hat OpenShift AI) to Flight Control, same cluster: the pod's automounted ServiceAccount token to the registry, OAuth2 client credentials to Flight Control, custom CA bundles, server-side model and version selection. |
+|---|---|
+| [`examples/values-vanilla.yaml`](examples/values-vanilla.yaml) | HTTP snapshot source to debug destination. No external dependencies. |
+| [`examples/values-rhoai-to-flightctl.yaml`](examples/values-rhoai-to-flightctl.yaml) | Kubeflow Model Registry to Flight Control. Uses the pod's ServiceAccount token for a registry in the same cluster, OAuth 2.0 client credentials for Flight Control, CA bundles, and selection filters. |
 
-The equivalent standalone (Podman/Quadlet) configurations live in
-[`deploy/podman/flightctl-catalog-collector/examples`](https://github.com/flightctl/flightctl/blob/main/deploy/podman/flightctl-catalog-collector/examples).
+Equivalent standalone configurations are available in [`deploy/podman/flightctl-catalog-collector/examples`](https://github.com/flightctl/flightctl/tree/main/deploy/podman/flightctl-catalog-collector/examples).
 
 ## Resource requests
 
-The defaults (`50m`/`64Mi` requests, `500m`/`512Mi` limits) are sized for a
-collector polling a single registry. A measurement of the el9 image running
-the vanilla pipeline, after serving a snapshot, is about 27 MiB RSS and
-effectively no steady-state CPU. Raise the memory limit for registries with
-large catalogs: a snapshot is held in memory while it is reconciled, so peak
-usage scales with the number of models and versions, not with poll frequency.
+The chart defaults are:
+
+| Resource | Request | Limit |
+|---|---|---|
+| CPU | `50m` | `500m` |
+| Memory | `64Mi` | `512Mi` |
+
+Adjust these values for your workload. The collector holds complete snapshots in memory, and processors and reconciliation can require additional copies or resource lists. Memory requirements depend on snapshot size and pipeline configuration.
 
 ## Validation
 
+Run chart linting from the repository root:
+
 ```shell
-make lint-helm                     # helm lint, with every shipped values file
-make test-helm-catalog-collector   # render tests: what must fail, what must render
+make lint-helm
+```
+
+Run the collector chart's render tests:
+
+```shell
+make test-helm-catalog-collector
+```
+
+Inspect the rendered vanilla Deployment:
+
+```shell
 helm template catalog-collector deploy/helm/flightctl-catalog-collector \
+  --namespace <collector_namespace> \
   --kube-version 1.32.0 \
   --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
 ```
 
-The render tests in [`tests/render_test.sh`](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-catalog-collector/tests/render_test.sh) cover the
-half of the chart contract `helm lint` cannot express: that a bare install
-fails, that `config.content` and `config.existingName` are mutually
-exclusive, that `replicaCount=2` is rejected, that the `Service` is
-omitted when it would have no ports, that `podLabels` cannot break the
-`Deployment` selector, that the `metrics` and `health` port names cannot
-collide with `service.extraPorts`, and that an extra port without a name or
-with a named `targetPort` is rejected.
+The render tests cover invalid value combinations and expected manifests, including:
 
-Both targets run in CI from the `Helm Chart Quality` workflow whenever
-`deploy/helm/**`, the `Makefile`, or the workflow itself changes, so a new
-chart invariant added to `render_test.sh` is enforced on every pull request.
+* Missing or conflicting configuration sources.
+* Invalid replica counts.
+* Service omission when there are no ports.
+* Conflicting Deployment selector labels.
+* Reserved configuration checksum annotations.
+* Duplicate port names.
+* Missing extra-port names and unsupported named target ports.
+* Rendering the shipped example values.
+
+The `Helm Chart Quality` workflow runs linting and render tests when its change detection matches `deploy/helm/**`, `Makefile`, or `.github/workflows/lint-helm.yaml`.
+
+Rendering checks do not establish connectivity, credential validity, or successful synchronization. Verify those against the deployed collector.
