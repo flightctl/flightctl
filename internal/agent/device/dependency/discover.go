@@ -171,11 +171,26 @@ func (v *applicationDeltaTargetValidator) validate(ctx context.Context, candidat
 // A registry manifest digest is not a Podman image ID. Inspect stored images to
 // match their content or repository digests, including sources in other repositories.
 func (m *prefetchManager) podmanDeltaSourceDigests(ctx context.Context, podman *client.Podman) (map[string]struct{}, error) {
+	sources := make(map[string]struct{})
+	addSourceDigest := func(storedDigest string) {
+		if source := applicationImageDigest(storedDigest); source != "" {
+			sources[source] = struct{}{}
+		}
+	}
+	digests, listErr := podman.ListImageDigests(ctx)
+	if listErr == nil {
+		for _, storedDigest := range digests {
+			addSourceDigest(storedDigest)
+		}
+		return sources, nil
+	}
+	m.log.Debugf("Could not list Podman image digests: %v; falling back to individual inspections", listErr)
+
 	images, err := podman.ListImages(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(listErr, err)
 	}
-	sources := make(map[string]struct{})
+
 	var inspectErr error
 	inspectFailures := 0
 	for _, image := range images {
@@ -187,13 +202,11 @@ func (m *prefetchManager) podmanDeltaSourceDigests(ctx context.Context, podman *
 			continue
 		}
 		for _, storedDigest := range digests {
-			if source := applicationImageDigest(storedDigest); source != "" {
-				sources[source] = struct{}{}
-			}
+			addSourceDigest(storedDigest)
 		}
 	}
 	if len(images) > 0 && inspectFailures == len(images) {
-		return nil, inspectErr
+		return nil, errors.Join(listErr, inspectErr)
 	}
 	return sources, nil
 }
