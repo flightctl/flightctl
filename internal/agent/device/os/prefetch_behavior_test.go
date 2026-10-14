@@ -54,6 +54,9 @@ func TestOSLocalTargetSkipsFetching(t *testing.T) {
 					reason = "delta reconstruction failed"
 				}
 				m.recordDeltaResult(m.activeDeltaTargetKey, *tt.previous, reason, false)
+				if tt.booted {
+					m.recordVerifiedOSResult(m.activeDeltaTargetKey, bootedImage, tt.digest)
+				}
 			}
 			for range 2 {
 				collection, err := m.CollectOCITargets(t.Context(), nil, desired)

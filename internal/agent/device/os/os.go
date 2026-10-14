@@ -235,7 +235,9 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	if isDesiredImageRunning {
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
-		m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		// A reference-only attempt cannot prove how the booted content was
+		// prepared. Recording NotRequired retains any exact verified history.
+		m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", false)
 		m.recordVerifiedOSResult(targetKey, bootcStatus.GetBootedImage(), bootcStatus.GetBootedImageDigest())
 		return &dependency.OCICollection{}, nil
 	}

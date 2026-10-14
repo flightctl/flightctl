@@ -264,6 +264,9 @@ func TestWhenAnotherOSIsStagedItShouldReportTheBootedOutcomeAcrossRestart(t *tes
 	require.NoError(restarted.Status(context.Background(), status))
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, status.Os.LastDelta.Outcome)
 	observed.Status.Booted = observed.Status.Staged
+	collection, err := restarted.CollectOCITargets(context.Background(), nil, &v1beta1.DeviceSpec{Os: target})
+	require.NoError(err)
+	require.Empty(collection.Targets)
 	require.NoError(restarted.Status(context.Background(), status))
 	require.Equal(testDeltaDigest, status.Os.ImageDigest)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
@@ -277,6 +280,89 @@ func TestWhenAnotherOSIsStagedItShouldReportTheBootedOutcomeAcrossRestart(t *tes
 	observed.Status.Booted.Image.ImageDigest = "sha256:unknown"
 	require.NoError(restarted.Status(context.Background(), status))
 	require.Nil(status.Os.LastDelta)
+}
+
+func TestBootedOSOutcomeAfterRestart(t *testing.T) {
+	tests := []struct {
+		name         string
+		previous     v1beta1.DeviceDeltaApplyStatus
+		verified     bool
+		bootedDigest string
+		expected     *v1beta1.DeviceDeltaApplyStatus
+	}{
+		{
+			name:     "When the same tag boots different content after restart it should not inherit Applied",
+			previous: v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+			verified: true, bootedDigest: testDeltaDigest,
+			expected: &v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+		},
+		{
+			name:     "When the same tag boots different content after restart it should not inherit Fallback",
+			previous: v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, FallbackReason: lo.ToPtr(fallbackReasonApply)},
+			verified: true, bootedDigest: testDeltaDigest,
+			expected: &v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+		},
+		{
+			name:     "When the verified image and digest match after restart it should retain Applied",
+			previous: v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+			verified: true, bootedDigest: testSourceDigest,
+			expected: &v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		},
+		{
+			name:     "When the verified image and digest match after restart it should retain Fallback and its reason",
+			previous: v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, FallbackReason: lo.ToPtr(fallbackReasonApply)},
+			verified: true, bootedDigest: testSourceDigest,
+			expected: &v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, FallbackReason: lo.ToPtr(fallbackReasonApply)},
+		},
+		{
+			name:         "When the saved attempt has no verified identity it should not inherit Applied after restart",
+			previous:     v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+			bootedDigest: testSourceDigest,
+			expected:     &v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+		},
+		{
+			name:     "When the booted digest is unknown after restart it should omit the saved outcome",
+			previous: v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+			verified: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			bootc := NewMockClient(ctrl)
+			observed := bootcStatus(testDesiredImage, tt.bootedDigest)
+			bootc.EXPECT().Status(gomock.Any()).DoAndReturn(func(context.Context) (*Status, error) { return observed, nil }).AnyTimes()
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := deltastatus.New(rw, "/state", logger)
+			targetKey := deltastatus.Fingerprint(testDesiredImage)
+			require.NoError(store.SetOSTarget(targetKey))
+			require.NoError(store.RecordOSResult(targetKey, tt.previous))
+			if tt.verified {
+				require.NoError(store.RecordOSImageResult(targetKey, testDesiredImage, testSourceDigest, tt.previous))
+			}
+
+			for range 2 {
+				restarted := NewManager(logger, bootc, Capabilities{}, rw, nil, nil, nil, nil, 0,
+					WithDeltaStatusStore(deltastatus.New(rw, "/state", logger)))
+				collection, err := restarted.CollectOCITargets(t.Context(), nil, &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage}})
+				require.NoError(err)
+				require.Empty(collection.Targets)
+				status := &v1beta1.DeviceStatus{}
+				require.NoError(restarted.Status(t.Context(), status))
+				require.Equal(tt.expected, status.Os.LastDelta)
+				if tt.verified {
+					observed.Status.Booted.Image.ImageDigest = testSourceDigest
+					require.NoError(restarted.Status(t.Context(), status))
+					require.Equal(&tt.previous, status.Os.LastDelta)
+					observed.Status.Booted.Image.ImageDigest = tt.bootedDigest
+				}
+			}
+		})
+	}
 }
 
 func TestSystemInfoOsMode(t *testing.T) {
