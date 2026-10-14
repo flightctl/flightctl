@@ -38,10 +38,9 @@ const (
 
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
-	ImageDigest string                `json:"ImageDigest"`
-	Restarts    int                   `json:"RestartCount"`
-	State       PodmanContainerState  `json:"State"`
-	Config      PodmanContainerConfig `json:"Config"`
+	Restarts int                   `json:"RestartCount"`
+	State    PodmanContainerState  `json:"State"`
+	Config   PodmanContainerConfig `json:"Config"`
 }
 
 // ContainerState represents the container state part of the podman inspect output
@@ -296,6 +295,26 @@ func (p *Podman) ImageIDAndDigest(ctx context.Context, image string) (string, st
 	return fields[0], fields[1], nil
 }
 
+// ImageMetadata returns the local image ID, content digest, and repository digests.
+func (p *Podman) ImageMetadata(ctx context.Context, image string) (PodmanImageMetadata, error) {
+	return p.imageMetadata(ctx, image, "inspect image metadata", "parse image metadata")
+}
+
+func (p *Podman) imageMetadata(ctx context.Context, image, inspectDescription, parseDescription string) (PodmanImageMetadata, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "image", "inspect", "--format", "{{json .}}", image)
+	if exitCode != 0 {
+		return PodmanImageMetadata{}, fmt.Errorf("%s: %s: %w", inspectDescription, image, deviceerrors.FromStderr(stderr, exitCode))
+	}
+	var metadata PodmanImageMetadata
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &metadata); err != nil {
+		return PodmanImageMetadata{}, fmt.Errorf("%s for %s: %w", parseDescription, image, err)
+	}
+	return metadata, nil
+}
+
 // ImageDigest returns the digest of the specified image.
 // Returns empty string and error if the image does not exist or cannot be inspected.
 func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) {
@@ -314,21 +333,11 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 // ImageDigests returns the content digest and repository digests of the specified image.
 // Repo digests are needed to compare local images with a registry's manifest digest.
 func (p *Podman) ImageDigests(ctx context.Context, image string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
-
-	args := []string{"image", "inspect", "--format", "{{json .}}", image}
-	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
-	if exitCode != 0 {
-		return nil, fmt.Errorf("get image digests: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
+	metadata, err := p.imageMetadata(ctx, image, "get image digests", "parse image digests")
+	if err != nil {
+		return nil, err
 	}
-
-	var inspectResult podmanImageDigestInfo
-	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspectResult); err != nil {
-		return nil, fmt.Errorf("parse image digests for %s: %w", image, err)
-	}
-
-	return appendImageDigests(nil, inspectResult), nil
+	return metadata.Digests(), nil
 }
 
 // ListImageDigests returns the content and repository digests for all images
@@ -355,19 +364,26 @@ func (p *Podman) ListImageDigests(ctx context.Context) ([]string, error) {
 	return digests, nil
 }
 
-type podmanImageDigestInfo struct {
+// PodmanImageMetadata is the digest and runtime identity reported by Podman.
+type PodmanImageMetadata struct {
+	ID          string   `json:"Id"`
 	Digest      string   `json:"Digest"`
 	RepoDigests []string `json:"RepoDigests"`
 }
 
-func decodePodmanImageDigests(output string) ([]podmanImageDigestInfo, error) {
+// Digests returns the content digest and repository digests reported by Podman.
+func (m PodmanImageMetadata) Digests() []string {
+	return appendImageDigests(nil, m)
+}
+
+func decodePodmanImageDigests(output string) ([]PodmanImageMetadata, error) {
 	output = strings.Trim(output, "\r\n")
 	if output == "" {
-		return []podmanImageDigestInfo{}, nil
+		return []PodmanImageMetadata{}, nil
 	}
 
 	lines := strings.Split(output, "\n")
-	imageDigests := make([]podmanImageDigestInfo, 0, len(lines))
+	imageDigests := make([]PodmanImageMetadata, 0, len(lines))
 	for i, line := range lines {
 		line = strings.TrimSuffix(line, "\r")
 		digest, repoDigestsJSON, ok := strings.Cut(line, "\t")
@@ -379,12 +395,12 @@ func decodePodmanImageDigests(output string) ([]podmanImageDigestInfo, error) {
 		if err := json.Unmarshal([]byte(repoDigestsJSON), &repoDigests); err != nil {
 			return nil, fmt.Errorf("parse repository digests on image line %d: %w", i+1, err)
 		}
-		imageDigests = append(imageDigests, podmanImageDigestInfo{Digest: digest, RepoDigests: repoDigests})
+		imageDigests = append(imageDigests, PodmanImageMetadata{Digest: digest, RepoDigests: repoDigests})
 	}
 	return imageDigests, nil
 }
 
-func appendImageDigests(digests []string, inspectResult podmanImageDigestInfo) []string {
+func appendImageDigests(digests []string, inspectResult PodmanImageMetadata) []string {
 	if digest := strings.TrimSpace(inspectResult.Digest); digest != "" {
 		digests = append(digests, digest)
 	}

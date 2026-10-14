@@ -446,10 +446,15 @@ func (s *Store) ObservedApplicationResult(application string, images []Applicati
 		}
 		results[key] = result.Status
 	}
-	return aggregateApplicationResults(results)
+	statuses := make([]v1beta1.DeviceDeltaApplyStatus, 0, len(results))
+	for _, result := range results {
+		statuses = append(statuses, result)
+	}
+	return AggregateApplicationResults(statuses)
 }
 
-func aggregateApplicationResults(results map[string]v1beta1.DeviceDeltaApplyStatus) *v1beta1.DeviceDeltaApplyStatus {
+// AggregateApplicationResults applies the shared precedence and fallback-reason policy.
+func AggregateApplicationResults(results []v1beta1.DeviceDeltaApplyStatus) *v1beta1.DeviceDeltaApplyStatus {
 	var applied, fallback, notUsed, notRequired int
 	var reasons []string
 	for _, result := range results {

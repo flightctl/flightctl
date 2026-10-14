@@ -145,42 +145,101 @@ func TestAddCachedParentImageDigests(t *testing.T) {
 	}
 }
 
-func TestManagerReportsMatchingWorkloadOutcome(t *testing.T) {
+func TestWhenManagerObservesMatchingWorkloadImagesItShouldReportTheirOutcome(t *testing.T) {
+	const (
+		appName = "web"
+		image   = "quay.io/acme/web:latest"
+		digest  = "sha256:old"
+	)
+	testCases := []struct {
+		name            string
+		requiredImages  []string
+		workloads       []Workload
+		providerDigest  string
+		wantImageDigest string
+		wantLastDelta   v1beta1.DeviceDeltaApplyOutcomeType
+	}{
+		{
+			name:            "When every expected image is observed it should report Applied",
+			requiredImages:  []string{image},
+			workloads:       []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image, Digest: digest}}}},
+			wantImageDigest: digest,
+			wantLastDelta:   v1beta1.DeviceDeltaApplyOutcomeApplied,
+		},
+		{
+			name:            "When an expected image is missing it should withhold LastDelta",
+			requiredImages:  []string{image, "quay.io/acme/sidecar:latest"},
+			workloads:       []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image, Digest: digest}}}},
+			wantImageDigest: digest,
+		},
+		{
+			name:           "When a running replica has an unknown digest it should withhold LastDelta",
+			requiredImages: []string{image},
+			workloads: []Workload{
+				{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image, Digest: digest}}},
+				{Name: "unknown-replica", Status: StatusRunning, Images: []WorkloadImage{{Image: image}}},
+			},
+			wantImageDigest: digest,
+		},
+		{
+			name:            "When only the provider digest is known it should not invent an observed digest",
+			requiredImages:  []string{image},
+			workloads:       []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image}}}},
+			providerDigest:  "sha256:desired",
+			wantImageDigest: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			store, _, logger := newApplicationOutcomeStore(t)
+			observed := applicationOutcomeImage(image, digest)
+			targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{observed})
+			recordApplicationOutcome(t, store, appName, targets, observed, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+			manager, _ := newApplicationOutcomeManager(t, appName, [][]deltastatus.ApplicationImage{{observed}}, store, logger)
+			app := manager.podmanMonitor.apps[appName].(*application)
+			app.requiredImages = tc.requiredImages
+			app.workloads = tc.workloads
+			app.imageDigest = tc.providerDigest
+
+			reported := &v1beta1.DeviceStatus{}
+			require.NoError(manager.Status(context.Background(), reported))
+			require.Len(reported.Applications, 1)
+			require.Equal(tc.wantImageDigest, (*reported.Applications[0].ImageDigests)[0].Digest)
+			if tc.wantLastDelta == "" {
+				require.Nil(reported.Applications[0].LastDelta)
+				return
+			}
+			require.NotNil(reported.Applications[0].LastDelta)
+			require.Equal(tc.wantLastDelta, reported.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
+func TestWhenApplicationStatusIsUpdatedItShouldPreserveThePreviousReport(t *testing.T) {
 	require := require.New(t)
-	root := t.TempDir()
-	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
-	logger := log.NewPrefixLogger("test")
-	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
-	image := deltastatus.ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: "sha256:old"}
-	targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
-	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
-	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "target"}}, true))
-	require.NoError(store.RecordApplicationImageResult("web", "spec", targetID, "target", image, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
-	volume, err := provider.NewVolumeManager(logger, "web", v1beta1.AppTypeContainer, "root", nil)
-	require.NoError(err)
-	app := &application{id: "web-id", imageRef: image.Image, requiredImages: []string{image.Image}, imageCollectionComplete: true, volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "web", RunAs: "root", AppType: v1beta1.AppTypeContainer}, workloads: []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image.Image, Digest: image.Digest}}}}}
-	manager := &manager{log: logger, deltaStatusStore: store, ociTargetCache: provider.NewOCITargetCache(), podmanMonitor: &PodmanMonitor{apps: map[string]Application{app.ID(): app}}, kubernetesMonitor: &KubernetesMonitor{monitor: &monitor{apps: map[string]Application{}}}}
+	const (
+		appName = "web"
+		image   = "quay.io/acme/web:latest"
+		digest  = "sha256:old"
+	)
+	store, _, logger := newApplicationOutcomeStore(t)
+	observed := applicationOutcomeImage(image, digest)
+	targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{observed})
+	recordApplicationOutcome(t, store, appName, targets, observed, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+	manager, _ := newApplicationOutcomeManager(t, appName, [][]deltastatus.ApplicationImage{{observed}}, store, logger)
+	app := manager.podmanMonitor.apps[appName].(*application)
 	reported := &v1beta1.DeviceStatus{}
 	require.NoError(manager.Status(context.Background(), reported))
-	require.Equal(image.Digest, (*reported.Applications[0].ImageDigests)[0].Digest)
 	firstReport := reported.Applications[0]
-	require.NotNil(reported.Applications[0].LastDelta)
-	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
-	// A missing expected image must not be inferred from a flattened known set.
-	app.requiredImages = append(app.requiredImages, "quay.io/acme/sidecar:latest")
-	require.NoError(manager.Status(context.Background(), reported))
-	require.Nil(reported.Applications[0].LastDelta)
-	app.requiredImages = app.requiredImages[:1]
-	app.workloads = append(app.workloads, Workload{Name: "unknown-replica", Status: StatusRunning, Images: []WorkloadImage{{Image: image.Image}}})
-	require.NoError(manager.Status(context.Background(), reported))
-	require.Nil(reported.Applications[0].LastDelta)
-	// An installed provider observation must not replace an unknown running image.
-	app.workloads = app.workloads[1:]
+
+	app.workloads = []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image}}}}
 	app.imageDigest = "sha256:desired"
 	require.NoError(manager.Status(context.Background(), reported))
 	require.Nil(reported.Applications[0].LastDelta)
 	require.Empty((*reported.Applications[0].ImageDigests)[0].Digest)
-	require.Equal(image.Digest, (*firstReport.ImageDigests)[0].Digest)
+	require.Equal(digest, (*firstReport.ImageDigests)[0].Digest)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, firstReport.LastDelta.Outcome)
 }
 
@@ -261,6 +320,95 @@ func TestWhenHelmChartReferenceIsPresentItShouldReportWorkloadOutcome(t *testing
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
 }
 
+func TestWhenInlineQuadletWorkloadsAreObservedItShouldReportOnlyCompleteOutcomes(t *testing.T) {
+	const (
+		appName      = "quadlet-web"
+		firstImage   = "quay.io/acme/frontend:latest"
+		secondImage  = "quay.io/acme/backend:latest"
+		firstDigest  = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		secondDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	content := func(path, image string) v1beta1.ApplicationContent {
+		body := "[Container]\nImage=" + image + "\n"
+		return v1beta1.ApplicationContent{Path: path, Content: &body}
+	}
+	for _, tc := range []struct {
+		name      string
+		workloads []Workload
+		want      bool
+	}{
+		{
+			name: "When one of two expected workloads is observed it should withhold LastDelta",
+			workloads: []Workload{{
+				Name: "frontend", Status: StatusRunning,
+				Images: []WorkloadImage{{Image: firstImage, Digest: firstDigest}},
+			}},
+		},
+		{
+			name: "When both expected workloads are observed it should report Applied",
+			workloads: []Workload{
+				{Name: "frontend", Status: StatusRunning, Images: []WorkloadImage{{Image: firstImage, Digest: firstDigest}}},
+				{Name: "backend", Status: StatusRunning, Images: []WorkloadImage{{Image: secondImage, Digest: secondDigest}}},
+			},
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			logger := log.NewPrefixLogger("test")
+			store, _, _ := newApplicationOutcomeStore(t)
+			frontend := applicationOutcomeImage(firstImage, firstDigest)
+			backend := applicationOutcomeImage(secondImage, secondDigest)
+			targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{frontend, backend})
+			recordApplicationOutcome(t, store, appName, targets, frontend, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+			recordApplicationOutcome(t, store, appName, targets, backend, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
+
+			quadlet := v1beta1.QuadletApplication{AppType: v1beta1.AppTypeQuadlet, RunAs: v1beta1.RootUsername}
+			require.NoError(quadlet.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					content("frontend.container", firstImage),
+					content("backend.container", secondImage),
+				},
+			}))
+			volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeQuadlet, v1beta1.RootUsername, nil)
+			require.NoError(err)
+			appSpec := &provider.ApplicationSpec{
+				ID: appName, Name: appName, AppType: v1beta1.AppTypeQuadlet,
+				User: v1beta1.RootUsername, QuadletApp: &quadlet, Volume: volume,
+			}
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			appProvider := provider.NewMockProvider(ctrl)
+			appProvider.EXPECT().ID().Return(appName).AnyTimes()
+			appProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+
+			targetCache := provider.NewOCITargetCache()
+			// Inline applications can have a successful extraction entry with no children.
+			targetCache.Set(provider.CacheEntry{Name: appName})
+			manager := &manager{
+				log: logger, deltaStatusStore: store, ociTargetCache: targetCache,
+				podmanMonitor:     &PodmanMonitor{apps: make(map[string]Application)},
+				kubernetesMonitor: &KubernetesMonitor{monitor: &monitor{apps: make(map[string]Application)}},
+			}
+			app := manager.newAppFromProvider(appProvider)
+			for _, workload := range tc.workloads {
+				app.AddWorkload(&workload)
+			}
+			manager.podmanMonitor.apps[app.ID()] = app
+
+			reported := &v1beta1.DeviceStatus{}
+			require.NoError(manager.Status(context.Background(), reported))
+			require.Len(reported.Applications, 1)
+			if !tc.want {
+				require.Nil(reported.Applications[0].LastDelta)
+				return
+			}
+			require.NotNil(reported.Applications[0].LastDelta)
+			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
 func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(t *testing.T) {
 	require := require.New(t)
 	const (
@@ -330,7 +478,7 @@ func TestWhenInlineComposeHasTwoServiceImagesItShouldRequireBothObservedImages(t
 		wantOutcome      bool
 	}{
 		{
-			name: "all service images observed",
+			name: "When all service images are observed it should report Applied",
 			observedWorkload: []Workload{
 				{Name: "frontend", Status: StatusRunning, Images: []WorkloadImage{{Image: frontendImage, Digest: frontendDigest}}},
 				{Name: "backend", Status: StatusRunning, Images: []WorkloadImage{{Image: backendImage, Digest: backendDigest}}},
@@ -338,7 +486,7 @@ func TestWhenInlineComposeHasTwoServiceImagesItShouldRequireBothObservedImages(t
 			wantOutcome: true,
 		},
 		{
-			name: "one service image missing",
+			name: "When one service image is missing it should withhold LastDelta",
 			observedWorkload: []Workload{
 				{Name: "frontend", Status: StatusRunning, Images: []WorkloadImage{{Image: frontendImage, Digest: frontendDigest}}},
 			},

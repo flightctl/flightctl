@@ -1007,7 +1007,12 @@ func TestPullSecretCleanup(t *testing.T) {
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
 	// simulate successful pull completion
-	manager.setResult(imageRef{image: "registry.example.com/app:latest", ociType: OCITypePodmanImage}, nil)
+	target := imageRef{image: "registry.example.com/app:latest", ociType: OCITypePodmanImage}
+	manager.mu.Lock()
+	task := manager.tasks[target]
+	manager.mu.Unlock()
+	require.NotNil(task)
+	manager.setResult(target, nil, task)
 
 	// verify the manager is now ready
 	require.True(manager.IsReady(ctx))
@@ -1278,14 +1283,15 @@ func TestSetResultAfterCleanup(t *testing.T) {
 		ociType: OCITypePodmanImage,
 		done:    false,
 	}
+	task := pm.tasks[testImage]
 
 	pm.Cleanup()
 
 	require.Empty(pm.tasks)
-	pm.setResult(testImage, nil)
+	pm.setResult(testImage, nil, task)
 	// ensure still empty
 	require.Empty(pm.tasks)
-	pm.setResult(testImage, fmt.Errorf("test error"))
+	pm.setResult(testImage, fmt.Errorf("test error"), task)
 	// ensure still empty
 	require.Empty(pm.tasks)
 }

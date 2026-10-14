@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -111,7 +112,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 	}
 }
 
-func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestTogether(t *testing.T) {
+func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestOnce(t *testing.T) {
 	require := require.New(t)
 	const (
 		appName = "web"
@@ -134,13 +135,11 @@ func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestTogether(t 
 
 	firstExists := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
 	secondExists := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
-	localDigests := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
-		Return(`{"Digest":"`+digest+`"}`, "", 0)
+	localMetadata := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
+		Return(fmt.Sprintf(`{"Id":%q,"Digest":%q,"RepoDigests":[%q]}`, imageID, digest, "quay.io/acme/web@"+digest), "", 0)
 	remoteDigest := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).
 		Return(digest, "", 0)
-	identityAndDigest := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}} {{.Digest}}", image).
-		Return(imageID+" "+digest, "", 0)
-	gomock.InOrder(firstExists, secondExists, localDigests, remoteDigest, identityAndDigest)
+	gomock.InOrder(firstExists, secondExists, localMetadata, remoteDigest)
 
 	name := appName
 	app := v1beta1.ContainerApplication{Name: &name, AppType: v1beta1.AppTypeContainer}

@@ -140,6 +140,11 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 		app.requiredImages = append(app.requiredImages, images...)
 		app.imageCollectionComplete = complete
 	}
+	if spec.AppType == v1beta1.AppTypeQuadlet && spec.Image == "" {
+		images, complete := inlineQuadletImageReferences(spec.QuadletApp)
+		app.requiredImages = append(app.requiredImages, images...)
+		app.imageCollectionComplete = complete
+	}
 	return app
 }
 
@@ -160,6 +165,21 @@ func inlineComposeWorkloadImages(composeApp *v1beta1.ComposeApplication) ([]stri
 		if service.Image != "" {
 			images = append(images, service.Image)
 		}
+	}
+	return images, true
+}
+
+func inlineQuadletImageReferences(quadletApp *v1beta1.QuadletApplication) ([]string, bool) {
+	if quadletApp == nil {
+		return nil, false
+	}
+	inline, err := quadletApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, false
+	}
+	images, err := appspec.ParseQuadletImageReferencesFromSpec(inline.Inline)
+	if err != nil {
+		return nil, false
 	}
 	return images, true
 }
