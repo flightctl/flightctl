@@ -89,7 +89,7 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-The agent caches image-backed volume digests across unchanged reconciliations and status reports. Installing, updating, or removing an application invalidates the cache before provider changes and after runtime actions, including failed actions. Changed volume references are inspected independently, and references no longer reported are removed from the cache. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report. Volume inspection runs without holding the cache lock, allowing application updates to proceed. If an update invalidates the cache during inspection, that inspection does not repopulate the cache.
+For each application status report, the agent inspects available installed image-backed volumes and builds the delta snapshot from their observed runtime identities. Podman image volumes are checked against their immutable image ID and digest labels; artifact volumes are matched to their recorded creation time and artifact binding. Missing or inconsistent identities make the snapshot incomplete. Status reporting does not resolve a mutable image reference in place of observing the volume.
 
 ## Update Policy
 
@@ -135,7 +135,7 @@ When the desired OS image is already booted, the agent preserves a saved outcome
 
 After restart, the agent restores verified OS image history and starts a fresh update attempt. Outcomes saved only against an image reference are not reused for newly staged content, including cached images and full-image fetches.
 
-If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.
+When digest validation confirms that an application image tag now refers to different content, the agent clears the result for the active prefetch attempt before preparing that content. It retains the verified result for the old digest while workloads still use that content. If the image is absent after restart, its source digest can confirm the tag change. An unavailable digest inspection does not invalidate saved history.
 
 Application outcomes retain per-image associations with a verified registry digest, storage owner, reference, and OCI target type. Status combines matching recorded outcomes from the complete observed workload image set, including old and new versions during a rollout. Shared images reuse their recorded outcome. Preparing a new desired image preserves history for content still running, including across restart.
 
