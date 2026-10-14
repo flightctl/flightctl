@@ -163,7 +163,9 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 // polling. It LEFT JOINs dependency_refs with sync_states so that refs
 // without a sync state row (never polled) are included, filters out
 // parameterized revisions, applies the poll-interval time gate, and groups
-// by (repository_name, revision) with array_agg for fan-out targets.
+// by (repository_name, revision) with array_agg for fan-out targets. Rendered
+// fingerprints are read from device service conditions so the first probe can
+// detect a remote change that happened after the device rendered its dependency.
 func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error) {
 	var probes []model.GitDependencyProbe
 	err := s.getDB(ctx).
@@ -171,10 +173,13 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 		Select(
 			"dr.repository_name, dr.revision, ss.fingerprint, r.spec AS repo_spec, "+
 				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
-				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names",
+				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names, "+
+				"array_agg(DISTINCT rendered_ref->>'fingerprint') FILTER (WHERE rendered_ref->>'fingerprint' IS NOT NULL AND rendered_ref->>'fingerprint' <> '') AS rendered_fingerprints",
 		).
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Joins("LEFT JOIN repositories r ON r.org_id = dr.org_id AND r.name = dr.repository_name").
+		Joins("LEFT JOIN devices d ON d.org_id = dr.org_id AND d.name = dr.device_name AND dr.device_name <> '' AND d.deleted_at IS NULL").
+		Joins("LEFT JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref ON rendered_ref->>'configProviderName' = dr.config_provider_name").
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").

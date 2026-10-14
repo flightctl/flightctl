@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -30,6 +31,7 @@ var _ = Describe("DependencyRefStore", func() {
 		ctx                context.Context
 		orgId              uuid.UUID
 		dependencyRefStore dependencyrefstore.Store
+		deviceStore        devicestore.Store
 		repositoryStore    repositorystore.Store
 		syncStateStore     syncstatestore.Store
 		organizationStore  organizationstore.Store
@@ -45,6 +47,7 @@ var _ = Describe("DependencyRefStore", func() {
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
 		dependencyRefStore = dependencyrefstore.NewDependencyRefStore(db, log.WithField("pkg", "dependencyref-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 		syncStateStore = syncstatestore.NewSyncStateStore(db, log.WithField("pkg", "syncstate-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
@@ -544,6 +547,57 @@ var _ = Describe("DependencyRefStore", func() {
 			probes, err := dependencyRefStore.ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(probes).To(BeEmpty())
+		})
+	})
+
+	Context("When listing due Git dependencies", func() {
+		It("should include the matching fingerprint rendered by a device", func() {
+			repoName := "git-repo-1"
+			spec := domain.RepositorySpec{}
+			Expect(spec.FromGitRepoSpec(domain.GitRepoSpec{
+				Url:  "https://example.com/repository.git",
+				Type: domain.GitRepoSpecTypeGit,
+			})).To(Succeed())
+			_, err := repositoryStore.Create(ctx, orgId, &domain.Repository{
+				ApiVersion: "v1beta1",
+				Kind:       domain.RepositoryKind,
+				Metadata:   domain.ObjectMeta{Name: lo.ToPtr(repoName)},
+				Spec:       spec,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			oldFingerprint := "old-commit"
+			otherFingerprint := "unrelated-fingerprint"
+			deviceStatus := domain.DeviceStatus{
+				DependencySync: &domain.DependencySyncStatus{ConfigRefs: &[]domain.DependencySyncConfigRefStatus{
+					{ConfigProviderName: "git-config", Fingerprint: &oldFingerprint},
+					{ConfigProviderName: "other-config", Fingerprint: &otherFingerprint},
+				}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-x")},
+				Status:   &deviceStatus,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(dependencyRefStore.Upsert(ctx, orgId, &model.DependencyRef{
+				OrgID:              orgId,
+				ResourceKey:        "git:" + repoName + "/main",
+				FleetName:          lo.ToPtr("fleet-a"),
+				DeviceName:         lo.ToPtr("device-x"),
+				RefType:            "git",
+				RepositoryName:     lo.ToPtr(repoName),
+				Revision:           lo.ToPtr("main"),
+				ConfigProviderName: "git-config",
+			})).To(Succeed())
+
+			probes, err := dependencyRefStore.ListDueGitDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].RepositoryName).To(Equal(repoName))
+			Expect(probes[0].Revision).To(Equal("main"))
+			Expect(probes[0].DeviceNames).To(ContainElement("device-x"))
+			Expect(probes[0].RenderedFingerprints).To(ConsistOf("old-commit"))
 		})
 	})
 

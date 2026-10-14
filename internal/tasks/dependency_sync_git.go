@@ -180,6 +180,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		// A failed initial probe creates a state row without observing a SHA.
 		if p.Fingerprint == nil || *p.Fingerprint == "" {
 			r.firstSeen = true
+			r.changed = renderedDependencyChanged(p.RenderedFingerprints, newSHA)
 		} else if newSHA != *p.Fingerprint {
 			r.changed = true
 		}
@@ -187,6 +188,19 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		results = append(results, r)
 	}
 	return results
+}
+
+// renderedDependencyChanged reports whether a dependency already rendered on
+// any target differs from the SHA observed by the first successful probe. An
+// empty list means the target has not rendered the dependency yet, so the
+// initial observation remains a no-op.
+func renderedDependencyChanged(renderedFingerprints model.StringArray, newSHA string) bool {
+	for _, fingerprint := range renderedFingerprints {
+		if fingerprint != "" && fingerprint != newSHA {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcile emits events for changed probes, then updates sync states.

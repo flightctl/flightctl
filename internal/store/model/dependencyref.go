@@ -86,12 +86,13 @@ type SecretDependencyRef struct {
 // RepoSpec carries the repository's JSONB spec so callers can extract the
 // URL and auth without a separate GetRepository round-trip.
 type GitDependencyProbe struct {
-	RepositoryName string
-	Revision       string
-	Fingerprint    *string
-	FleetNames     StringArray
-	DeviceNames    StringArray
-	RepoSpec       *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
+	RepositoryName       string
+	Revision             string
+	Fingerprint          *string
+	FleetNames           StringArray
+	DeviceNames          StringArray
+	RenderedFingerprints StringArray
+	RepoSpec             *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
 }
 
 // HttpDependencyProbe is the result of ListDueHttpDependencies — one row per
