@@ -184,7 +184,7 @@ var _ = Describe("Agent immediate alert status push", func() {
 
 	Context("when the agent runs with a long periodic status push interval", func() {
 		It("When a critical disk resource alert fires it should push the device status immediately and keep the periodic sync running",
-			Label("agent", "alert-status-push", "slow", "sanity"), func() {
+			Label("agent", "alert-status-push", "slow"), func() {
 				artifactDir, err := harness.SetupScenario(deviceID, alertPushCriticalScenario)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(artifactDir).ToNot(BeEmpty())
@@ -269,7 +269,7 @@ var _ = Describe("Agent immediate alert status push", func() {
 			})
 
 		It("When only a warning disk resource alert fires it should not push status until the next periodic sync",
-			Label("agent", "alert-status-push", "negative", "slow", "sanity"), func() {
+			Label("agent", "alert-status-push", "negative", "slow"), func() {
 				artifactDir, err := harness.SetupScenario(deviceID, alertPushWarningScenario)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(artifactDir).ToNot(BeEmpty())
