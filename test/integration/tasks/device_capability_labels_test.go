@@ -147,7 +147,7 @@ var _ = Describe("Device capability feature labels", func() {
 		var value interface{} = info
 		_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, name, domain.PatchRequest{
 			{Op: "replace", Path: "/status/systemInfo", Value: &value},
-		})
+		}, false)
 		Expect(status.Code).To(Equal(int32(200)), status.Message)
 	}
 

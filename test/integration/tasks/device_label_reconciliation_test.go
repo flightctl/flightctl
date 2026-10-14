@@ -173,7 +173,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 
 	patchArchitecture := func(name, architecture string) domain.Status {
 		patch := systemInfoPatch(architecture)
-		_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, name, patch)
+		_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, name, patch, false)
 		return status
 	}
 
@@ -255,11 +255,11 @@ var _ = Describe("Device label reconciliation worker", func() {
 
 		var spoofedLabels interface{} = map[string]string{"architecture": "arm64", "site": "east"}
 		spoofPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &spoofedLabels}}
-		_, spoofStatus := deviceSvc.PatchDeviceStatus(ctx, orgID, name, spoofPatch)
+		_, spoofStatus := deviceSvc.PatchDeviceStatus(ctx, orgID, name, spoofPatch, false)
 		Expect(spoofStatus.Code).To(Equal(int32(400)))
 		var spoofedOwner interface{} = "Fleet/attacker"
 		spoofOwnerPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/owner", Value: &spoofedOwner}}
-		_, spoofOwnerStatus := deviceSvc.PatchDeviceStatus(ctx, orgID, name, spoofOwnerPatch)
+		_, spoofOwnerStatus := deviceSvc.PatchDeviceStatus(ctx, orgID, name, spoofOwnerPatch, false)
 		Expect(spoofOwnerStatus.Code).To(Equal(int32(400)))
 
 		service := newLabelSyncMappingService(mustNewEvaluator())
@@ -397,7 +397,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		statusDone := make(chan domain.Status, 1)
 		statusPatch := systemInfoPatch("arm64")
 		go func() {
-			_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, name, statusPatch)
+			_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, name, statusPatch, false)
 			statusDone <- status
 		}()
 		select {
