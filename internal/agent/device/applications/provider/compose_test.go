@@ -686,6 +686,42 @@ func TestComposeEnsureDependencies(t *testing.T) {
 	}
 }
 
+func TestWhenArtifactDigestIsObservedItShouldExtractOriginalReference(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const (
+		imageRef = "quay.io/acme/compose-bundle:v1"
+		digest   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	volumes, err := NewVolumeManager(logger, "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+	require.NoError(err)
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 1)
+	gomock.InOrder(
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return("{}", "", 0),
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return(`{"Digest":"`+digest+`"}`, "", 0),
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", imageRef, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, args ...string) (string, string, int) {
+				require.NoError(rw.WriteFile(filepath.Join(args[len(args)-1], "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
+				return "", "", 0
+			}),
+	)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
+	spec := &ApplicationSpec{Name: "app", ID: "app-id", Path: "/installed-app", Image: imageRef, Volume: volumes}
+	compose := &composeProvider{imageRef: imageRef, spec: spec, readWriter: rw, log: logger,
+		podman: client.NewPodman(logger, exec, rw, util.NewPollConfig())}
+	require.NoError(compose.Install(t.Context()))
+	require.Equal(digest, spec.ImageDigest)
+	require.Equal(string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
+	contents, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
+	require.NoError(err)
+	require.Equal("services: {}\n", string(contents))
+}
+
 func TestWhenArtifactDigestInspectionFailsItShouldStillInstallParentContents(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
