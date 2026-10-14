@@ -85,6 +85,33 @@ func detectOCIType(ctx context.Context, podman *client.Podman, imageRef string) 
 	return "", fmt.Errorf("OCI reference %s not found locally - cannot determine type", imageRef)
 }
 
+// availableOCIParent keeps cache identity in the same immutable representation
+// used by extraction. Registry digest evidence is optional for usable contents.
+func availableOCIParent(ctx context.Context, podman *client.Podman, logger *log.PrefixLogger, reference string) (string, string, bool, error) {
+	if podman.ImageExists(ctx, reference) {
+		imageID, err := podman.ImageID(ctx, reference)
+		if err != nil {
+			logger.Warnf("Cannot inspect local parent identity for %s: %v", reference, err)
+			return reference, "", true, nil
+		}
+		value, err := podman.ImageDigest(ctx, imageID)
+		if err != nil {
+			logger.Warnf("Cannot inspect parent digest for %s; delta evidence will be withheld: %v", reference, err)
+			value = ""
+		}
+		return reference, value, true, nil
+	}
+	if podman.ArtifactExists(ctx, reference) {
+		value, err := podman.ArtifactDigest(ctx, reference)
+		if err != nil {
+			logger.Warnf("Cannot inspect parent artifact digest for %s; delta evidence will be withheld: %v", reference, err)
+			value = ""
+		}
+		return reference, value, true, nil
+	}
+	return reference, "", false, nil
+}
+
 // extractAndProcessArtifact extracts an artifact and handles tar/tar.gz files.
 func extractAndProcessArtifact(ctx context.Context, podman *client.Podman, log *log.PrefixLogger, artifact, destination string, writer fileio.ReadWriter) error {
 	tmpDir, err := writer.MkdirTemp("artifact_extract")
@@ -160,7 +187,7 @@ func extractOCIContentsToPathWithIdentity(ctx context.Context, podman *client.Po
 	if ociType == dependency.OCITypePodmanArtifact {
 		immutableReference, observedDigest, err := podman.ImmutableArtifactReference(ctx, imageRef)
 		if err != nil {
-			return "", "", fmt.Errorf("inspecting artifact identity: %w", err)
+			logger.Warnf("Cannot observe parent artifact digest for %s; delta evidence will be withheld: %v", imageRef, err)
 		}
 		if err := extractAndProcessArtifact(ctx, podman, logger, immutableReference, path, rw); err != nil {
 			clean()
@@ -174,10 +201,11 @@ func extractOCIContentsToPathWithIdentity(ctx context.Context, podman *client.Po
 		}
 		observedDigest, err := podman.ImageDigest(ctx, imageID)
 		if err != nil {
-			return "", "", fmt.Errorf("inspecting immutable image digest: %w", err)
-		}
-		if _, err := digest.Parse(observedDigest); err != nil {
-			return "", "", fmt.Errorf("image digest %q is invalid: %w", observedDigest, err)
+			logger.Warnf("Cannot observe parent image digest for %s; delta evidence will be withheld: %v", imageRef, err)
+			observedDigest = ""
+		} else if _, err := digest.Parse(observedDigest); err != nil {
+			logger.Warnf("Cannot verify parent image digest for %s; delta evidence will be withheld: %v", imageRef, err)
+			observedDigest = ""
 		}
 		if err := podman.CopyContainerData(ctx, imageID, path); err != nil {
 			clean()
@@ -198,8 +226,8 @@ func installOCIParentContents(
 	imageRef, path string,
 	appData *AppData,
 ) (string, dependency.OCIType, error) {
-	if appData != nil && appData.TmpPath != "" && appData.ParentReference == imageRef && appData.ParentDigest != "" && appData.ParentOCIType != "" {
-		if _, err := digest.Parse(appData.ParentDigest); err == nil {
+	if appData != nil && appData.TmpPath != "" && appData.ParentReference == imageRef && appData.ParentOCIType != "" {
+		if _, err := digest.Parse(appData.ParentDigest); appData.ParentDigest == "" || err == nil {
 			if err := rw.CopyDir(appData.TmpPath, path); err != nil {
 				if rmErr := rw.RemoveAll(path); rmErr != nil {
 					logger.Warnf("Failed to cleanup incomplete parent copy at %q: %v", path, rmErr)
@@ -211,6 +239,25 @@ func installOCIParentContents(
 		}
 	}
 	return extractOCIContentsToPathWithIdentity(ctx, podman, logger, rw, imageRef, path)
+}
+
+// resolveImageMountVolumes classifies auto-detected mount sources in their
+// owning local store before lifecycle preparation and status collection.
+func resolveImageMountVolumes(ctx context.Context, podman *client.Podman, volumes VolumeManager, logger *log.PrefixLogger) {
+	if volumes == nil {
+		return
+	}
+	for _, volume := range volumes.List() {
+		if volume.OCIType != string(dependency.OCITypeAuto) {
+			continue
+		}
+		ociType, err := detectOCIType(ctx, podman, volume.Reference)
+		if err != nil {
+			logger.Warnf("Cannot determine image-mount volume type for %s: %v", volume.Name, err)
+			continue
+		}
+		volume.OCIType = string(ociType)
+	}
 }
 
 // bindQuadletImageVolumes pins executable image volumes to the local immutable

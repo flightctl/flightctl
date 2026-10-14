@@ -951,8 +951,8 @@ func TestManagerWithholdsArtifactVolumeDigestWhenBindingChangesDuringInspection(
 	targets := map[string]string{workloadTargetID: "workload-target", volumeTargetID: "volume-target"}
 	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: targets}, true))
 	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
-	require.NoError(t, store.RecordApplicationImageResultForLifetime(application, currentLifetime, "spec", workloadTargetID, targets[workloadTargetID], workload, outcome))
-	require.NoError(t, store.RecordApplicationImageResultForLifetime(application, currentLifetime, "spec", volumeTargetID, targets[volumeTargetID], volumeBefore, outcome))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(deltastatus.ApplicationAttempt{Application: application, Lifetime: currentLifetime, SpecKey: "spec", TargetID: workloadTargetID, TargetKey: targets[workloadTargetID]}, workload, outcome))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(deltastatus.ApplicationAttempt{Application: application, Lifetime: currentLifetime, SpecKey: "spec", TargetID: volumeTargetID, TargetKey: targets[volumeTargetID]}, volumeBefore, outcome))
 	require.NoError(t, store.RecordApplicationVolumeImage(application, currentLifetime, volumeID, createdAt, volumeBefore))
 
 	inspection := client.PodmanVolumeInspect{Name: volumeID, Driver: "local", CreatedAt: createdAt}
@@ -1014,8 +1014,8 @@ func recordApplicationImageOutcomes(
 	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: targets}, true))
 	for _, image := range images {
 		targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
-		require.NoError(t, store.RecordApplicationImageResultForLifetime(
-			application, lifetime, specKey, targetID, targets[targetID], image,
+		require.NoError(t, store.RecordApplicationImageResultForAttempt(
+			deltastatus.ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: specKey, TargetID: targetID, TargetKey: targets[targetID]}, image,
 			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 		))
 	}

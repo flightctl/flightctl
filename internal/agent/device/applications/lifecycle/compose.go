@@ -249,61 +249,10 @@ func (c *Compose) ensurePodmanVolume(
 	podman *client.Podman,
 	writer fileio.Writer,
 ) error {
-	name := volume.ID
-	imageRef := volume.Reference
-	var artifactDigest string
-	var digestErr error
-	immutableReference := imageRef
-	canRecordIdentity := c.deltaStore != nil && action.Name != "" && action.Lifetime != ""
-	if canRecordIdentity {
-		immutableReference, artifactDigest, digestErr = podman.ImmutableArtifactReference(ctx, imageRef)
-		if digestErr != nil {
-			c.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", name, digestErr)
-		}
-	}
-	if c.deltaStore != nil {
-		if err := c.deltaStore.ClearApplicationVolumeImage(action.Name, action.Lifetime, name); err != nil {
-			return fmt.Errorf("clear old volume identity %w: %w", errors.WithElement(name), err)
-		}
-	}
-	var volumePath string
-	var err error
-	if podman.VolumeExists(ctx, name) {
-		c.log.Tracef("Volume %q already exists, updating contents", name)
-		inspection, err := podman.InspectVolume(ctx, name)
-		if err != nil {
-			return fmt.Errorf("inspect volume identity %w: %w", errors.WithElement(name), err)
-		}
-		if inspection.Driver != "local" {
-			return fmt.Errorf("volume %w has driver %q, expected local artifact volume", errors.WithElement(name), inspection.Driver)
-		}
-		volumePath, err = podman.InspectVolumeMount(ctx, name)
-		if err != nil {
-			return fmt.Errorf("inspect volume %w: %w", errors.WithElement(name), err)
-		}
-		if err := writer.RemoveContents(volumePath); err != nil {
-			return fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
-		}
-		if _, err := podman.ExtractArtifact(ctx, immutableReference, volumePath); err != nil {
-			return fmt.Errorf("extract artifact for volume %w: %w", errors.WithElement(name), err)
-		}
-	} else {
-		c.log.Infof("Creating volume %q from image %q", name, imageRef)
-		volumePath, err = podman.CreateVolume(ctx, name, labels)
-		if err != nil {
-			return fmt.Errorf("creating volume %w: %w", errors.WithElement(name), err)
-		}
-		if _, err := podman.ExtractArtifact(ctx, immutableReference, volumePath); err != nil {
-			return fmt.Errorf("copy image contents for volume %w: %w", errors.WithElement(name), err)
-		}
-	}
-	if canRecordIdentity && digestErr == nil && artifactDigest != "" {
-		if err := recordArtifactVolumeImage(ctx, c.log, c.deltaStore, *action, volume, podman, artifactDigest); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	preparer := artifactVolumePreparer{log: c.log, deltaStore: c.deltaStore}
+	_, err := preparer.ensureArtifactVolume(ctx, *action, volume, podman, writer, labels,
+		c.deltaStore != nil && action.Name != "" && action.Lifetime != "")
+	return err
 }
 
 // ComposeVolumeName generates a unique Compose-compatible volume name

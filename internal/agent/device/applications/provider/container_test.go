@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -152,4 +153,37 @@ func TestContainerEnsureDependencies(t *testing.T) {
 			require.NoError(err)
 		})
 	}
+}
+
+func TestWhenAnImageMountContainsAnArtifactItShouldUseArtifactVolumePreparation(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const artifact = "quay.io/acme/data:v1"
+	var volume v1beta1.ApplicationVolume
+	volume.Name = "data"
+	require.NoError(volume.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{Reference: artifact}, Mount: v1beta1.VolumeMount{Path: "/data"},
+	}))
+	app := v1beta1.ContainerApplication{Name: lo.ToPtr("app"), AppType: v1beta1.AppTypeContainer, Volumes: &[]v1beta1.ApplicationVolume{volume}}
+	require.NoError(app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/acme/web:v1"}))
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromContainerApplication(app))
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", artifact).Return("", "", 1).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", artifact).Return("{}", "", 0).AnyTimes()
+	podman := client.NewPodman(logger, exec, rw, testutil.NewPollConfig())
+	providers, err := FromDeviceSpec(t.Context(), logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, nil,
+		func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil },
+		&v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{appSpec}})
+	require.NoError(err)
+	require.Len(providers, 1)
+	require.NoError(providers[0].Install(t.Context()))
+	volumes := providers[0].Spec().Volume.List()
+	require.Len(volumes, 1)
+	require.Equal(string(dependency.OCITypePodmanArtifact), volumes[0].OCIType)
 }

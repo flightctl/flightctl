@@ -127,7 +127,7 @@ The refresh attaches the resolved target digest to the original repository name.
 
 For OS updates, the agent reuses a desired image that is already booted or cached without verifying its digest against the registry. Only an image that needs fetching enters delta discovery or full-image prefetch. Without a usable delta, prefetch uses `PullIfNotPresent` before bootc stages the desired image. A failed required pull stops staging.
 
-Top-level Compose artifacts use full artifact handling and report `NotUsed`, or `NotRequired` when already present. A supplied image-delta hint is ignored for artifacts: an already-present artifact reports `NotRequired`, while a missing one reports `Fallback` and is pulled. Nested workload images remain eligible for deltas. Application results report `Partial` when an `Applied` target accompanies a `NotUsed` or `Fallback` target; `NotRequired` targets remain neutral. Multiple fallback reasons use the lexically first reason.
+Top-level Compose bundles and Helm chart packages use regular preparation, ignore image-delta hints, and contribute neutral `NotRequired`. They do not participate in the workload delta snapshot. Nested workload images remain eligible for deltas. A hinted Quadlet parent artifact reports `Fallback` with a reason before following its regular artifact pull policy. Application results report `Partial` when an `Applied` target accompanies a `NotUsed` or `Fallback` target; `NotRequired` targets remain neutral. Multiple fallback reasons use the lexically first reason.
 
 Image digests remain separate from `lastDelta`, which contains only the delta outcome and optional fallback reason.
 

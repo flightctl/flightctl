@@ -1588,3 +1588,53 @@ func TestQueueLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestWhenDeltaLifetimePersistenceFailsItShouldStillInstallApplications(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		update bool
+	}{
+		{name: "When lifetime persistence fails during Ensure it should install the application"},
+		{name: "When lifetime persistence fails during Update it should install the application", update: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			stateRW := fileio.NewMockReadWriter(ctrl)
+			stateRW.EXPECT().ReadFile(gomock.Any()).Return(nil, os.ErrNotExist)
+			stateRW.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			stateRW.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("state directory is read only")).AnyTimes()
+			store := deltastatus.New(stateRW, "/state", logger)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			binDir := t.TempDir()
+			for _, name := range []string{"podman", "podman-compose", "skopeo"} {
+				require.NoError(os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o600))
+				require.NoError(os.Chmod(filepath.Join(binDir, name), 0o700))
+			}
+			t.Setenv("PATH", binDir)
+			podman := client.NewPodman(logger, executer.NewMockExecuter(ctrl), rw, testutil.NewPollConfig())
+			podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
+			rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+			desired := newTestDeviceWithApplications(t, "app", []testInlineDetails{{Content: compose1, Path: "podman-compose.yaml"}})
+			providers, err := provider.FromDeviceSpec(t.Context(), logger, podmanFactory, nil, rwFactory, desired)
+			require.NoError(err)
+			require.Len(providers, 1)
+			clients := client.NewCLIClients()
+			manager := &manager{log: logger, deltaStatusStore: store,
+				podmanMonitor:     NewPodmanMonitor(logger, podmanFactory, nil, time.Now().Format(time.RFC3339), rwFactory),
+				kubernetesMonitor: NewKubernetesMonitor(logger, clients, rwFactory, nil)}
+			if tc.update {
+				require.NoError(manager.Update(t.Context(), providers[0]))
+			} else {
+				require.NoError(manager.Ensure(t.Context(), providers[0]))
+			}
+			exists, err := rw.PathExists(filepath.Join(providers[0].Spec().Path, "podman-compose.yaml"))
+			require.NoError(err)
+			require.True(exists)
+			require.Empty(providers[0].Spec().Lifetime, "unpersisted identity must not be used as evidence")
+		})
+	}
+}

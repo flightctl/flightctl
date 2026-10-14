@@ -280,6 +280,7 @@ func (p *quadletProvider) writeInlineContent(appPath string) error {
 }
 
 func (p *quadletProvider) Install(ctx context.Context) error {
+	resolveImageMountVolumes(ctx, p.podman, p.spec.Volume, p.log)
 	if p.isImageBased() {
 		p.spec.ImageDigest = ""
 		p.spec.ImageOCIType = ""
@@ -389,7 +390,7 @@ func (p *quadletProvider) extractNestedTargets(ctx context.Context, configProvid
 		return &AppData{}, nil
 	}
 
-	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeQuadlet, p.spec.User, configProvider)
+	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.log, p.spec.Name, p.imageRef, v1beta1.AppTypeQuadlet, p.spec.User, configProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -401,23 +402,7 @@ func (p *quadletProvider) parentIsAvailable(ctx context.Context) (string, string
 		return "", "", true, nil
 	}
 
-	if p.podman.ImageExists(ctx, p.imageRef) {
-		digest, err := p.podman.ImageDigest(ctx, p.imageRef)
-		if err != nil {
-			return "", "", false, fmt.Errorf("getting image digest: %w", err)
-		}
-		return p.imageRef, digest, true, nil
-	}
-
-	if p.podman.ArtifactExists(ctx, p.imageRef) {
-		digest, err := p.podman.ArtifactDigest(ctx, p.imageRef)
-		if err != nil {
-			return "", "", false, fmt.Errorf("getting artifact digest: %w", err)
-		}
-		return p.imageRef, digest, true, nil
-	}
-
-	return p.imageRef, "", false, nil
+	return availableOCIParent(ctx, p.podman, p.log, p.imageRef)
 }
 
 type quadletInstaller struct {

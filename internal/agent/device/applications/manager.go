@@ -189,22 +189,21 @@ func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
 	}
 }
 
-func (m *manager) attachApplicationLifetime(p provider.Provider) error {
+func (m *manager) attachApplicationLifetime(p provider.Provider) {
 	if m.deltaStatusStore == nil || p == nil || p.Spec() == nil {
-		return nil
+		return
 	}
+	p.Spec().Lifetime = ""
 	lifetime, err := m.deltaStatusStore.EnsureApplicationLifetime(p.Spec().Name)
 	if err != nil {
-		return fmt.Errorf("ensuring application lifetime %w: %w", errors.WithElement(p.Spec().Name), err)
+		m.log.Warnf("Cannot persist application lifetime for %s; delta evidence will be withheld: %v", p.Spec().Name, err)
+		return
 	}
 	p.Spec().Lifetime = lifetime
-	return nil
 }
 
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
-	if err := m.attachApplicationLifetime(provider); err != nil {
-		return err
-	}
+	m.attachApplicationLifetime(provider)
 	if err := m.validateProviderDeps(ctx, provider); err != nil {
 		return err
 	}
@@ -242,8 +241,8 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 }
 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
-	if err := m.attachApplicationLifetime(provider); err != nil {
-		m.log.Warnf("Failed to attach application lifetime before removing %s: %v", provider.Name(), err)
+	if m.deltaStatusStore != nil {
+		provider.Spec().Lifetime = m.deltaStatusStore.ApplicationLifetime(provider.Spec().Name)
 	}
 	if err := provider.Remove(ctx); err != nil {
 		return fmt.Errorf("%w %w: %w", errors.ErrRemovingApplication, errors.WithElement(provider.Name()), err)
@@ -274,9 +273,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 }
 
 func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
-	if err := m.attachApplicationLifetime(provider); err != nil {
-		return err
-	}
+	m.attachApplicationLifetime(provider)
 	if err := m.validateProviderDeps(ctx, provider); err != nil {
 		return err
 	}
@@ -470,14 +467,7 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 			podman, found := podmanClients[owner]
 			if !found {
 				var err error
-				if m.podmanFactory == nil {
-					err = fmt.Errorf("podman factory is not configured")
-				} else {
-					podman, err = m.podmanFactory(owner)
-				}
-				if err == nil && podman == nil {
-					err = fmt.Errorf("podman factory returned nil client")
-				}
+				podman, err = m.volumePodmanClient(owner)
 				podmanClients[owner] = podman
 				clientErrors[owner] = err
 			}
@@ -539,6 +529,17 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 			addStatusImageDigest(&result.Status, image.Image, image.Digest)
 		}
 	}
+}
+
+func (m *manager) volumePodmanClient(owner v1beta1.Username) (*client.Podman, error) {
+	if m.podmanFactory == nil {
+		return nil, fmt.Errorf("podman factory is not configured")
+	}
+	podman, err := m.podmanFactory(owner)
+	if err == nil && podman == nil {
+		return nil, fmt.Errorf("podman factory returned nil client")
+	}
+	return podman, err
 }
 
 type imageVolumeObservationKey struct {

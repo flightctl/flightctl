@@ -142,7 +142,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			keys := map[string]map[string]string{"helm-app": {id: key}}
 			require.NoError(store.ReconcileApplicationSpecs(specKeys))
 			lifetime := store.ApplicationLifetime("helm-app")
-			task.applicationLifetimes = map[string]string{"helm-app": lifetime}
+			task.applicationAttempts = map[string]deltastatus.ApplicationAttempt{"helm-app": {Application: "helm-app", Lifetime: lifetime, SpecKey: "unchanged-spec", TargetID: id, TargetKey: key}}
 			require.NoError(store.ReconcileApplicationTargets(keys, true))
 			manager := &prefetchManager{
 				log: logger, readWriter: rw, pullTimeout: time.Minute,

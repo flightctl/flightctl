@@ -276,41 +276,53 @@ func TestComposeInstallKeepsTheCollectedParentArtifactIdentity(t *testing.T) {
 		imageRef       = "quay.io/acme/compose-bundle:v1"
 		artifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	root := t.TempDir()
-	rw := fileio.NewReadWriter(
-		fileio.NewReader(fileio.WithReaderRootDir(root)),
-		fileio.NewWriter(fileio.WithWriterRootDir(root)),
-	)
-	const (
-		extractedPath = "/extracted-parent"
-		installedPath = "/installed-app"
-	)
-	require.NoError(t, rw.MkdirAll(extractedPath, fileio.DefaultDirectoryPermissions))
-	require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
-	volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
-	require.NoError(t, err)
+	for _, tc := range []struct{ name, digest string }{
+		{name: "When retained parent contents have a verified digest it should keep that identity", digest: artifactDigest},
+		{name: "When retained parent contents have no digest it should install without identity evidence"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+			)
+			const (
+				extractedPath = "/extracted-parent"
+				installedPath = "/installed-app"
+			)
+			require.NoError(t, rw.MkdirAll(extractedPath, fileio.DefaultDirectoryPermissions))
+			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
+			volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+			require.NoError(t, err)
 
-	spec := &ApplicationSpec{
-		Name: "app", ID: "app-id", Path: installedPath, Image: imageRef,
-		Volume: volumeManager, ImageDigest: "stale-digest", ImageOCIType: "stale-type",
-	}
-	compose := &composeProvider{
-		imageRef:   imageRef,
-		spec:       spec,
-		readWriter: rw,
-		log:        log.NewPrefixLogger("test"),
-		AppData: &AppData{
-			TmpPath: extractedPath, ParentReference: imageRef, ParentDigest: artifactDigest,
-			ParentOCIType: dependency.OCITypePodmanArtifact,
-		},
-	}
+			spec := &ApplicationSpec{
+				Name: "app", ID: "app-id", Path: installedPath, Image: imageRef,
+				Volume: volumeManager, ImageDigest: "stale-digest", ImageOCIType: "stale-type",
+			}
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			podman := client.NewPodman(log.NewPrefixLogger("test"), executer.NewMockExecuter(ctrl), rw, util.NewPollConfig())
+			compose := &composeProvider{
+				podman:     podman,
+				imageRef:   imageRef,
+				spec:       spec,
+				readWriter: rw,
+				log:        log.NewPrefixLogger("test"),
+				AppData: &AppData{
+					TmpPath: extractedPath, ParentReference: imageRef, ParentDigest: tc.digest,
+					ParentOCIType: dependency.OCITypePodmanArtifact,
+				},
+			}
 
-	require.NoError(t, compose.Install(context.Background()))
-	require.Equal(t, artifactDigest, spec.ImageDigest)
-	require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
-	installed, err := rw.ReadFile(filepath.Join(installedPath, "compose.yaml"))
-	require.NoError(t, err)
-	require.Equal(t, "services: {}\n", string(installed))
+			require.NoError(t, compose.Install(context.Background()))
+			require.Equal(t, tc.digest, spec.ImageDigest)
+			require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
+			installed, err := rw.ReadFile(filepath.Join(installedPath, "compose.yaml"))
+			require.NoError(t, err)
+			require.Equal(t, "services: {}\n", string(installed))
+
+		})
+	}
 }
 
 func TestWhenCollectedParentExtractionIsMissingItShouldExtractFromTheImageAgain(t *testing.T) {
@@ -319,42 +331,50 @@ func TestWhenCollectedParentExtractionIsMissingItShouldExtractFromTheImageAgain(
 		imageID     = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	root := t.TempDir()
-	rw := fileio.NewReadWriter(
-		fileio.NewReader(fileio.WithReaderRootDir(root)),
-		fileio.NewWriter(fileio.WithWriterRootDir(root)),
-	)
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "mount"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "mount", "compose.yaml"), []byte("services: {}\n"), 0o600))
-	volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
-	require.NoError(t, err)
-	spec := &ApplicationSpec{
-		Name: "app", ID: "app-id", Path: "/installed-app", Image: imageRef,
-		Volume: volumeManager,
-	}
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	mockExec := executer.NewMockExecuter(ctrl)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", imageRef).Return(imageID, "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(digestValue, "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", imageID).Return("/mount", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", imageID).Return("", "", 0)
-	podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, util.NewPollConfig())
-	compose := &composeProvider{
-		imageRef: imageRef, spec: spec, readWriter: rw, podman: podman,
-		log: log.NewPrefixLogger("test"),
-		AppData: &AppData{
-			TmpPath: "/missing-collected-parent", ParentReference: imageRef,
-			ParentDigest: digestValue, ParentOCIType: dependency.OCITypePodmanImage,
-		},
-	}
+	for _, tc := range []struct{ name, digest, expectedDigest string }{
+		{name: "When the retained extraction is missing it should extract the verified image", digest: digestValue, expectedDigest: digestValue},
+		{name: "When a local parent has no registry digest it should still install its contents"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+			)
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "mount"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "mount", "compose.yaml"), []byte("services: {}\n"), 0o600))
+			volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+			require.NoError(t, err)
+			spec := &ApplicationSpec{
+				Name: "app", ID: "app-id", Path: "/installed-app", Image: imageRef,
+				Volume: volumeManager,
+			}
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", imageRef).Return(imageID, "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(tc.digest, "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", imageID).Return("/mount", "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", imageID).Return("", "", 0)
+			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, util.NewPollConfig())
+			compose := &composeProvider{
+				imageRef: imageRef, spec: spec, readWriter: rw, podman: podman,
+				log: log.NewPrefixLogger("test"),
+				AppData: &AppData{
+					TmpPath: "/missing-collected-parent", ParentReference: imageRef,
+					ParentDigest: digestValue, ParentOCIType: dependency.OCITypePodmanImage,
+				},
+			}
 
-	require.NoError(t, compose.Install(context.Background()))
-	require.Equal(t, digestValue, spec.ImageDigest)
-	installed, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
-	require.NoError(t, err)
-	require.Equal(t, "services: {}\n", string(installed))
+			require.NoError(t, compose.Install(context.Background()))
+			require.Equal(t, tc.expectedDigest, spec.ImageDigest)
+			installed, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
+			require.NoError(t, err)
+			require.Equal(t, "services: {}\n", string(installed))
+
+		})
+	}
 }
 
 func TestComposeInlineProvider(t *testing.T) {
@@ -645,4 +665,37 @@ func TestComposeEnsureDependencies(t *testing.T) {
 			require.NoError(err)
 		})
 	}
+}
+
+func TestWhenArtifactDigestInspectionFailsItShouldStillInstallParentContents(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const imageRef = "quay.io/acme/compose-bundle:v1"
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	volumes, err := NewVolumeManager(logger, "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+	require.NoError(err)
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 1)
+	gomock.InOrder(
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return("{}", "", 0),
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return("", "digest inspection unavailable", 1),
+	)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", imageRef, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, args ...string) (string, string, int) {
+			require.NoError(rw.WriteFile(filepath.Join(args[len(args)-1], "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
+			return "", "", 0
+		})
+	spec := &ApplicationSpec{Name: "app", ID: "app-id", Path: "/installed-app", Image: imageRef, Volume: volumes}
+	compose := &composeProvider{imageRef: imageRef, spec: spec, readWriter: rw, log: logger,
+		podman: client.NewPodman(logger, exec, rw, util.NewPollConfig())}
+	require.NoError(compose.Install(t.Context()))
+	require.Empty(spec.ImageDigest)
+	require.Equal(string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
+	contents, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
+	require.NoError(err)
+	require.Equal("services: {}\n", string(contents))
 }

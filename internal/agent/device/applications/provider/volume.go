@@ -89,7 +89,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 				return nil, err
 			}
 			image = &provider.Image
-			ociType = dependency.OCITypePodmanImage
+			ociType = dependency.OCITypeAuto
 		case v1beta1.MountApplicationVolumeProviderType:
 			// nothing to manage
 			continue

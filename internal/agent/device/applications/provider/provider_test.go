@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -290,7 +293,7 @@ func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testi
 
 	got := decorateApplicationTargets([]dependency.OCIPullTarget{chart}, &parentHint, nil, "helm-app")
 
-	require.Nil(t, got[0].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{Application: "helm-app", Package: true}, got[0].Delta)
 
 	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const workloadHint = "quay.io/acme/deltas/workload@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -307,7 +310,7 @@ func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testi
 		"helm-app",
 	)
 
-	require.Nil(t, got[0].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{Application: "helm-app", Package: true}, got[0].Delta)
 	require.Equal(t, &dependency.OCIDeltaTarget{Hint: workloadHint, SourceDigest: digest, Application: "helm-app"}, got[1].Delta)
 	require.Equal(t, &dependency.OCIDeltaTarget{SourceDigest: otherDigest, Application: "helm-app"}, got[2].Delta)
 }
@@ -1140,4 +1143,76 @@ func helmAppWithLifecycle(t *testing.T, name, namespace, image string, desiredSt
 	var roundTripped v1beta1.HelmApplication
 	require.NoError(json.Unmarshal(raw, &roundTripped))
 	return roundTripped
+}
+
+func TestWhenParentDigestIsUnknownItShouldCollectNestedWorkloads(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		inspectionExit    int
+		digest            string
+		reuseAfterCleanup bool
+	}{
+		{name: "When registry digest metadata is empty it should still collect workloads"},
+		{name: "When registry digest inspection fails it should still collect workloads", inspectionExit: 1},
+		{name: "When parent contents are unchanged after cleanup it should reuse the collected workload targets", digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", reuseAfterCleanup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			binDir := t.TempDir()
+			for _, name := range []string{"podman", "podman-compose", "skopeo"} {
+				require.NoError(os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o600))
+				require.NoError(os.Chmod(filepath.Join(binDir, name), 0o700))
+			}
+			t.Setenv("PATH", binDir)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			require.NoError(rw.MkdirAll("/mounted-parent", fileio.DefaultDirectoryPermissions))
+			require.NoError(rw.WriteFile("/mounted-parent/docker-compose.yaml", []byte("services:\n  web:\n    image: quay.io/acme/web:v1\n"), fileio.DefaultFilePermissions))
+			const parent = "quay.io/acme/bundle:v1"
+			const imageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+			checks := 2
+			if tc.reuseAfterCleanup {
+				checks++
+			}
+			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", parent).Return("", "", 0).Times(checks)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", parent).Return(imageID, "", 0).Times(checks)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(tc.digest, "", tc.inspectionExit).Times(checks)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", imageID).Return("/mounted-parent", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", imageID).Return("", "", 0)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, exec, rw, poll.Config{})
+			app := v1beta1.ComposeApplication{Name: lo.ToPtr("app"), AppType: v1beta1.AppTypeCompose}
+			require.NoError(app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: parent}))
+			var appSpec v1beta1.ApplicationProviderSpec
+			require.NoError(appSpec.FromComposeApplication(app))
+			cache := NewOCITargetCache()
+			collect := func() (*dependency.OCICollection, error) {
+				return CollectOCITargets(t.Context(), logger,
+					func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, client.NewCLIClients(),
+					func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil },
+					&v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{appSpec}}, WithOCICache(cache), WithAppData(NewAppDataCache()))
+			}
+			collection, err := collect()
+			if tc.reuseAfterCleanup {
+				require.NoError(err)
+				collection, err = collect()
+			}
+			require.NoError(err)
+			require.False(collection.Requeue)
+			var targets []dependency.OCIPullTarget
+			for _, values := range collection.Targets {
+				targets = append(targets, values...)
+			}
+			require.Len(targets, 2)
+			require.Equal(parent, targets[0].Reference)
+			require.True(targets[0].Delta.Package)
+			require.Empty(targets[0].Delta.Hint)
+			require.Equal("quay.io/acme/web:v1", targets[1].Reference)
+			require.False(targets[1].Delta.Package)
+
+		})
+	}
 }

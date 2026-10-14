@@ -320,7 +320,7 @@ func TestPresentApplicationImageIsReusedWithoutFollowingMutableTag(t *testing.T)
 			require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
 			lifetime := store.ApplicationLifetime(application)
 			require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, true))
-			task.applicationLifetimes = map[string]string{application: lifetime}
+			task.applicationAttempts = map[string]deltastatus.ApplicationAttempt{application: {Application: application, Lifetime: lifetime, SpecKey: "spec", TargetID: targetID, TargetKey: targetKey}}
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
 				Return(fmt.Sprintf(`{"Id":"immutable-config","Digest":%q}`, digest), "", 0)
 			manager := &prefetchManager{
@@ -412,7 +412,7 @@ func TestOCIArtifactWithDeltaHintFallsBackToFullArtifactPull(t *testing.T) {
 				ociType:              OCITypePodmanArtifact,
 				targetDigest:         "sha256:target",
 				applicationTargetKey: targetKey,
-				applicationLifetimes: map[string]string{application: lifetime},
+				applicationAttempts:  map[string]deltastatus.ApplicationAttempt{application: {Application: application, Lifetime: lifetime, SpecKey: specKey, TargetID: targetID, TargetKey: targetKey}},
 				delta:                &OCIDeltaTarget{Hint: hint, Application: application},
 				deltaGeneration:      1,
 			}
@@ -1819,7 +1819,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 				criImages = ""
 			}
 			if tt.reused {
-				m.tasks[target] = &prefetchTask{ociType: ociType, applicationTargetKey: targetKey, applicationLifetimes: map[string]string{"app": lifetime}, done: true, deltaGeneration: 0, resolvedDigest: oldDigest}
+				m.tasks[target] = &prefetchTask{ociType: ociType, applicationTargetKey: targetKey, applicationAttempts: m.applicationAttemptsLocked(target, targetKey, delta), done: true, deltaGeneration: 0, resolvedDigest: oldDigest}
 				existsCalls = 1
 			}
 			if ociType == OCITypeCRIImage {
@@ -1914,7 +1914,7 @@ func TestSuccessfulPullRecordsImmutableWorkloadDigest(t *testing.T) {
 	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
 	lifetime := store.ApplicationLifetime("web")
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
-	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationLifetimes: map[string]string{"web": lifetime}}
+	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationAttempts: map[string]deltastatus.ApplicationAttempt{"web": {Application: "web", Lifetime: lifetime, SpecKey: "spec", TargetID: target.targetID(), TargetKey: targetKey}}}
 	manager := &prefetchManager{log: logger, tasks: map[imageRef]*prefetchTask{target: task}, deltaStatusStore: store, deltaAppSpecKeys: map[string]string{"web": "spec"}, deltaAppLifetimes: map[string]string{"web": lifetime}, deltaAppTargetKeys: map[string]map[string]string{"web": {target.targetID(): targetKey}}}
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", target.image).Return("sha256:immutable-config", "", 0)
@@ -1992,7 +1992,7 @@ func TestWhenPullCompletesForAReusedTaskItShouldNotInheritTheNewGeneration(t *te
 	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
 	lifetime := store.ApplicationLifetime("web")
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): "old-target"}}, true))
-	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: "old-target", applicationLifetimes: map[string]string{"web": lifetime}}
+	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: "old-target", applicationAttempts: map[string]deltastatus.ApplicationAttempt{"web": {Application: "web", Lifetime: lifetime, SpecKey: "spec", TargetID: target.targetID(), TargetKey: "old-target"}}}
 	manager := &prefetchManager{log: logger, tasks: map[imageRef]*prefetchTask{target: task}, deltaStatusStore: store, deltaAppSpecKeys: map[string]string{"web": "spec"}, deltaAppLifetimes: map[string]string{"web": lifetime}, deltaAppTargetKeys: map[string]map[string]string{"web": {target.targetID(): "old-target"}}}
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", target.image).DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
@@ -2034,7 +2034,7 @@ func TestWhenCRIPullFindsLocalImagesItShouldRecordOnlyVerifiedPlatform(t *testin
 			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
 			lifetime := store.ApplicationLifetime("web")
 			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
-			task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationLifetimes: map[string]string{"web": lifetime}}
+			task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationAttempts: map[string]deltastatus.ApplicationAttempt{"web": {Application: "web", Lifetime: lifetime, SpecKey: "spec", TargetID: target.targetID(), TargetKey: targetKey}}}
 			cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
 			manager := &prefetchManager{log: logger, tasks: map[imageRef]*prefetchTask{target: task}, cliClients: client.NewCLIClients(client.WithCRIClient(cri)), skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil }, deltaStatusStore: store, deltaAppSpecKeys: map[string]string{"web": "spec"}, deltaAppLifetimes: map[string]string{"web": lifetime}, deltaAppTargetKeys: map[string]map[string]string{"web": {target.targetID(): targetKey}}}
@@ -2079,7 +2079,7 @@ func TestWhenCRITagMovesAfterPullItShouldRecordThePulledImage(t *testing.T) {
 	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
 	lifetime := store.ApplicationLifetime("web")
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {target.targetID(): targetKey}}, true))
-	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationLifetimes: map[string]string{"web": lifetime}}
+	task := &prefetchTask{ociType: target.ociType, delta: &OCIDeltaTarget{Application: "web"}, applicationTargetKey: targetKey, applicationAttempts: map[string]deltastatus.ApplicationAttempt{"web": {Application: "web", Lifetime: lifetime, SpecKey: "spec", TargetID: target.targetID(), TargetKey: targetKey}}}
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
 	manager := &prefetchManager{

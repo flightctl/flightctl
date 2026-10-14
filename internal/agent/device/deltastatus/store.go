@@ -19,9 +19,10 @@ import (
 
 const (
 	// FileName is the dedicated on-disk state file for agent-reported delta outcomes.
-	FileName                 = "delta-status.json"
-	fileMode     fs.FileMode = 0o600
-	stateVersion             = 4
+	FileName             = "delta-status.json"
+	fileMode fs.FileMode = 0o600
+	// Version 4 adds lifetime-bound volume provenance; versions 1–3 are migrated on load.
+	stateVersion = 4
 )
 
 // Store persists the most recent delta results independently of status delivery.
@@ -570,42 +571,57 @@ type ApplicationResult struct {
 	Status    v1beta1.DeviceDeltaApplyStatus
 }
 
+// ApplicationAttempt captures the immutable scheduling identity of one target.
+// Completion and invalidation use the same token so obsolete work is ignored.
+type ApplicationAttempt struct {
+	Application string
+	Lifetime    string
+	SpecKey     string
+	TargetID    string
+	TargetKey   string
+}
+
+func (a ApplicationAttempt) matches(current *applicationState) bool {
+	return current != nil && a.Lifetime != "" && a.SpecKey != "" && a.TargetID != "" && a.TargetKey != "" &&
+		current.Lifetime == a.Lifetime && current.SpecKey == a.SpecKey && current.Targets[a.TargetID] == a.TargetKey
+}
+
 // RecordApplicationResult durably records one image result. Results for an
 // image target that has since changed are ignored.
 func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKey string, result v1beta1.DeviceDeltaApplyStatus) error {
-	return s.RecordApplicationResultForLifetime(application, s.ApplicationLifetime(application), specKey, targetID, targetKey, result)
+	return s.RecordApplicationResultForAttempt(ApplicationAttempt{Application: application, Lifetime: s.ApplicationLifetime(application), SpecKey: specKey, TargetID: targetID, TargetKey: targetKey}, result)
 }
 
-// RecordApplicationResultForLifetime durably records a scheduling result only
+// RecordApplicationResultForAttempt durably records a scheduling result only
 // when both the desired attempt and application lifetime are still current.
-func (s *Store) RecordApplicationResultForLifetime(application, lifetime, specKey, targetID, targetKey string, result v1beta1.DeviceDeltaApplyStatus) error {
+func (s *Store) RecordApplicationResultForAttempt(attempt ApplicationAttempt, result v1beta1.DeviceDeltaApplyStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	current := s.state.Applications[application]
-	if lifetime == "" || specKey == "" || targetID == "" || targetKey == "" || current == nil || current.Lifetime != lifetime || current.SpecKey != specKey || current.Targets[targetID] != targetKey {
+	current := s.state.Applications[attempt.Application]
+	if !attempt.matches(current) {
 		return nil
 	}
 	if current.Results == nil {
 		current.Results = make(map[string]applicationImageResult)
 	}
-	current.Results[targetID] = applicationImageResult{TargetKey: targetKey, Status: cloneStatus(result)}
+	current.Results[attempt.TargetID] = applicationImageResult{TargetKey: attempt.TargetKey, Status: cloneStatus(result)}
 	return s.saveLocked()
 }
 
 // RecordApplicationImageResult persists verified history only for an active attempt.
 // Legacy attempt-only results remain useful for scheduling, never for publication.
 func (s *Store) RecordApplicationImageResult(application, specKey, targetID, targetKey string, image ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) error {
-	return s.RecordApplicationImageResultForLifetime(application, s.ApplicationLifetime(application), specKey, targetID, targetKey, image, result)
+	return s.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: s.ApplicationLifetime(application), SpecKey: specKey, TargetID: targetID, TargetKey: targetKey}, image, result)
 }
 
-// RecordApplicationImageResultForLifetime records digest-associated history only
+// RecordApplicationImageResultForAttempt records digest-associated history only
 // for the application lifetime and desired attempt that initiated the work.
-func (s *Store) RecordApplicationImageResultForLifetime(application, lifetime, specKey, targetID, targetKey string, image ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) error {
+func (s *Store) RecordApplicationImageResultForAttempt(attempt ApplicationAttempt, image ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current := s.state.Applications[application]
-	if current == nil || lifetime == "" || current.Lifetime != lifetime || specKey == "" || current.SpecKey != specKey || targetID == "" || targetKey == "" || current.Targets[targetID] != targetKey || image.Image == "" || image.Owner == "" || image.Digest == "" || image.OCIType == "" {
+	current := s.state.Applications[attempt.Application]
+	if !attempt.matches(current) || image.Image == "" || image.Owner == "" || image.Digest == "" || image.OCIType == "" {
 		return nil
 	}
 	if current.History == nil {
@@ -619,7 +635,7 @@ func (s *Store) RecordApplicationImageResultForLifetime(application, lifetime, s
 		}
 		return nil
 	}
-	current.History[key] = applicationObservedResult{Image: image, TargetKey: targetKey, Status: cloneStatus(result), Pending: true}
+	current.History[key] = applicationObservedResult{Image: image, TargetKey: attempt.TargetKey, Status: cloneStatus(result), Pending: true}
 	return s.saveLocked()
 }
 
@@ -760,7 +776,7 @@ func pruneApplicationHistory(current *applicationState) bool {
 		protected[key] = struct{}{}
 	}
 	for key, result := range current.History {
-		if _, active := activeTargetKeys[result.TargetKey]; active {
+		if _, active := activeTargetKeys[result.TargetKey]; active && result.Pending {
 			protected[key] = struct{}{}
 		}
 	}
@@ -917,22 +933,22 @@ func AggregateApplicationResults(results []v1beta1.DeviceDeltaApplyStatus) *v1be
 // ClearApplicationResult invalidates an outcome when the active target's content changes.
 // Invalidations for superseded specs or targets are ignored.
 func (s *Store) ClearApplicationResult(application, specKey, targetID, targetKey string) error {
-	return s.ClearApplicationResultForLifetime(application, s.ApplicationLifetime(application), specKey, targetID, targetKey)
+	return s.ClearApplicationResultForAttempt(ApplicationAttempt{Application: application, Lifetime: s.ApplicationLifetime(application), SpecKey: specKey, TargetID: targetID, TargetKey: targetKey})
 }
 
-// ClearApplicationResultForLifetime ignores invalidations from an obsolete
+// ClearApplicationResultForAttempt ignores invalidations from an obsolete
 // application lifetime as well as from superseded desired targets.
-func (s *Store) ClearApplicationResultForLifetime(application, lifetime, specKey, targetID, targetKey string) error {
+func (s *Store) ClearApplicationResultForAttempt(attempt ApplicationAttempt) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current := s.state.Applications[application]
-	if current == nil || lifetime == "" || current.Lifetime != lifetime || specKey == "" || current.SpecKey != specKey || targetKey == "" || current.Targets[targetID] != targetKey {
+	current := s.state.Applications[attempt.Application]
+	if !attempt.matches(current) {
 		return s.saveIfDirtyLocked()
 	}
-	if _, exists := current.Results[targetID]; !exists {
+	if _, exists := current.Results[attempt.TargetID]; !exists {
 		return s.saveIfDirtyLocked()
 	}
-	delete(current.Results, targetID)
+	delete(current.Results, attempt.TargetID)
 	return s.saveLocked()
 }
 
