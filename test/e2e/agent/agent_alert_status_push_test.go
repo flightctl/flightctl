@@ -1,8 +1,8 @@
 package agent_test
 
 import (
+	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,9 +45,17 @@ const (
 	// half the interval still to spare.
 	alertPushQuietWindow = "20s"
 
-	// alertPushPeriodicWindow bounds the wait for the next periodic status push,
-	// which is due within one interval of the preceding observation.
-	alertPushPeriodicWindow = "2m"
+	// alertPushPeriodicWindow bounds the wait for a status change that only
+	// the periodic sync can deliver. A wait anchored on a push the spec has
+	// just observed is due the next periodic push within one
+	// alertPushStatusInterval of that observation; the one wait that starts
+	// from an unobserved phase — the first warning delivery in the warning
+	// spec — can additionally sit a full sampling and firing latency behind.
+	// Ninety seconds, one and a half intervals, covers both with margin to
+	// spare while still failing a periodic sync that runs at half again its
+	// configured rate. The two minute window this replaces could not tell a
+	// one minute sync from a two minute one.
+	alertPushPeriodicWindow = "90s"
 
 	// alertPushPinPolling is the poll interval used while waiting for a periodic
 	// status push. The harness' one second poll is short because the specs use
@@ -68,22 +76,27 @@ const (
 	// seconds into the fill and far inside every observation window below.
 	alertPushAlertDuration = "3s"
 
-	// alertPushThreshold is the disk usage percentage above which the alert
-	// fires. The monitor compares the share of used blocks on the filesystem
-	// holding alertPushDiskPath with a strict greater-than. Thirty percent is
-	// deliberately well clear of both ends: a threshold near zero would fire
-	// the moment the monitor starts and be indistinguishable from a periodic
-	// push, while a threshold near the top would need the test to fill most of
-	// the device. The device is expected to start below it; prepare asserts
-	// that rather than assuming it.
-	alertPushThreshold = 30
+	// alertPushWarningThreshold is the disk usage percentage above which the
+	// warning-severity rule fires. The monitor compares the share of used
+	// blocks on the filesystem holding alertPushDiskPath with a strict
+	// greater-than. The thresholds are deliberately well clear of both ends of
+	// the scale: a threshold near zero would fire the moment the monitor starts
+	// and be indistinguishable from a periodic push, while a threshold near the
+	// top would need the test to fill most of the device.
+	alertPushWarningThreshold = 30
 
-	// alertPushHeadroom is the margin, in usage percentage points, kept on each
-	// side of the threshold. The base fill brings the device to
-	// alertPushThreshold-alertPushHeadroom so the baseline sits clearly below
-	// the rule, and the trigger fill takes it to
-	// alertPushThreshold+alertPushHeadroom so a single sample cannot land back
-	// on the quiet side and reset the firing window.
+	// alertPushCriticalThreshold is the disk usage percentage above which the
+	// critical-severity rule fires, one band above the warning threshold. The
+	// critical spec's monitor carries both rules and its base fill parks the
+	// device in the band between them: above the warning rule so it fires
+	// without triggering an immediate push, below the critical one so the
+	// critical alert only fires when the trigger fill crosses it.
+	alertPushCriticalThreshold = 40
+
+	// alertPushHeadroom is the margin, in usage percentage points, kept on
+	// each side of every threshold. The base fills stop short of their band
+	// edge and the trigger fills overshoot their threshold, so a single sample
+	// cannot land back on the quiet side and reset the firing window.
 	alertPushHeadroom = 5
 
 	// alertPushDiskPath is the directory the disk monitor watches and the
@@ -95,10 +108,13 @@ const (
 	alertPushDiskPath = "/var/tmp"
 
 	// alertPushBaseFill holds the bulk of the garbage written to the device. It
-	// is written once during preparation and stops short of the threshold, so
-	// the slow part of filling the disk happens before any timed observation.
-	// A device that already sits at or above that target needs no base fill,
-	// in which case the file is never created and nothing below depends on it.
+	// is written once during preparation and stops short of the threshold the
+	// spec's trigger fill later crosses, so the slow part of filling the disk
+	// happens before any timed observation. The critical spec parks the device
+	// in the warning band between the two thresholds; the warning spec stops
+	// below the warning threshold. A device that already sits at or above that
+	// target needs no base fill, in which case the file is never created and
+	// nothing below depends on it.
 	alertPushBaseFill = "/var/tmp/flightctl-e2e-disk-fill.base"
 
 	// alertPushTriggerFill is the small top-up that actually crosses the
@@ -149,17 +165,25 @@ var _ = Describe("Agent immediate alert status push", func() {
 	})
 
 	AfterEach(func() {
-		// The worker harness keeps one enrolled device for the whole suite, so
-		// the alert rules and the garbage files outlive the spec that created
-		// them unless they are taken back off here.
-		Expect(removeDiskFill(harness, alertPushFillFiles...)).To(Succeed())
-		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, setDeviceResourceMonitors())).To(Succeed())
-		Expect(harness.SetAgentConfig(cfgBak)).To(Succeed())
-		Expect(restartFlightctlAgentAndWait(harness)).To(Succeed())
+		// The suite reverts the pool VM to its pristine snapshot and deletes
+		// the enrolled device after every spec, so nothing here can outlive
+		// this spec. The cleanup still runs so a failure surfaces in this
+		// spec's output rather than being masked by the pool revert, and every
+		// step is attempted even when an earlier one fails.
+		cleanupErrs := []error{
+			harness.RemoveVMFiles(alertPushFillFiles...),
+		}
+		if cfgBak != nil {
+			cleanupErrs = append(cleanupErrs,
+				harness.SetAgentConfig(cfgBak),
+				restartFlightctlAgentAndWait(harness),
+			)
+		}
+		Expect(errors.Join(cleanupErrs...)).To(Succeed())
 	})
 
 	Context("when the agent runs with a long periodic status push interval", func() {
-		It("When a critical disk resource alert fires it should push the device status immediately and keep the full status sync running",
+		It("When a critical disk resource alert fires it should push the device status immediately and keep the periodic sync running",
 			Label("agent", "alert-status-push", "slow"), func() {
 				artifactDir, err := harness.SetupScenario(deviceID, alertPushCriticalScenario)
 				Expect(err).ToNot(HaveOccurred())
@@ -167,21 +191,25 @@ var _ = Describe("Agent immediate alert status push", func() {
 
 				Expect(prepareAlertStatusPushDevice(harness, deviceID, v1beta1.ResourceAlertSeverityTypeCritical)).To(Succeed())
 
-				// Reaching the new rendered version already required a status push
-				// from the restarted agent, so this is a guard on the content of
-				// that push rather than a wait for one to happen.
-				By("verifying the settled baseline before triggering the alert")
+				// The base fill parks the device in the warning band, and a
+				// warning transition never triggers an immediate push, so the
+				// warning state the service reports was delivered by the
+				// periodic sync. Reaching the new rendered version during
+				// prepare already required a status push from the restarted
+				// agent, so this is a guard on the content of the settled
+				// state rather than a wait for a push to happen.
+				By("verifying the settled warning baseline before triggering the critical alert")
 				Eventually(alertStatusSnapshotFunc(harness, deviceID), TIMEOUT, LONGPOLLING).
 					Should(SatisfyAll(
-						haveDiskAlertStatus(v1beta1.DeviceResourceStatusHealthy, v1beta1.DeviceSummaryStatusOnline, ""),
+						haveDiskAlertStatus(v1beta1.DeviceResourceStatusWarning, v1beta1.DeviceSummaryStatusDegraded, servicecommon.DiskIsWarning),
 						haveHealthyCpuAndMemory(),
-					), "device should report a healthy baseline before the alert fires")
+					), "device should report the warning baseline before the critical alert fires")
 
-				By(fmt.Sprintf("filling the disk above %d%% so the critical alert transitions to firing", alertPushThreshold))
-				written, err := fillDiskAboveThreshold(harness, artifactDir)
+				By(fmt.Sprintf("filling the disk above %d%% so the critical alert transitions to firing", alertPushCriticalThreshold))
+				written, err := fillDiskAboveThreshold(harness, artifactDir, v1beta1.ResourceAlertSeverityTypeCritical)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(written).To(BeNumerically(">", 0),
-					"trigger fill should have written garbage to cross the alert threshold")
+					"trigger fill should have written garbage to cross the critical alert threshold")
 
 				By("verifying the service reports the critical resource status within seconds")
 				Eventually(alertStatusSnapshotFunc(harness, deviceID), alertPushImmediateWindow, LONGPOLLING).
@@ -192,36 +220,50 @@ var _ = Describe("Agent immediate alert status push", func() {
 						haveHealthyCpuAndMemory(),
 					), "critical alert should update device status well before the next periodic sync")
 
-				By("verifying the full status sync keeps running and carries the alert state")
-				// The alert-driven push is a patch over the resource fields only,
-				// so it cannot carry a rendered version. Waiting for the device to
-				// report a new one therefore waits for a complete status update
-				// performed after the alert push.
-				diskMonitor, err := diskResourceMonitor(v1beta1.ResourceAlertSeverityTypeCritical)
-				Expect(err).ToNot(HaveOccurred())
-				memoryMonitor, err := idleMemoryResourceMonitor()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(harness.UpdateDeviceAndWaitForVersion(deviceID,
-					setDeviceResourceMonitors(diskMonitor, memoryMonitor))).To(Succeed())
+				By("removing the trigger fill so the critical alert resolves")
+				Expect(harness.RemoveVMFiles(alertPushTriggerFill)).To(Succeed())
+
+				// A resolving critical alert is still a critical-severity edge,
+				// so it is pushed immediately like the firing edge. The state
+				// it leaves behind is the warning the base fill holds in place,
+				// which is also the state the next step has to observe before
+				// it can remove the base fill: dropping both fills at once
+				// would resolve both alerts in one step and the immediate
+				// critical push would carry the healthy state, leaving nothing
+				// for the periodic sync to deliver.
+				By("verifying the service reports the resolved critical resource status within seconds")
+				Eventually(alertStatusSnapshotFunc(harness, deviceID), alertPushImmediateWindow, LONGPOLLING).
+					Should(SatisfyAll(
+						haveDiskAlertStatus(v1beta1.DeviceResourceStatusWarning, v1beta1.DeviceSummaryStatusDegraded, servicecommon.DiskIsWarning),
+						haveHealthyCpuAndMemory(),
+					), "a resolving critical alert should update device status well before the next periodic sync")
+
+				By("removing the base fill so the warning alert resolves")
+				// A warning transition never triggers an immediate push and no
+				// spec change is pending, so the cleared warning can only
+				// reach the service on the next periodic status sync. This is
+				// the observation that fails if the alert-driven push path
+				// breaks the periodic sync: nothing else is left that could
+				// deliver the healthy state.
+				Expect(harness.RemoveVMFiles(alertPushBaseFill)).To(Succeed())
+
+				By("verifying the periodic status sync keeps running and delivers the cleared warning")
+				Eventually(alertStatusSnapshotFunc(harness, deviceID), alertPushPeriodicWindow, alertPushPinPolling).
+					Should(haveDiskAlertStatus(v1beta1.DeviceResourceStatusHealthy, v1beta1.DeviceSummaryStatusOnline, ""),
+						"the periodic sync should keep running after the alert-driven pushes and report the cleared warning")
 
 				By("verifying the complete status carried every field, not only the alert fields")
 				device, err := harness.GetDevice(deviceID)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status).ToNot(BeNil())
 				Expect(device.Status.Resources.Cpu).To(Equal(v1beta1.DeviceResourceStatusHealthy))
-				Expect(device.Status.Resources.Disk).To(Equal(v1beta1.DeviceResourceStatusCritical))
+				Expect(device.Status.Resources.Disk).To(Equal(v1beta1.DeviceResourceStatusHealthy))
 				Expect(device.Status.Resources.Memory).To(Equal(v1beta1.DeviceResourceStatusHealthy))
-				Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusError))
+				Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 				Expect(device.Status.SystemInfo.BootID).ToNot(BeEmpty())
 				Expect(device.Status.Os.Image).ToNot(BeEmpty())
 				Expect(device.Status.Config.RenderedVersion).ToNot(BeEmpty())
 				Expect(string(device.Status.Updated.Status)).ToNot(BeEmpty())
-
-				By("removing the garbage files and verifying the device recovers")
-				Expect(removeDiskFill(harness, alertPushFillFiles...)).To(Succeed())
-				Eventually(alertStatusSnapshotFunc(harness, deviceID), alertPushPeriodicWindow, alertPushPinPolling).
-					Should(HaveField("Disk", Equal(v1beta1.DeviceResourceStatusHealthy)),
-						"clearing the critical alert should return the device to a healthy disk status")
 
 				Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
 			})
@@ -249,8 +291,8 @@ var _ = Describe("Agent immediate alert status push", func() {
 				// push landed. Every later observation is anchored on such a
 				// moment, which leaves more than half an interval of margin
 				// instead of relying on the periodic cadence falling favourably.
-				By(fmt.Sprintf("filling the disk above %d%% so the warning alert transitions to firing", alertPushThreshold))
-				written, err := fillDiskAboveThreshold(harness, artifactDir)
+				By(fmt.Sprintf("filling the disk above %d%% so the warning alert transitions to firing", alertPushWarningThreshold))
+				written, err := fillDiskAboveThreshold(harness, artifactDir, v1beta1.ResourceAlertSeverityTypeWarning)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(written).To(BeNumerically(">", 0),
 					"trigger fill should have written garbage to cross the alert threshold")
@@ -261,7 +303,7 @@ var _ = Describe("Agent immediate alert status push", func() {
 						"periodic sync should report the warning resource status")
 
 				By("verifying clearing the warning triggers no immediate status push")
-				Expect(removeDiskFill(harness, alertPushTriggerFill)).To(Succeed())
+				Expect(harness.RemoveVMFiles(alertPushTriggerFill)).To(Succeed())
 				Consistently(alertStatusSnapshotFunc(harness, deviceID), alertPushQuietWindow, LONGPOLLING).
 					Should(HaveField("Disk", Equal(v1beta1.DeviceResourceStatusWarning)),
 						"a warning alert clearing should not trigger an immediate status push")
@@ -272,7 +314,7 @@ var _ = Describe("Agent immediate alert status push", func() {
 						"periodic sync should report the cleared warning")
 
 				By("verifying a firing warning triggers no immediate status push")
-				written, err = fillDiskAboveThreshold(harness, artifactDir)
+				written, err = fillDiskAboveThreshold(harness, artifactDir, v1beta1.ResourceAlertSeverityTypeWarning)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(written).To(BeNumerically(">", 0),
 					"trigger fill should have written garbage to cross the alert threshold")
@@ -292,9 +334,9 @@ var _ = Describe("Agent immediate alert status push", func() {
 
 // prepareAlertStatusPushDevice puts the device into the state both specs start
 // from: a periodic status push interval long enough to tell the two push paths
-// apart, a single disk alert rule of the given severity, and a disk filled to
-// just below the threshold. The caller asserts the settled baseline the service
-// reports once this returns.
+// apart, the disk alert rules alertPushMonitorRules picks for the given
+// severity, and a disk filled to that severity's base target. The caller
+// asserts the settled baseline the service reports once this returns.
 //
 // The agent restart has to happen before the device spec is updated, not after.
 // The restart only changes the agent's own configuration file, so the service
@@ -315,7 +357,7 @@ var _ = Describe("Agent immediate alert status push", func() {
 // agent has reported it, and the agent only reports a rendered version after a
 // reconciliation that first handed the desired spec to the resource manager.
 // So by the time it returns, bootstrap has finished, the monitors are sampling,
-// the alert rule is installed, and the status the service holds was pushed by
+// the alert rules are installed, and the status the service holds was pushed by
 // the restarted agent.
 func prepareAlertStatusPushDevice(harness *e2e.Harness, deviceID string, severity v1beta1.ResourceAlertSeverityType) error {
 	if harness == nil {
@@ -325,20 +367,20 @@ func prepareAlertStatusPushDevice(harness *e2e.Harness, deviceID string, severit
 		return fmt.Errorf("device id must be non-empty")
 	}
 
-	By("verifying the device starts below the alert threshold")
+	By("verifying the device starts below the alert thresholds")
 	// Nothing in the specs can create free space, so a device that is already
-	// over the threshold has to be reported as such rather than silently
+	// over the thresholds has to be reported as such rather than silently
 	// producing an alert that fires before the test triggers it.
-	if err := removeDiskFill(harness, alertPushFillFiles...); err != nil {
+	if err := harness.RemoveVMFiles(alertPushFillFiles...); err != nil {
 		return err
 	}
-	baseline, err := deviceDiskUsagePercent(harness)
+	baseline, err := harness.VMDiskUsagePercent(alertPushDiskPath)
 	if err != nil {
 		return err
 	}
-	if baseline > alertPushThreshold-alertPushHeadroom {
+	if baseline > alertPushWarningThreshold-alertPushHeadroom {
 		return fmt.Errorf("device %s needs to start at most %d%% full on %s to leave room for the fill, but it is %d%% full",
-			deviceID, alertPushThreshold-alertPushHeadroom, alertPushDiskPath, baseline)
+			deviceID, alertPushWarningThreshold-alertPushHeadroom, alertPushDiskPath, baseline)
 	}
 
 	By(fmt.Sprintf("setting the agent periodic status push interval to %s", alertPushStatusInterval))
@@ -346,21 +388,22 @@ func prepareAlertStatusPushDevice(harness *e2e.Harness, deviceID string, severit
 		return fmt.Errorf("setting the agent status push interval to %s: %w", alertPushStatusInterval, err)
 	}
 
-	By(fmt.Sprintf("adding a %s disk alert rule above %d%% on %s to the device spec", severity, alertPushThreshold, alertPushDiskPath))
-	monitor, err := diskResourceMonitor(severity)
+	rules, baseFillTarget := alertPushMonitorRules(severity)
+	By(fmt.Sprintf("adding the %s disk alert rules above %d%% on %s to the device spec", severity, alertPushThreshold(severity), alertPushDiskPath))
+	monitor, err := diskResourceMonitor(rules...)
 	if err != nil {
 		return err
 	}
-	if err := harness.UpdateDeviceAndWaitForVersion(deviceID, setDeviceResourceMonitors(monitor)); err != nil {
-		return fmt.Errorf("adding the %s disk alert rule to device %s: %w", severity, deviceID, err)
+	if err := harness.UpdateDeviceAndWaitForVersion(deviceID, e2e.SetDeviceResourceMonitors(monitor)); err != nil {
+		return fmt.Errorf("adding the %s disk alert rules to device %s: %w", severity, deviceID, err)
 	}
 
-	By(fmt.Sprintf("filling the disk to just below %d%% so the trigger fill is a small write", alertPushThreshold))
-	// A zero here means the device was already at or above the baseline target
-	// and no base file was written. That is a legitimate starting point, not a
+	By(fmt.Sprintf("filling the disk to %d%% so the trigger fill is a small write", baseFillTarget))
+	// A zero here means the device was already at or above the base target and
+	// no base file was written. That is a legitimate starting point, not a
 	// failure: the baseline assertion the caller makes still has to pass, and
 	// the trigger fill is sized against whatever space is actually left.
-	written, err := fillDiskTo(harness, alertPushBaseFill, alertPushThreshold-alertPushHeadroom)
+	written, err := harness.FillVMDisk(alertPushBaseFill, alertPushDiskPath, baseFillTarget)
 	if err != nil {
 		return err
 	}
@@ -380,80 +423,60 @@ func pinStatusPushInterval(interval time.Duration) func(*agentcfg.Config) {
 	}
 }
 
-// setDeviceResourceMonitors returns a device mutator that replaces the device's
-// resource monitors with the given set. Calling it with no monitors clears them,
-// which is how the specs hand the device back without an alert rule on it.
-func setDeviceResourceMonitors(monitors ...v1beta1.ResourceMonitor) func(*v1beta1.Device) {
-	return func(device *v1beta1.Device) {
-		if device == nil {
-			return
-		}
-		if len(monitors) == 0 {
-			// A device that carries no spec at all already has no monitors, and
-			// giving it an empty one would be a change for its own sake.
-			if device.Spec != nil {
-				device.Spec.Resources = nil
-			}
-			return
-		}
-		if device.Spec == nil {
-			device.Spec = &v1beta1.DeviceSpec{}
-		}
-		device.Spec.Resources = &monitors
+// alertPushMonitorRules returns the alert rules the monitor of the given
+// severity carries, and the usage percentage the base fill targets. Both
+// monitors carry the warning rule: in the warning spec it is the rule under
+// test, while in the critical spec it sits below the critical rule so the base
+// fill can park the device in the band between the two thresholds and the
+// alert's later resolution can only be delivered by the periodic sync.
+func alertPushMonitorRules(severity v1beta1.ResourceAlertSeverityType) ([]v1beta1.ResourceAlertRule, int) {
+	rules := []v1beta1.ResourceAlertRule{
+		alertPushRule(v1beta1.ResourceAlertSeverityTypeWarning, alertPushWarningThreshold),
+	}
+	baseFillTarget := alertPushWarningThreshold - alertPushHeadroom
+	if severity == v1beta1.ResourceAlertSeverityTypeCritical {
+		rules = append(rules, alertPushRule(severity, alertPushCriticalThreshold))
+		baseFillTarget = alertPushCriticalThreshold - alertPushHeadroom
+	}
+	return rules, baseFillTarget
+}
+
+// alertPushThreshold returns the disk usage percentage the alert rule of the
+// given severity fires above.
+func alertPushThreshold(severity v1beta1.ResourceAlertSeverityType) int {
+	if severity == v1beta1.ResourceAlertSeverityTypeCritical {
+		return alertPushCriticalThreshold
+	}
+	return alertPushWarningThreshold
+}
+
+// alertPushRule builds one disk alert rule with the firing duration every
+// monitor in these specs shares.
+func alertPushRule(severity v1beta1.ResourceAlertSeverityType, percentage int) v1beta1.ResourceAlertRule {
+	return v1beta1.ResourceAlertRule{
+		Severity:    severity,
+		Duration:    alertPushAlertDuration,
+		Percentage:  float32(percentage),
+		Description: fmt.Sprintf("Disk usage on %s is above %d%%.", alertPushDiskPath, percentage),
 	}
 }
 
 // diskResourceMonitor builds a disk resource monitor on alertPushDiskPath
-// carrying exactly one alert rule of the given severity.
-func diskResourceMonitor(severity v1beta1.ResourceAlertSeverityType) (v1beta1.ResourceMonitor, error) {
+// carrying the given alert rules.
+func diskResourceMonitor(rules ...v1beta1.ResourceAlertRule) (v1beta1.ResourceMonitor, error) {
+	if len(rules) == 0 {
+		return v1beta1.ResourceMonitor{}, fmt.Errorf("a disk resource monitor needs at least one alert rule")
+	}
 	monitor := v1beta1.ResourceMonitor{}
 	if err := monitor.FromDiskResourceMonitorSpec(v1beta1.DiskResourceMonitorSpec{
 		MonitorType:      agentresource.DiskMonitorType,
 		Path:             alertPushDiskPath,
 		SamplingInterval: alertPushSamplingInterval.String(),
-		AlertRules: alertPushAlertRules(severity, alertPushThreshold,
-			fmt.Sprintf("Disk usage on %s is above %d%%.", alertPushDiskPath, alertPushThreshold)),
+		AlertRules:       rules,
 	}); err != nil {
-		return v1beta1.ResourceMonitor{}, fmt.Errorf("building a %s disk resource monitor on %s: %w", severity, alertPushDiskPath, err)
+		return v1beta1.ResourceMonitor{}, fmt.Errorf("building a disk resource monitor on %s: %w", alertPushDiskPath, err)
 	}
 	return monitor, nil
-}
-
-// idleMemoryResourceMonitor builds a memory monitor that cannot fire, so adding
-// it to the device spec changes the rendered version without changing any
-// reported resource status.
-//
-// The monitor compares a usage percentage with a strict greater-than, and the
-// schema caps an alert rule at a hundred percent, so a rule at the cap has no
-// value that satisfies it. The disk monitor alongside it is sent unchanged, and
-// the agent only touches an alert rule it finds different, so the disk alert
-// carries on firing across the spec update.
-func idleMemoryResourceMonitor() (v1beta1.ResourceMonitor, error) {
-	const unreachablePercentage = 100
-
-	monitor := v1beta1.ResourceMonitor{}
-	if err := monitor.FromMemoryResourceMonitorSpec(v1beta1.MemoryResourceMonitorSpec{
-		MonitorType:      agentresource.MemoryMonitorType,
-		SamplingInterval: alertPushSamplingInterval.String(),
-		AlertRules: alertPushAlertRules(v1beta1.ResourceAlertSeverityTypeWarning, unreachablePercentage,
-			fmt.Sprintf("Memory usage is above %d%%.", unreachablePercentage)),
-	}); err != nil {
-		return v1beta1.ResourceMonitor{}, fmt.Errorf("building an idle memory resource monitor: %w", err)
-	}
-	return monitor, nil
-}
-
-// alertPushAlertRules builds the single alert rule the monitors above carry, so
-// the firing duration every one of them uses is stated once.
-func alertPushAlertRules(severity v1beta1.ResourceAlertSeverityType, percentage float32, description string) []v1beta1.ResourceAlertRule {
-	return []v1beta1.ResourceAlertRule{
-		{
-			Severity:    severity,
-			Duration:    alertPushAlertDuration,
-			Percentage:  percentage,
-			Description: description,
-		},
-	}
 }
 
 // haveDiskAlertStatus builds a matcher over an alertStatusSnapshot asserting the
@@ -518,17 +541,17 @@ func alertStatusSnapshotFunc(harness *e2e.Harness, deviceID string) func() (aler
 	}
 }
 
-// fillDiskAboveThreshold writes the trigger file that takes the device over the
-// alert threshold, records the resulting disk layout as evidence, and confirms
-// the usage the monitor will sample is actually over it. It returns the number
-// of mebibytes written.
+// fillDiskAboveThreshold writes the trigger file that takes the device over
+// the alert threshold of the given severity, records the resulting disk layout
+// as evidence, and confirms the usage the monitor will sample is actually over
+// it. It returns the number of mebibytes written.
 //
 // A completed write only proves the bytes were requested, not that the agent
 // can see them. Confirming the usage on the device, with the arithmetic the
 // monitor itself uses, keeps a fill regression from surfacing as an unexplained
 // device status timeout further down the spec, and means the observation
 // windows start from a device that is already over the threshold.
-func fillDiskAboveThreshold(harness *e2e.Harness, artifactDir string) (int, error) {
+func fillDiskAboveThreshold(harness *e2e.Harness, artifactDir string, severity v1beta1.ResourceAlertSeverityType) (int, error) {
 	if harness == nil {
 		return 0, fmt.Errorf("harness is nil")
 	}
@@ -536,7 +559,8 @@ func fillDiskAboveThreshold(harness *e2e.Harness, artifactDir string) (int, erro
 		return 0, fmt.Errorf("artifact dir must be non-empty")
 	}
 
-	written, err := fillDiskTo(harness, alertPushTriggerFill, alertPushThreshold+alertPushHeadroom)
+	threshold := alertPushThreshold(severity)
+	written, err := harness.FillVMDisk(alertPushTriggerFill, alertPushDiskPath, threshold+alertPushHeadroom)
 	if err != nil {
 		return 0, err
 	}
@@ -551,133 +575,16 @@ func fillDiskAboveThreshold(harness *e2e.Harness, artifactDir string) (int, erro
 		return written, fmt.Errorf("capturing the disk layout after filling %s: %w", alertPushTriggerFill, err)
 	}
 
-	usage, err := deviceDiskUsagePercent(harness)
+	usage, err := harness.VMDiskUsagePercent(alertPushDiskPath)
 	if err != nil {
 		return written, err
 	}
-	if usage <= alertPushThreshold {
-		return written, fmt.Errorf("garbage files should drive the device disk usage above the alert threshold, but %s is %d%% full and the threshold is %d%%",
-			alertPushDiskPath, usage, alertPushThreshold)
+	if usage <= threshold {
+		return written, fmt.Errorf("garbage files should drive the device disk usage above the %s alert threshold of %d%%, but %s is %d%% full",
+			severity, threshold, alertPushDiskPath, usage)
 	}
 
-	GinkgoWriter.Printf("Trigger disk fill wrote %d MiB to %s, taking %s to %d%% full\n",
+	GinkgoWriter.Printf("Trigger disk fill wrote %d MiB to %s, taking %s to %d%%\n",
 		written, alertPushTriggerFill, alertPushDiskPath, usage)
 	return written, nil
-}
-
-// fillDiskTo writes a garbage file so that the usage of the filesystem holding
-// alertPushDiskPath reaches at least targetPercent, and returns the number of
-// mebibytes written. Any previous content of the file is removed first so the
-// amount to write is computed against the space the rest of the test is using.
-//
-// The arithmetic mirrors the agent's disk monitor exactly: it statfs(2)s the
-// monitored path and reports 100 * (1 - available/total) rounded to the nearest
-// integer, where available is the count of blocks available to unprivileged
-// users. Sizing the write off the same two numbers means the percentage this
-// targets is the one the alert rule is evaluated against.
-func fillDiskTo(harness *e2e.Harness, path string, targetPercent int) (int, error) {
-	if harness == nil {
-		return 0, fmt.Errorf("harness is nil")
-	}
-	if strings.TrimSpace(path) == "" {
-		return 0, fmt.Errorf("fill file path must be non-empty")
-	}
-	if targetPercent <= 0 || targetPercent >= 100 {
-		return 0, fmt.Errorf("fill target of %d%% for %s is not a usage percentage the device can reach", targetPercent, path)
-	}
-
-	script := fmt.Sprintf(`
-set -eu
-rm -f %[1]s
-sync
-set -- $(stat -f -c '%%S %%b %%a' %[2]s)
-frag=$1
-blocks=$2
-avail=$3
-total_bytes=$((blocks * frag))
-avail_bytes=$((avail * frag))
-# Blocks still available once the filesystem is targetPercent full.
-target_avail=$((total_bytes / 100 * (100 - %[3]d)))
-needed=$((avail_bytes - target_avail))
-if [ "$needed" -le 0 ]; then
-  echo 0
-  exit 0
-fi
-count=$((needed / 1048576 + 1))
-dd if=/dev/zero of=%[1]s bs=1M count="$count" status=none
-sync
-echo "$count"
-`, path, alertPushDiskPath, targetPercent)
-
-	out, err := harness.RunScriptOnVM(script)
-	if err != nil {
-		return 0, fmt.Errorf("filling %s to %d%%: %w", path, targetPercent, err)
-	}
-	return parseTrailingInt(out.String(), fmt.Sprintf("disk fill of %s", path))
-}
-
-// deviceDiskUsagePercent reports the used share of the filesystem holding
-// alertPushDiskPath, computed the way the agent's disk monitor computes it.
-func deviceDiskUsagePercent(harness *e2e.Harness) (int, error) {
-	if harness == nil {
-		return 0, fmt.Errorf("harness is nil")
-	}
-
-	script := fmt.Sprintf(`
-set -eu
-set -- $(stat -f -c '%%b %%a' %[1]s)
-blocks=$1
-avail=$2
-if [ "$blocks" -le 0 ]; then
-  echo 0
-  exit 0
-fi
-echo $(( ((blocks - avail) * 100 + blocks / 2) / blocks ))
-`, alertPushDiskPath)
-
-	out, err := harness.RunScriptOnVM(script)
-	if err != nil {
-		return 0, fmt.Errorf("sampling disk usage on the device: %w", err)
-	}
-	return parseTrailingInt(out.String(), "disk usage probe")
-}
-
-// removeDiskFill deletes the named garbage files from the device and flushes the
-// filesystem, so the blocks they held are back in the available count the usage
-// probe and the agent's disk monitor both read. It is safe to call when nothing
-// was ever written: a file that is not there is not an error.
-func removeDiskFill(harness *e2e.Harness, paths ...string) error {
-	if harness == nil {
-		return fmt.Errorf("harness is nil")
-	}
-	if len(paths) == 0 {
-		return nil
-	}
-
-	for _, path := range paths {
-		if err := harness.RemoveAgentFile(path); err != nil {
-			return fmt.Errorf("removing disk fill file %s: %w", path, err)
-		}
-	}
-	if _, err := harness.RunScriptOnVM("set -eu\nsync\n"); err != nil {
-		return fmt.Errorf("flushing the device after removing disk fill files %s: %w", strings.Join(paths, " "), err)
-	}
-
-	GinkgoWriter.Printf("Removed disk fill files: %s\n", strings.Join(paths, " "))
-	return nil
-}
-
-// parseTrailingInt reads the integer a device probe script prints as its last
-// word, tolerating any banner the SSH session prepends to it.
-func parseTrailingInt(output, what string) (int, error) {
-	fields := strings.Fields(output)
-	if len(fields) == 0 {
-		return 0, fmt.Errorf("%s returned no output", what)
-	}
-	value := fields[len(fields)-1]
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("parsing %s result %q from the device: %w", what, value, err)
-	}
-	return parsed, nil
 }
