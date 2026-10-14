@@ -926,6 +926,9 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefetchTask) error {
 	task = m.snapshotOperation(task)
 	ociType := task.ociType
+	if task.resolvedOCIType == OCITypePodmanArtifact {
+		ociType = OCITypePodmanArtifact
+	}
 
 	// Evaluate client options lazily at pull time
 	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
@@ -1317,8 +1320,16 @@ func (m *prefetchManager) pullApplicationArtifact(ctx context.Context, target im
 
 func (m *prefetchManager) applicationArtifactDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, deltaErr error, opts ...client.ClientOption) error {
 	m.recordDeltaFallback(target, task, deltaErr)
-	if _, err := podman.PullArtifact(ctx, target.image, opts...); err != nil {
-		return fmt.Errorf("application delta failed: %w; full artifact pull failed: %w", deltaErr, err)
+	// A failed image-delta hint still follows the full-artifact path. Respect
+	// the pull policy when the artifact is already available locally.
+	present := task.pullPolicy != v1beta1.PullAlways && podman.ArtifactExists(ctx, target.image)
+	if !present {
+		if task.pullPolicy == v1beta1.PullNever {
+			return fmt.Errorf("application delta failed: %w; artifact %s is absent and pull policy is Never", deltaErr, target.image)
+		}
+		if _, err := podman.PullArtifact(ctx, target.image, opts...); err != nil {
+			return fmt.Errorf("application delta failed: %w; full artifact pull failed: %w", deltaErr, err)
+		}
 	}
 	digestValue, err := podman.ArtifactDigest(ctx, target.image)
 	if err != nil || !validObservedDigest(digestValue) {
@@ -1743,33 +1754,13 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 		return false, err
 	}
 
-	hintedArtifact := targetExists && targetArtifact && delta != nil && delta.Hint != ""
-	if hintedArtifact {
-		m.log.Debugf("Scheduled prefetch artifact already exists with an unusable delta hint: %s", target)
-		task := &prefetchTask{
-			ociType:              ociType,
-			resolvedOCIType:      resolvedOCIType,
-			pullPolicy:           pullPolicy,
-			targetDigest:         targetDigest,
-			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
-			applicationLifetimes: m.applicationLifetimesLocked(delta),
-			clientOptsFn:         clientOptsFn,
-			targetPresent:        true,
-			done:                 true,
-			delta:                delta,
-			deltaGeneration:      m.deltaGeneration,
-		}
-		m.tasks[target] = task
-		m.recordPresentHintedArtifactLocked(ctx, target, task, podman)
-		return false, nil
-	}
-
 	if m.canUseExistingTarget(targetExists, targetArtifact, delta) {
 		return m.preparePresentTargetLocked(ctx, target, ociType, resolvedOCIType, targetDigest, clientOptsFn, delta, pullPolicy, podman)
 	}
 
 	task := &prefetchTask{
 		ociType:              ociType,
+		targetPresent:        targetExists && targetArtifact,
 		resolvedOCIType:      resolvedOCIType,
 		pullPolicy:           pullPolicy,
 		targetDigest:         targetDigest,
@@ -1803,14 +1794,14 @@ func (m *prefetchManager) prepareExistingTaskLocked(
 	if !existing.done || existing.err != nil || delta == nil {
 		return false, nil
 	}
-	if existing.targetPresent && existing.resolvedOCIType == OCITypePodmanArtifact && delta.Hint != "" {
+	if existing.resolvedOCIType == OCITypePodmanArtifact && delta.Hint != "" {
 		existing.delta = cloneOCIDeltaTarget(delta)
 		existing.applicationLifetimes = m.applicationLifetimesLocked(delta)
-		var podman *client.Podman
-		if m.podmanFactory != nil {
-			podman, _ = m.podmanFactory(target.owner)
+		if generationChanged {
+			existing.clientOptsFn = clientOptsFn
+			existing.done = false
+			return true, nil
 		}
-		m.recordPresentHintedArtifactLocked(ctx, target, existing, podman)
 		return false, nil
 	}
 	if !supportsApplicationImageDigestCheck(existing.ociType) {
@@ -1826,21 +1817,6 @@ func (m *prefetchManager) prepareExistingTaskLocked(
 		existing.resolvedDigest = ""
 	}
 	return m.checkCachedApplicationTask(ctx, target, existing), nil
-}
-
-func (m *prefetchManager) recordPresentHintedArtifactLocked(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman) {
-	var observedDigest string
-	if podman != nil && m.deltaStatusStore != nil {
-		if digestValue, err := podman.ArtifactDigest(ctx, target.image); err == nil && validObservedDigest(digestValue) {
-			observedDigest = digestValue
-			task.resolvedDigest = digestValue
-		}
-	}
-	if observedDigest != "" {
-		m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
-		return
-	}
-	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
 }
 
 func (m *prefetchManager) resolveTargetAvailability(
@@ -2025,7 +2001,16 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		return false
 	}
 	task.done = true
-	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+	// A cache hit satisfies PullIfNotPresent, but only a verified desired
+	// digest can establish that no update was required. Never resolve a
+	// mutable tag merely to produce an outcome for cached content.
+	desiredDigest := task.targetDigest
+	if desiredDigest == "" {
+		_, desiredDigest, _ = strings.Cut(target.image, "@")
+	}
+	if validObservedDigest(desiredDigest) && observedDigest == desiredDigest {
+		m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+	}
 	return false
 }
 

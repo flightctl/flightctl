@@ -226,7 +226,7 @@ func TestWhenApplicationLifetimeWritesFailItShouldRetryOnTheNextNoOp(t *testing.
 		run  func(*testing.T, *Store, *fileio.MockReadWriter, *bool, *[]byte, error)
 	}{
 		{
-			name: "EnsureApplicationLifetime should persist an existing in-memory lifetime",
+			name: "When ensuring a lifetime after a failed write it should persist the existing in-memory lifetime",
 			run: func(t *testing.T, store *Store, rw *fileio.MockReadWriter, failWrite *bool, _ *[]byte, writeErr error) {
 				require := require.New(t)
 				*failWrite = true
@@ -241,7 +241,7 @@ func TestWhenApplicationLifetimeWritesFailItShouldRetryOnTheNextNoOp(t *testing.
 			},
 		},
 		{
-			name: "RemoveApplication should persist an already removed application",
+			name: "When removing an application after a failed write it should persist the removal",
 			run: func(t *testing.T, store *Store, rw *fileio.MockReadWriter, failWrite *bool, _ *[]byte, writeErr error) {
 				require := require.New(t)
 				require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))

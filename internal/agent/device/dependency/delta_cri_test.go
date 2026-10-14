@@ -145,7 +145,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 	}
 }
 
-func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *testing.T) {
+func TestWhenCRICacheIdentityIsUnavailableItShouldWithholdNotRequired(t *testing.T) {
 	const (
 		application = "app"
 		image       = "quay.io/acme/app:v2"
@@ -196,8 +196,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
+	require.Nil(t, deviceStatus.Applications[0].LastDelta)
 }
 
 func TestApplicationDeltaCRIHintedCandidateFallsBackWhenDeltaClientIsUnavailable(t *testing.T) {

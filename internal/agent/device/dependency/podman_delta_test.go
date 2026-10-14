@@ -327,6 +327,9 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 				},
 				tasks: tasks, deltaGeneration: 1, deltaTargetsScheduled: true, deltaTargetRefs: refs, deltaAppTargetKeys: map[string]map[string]string{"compose": keys},
 			}
+			if parentHint != "" {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", parent).Return("", "artifact not found", 1)
+			}
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).Times(2)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "pull", parent).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", parent).Return(`{"Digest":"`+parentDigest+`"}`, "", 0)

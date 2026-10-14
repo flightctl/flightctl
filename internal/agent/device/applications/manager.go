@@ -2,7 +2,6 @@ package applications
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -560,7 +559,7 @@ func (m *manager) cachedImageVolumeObservation(
 	applicationID, lifetime, volumeID string,
 	owner v1beta1.Username,
 ) (deltastatus.ApplicationImage, bool) {
-	if inspection == nil || inspection.Driver != "image" || !isImmutablePodmanImageID(inspection.Options["image"]) {
+	if inspection == nil || inspection.Driver != "image" || !client.IsImmutablePodmanImageID(inspection.Options["image"]) {
 		return deltastatus.ApplicationImage{}, false
 	}
 	cached, ok := m.imageVolumeObservations[imageVolumeObservationKey{applicationID: applicationID, volumeID: volumeID, owner: owner}]
@@ -580,7 +579,7 @@ func (m *manager) cachedImageVolumeObservation(
 }
 
 func podmanImageVolumeObservation(ctx context.Context, podman *client.Podman, inspection *client.PodmanVolumeInspect, applicationID, lifetime string, owner v1beta1.Username) (deltastatus.ApplicationImage, bool) {
-	if inspection == nil || applicationID == "" || lifetime == "" || inspection.Driver != "image" || !isImmutablePodmanImageID(inspection.Options["image"]) {
+	if inspection == nil || applicationID == "" || lifetime == "" || inspection.Driver != "image" || !client.IsImmutablePodmanImageID(inspection.Options["image"]) {
 		return deltastatus.ApplicationImage{}, false
 	}
 	if podman == nil {
@@ -604,14 +603,6 @@ func podmanImageVolumeObservation(ctx context.Context, podman *client.Podman, in
 		return deltastatus.ApplicationImage{}, false
 	}
 	return image, true
-}
-
-func isImmutablePodmanImageID(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }
 
 func addStatusImageDigest(status *v1beta1.DeviceApplicationStatus, image, imageDigest string) {

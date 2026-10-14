@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -159,16 +158,9 @@ func extractOCIContentsToPathWithIdentity(ctx context.Context, podman *client.Po
 	}
 
 	if ociType == dependency.OCITypePodmanArtifact {
-		observedDigest, err := podman.ArtifactDigest(ctx, imageRef)
+		immutableReference, observedDigest, err := podman.ImmutableArtifactReference(ctx, imageRef)
 		if err != nil {
 			return "", "", fmt.Errorf("inspecting artifact identity: %w", err)
-		}
-		if _, err := digest.Parse(observedDigest); err != nil {
-			return "", "", fmt.Errorf("artifact digest %q is invalid: %w", observedDigest, err)
-		}
-		immutableReference := imageRef
-		if !strings.Contains(imageRef, "@") {
-			immutableReference = imageRef + "@" + observedDigest
 		}
 		if err := extractAndProcessArtifact(ctx, podman, logger, immutableReference, path, rw); err != nil {
 			clean()
@@ -269,7 +261,7 @@ func bindQuadletImageVolumes(
 		}
 
 		imageID, err := podman.ImageID(ctx, reference)
-		if err != nil || !isImmutablePodmanImageID(imageID) {
+		if err != nil || !client.IsImmutablePodmanImageID(imageID) {
 			logger.Warnf("Cannot bind Quadlet image volume %s to an immutable image ID: %v", entry.Name(), err)
 			continue
 		}
@@ -331,14 +323,6 @@ func setQuadletVolumeLabels(unit *quadlet.Unit, labels map[string]string) error 
 		}
 	}
 	return nil
-}
-
-func isImmutablePodmanImageID(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }
 
 func validProviderImageDigest(value string) bool {

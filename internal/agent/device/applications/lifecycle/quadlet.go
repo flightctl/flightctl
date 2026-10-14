@@ -465,22 +465,11 @@ func (q *Quadlet) artifactVolumeReference(
 	if !canRecordIdentity {
 		return volume.Reference, "", nil
 	}
-	digestValue, err := podman.ArtifactDigest(ctx, volume.Reference)
+	reference, digestValue, err := podman.ImmutableArtifactReference(ctx, volume.Reference)
 	if err != nil {
 		q.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", volume.ID, err)
-		return volume.Reference, "", err
 	}
-	if digestValue == "" {
-		return volume.Reference, "", nil
-	}
-	if _, err := digest.Parse(digestValue); err != nil {
-		q.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", volume.ID, err)
-		return volume.Reference, "", err
-	}
-	if strings.Contains(volume.Reference, "@") {
-		return volume.Reference, digestValue, nil
-	}
-	return volume.Reference + "@" + digestValue, digestValue, nil
+	return reference, digestValue, err
 }
 
 func (q *Quadlet) prepareArtifactVolumePath(

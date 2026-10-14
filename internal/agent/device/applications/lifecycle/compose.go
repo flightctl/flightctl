@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -12,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/opencontainers/go-digest"
 )
 
 const (
@@ -255,20 +253,13 @@ func (c *Compose) ensurePodmanVolume(
 	imageRef := volume.Reference
 	var artifactDigest string
 	var digestErr error
+	immutableReference := imageRef
 	canRecordIdentity := c.deltaStore != nil && action.Name != "" && action.Lifetime != ""
 	if canRecordIdentity {
-		artifactDigest, digestErr = podman.ArtifactDigest(ctx, imageRef)
-	}
-	immutableReference := imageRef
-	if canRecordIdentity && digestErr == nil {
-		if _, err := digest.Parse(artifactDigest); err != nil {
-			digestErr = fmt.Errorf("invalid artifact digest %q: %w", artifactDigest, err)
+		immutableReference, artifactDigest, digestErr = podman.ImmutableArtifactReference(ctx, imageRef)
+		if digestErr != nil {
+			c.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", name, digestErr)
 		}
-	}
-	if canRecordIdentity && digestErr == nil && artifactDigest != "" && !strings.Contains(imageRef, "@") {
-		immutableReference = imageRef + "@" + artifactDigest
-	} else if digestErr != nil {
-		c.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", name, digestErr)
 	}
 	if c.deltaStore != nil {
 		if err := c.deltaStore.ClearApplicationVolumeImage(action.Name, action.Lifetime, name); err != nil {

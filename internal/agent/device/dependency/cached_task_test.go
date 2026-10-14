@@ -139,7 +139,7 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 				require.True(current.done)
 				require.True(current.targetPresent)
 				require.Empty(current.resolvedDigest)
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, manager.deltaApplyResults["app"][target].outcome)
+				require.Empty(manager.deltaApplyResults)
 			}
 		})
 	}
@@ -200,11 +200,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 			require.Equal(testCase.wantDone, task.done)
 			require.True(task.targetPresent)
 			require.Empty(task.resolvedDigest)
-			if testCase.wantDone {
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, manager.deltaApplyResults["app"][target].outcome)
-			} else {
-				require.Empty(manager.deltaApplyResults)
-			}
+			require.Empty(manager.deltaApplyResults)
 		})
 	}
 }

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/opencontainers/go-digest"
 )
 
 const (
@@ -474,6 +476,31 @@ func (p *Podman) ArtifactDigest(ctx context.Context, reference string) (string, 
 	}
 
 	return inspect.Digest, nil
+}
+
+// ImmutableArtifactReference resolves a local artifact to a validated,
+// digest-pinned reference and the manifest digest used for extraction.
+func (p *Podman) ImmutableArtifactReference(ctx context.Context, reference string) (string, string, error) {
+	observedDigest, err := p.ArtifactDigest(ctx, reference)
+	if err != nil {
+		return reference, "", err
+	}
+	if _, err := digest.Parse(observedDigest); err != nil {
+		return reference, "", fmt.Errorf("invalid artifact digest %q: %w", observedDigest, err)
+	}
+	if !strings.Contains(reference, "@") {
+		reference += "@" + observedDigest
+	}
+	return reference, observedDigest, nil
+}
+
+// IsImmutablePodmanImageID reports whether value is a full local Podman image ID.
+func IsImmutablePodmanImageID(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 // InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
