@@ -108,10 +108,32 @@ func (c *container) assertFileExists(path string) {
 	}
 }
 
+func (c *container) assertDirectoryExists(path string) {
+	c.t.Helper()
+	if _, err := c.exec("test", "-d", path); err != nil {
+		c.t.Errorf("%s does NOT exist as a directory", path)
+	}
+}
+
+func (c *container) assertDirectoryModeAndOwner(path string, expected string) {
+	c.t.Helper()
+	actual := c.mustExec("stat", "-c", "%a %U:%G", path)
+	if actual != expected {
+		c.t.Errorf("%s has mode and owner %q, want %q", path, actual, expected)
+	}
+}
+
 func (c *container) assertFileAbsent(path string) {
 	c.t.Helper()
 	if _, err := c.exec("test", "-f", path); err == nil {
 		c.t.Errorf("%s exists (should not)", path)
+	}
+}
+
+func (c *container) assertFileContains(path string, expected string) {
+	c.t.Helper()
+	if output, err := c.exec("grep", "-F", "--", expected, path); err != nil {
+		c.t.Errorf("%s does not contain %q: %v\n%s", path, expected, err, output)
 	}
 }
 
@@ -150,6 +172,11 @@ func TestPackageModeInstall(t *testing.T) {
 	c.assertNotInstalled("greenboot")
 	c.assertFileExists("/usr/bin/flightctl-agent")
 	c.assertFileExists("/usr/lib/systemd/system/flightctl-agent.service")
+	c.assertFileContains("/usr/lib/tmpfiles.d/flightctl.conf", "d /home/flightctl 0700 flightctl flightctl -")
+	c.mustExec("rm", "-rf", "/home/flightctl")
+	c.mustExec("systemd-tmpfiles", "--create", "/usr/lib/tmpfiles.d/flightctl.conf")
+	c.assertDirectoryExists("/home/flightctl")
+	c.assertDirectoryModeAndOwner("/home/flightctl", "700 flightctl:flightctl")
 	c.assertFileAbsent("/usr/libexec/flightctl/mask-bootc-timer.sh")
 }
 
