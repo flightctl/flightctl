@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,6 +40,11 @@ func TestEditOptions_Validate(t *testing.T) {
 		{
 			name:        "valid enrollmenthookpolicy",
 			args:        []string{"enrollmenthookpolicy/default"},
+			expectError: false,
+		},
+		{
+			name:        "valid resourcesync",
+			args:        []string{"resourcesync/test-resourcesync"},
 			expectError: false,
 		},
 		{
@@ -115,6 +121,12 @@ func TestEditOptions_Validate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEditOptions_ResourceSyncIsSupported(t *testing.T) {
+	if !slices.Contains(getValidEditResourceKinds(), ResourceSyncKind) {
+		t.Fatal("expected resourcesync to be included in edit autocomplete")
 	}
 }
 
@@ -799,6 +811,53 @@ func TestEditOptions_executePatchOperation_EnrollmentHookPolicy(t *testing.T) {
 	}
 	if fake.callCount != 1 {
 		t.Fatalf("expected one PATCH request, got %d", fake.callCount)
+	}
+}
+
+func TestEditOptions_executePatchOperation_ResourceSync(t *testing.T) {
+	rec := &recordingHTTPClient{
+		response: func() *http.Response {
+			return jsonResponse(t, http.StatusOK, api.ResourceSync{
+				ApiVersion: api.ResourceSyncAPIVersion,
+				Kind:       api.ResourceSyncKind,
+				Metadata:   api.ObjectMeta{Name: stringPtr("test-resourcesync")},
+			})
+		},
+	}
+	client, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(rec))
+	if err != nil {
+		t.Fatalf("failed to create API client: %v", err)
+	}
+
+	opts := DefaultEditOptions()
+	patch := []byte(`[{"op":"replace","path":"/spec/targetRevision","value":"main"}]`)
+	httpResponse, _, err := opts.executePatchOperation(
+		context.Background(),
+		client,
+		ResourceSyncKind,
+		"test-resourcesync",
+		patch,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if httpResponse == nil || httpResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful patch response, got %#v", httpResponse)
+	}
+	if len(rec.requests) != 1 {
+		t.Fatalf("expected one PATCH request, got %d", len(rec.requests))
+	}
+	if rec.requests[0].Method != http.MethodPatch {
+		t.Errorf("expected PATCH request, got %s", rec.requests[0].Method)
+	}
+	if rec.requests[0].URL.Path != "/resourcesyncs/test-resourcesync" {
+		t.Errorf("expected ResourceSync PATCH path, got %s", rec.requests[0].URL.Path)
+	}
+	if contentType := rec.requests[0].Header.Get("Content-Type"); contentType != "application/json-patch+json" {
+		t.Errorf("expected JSON Patch content type, got %q", contentType)
+	}
+	if rec.bodies[0] != string(patch) {
+		t.Errorf("expected patch body %q, got %q", string(patch), rec.bodies[0])
 	}
 }
 
