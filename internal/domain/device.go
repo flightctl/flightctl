@@ -108,12 +108,12 @@ const (
 
 const (
 	DeviceUpdatedStageDownloading = v1beta1.DeviceUpdatedStageDownloading
-	DeviceUpdatedStageStaged       = v1beta1.DeviceUpdatedStageStaged
-	DeviceUpdatedStageApplying     = v1beta1.DeviceUpdatedStageApplying
-	DeviceUpdatedStageRebooting    = v1beta1.DeviceUpdatedStageRebooting
-	DeviceUpdatedStageRollingBack  = v1beta1.DeviceUpdatedStageRollingBack
-	DeviceUpdatedStageFailed       = v1beta1.DeviceUpdatedStageFailed
-	DeviceUpdatedStageRetrying     = v1beta1.DeviceUpdatedStageRetrying
+	DeviceUpdatedStageStaged      = v1beta1.DeviceUpdatedStageStaged
+	DeviceUpdatedStageApplying    = v1beta1.DeviceUpdatedStageApplying
+	DeviceUpdatedStageRebooting   = v1beta1.DeviceUpdatedStageRebooting
+	DeviceUpdatedStageRollingBack = v1beta1.DeviceUpdatedStageRollingBack
+	DeviceUpdatedStageFailed      = v1beta1.DeviceUpdatedStageFailed
+	DeviceUpdatedStageRetrying    = v1beta1.DeviceUpdatedStageRetrying
 )
 
 // ========== Device Resource Status Constants ==========

@@ -199,26 +199,31 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 
 func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
 	lastUpdateStatus := device.Status.Updated.Status
+	lastUpdateStage := device.Status.Updated.Stage
+	updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
 	if device.IsDisconnected(domain.DeviceDisconnectedTimeout) && device.Status != nil && device.Status.LastSeen != nil && !device.Status.LastSeen.IsZero() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUnknown
+		device.Status.Updated.Stage = nil
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-domain.DeviceDisconnectedTimeout))))
-		return device.Status.Updated.Status != lastUpdateStatus
+		return updatedStatusChanged(lastUpdateStatus, lastUpdateStage, device.Status.Updated)
 	}
 	if device.IsUpdating() {
-		var agentInfoMessage string
-		if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+		agentInfoMessage := ""
+		if updateCondition != nil {
 			agentInfoMessage = updateCondition.Message
 		}
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUpdating
+		device.Status.Updated.Stage = updateStageForCondition(updateCondition)
 		device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "Device is updating to the latest device spec."))
-		return device.Status.Updated.Status != lastUpdateStatus
+		return updatedStatusChanged(lastUpdateStatus, lastUpdateStage, device.Status.Updated)
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+		device.Status.Updated.Stage = updateStageForCondition(updateCondition)
 		baseMessage := domain.DeviceOutOfDateText
 		var errorMessage string
 
-		if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+		if updateCondition != nil {
 			if updateCondition.Reason == string(domain.UpdateStateError) && updateCondition.Message != "" {
 				errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
 			}
@@ -229,7 +234,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		}
 
 		device.Status.Updated.Info = lo.ToPtr(errorMessage)
-		return device.Status.Updated.Status != lastUpdateStatus
+		return updatedStatusChanged(lastUpdateStatus, lastUpdateStage, device.Status.Updated)
 	}
 	if device.IsManaged() {
 		_, fleetName, err := util.GetResourceOwner(device.Metadata.Owner)
@@ -242,6 +247,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			log.Errorf("Failed to get fleet for device %q: %v", *device.Metadata.Name, err)
 			return false
 		}
+		device.Status.Updated.Stage = updateStageForCondition(updateCondition)
 		if device.IsUpdatedToFleetSpec(f) {
 			device.Status.Updated.Status = domain.DeviceUpdatedStatusUpToDate
 			device.Status.Updated.Info = lo.ToPtr("Device was updated to the fleet's latest device spec.")
@@ -250,6 +256,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			device.Status.Updated.Info = lo.ToPtr(managedDeviceOutOfDateMessage(device))
 		}
 	} else {
+		device.Status.Updated.Stage = updateStageForCondition(updateCondition)
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUpToDate
 		device.Status.Updated.Info = lo.ToPtr("Device was updated to the latest device spec.")
 	}
@@ -274,7 +281,39 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		}
 	}
 
-	return device.Status.Updated.Status != lastUpdateStatus
+	return updatedStatusChanged(lastUpdateStatus, lastUpdateStage, device.Status.Updated)
+}
+
+func updateStageForCondition(condition *domain.Condition) *domain.DeviceUpdatedStageType {
+	if condition == nil {
+		return nil
+	}
+
+	var stage domain.DeviceUpdatedStageType
+	switch domain.UpdateState(condition.Reason) {
+	case domain.UpdateStatePreparing:
+		stage = domain.DeviceUpdatedStageDownloading
+	case domain.UpdateStateReadyToUpdate:
+		stage = domain.DeviceUpdatedStageStaged
+	case domain.UpdateStateApplyingUpdate:
+		stage = domain.DeviceUpdatedStageApplying
+	case domain.UpdateStateRebooting:
+		stage = domain.DeviceUpdatedStageRebooting
+	case domain.UpdateStateRollingBack:
+		stage = domain.DeviceUpdatedStageRollingBack
+	case domain.UpdateStateError:
+		stage = domain.DeviceUpdatedStageFailed
+	case domain.UpdateStateRetrying:
+		stage = domain.DeviceUpdatedStageRetrying
+	default:
+		return nil
+	}
+
+	return lo.ToPtr(stage)
+}
+
+func updatedStatusChanged(lastStatus domain.DeviceUpdatedStatusType, lastStage *domain.DeviceUpdatedStageType, current domain.DeviceUpdatedStatus) bool {
+	return lastStatus != current.Status || lo.FromPtr(lastStage) != lo.FromPtr(current.Stage)
 }
 
 func managedDeviceOutOfDateMessage(device *domain.Device) string {

@@ -18,6 +18,64 @@ type stubFleetStore struct {
 	fleet *domain.Fleet
 }
 
+var updateStageMappingCases = []struct {
+	name        string
+	reason      domain.UpdateState
+	wantStage   domain.DeviceUpdatedStageType
+	wantPresent bool
+}{
+	{
+		name:        "When the agent is preparing it should report Downloading",
+		reason:      domain.UpdateStatePreparing,
+		wantStage:   domain.DeviceUpdatedStageDownloading,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent is ready to update it should report Staged",
+		reason:      domain.UpdateStateReadyToUpdate,
+		wantStage:   domain.DeviceUpdatedStageStaged,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent is applying an update it should report Applying",
+		reason:      domain.UpdateStateApplyingUpdate,
+		wantStage:   domain.DeviceUpdatedStageApplying,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent is rebooting it should report Rebooting",
+		reason:      domain.UpdateStateRebooting,
+		wantStage:   domain.DeviceUpdatedStageRebooting,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent is rolling back it should report Rolling back",
+		reason:      domain.UpdateStateRollingBack,
+		wantStage:   domain.DeviceUpdatedStageRollingBack,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent reports a terminal error it should report Failed",
+		reason:      domain.UpdateStateError,
+		wantStage:   domain.DeviceUpdatedStageFailed,
+		wantPresent: true,
+	},
+	{
+		name:        "When the agent will retry it should report Retrying",
+		reason:      domain.UpdateStateRetrying,
+		wantStage:   domain.DeviceUpdatedStageRetrying,
+		wantPresent: true,
+	},
+	{
+		name:   "When the agent completed the update it should clear the stage",
+		reason: domain.UpdateStateUpdated,
+	},
+	{
+		name:   "When the agent canceled the update it should clear the stage",
+		reason: domain.UpdateStateCanceled,
+	},
+}
+
 func (s *stubFleetStore) Get(_ context.Context, _ uuid.UUID, _ string, _ ...fleetstore.GetOption) (*domain.Fleet, error) {
 	return s.fleet, nil
 }
@@ -84,6 +142,61 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	assert.Len(t, updates, 1)
 	assert.Equal(t, domain.EventReasonDeviceContentOutOfDate, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "has not been updated")
+}
+
+func TestUpdateStageForCondition(t *testing.T) {
+	for _, tt := range updateStageMappingCases {
+		t.Run(tt.name, func(t *testing.T) {
+			condition := &domain.Condition{Reason: string(tt.reason)}
+
+			stage := updateStageForCondition(condition)
+
+			if !tt.wantPresent {
+				assert.Nil(t, stage)
+				return
+			}
+			if assert.NotNil(t, stage) {
+				assert.Equal(t, tt.wantStage, *stage)
+			}
+		})
+	}
+
+	t.Run("When the condition is nil it should clear the stage", func(t *testing.T) {
+		assert.Nil(t, updateStageForCondition(nil))
+	})
+
+	t.Run("When the condition reason is unknown it should clear the stage", func(t *testing.T) {
+		assert.Nil(t, updateStageForCondition(&domain.Condition{Reason: "UnknownState"}))
+	})
+}
+
+func TestUpdateServerSideDeviceUpdatedStatus_StageChangeIsReported(t *testing.T) {
+	ctx := context.Background()
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-device")},
+		Status: &domain.DeviceStatus{
+			LastSeen: lo.ToPtr(time.Now()),
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusUpdating,
+				Stage:  lo.ToPtr(domain.DeviceUpdatedStageDownloading),
+			},
+			Conditions: []domain.Condition{
+				{
+					Type:   domain.ConditionTypeDeviceUpdating,
+					Status: domain.ConditionStatusTrue,
+					Reason: string(domain.UpdateStateReadyToUpdate),
+				},
+			},
+		},
+	}
+
+	changed := updateServerSideDeviceUpdatedStatus(device, ctx, nil, logrus.New(), uuid.New())
+
+	assert.True(t, changed)
+	assert.Equal(t, domain.DeviceUpdatedStatusUpdating, device.Status.Updated.Status)
+	if assert.NotNil(t, device.Status.Updated.Stage) {
+		assert.Equal(t, domain.DeviceUpdatedStageStaged, *device.Status.Updated.Stage)
+	}
 }
 
 func TestComputeDeviceStatusChanges_OSImageChanged_EDM3986(t *testing.T) {
@@ -751,6 +864,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 		annotations     map[string]string
 		conditions      []domain.Condition
 		expectedContain string
+		expectedChange  bool
 	}{
 		{
 			name: "When only lastRolloutError is present it should show the rollout error",
@@ -776,6 +890,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 				},
 			},
 			expectedContain: "template rendering failure",
+			expectedChange:  true,
 		},
 		{
 			name: "When only DeviceUpdating error is present it should show the agent error",
@@ -791,6 +906,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 				},
 			},
 			expectedContain: "agent update failed",
+			expectedChange:  true,
 		},
 		{
 			name: "When neither error source is present it should show generic out-of-sync message",
@@ -820,7 +936,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 
 			changed := updateServerSideDeviceUpdatedStatus(device, ctx, fs, log, orgId)
 
-			assert.False(t, changed, "status enum did not change so changed must be false")
+			assert.Equal(t, tt.expectedChange, changed)
 			assert.Equal(t, domain.DeviceUpdatedStatusOutOfDate, device.Status.Updated.Status)
 			assert.Contains(t, *device.Status.Updated.Info, tt.expectedContain)
 		})
