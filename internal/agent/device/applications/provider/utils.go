@@ -170,7 +170,7 @@ func extractOCIContentsToPath(ctx context.Context, podman *client.Podman, log *l
 
 // extractOCIContentsToPathWithIdentity extracts contents and returns the observed
 // registry identity. Images are copied through their immutable local image ID;
-// artifacts are extracted through their original reference.
+// artifacts are extracted through their observed digest when it is available.
 func extractOCIContentsToPathWithIdentity(ctx context.Context, podman *client.Podman, logger *log.PrefixLogger, rw fileio.ReadWriter, imageRef, path string) (string, dependency.OCIType, error) {
 	clean := func() {
 		if err := rw.RemoveAll(path); err != nil {
@@ -184,11 +184,12 @@ func extractOCIContentsToPathWithIdentity(ctx context.Context, podman *client.Po
 	}
 
 	if ociType == dependency.OCITypePodmanArtifact {
-		_, observedDigest, err := podman.ImmutableArtifactReference(ctx, imageRef)
+		extractionReference, observedDigest, err := podman.ImmutableArtifactReference(ctx, imageRef)
 		if err != nil {
 			logger.Warnf("Cannot observe parent artifact digest for %s; delta evidence will be withheld: %v", imageRef, err)
+			extractionReference = imageRef
 		}
-		if err := extractAndProcessArtifact(ctx, podman, logger, imageRef, path, rw); err != nil {
+		if err := extractAndProcessArtifact(ctx, podman, logger, extractionReference, path, rw); err != nil {
 			clean()
 			return "", "", fmt.Errorf("extract artifact contents: %w", err)
 		}

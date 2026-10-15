@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -686,14 +687,16 @@ func TestComposeEnsureDependencies(t *testing.T) {
 	}
 }
 
-func TestWhenArtifactDigestIsObservedItShouldExtractOriginalReference(t *testing.T) {
+func TestWhenArtifactDigestIsObservedItShouldExtractDigestPinnedReference(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	const (
-		imageRef = "quay.io/acme/compose-bundle:v1"
-		digest   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		imageRef    = "quay.io/acme/compose-bundle:v1"
+		digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
+	observedDigest, err := digest.Parse(digestValue)
+	require.NoError(err)
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	logger := log.NewPrefixLogger("test")
@@ -703,8 +706,8 @@ func TestWhenArtifactDigestIsObservedItShouldExtractOriginalReference(t *testing
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageRef).Return("", "", 1)
 	gomock.InOrder(
 		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return("{}", "", 0),
-		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return(`{"Digest":"`+digest+`"}`, "", 0),
-		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", imageRef, gomock.Any()).
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", imageRef).Return(`{"Digest":"`+digestValue+`"}`, "", 0),
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", observedDigest.Encoded(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, _ string, args ...string) (string, string, int) {
 				require.NoError(rw.WriteFile(filepath.Join(args[len(args)-1], "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
 				return "", "", 0
@@ -715,7 +718,7 @@ func TestWhenArtifactDigestIsObservedItShouldExtractOriginalReference(t *testing
 	compose := &composeProvider{imageRef: imageRef, spec: spec, readWriter: rw, log: logger,
 		podman: client.NewPodman(logger, exec, rw, util.NewPollConfig())}
 	require.NoError(compose.Install(t.Context()))
-	require.Equal(digest, spec.ImageDigest)
+	require.Equal(digestValue, spec.ImageDigest)
 	require.Equal(string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
 	contents, err := rw.ReadFile(filepath.Join(spec.Path, "compose.yaml"))
 	require.NoError(err)

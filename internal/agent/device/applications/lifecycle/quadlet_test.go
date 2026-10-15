@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -312,6 +313,8 @@ func TestWhenQuadletAddsAnArtifactVolumeWithANewLocalDigestItShouldReextract(t *
 		newDigest   = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	)
 	logger := log.NewPrefixLogger("test")
+	newDigestValue, err := digest.Parse(newDigest)
+	require.NoError(t, err)
 	storeRoot := t.TempDir()
 	storeRW := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(storeRoot)), fileio.NewWriter(fileio.WithWriterRootDir(storeRoot)))
 	store := deltastatus.New(storeRW, "/var/lib/flightctl", logger)
@@ -373,7 +376,7 @@ func TestWhenQuadletAddsAnArtifactVolumeWithANewLocalDigestItShouldReextract(t *
 	var extracted bool
 	for _, args := range commands {
 		if len(args) == 4 && args[0] == "artifact" && args[1] == "extract" {
-			require.Equal(t, reference+"@"+newDigest, args[2])
+			require.Equal(t, newDigestValue.Encoded(), args[2])
 			extracted = true
 		}
 	}
@@ -1696,13 +1699,15 @@ func TestWhenArtifactBindingPersistenceFailsItShouldKeepThePreparedVolume(t *tes
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	const reference = "quay.io/acme/data:v1"
 	const digestValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	observedDigest, err := digest.Parse(digestValue)
+	require.NoError(err)
 	exec := executer.NewMockExecuter(ctrl)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", reference).Return(`{"Digest":"`+digestValue+`"}`, "", 0)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "exists", "data").Return("", "", 1)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "create", "data", "--label", client.QuadletProjectLabelKey+"=app-id").Return("data", "", 0)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "data", "--format", "{{.Mountpoint}}").Return("/volume-data", "", 0)
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", reference+"@"+digestValue, "/volume-data").DoAndReturn(
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "extract", observedDigest.Encoded(), "/volume-data").DoAndReturn(
 		func(context.Context, string, ...string) (string, string, int) {
 			require.NoError(rw.WriteFile("/volume-data/payload", []byte("installed contents"), 0o600))
 			failWrites = true
