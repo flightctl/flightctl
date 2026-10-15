@@ -284,6 +284,9 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 		if d.Status != nil {
 			summaryStatus = string(d.Status.Summary.Status)
 			updatedStatus = string(d.Status.Updated.Status)
+			if d.Status.Updated.Stage != nil {
+				updatedStatus = string(*d.Status.Updated.Stage)
+			}
 			applicationsStatus = string(d.Status.ApplicationsSummary.Status)
 			if d.Status.SystemInfoStatus != nil {
 				systemInfoStatus = string(d.Status.SystemInfoStatus.Summary.Status)

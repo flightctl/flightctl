@@ -318,6 +318,42 @@ func TestPrintDevicesTableMultipleDevicesSystemInfo(t *testing.T) {
 		"second device SYSTEM INFO should be Degraded")
 }
 
+func TestPrintDevicesTableUpdateStage(t *testing.T) {
+	deviceWithStageName := "device-staged"
+	deviceWithoutStageName := "device-up-to-date"
+	deviceWithStage := api.Device{
+		Metadata: api.ObjectMeta{Name: &deviceWithStageName},
+		Status: &api.DeviceStatus{
+			Summary: api.DeviceSummaryStatus{Status: "Online"},
+			Updated: api.DeviceUpdatedStatus{
+				Status: api.DeviceUpdatedStatusUpdating,
+				Stage:  lo.ToPtr(api.DeviceUpdatedStageStaged),
+			},
+			ApplicationsSummary: api.DeviceApplicationsSummaryStatus{Status: "Healthy"},
+		},
+	}
+	deviceWithoutStage := api.Device{
+		Metadata: api.ObjectMeta{Name: &deviceWithoutStageName},
+		Status: &api.DeviceStatus{
+			Summary:             api.DeviceSummaryStatus{Status: "Online"},
+			Updated:             api.DeviceUpdatedStatus{Status: api.DeviceUpdatedStatusUpToDate},
+			ApplicationsSummary: api.DeviceApplicationsSummaryStatus{Status: "Healthy"},
+		},
+	}
+
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+	f := &TableFormatter{}
+
+	require.NoError(t, f.printDevicesTable(w, false, deviceWithStage, deviceWithoutStage))
+	require.NoError(t, w.Flush())
+
+	cells := extractColumnCells(t, buf.String(), "UPDATED")
+	require.Len(t, cells, 2)
+	require.Equal(t, string(api.DeviceUpdatedStageStaged), cells[0])
+	require.Equal(t, string(api.DeviceUpdatedStatusUpToDate), cells[1])
+}
+
 func TestPrintDevicesTableSystemInfoColumnHeaderPosition(t *testing.T) {
 	// Verify SYSTEM INFO header appears after APPLICATIONS in the header row,
 	// matching the pattern of other status columns.
