@@ -155,7 +155,7 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 	}
 	return s.getDB(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}, {Name: "fleet_name"}, {Name: "device_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name", "config_provider_name"}),
+		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name", "config_provider_name", "config_provider_names"}),
 	}).Create(&refs).Error
 }
 
@@ -174,12 +174,16 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 			"dr.repository_name, dr.revision, ss.fingerprint, r.spec AS repo_spec, "+
 				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
 				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names, "+
-				"array_agg(DISTINCT rendered_ref->>'fingerprint') FILTER (WHERE rendered_ref->>'fingerprint' IS NOT NULL AND rendered_ref->>'fingerprint' <> '') AS rendered_fingerprints",
+				"COALESCE(jsonb_agg(DISTINCT jsonb_build_object("+
+				"'deviceName', d.name, "+
+				"'fingerprint', rendered_ref->>'fingerprint', "+
+				"'deviceLevel', dr.device_name <> ''"+
+				")) FILTER (WHERE rendered_ref->>'fingerprint' IS NOT NULL AND rendered_ref->>'fingerprint' <> ''), '[]'::jsonb) AS rendered_targets",
 		).
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Joins("LEFT JOIN repositories r ON r.org_id = dr.org_id AND r.name = dr.repository_name").
-		Joins("LEFT JOIN devices d ON d.org_id = dr.org_id AND d.name = dr.device_name AND dr.device_name <> '' AND d.deleted_at IS NULL").
-		Joins("LEFT JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref ON rendered_ref->>'configProviderName' = dr.config_provider_name").
+		Joins("LEFT JOIN devices d ON d.org_id = dr.org_id AND d.deleted_at IS NULL AND ((dr.device_name <> '' AND d.name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND d.owner = CONCAT('Fleet/', dr.fleet_name)))").
+		Joins("LEFT JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref ON rendered_ref->>'configProviderName' = dr.config_provider_name OR rendered_ref->>'configProviderName' = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[]))").
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").

@@ -143,18 +143,22 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			warnDuplicateConfigName(log, seenNames, warnedNames, gitSpec.Name, i, fleetName, deviceName)
 			key := fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision)
 			if _, exists := refs[key]; exists {
+				existing := refs[key]
+				existing.AddConfigProviderName(gitSpec.Name)
+				refs[key] = existing
 				continue
 			}
 			fn := fleetName
 			dn := deviceName
 			refs[key] = model.DependencyRef{
-				FleetName:          &fn,
-				DeviceName:         &dn,
-				RefType:            "git",
-				ResourceKey:        key,
-				RepositoryName:     &gitSpec.GitRef.Repository,
-				Revision:           &gitSpec.GitRef.TargetRevision,
-				ConfigProviderName: gitSpec.Name,
+				FleetName:           &fn,
+				DeviceName:          &dn,
+				RefType:             "git",
+				ResourceKey:         key,
+				RepositoryName:      &gitSpec.GitRef.Repository,
+				Revision:            &gitSpec.GitRef.TargetRevision,
+				ConfigProviderName:  gitSpec.Name,
+				ConfigProviderNames: model.StringArray{gitSpec.Name},
 			}
 		case domain.HttpConfigProviderType:
 			httpSpec, err := configItem.AsHttpConfigProviderSpec()
@@ -172,18 +176,22 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			warnDuplicateConfigName(log, seenNames, warnedNames, httpSpec.Name, i, fleetName, deviceName)
 			key := httpResourceKey(httpSpec.HttpRef.Repository, suffix)
 			if _, exists := refs[key]; exists {
+				existing := refs[key]
+				existing.AddConfigProviderName(httpSpec.Name)
+				refs[key] = existing
 				continue
 			}
 			fn := fleetName
 			dn := deviceName
 			refs[key] = model.DependencyRef{
-				FleetName:          &fn,
-				DeviceName:         &dn,
-				RefType:            "http",
-				ResourceKey:        key,
-				RepositoryName:     &httpSpec.HttpRef.Repository,
-				HTTPSuffix:         httpSpec.HttpRef.Suffix,
-				ConfigProviderName: httpSpec.Name,
+				FleetName:           &fn,
+				DeviceName:          &dn,
+				RefType:             "http",
+				ResourceKey:         key,
+				RepositoryName:      &httpSpec.HttpRef.Repository,
+				HTTPSuffix:          httpSpec.HttpRef.Suffix,
+				ConfigProviderName:  httpSpec.Name,
+				ConfigProviderNames: model.StringArray{httpSpec.Name},
 			}
 		case domain.KubernetesSecretProviderType:
 			k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
@@ -197,18 +205,22 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			warnDuplicateConfigName(log, seenNames, warnedNames, k8sSpec.Name, i, fleetName, deviceName)
 			key := fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 			if _, exists := refs[key]; exists {
+				existing := refs[key]
+				existing.AddConfigProviderName(k8sSpec.Name)
+				refs[key] = existing
 				continue
 			}
 			fn := fleetName
 			dn := deviceName
 			refs[key] = model.DependencyRef{
-				FleetName:          &fn,
-				DeviceName:         &dn,
-				RefType:            "secret",
-				ResourceKey:        key,
-				SecretName:         &k8sSpec.SecretRef.Name,
-				SecretNamespace:    &k8sSpec.SecretRef.Namespace,
-				ConfigProviderName: k8sSpec.Name,
+				FleetName:           &fn,
+				DeviceName:          &dn,
+				RefType:             "secret",
+				ResourceKey:         key,
+				SecretName:          &k8sSpec.SecretRef.Name,
+				SecretNamespace:     &k8sSpec.SecretRef.Namespace,
+				ConfigProviderName:  k8sSpec.Name,
+				ConfigProviderNames: model.StringArray{k8sSpec.Name},
 			}
 		}
 	}

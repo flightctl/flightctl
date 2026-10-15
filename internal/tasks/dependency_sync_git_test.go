@@ -390,11 +390,15 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			{
-				RepositoryName:       "new-repo",
-				Revision:             "main",
-				FleetNames:           model.StringArray{"fleet-1"},
-				RenderedFingerprints: model.StringArray{"rendered-old-sha"},
-				RepoSpec:             repoSpec,
+				RepositoryName: "new-repo",
+				Revision:       "main",
+				FleetNames:     model.StringArray{"fleet-1"},
+				RenderedTargets: model.MakeJSONField([]model.GitDependencyRenderedTarget{{
+					DeviceName:  "device-1",
+					Fingerprint: "rendered-old-sha",
+					DeviceLevel: false,
+				}}),
+				RepoSpec: repoSpec,
 			},
 		}
 		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
@@ -429,10 +433,14 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			{
-				RepositoryName:       "new-repo",
-				Revision:             "main",
-				RenderedFingerprints: model.StringArray{"rendered-sha"},
-				RepoSpec:             repoSpec,
+				RepositoryName: "new-repo",
+				Revision:       "main",
+				RenderedTargets: model.MakeJSONField([]model.GitDependencyRenderedTarget{{
+					DeviceName:  "device-1",
+					Fingerprint: "rendered-sha",
+					DeviceLevel: false,
+				}}),
+				RepoSpec: repoSpec,
 			},
 		}
 		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
@@ -447,6 +455,42 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: func(context.Context, string, []string, *git.ListOptions) (map[string]string, error) {
 				return map[string]string{"main": "rendered-sha"}, nil
+			}, maxConcurrent: 10,
+		}
+		d.Poll(ctx, orgId)
+	})
+
+	t.Run("When first seen only one device is stale it should emit an event for that device", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
+
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
+		probes := []model.GitDependencyProbe{
+			{
+				RepositoryName: "new-repo",
+				Revision:       "main",
+				DeviceNames:    model.StringArray{"stale-device", "current-device"},
+				RenderedTargets: model.MakeJSONField([]model.GitDependencyRenderedTarget{
+					{DeviceName: "stale-device", Fingerprint: "rendered-old-sha", DeviceLevel: true},
+					{DeviceName: "current-device", Fingerprint: "rendered-new-sha", DeviceLevel: true},
+				}),
+				RepoSpec: repoSpec,
+			},
+		}
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+			assert.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
+			assert.Equal(t, "stale-device", event.InvolvedObject.Name)
+		}).Times(1)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+
+		d := &DependencySyncGit{
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
+			cfg: &config.Config{}, lsRemote: func(context.Context, string, []string, *git.ListOptions) (map[string]string, error) {
+				return map[string]string{"main": "rendered-new-sha"}, nil
 			}, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
