@@ -16,7 +16,7 @@ const (
 	statusFixtureKey    = "e2eStatusValue"
 )
 
-var _ = Describe("Agent System Info periodic values", func() {
+var _ = Describe("Agent System Info periodic values", Label("sanity"), func() {
 	It("updates a file-backed custom value and recovers after an input error", Label("agent"), func() {
 		harness := e2e.GetWorkerHarness()
 		deviceID := harness.StartVMAndEnroll()
