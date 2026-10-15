@@ -25,7 +25,6 @@ const (
 	enrollmentHookReleaseFile               = "/run/flightctl/e2e-release-after-enrolling"
 	enrollmentHookFleetName                 = "enrollment-hooks-fleet"
 	enrollmentHookPolicyName                = "default"
-	enrollmentHookReEnrollmentLabel         = "90609"
 	enrollmentHookAbsenceObservationWindows = 2
 )
 
@@ -110,7 +109,7 @@ var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel
 		Expect(renderedStatus).To(Equal(http.StatusOK))
 	})
 
-	It("runs the full hook cycle again after decommission and re-enrollment", Label(enrollmentHookDevLabel, enrollmentHookReEnrollmentLabel, enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
+	It("runs the full hook cycle again after decommission and re-enrollment", Label(enrollmentHookDevLabel, "90609", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
 		harness := e2e.GetWorkerHarness()
 		labels := enrollmentHookLabels(harness)
 
@@ -147,6 +146,7 @@ var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel
 	})
 })
 
+// prepareImageBackedReEnrollment prepares and decommissions a device for the re-enrollment scenario.
 func prepareImageBackedReEnrollment(harness *e2e.Harness) error {
 	if harness == nil {
 		return fmt.Errorf("harness is nil")
@@ -195,6 +195,7 @@ func prepareImageBackedReEnrollment(harness *e2e.Harness) error {
 	return nil
 }
 
+// registerDecommissionedDeviceCleanup removes the decommissioned device after the scenario completes.
 func registerDecommissionedDeviceCleanup(harness *e2e.Harness, deviceID string) {
 	DeferCleanup(func() {
 		if harness == nil || strings.TrimSpace(deviceID) == "" {
@@ -469,6 +470,7 @@ func removeEnrollmentHookMarkers(harness *e2e.Harness) error {
 	return nil
 }
 
+// isEnrollmentHookScenario reports whether the selected labels include an enrollment-hook scenario.
 func isEnrollmentHookScenario(labels []string) bool {
 	for _, label := range labels {
 		if label == enrollmentHookScenarioLabel {
@@ -481,7 +483,17 @@ func isEnrollmentHookScenario(labels []string) bool {
 // isEnrollmentHookReEnrollmentScenario identifies the lifecycle spec that keeps the agent stopped during setup.
 func isEnrollmentHookReEnrollmentScenario(labels []string) bool {
 	for _, label := range labels {
-		if label == enrollmentHookReEnrollmentLabel {
+		if label == "90609" {
+			return true
+		}
+	}
+	return false
+}
+
+// isEnrollmentHookNotifyScenario identifies the notify webhook scenario.
+func isEnrollmentHookNotifyScenario(labels []string) bool {
+	for _, label := range labels {
+		if label == "90608" {
 			return true
 		}
 	}

@@ -62,6 +62,7 @@ type TestVMInterface interface {
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
 	RunSSHContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
 	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
+	RunSSHWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
 	EnsureConsoleStream() error
@@ -173,7 +174,12 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 }
 
 func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
-	return v.runSSHWithUserContext(context.Background(), inputArgs, stdin, user)
+	return v.RunSSHWithUserContext(context.Background(), inputArgs, stdin, user)
+}
+
+// RunSSHWithUserContext runs a command over SSH using the requested user and context.
+func (v *TestVM) RunSSHWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
+	return v.runSSHWithUserContext(ctx, inputArgs, stdin, user)
 }
 
 func (v *TestVM) runSSHWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
