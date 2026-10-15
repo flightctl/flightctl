@@ -57,6 +57,33 @@ var _ = Describe("Agent System Info periodic values", func() {
 			HaveField("Message", BeEmpty()),
 		))
 	})
+
+	It("reports an updated VM hostname on the next collection", Label("agent"), func() {
+		harness := e2e.GetWorkerHarness()
+		deviceID := harness.StartVMAndEnroll()
+
+		originalHostname, err := harness.GetVMHostname()
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(harness.SetVMHostname, originalHostname)
+
+		readHostname := func() string {
+			info := harness.GetDeviceSystemInfo(deviceID)
+			if info == nil {
+				return ""
+			}
+			return info.AdditionalProperties["hostname"]
+		}
+		By("Waiting for the enrolled device to report its original hostname")
+		Eventually(readHostname, TIMEOUT, POLLING).Should(Equal(originalHostname))
+
+		By("Changing the VM hostname without reloading the agent")
+		updatedHostname := fmt.Sprintf("e2e-status-%d", GinkgoParallelProcess())
+		if updatedHostname == originalHostname {
+			updatedHostname = fmt.Sprintf("e2e-changed-%d", GinkgoParallelProcess())
+		}
+		Expect(harness.SetVMHostname(updatedHostname)).To(Succeed())
+		Eventually(readHostname, TIMEOUT, POLLING).Should(Equal(updatedHostname))
+	})
 })
 
 type customInfoSnapshot struct {
