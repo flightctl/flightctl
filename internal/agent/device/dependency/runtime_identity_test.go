@@ -52,7 +52,11 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/workload@"+podmanDeltaTargetDigest).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/workload@"+podmanDeltaTargetDigest).Return(podmanDeltaImageID, "", 0)
+			expectPodmanDeltaActivation(exec, image)
+			exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", podmanDeltaImageID,
+			).Return(podmanDeltaTargetDigest, "", 0)
 			// The source exists in Podman only. CRI must recover with its own pull.
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", "--output", "json").Return(`{"images":[]}`, "", 0)
 			exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", image}, gomock.Any()).Return("", "", 0)

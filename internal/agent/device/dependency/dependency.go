@@ -16,6 +16,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -1117,24 +1118,87 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
 
-	// Pull the registry reference after importing the reconstructed image so
-	// CRI records the registry's canonical manifest digest. The image blobs are
-	// already in the runtime storage from delta reconstruction and can be reused
-	// by digest.
-	refreshImage, err := deltaRefreshReference(target.image, candidate.TargetDigest)
-	if err != nil {
+	if err := m.activateCRIRefreshedImage(ctx, cri, skopeo, target, *runtimeInfo, candidate, deltaOpts, opts...); err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
-	imageRef, err := cri.Pull(ctx, refreshImage, opts...)
-	if err != nil {
-		return m.applicationCRIDeltaFallback(ctx, target, task,
-			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
-	}
 
-	m.recordObservedDeltaResult(ctx, target, task, nil, imageRef, v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
+	m.recordObservedDeltaResult(ctx, target, task, nil, target.image, v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate.Reference)
 	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
+}
+
+func (m *prefetchManager) activateCRIRefreshedImage(
+	ctx context.Context,
+	cri *client.CRI,
+	skopeo *client.Skopeo,
+	target imageRef,
+	runtimeInfo client.CRIRuntimeInfo,
+	candidate delta.Candidate,
+	deltaOpts []client.ClientOption,
+	opts ...client.ClientOption,
+) error {
+	refreshImage, err := deltaRefreshReference(target.image, candidate.TargetDigest)
+	if err != nil {
+		return err
+	}
+	if _, err := cri.Pull(ctx, refreshImage, opts...); err != nil {
+		return fmt.Errorf("refresh registry manifest after delta import: %w", err)
+	}
+	canonicalMetadata, err := cri.ImageMetadata(ctx, refreshImage, opts...)
+	if err != nil {
+		return fmt.Errorf("inspect refreshed image for %s: %w", target.image, err)
+	}
+	digestPinned, err := imageReferenceIsDigestPinned(target.image)
+	if err != nil {
+		return fmt.Errorf("activate refreshed image for %s: %w", target.image, err)
+	}
+	switch runtimeInfo.Name {
+	case client.CRIRuntimeCRIO:
+		if digestPinned {
+			break
+		}
+		if err := cri.RemoveImage(ctx, target.image, opts...); err != nil {
+			return fmt.Errorf("remove reconstructed image for %s: %w", target.image, err)
+		}
+		if err := skopeo.CopyPreservingDigests(
+			ctx, "docker://"+refreshImage, "containers-storage:"+target.image, deltaOpts...,
+		); err != nil {
+			return fmt.Errorf("activate refreshed image for %s: %w", target.image, err)
+		}
+	case client.CRIRuntimeContainerd:
+		if digestPinned {
+			break
+		}
+		if err := cri.TagContainerdImage(ctx, runtimeInfo.Endpoint, refreshImage, target.image, opts...); err != nil {
+			return fmt.Errorf("activate refreshed image for %s: %w", target.image, err)
+		}
+	}
+	boundMetadata, err := cri.ImageMetadata(ctx, target.image, opts...)
+	if err != nil {
+		return fmt.Errorf("verify activated image for %s: %w", target.image, err)
+	}
+	repository, _, _, err := normalizedCRIImageReferences(target.image)
+	if err != nil || !criImageMetadataMatches(boundMetadata, canonicalMetadata.ID, repository, candidate.TargetDigest) {
+		return fmt.Errorf("verify activated image for %s: bound image does not match canonical image", target.image)
+	}
+	return nil
+}
+
+func criImageMetadataMatches(metadata client.CRIImageMetadata, canonicalImageID, repository, targetDigest string) bool {
+	if metadata.ID != canonicalImageID {
+		return false
+	}
+	for _, repoDigest := range metadata.RepoDigests {
+		named, err := reference.ParseNormalizedNamed(repoDigest)
+		if err != nil || named.Name() != repository {
+			continue
+		}
+		if pinned, ok := named.(reference.Digested); ok && pinned.Digest().String() == targetDigest {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *prefetchManager) applyContainerdImageDelta(
@@ -1196,6 +1260,15 @@ func deltaRefreshReference(targetImage, targetDigest string) (string, error) {
 		return "", fmt.Errorf("target image reference %q has no repository name", targetImage)
 	}
 	return reference.TrimNamed(named).String() + "@" + targetDigest, nil
+}
+
+func imageReferenceIsDigestPinned(image string) (bool, error) {
+	parsed, err := reference.Parse(image)
+	if err != nil {
+		return false, fmt.Errorf("parse image reference %q: %w", image, err)
+	}
+	_, digestPinned := parsed.(reference.Digested)
+	return digestPinned, nil
 }
 
 func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, deltaErr error, opts ...client.ClientOption) error {
@@ -1277,6 +1350,30 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman,
 			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
+	}
+	if imageID == "" {
+		return m.applicationDeltaFallback(ctx, target, task, podman,
+			fmt.Errorf("refresh registry manifest after delta import: empty image ID"), opts...)
+	}
+	digestPinned, err := imageReferenceIsDigestPinned(target.image)
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman,
+			fmt.Errorf("activate refreshed image for %s: %w", target.image, err), opts...)
+	}
+	if !digestPinned {
+		if err := podman.Tag(ctx, imageID, target.image); err != nil {
+			return m.applicationDeltaFallback(ctx, target, task, podman,
+				fmt.Errorf("activate refreshed image for %s: %w", target.image, err), opts...)
+		}
+	}
+	boundImageID, err := podman.ImageID(ctx, target.image)
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman,
+			fmt.Errorf("verify activated image for %s: %w", target.image, err), opts...)
+	}
+	if boundImageID != imageID {
+		return m.applicationDeltaFallback(ctx, target, task, podman,
+			fmt.Errorf("verify activated image for %s: bound image ID %q does not match canonical image ID %q", target.image, boundImageID, imageID), opts...)
 	}
 	m.recordObservedDeltaResult(ctx, target, task, podman, imageID, v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate.Reference)

@@ -322,6 +322,19 @@ func (p *Podman) ImageID(ctx context.Context, image string) (string, error) {
 	return strings.TrimSpace(stdout), nil
 }
 
+// Tag binds an existing local image identity to another local image reference.
+func (p *Podman) Tag(ctx context.Context, source, target string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "tag", source, target)
+	if exitCode != 0 {
+		return fmt.Errorf("tag image %s as %s: %w", source, target, deviceerrors.FromStderr(stderr, exitCode))
+	}
+	_ = stdout
+	return nil
+}
+
 // ImageMetadata returns the local image ID, content digest, and repository digests.
 func (p *Podman) ImageMetadata(ctx context.Context, image string) (PodmanImageMetadata, error) {
 	return p.imageMetadata(ctx, image, "inspect image metadata", "parse image metadata")
