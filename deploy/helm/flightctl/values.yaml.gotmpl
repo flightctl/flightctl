@@ -342,7 +342,14 @@ organizations:
       spec:
         resourceType: Device
         key: feature.flightctl.io/os.mode
-        expression: status.systemInfo.osMode
+        expression: >-
+          has(status.systemInfo.osMode) && status.systemInfo.osMode != null
+            && status.systemInfo.osMode != ""
+            ? status.systemInfo.osMode
+            : has(status.capabilities) && status.capabilities != null
+              && has(status.capabilities.osMode) && status.capabilities.osMode != null
+              ? status.capabilities.osMode
+              : dyn(null)
 
     # END GENERATED INITIAL LABEL SYNC MAPPINGS
 
