@@ -251,6 +251,17 @@ const (
 	DeviceSummaryStatusUnknown           DeviceSummaryStatusType = "Unknown"
 )
 
+// Defines values for DeviceUpdatedStageType.
+const (
+	DeviceUpdatedStageApplying    DeviceUpdatedStageType = "Applying"
+	DeviceUpdatedStageDownloading DeviceUpdatedStageType = "Downloading"
+	DeviceUpdatedStageFailed      DeviceUpdatedStageType = "Failed"
+	DeviceUpdatedStageRebooting   DeviceUpdatedStageType = "Rebooting"
+	DeviceUpdatedStageRetrying    DeviceUpdatedStageType = "Retrying"
+	DeviceUpdatedStageRollingBack DeviceUpdatedStageType = "Rolling back"
+	DeviceUpdatedStageStaged      DeviceUpdatedStageType = "Staged"
+)
+
 // Defines values for DeviceUpdatedStatusType.
 const (
 	DeviceUpdatedStatusOutOfDate DeviceUpdatedStatusType = "OutOfDate"
@@ -1873,10 +1884,16 @@ type DeviceUpdatePolicySpec struct {
 	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
+// DeviceUpdatedStageType Operator-facing stage of the current device update.
+type DeviceUpdatedStageType string
+
 // DeviceUpdatedStatus Current status of the device update.
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
 	Info *string `json:"info,omitempty"`
+
+	// Stage Operator-facing stage of the current device update.
+	Stage *DeviceUpdatedStageType `json:"stage,omitempty"`
 
 	// Status Status type of the device update.
 	Status DeviceUpdatedStatusType `json:"status"`

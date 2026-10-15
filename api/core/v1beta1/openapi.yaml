@@ -7985,9 +7985,31 @@ components:
       properties:
         status:
           $ref: "#/components/schemas/DeviceUpdatedStatusType"
+        stage:
+          $ref: "#/components/schemas/DeviceUpdatedStageType"
+          description: Operator-facing stage of the current device update.
         info:
           type: string
           description: Human readable information about the last device update transition.
+    DeviceUpdatedStageType:
+      type: string
+      description: Operator-facing stage of the current device update.
+      enum:
+        - "Downloading"
+        - "Staged"
+        - "Applying"
+        - "Rebooting"
+        - "Rolling back"
+        - "Failed"
+        - "Retrying"
+      x-enum-varnames:
+        - "DeviceUpdatedStageDownloading"
+        - "DeviceUpdatedStageStaged"
+        - "DeviceUpdatedStageApplying"
+        - "DeviceUpdatedStageRebooting"
+        - "DeviceUpdatedStageRollingBack"
+        - "DeviceUpdatedStageFailed"
+        - "DeviceUpdatedStageRetrying"
     DeviceUpdatedStatusType:
       type: string
       description: Status type of the device update.

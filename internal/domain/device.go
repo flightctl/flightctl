@@ -58,6 +58,7 @@ type DeviceCompletionCount = v1beta1.DeviceCompletionCount
 type DeviceLifecycleStatusType = v1beta1.DeviceLifecycleStatusType
 type DeviceSummaryStatusType = v1beta1.DeviceSummaryStatusType
 type DeviceUpdatedStatusType = v1beta1.DeviceUpdatedStatusType
+type DeviceUpdatedStageType = v1beta1.DeviceUpdatedStageType
 type DeviceResourceStatusType = v1beta1.DeviceResourceStatusType
 type DeviceIntegrityStatusSummaryType = v1beta1.DeviceIntegrityStatusSummaryType
 type DeviceIntegrityCheckStatusType = v1beta1.DeviceIntegrityCheckStatusType
@@ -101,6 +102,18 @@ const (
 	DeviceUpdatedStatusUnknown   = v1beta1.DeviceUpdatedStatusUnknown
 	DeviceUpdatedStatusUpToDate  = v1beta1.DeviceUpdatedStatusUpToDate
 	DeviceUpdatedStatusUpdating  = v1beta1.DeviceUpdatedStatusUpdating
+)
+
+// ========== Device Updated Stage Constants ==========
+
+const (
+	DeviceUpdatedStageDownloading = v1beta1.DeviceUpdatedStageDownloading
+	DeviceUpdatedStageStaged       = v1beta1.DeviceUpdatedStageStaged
+	DeviceUpdatedStageApplying     = v1beta1.DeviceUpdatedStageApplying
+	DeviceUpdatedStageRebooting    = v1beta1.DeviceUpdatedStageRebooting
+	DeviceUpdatedStageRollingBack  = v1beta1.DeviceUpdatedStageRollingBack
+	DeviceUpdatedStageFailed       = v1beta1.DeviceUpdatedStageFailed
+	DeviceUpdatedStageRetrying     = v1beta1.DeviceUpdatedStageRetrying
 )
 
 // ========== Device Resource Status Constants ==========
