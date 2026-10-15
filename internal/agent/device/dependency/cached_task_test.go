@@ -2,7 +2,6 @@ package dependency
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 
 func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 	const image = "quay.io/acme/app:target"
-	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testCases := []struct {
 		name   string
 		change func(*prefetchManager, imageRef)
@@ -58,18 +56,19 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(testCase.checks + 1)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
-				Return(fmt.Sprintf(`{"Digest": %q}`, digest), "", 0).Times(testCase.checks)
+			imageExistsCalls := 0
 			inspecting := make(chan struct{}, testCase.checks)
 			release := make(chan struct{}, testCase.checks)
 			defer close(release)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).
 				DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
-					inspecting <- struct{}{}
-					<-release
-					return digest, "", 0
-				}).Times(testCase.checks)
+					imageExistsCalls++
+					if imageExistsCalls > 1 {
+						inspecting <- struct{}{}
+						<-release
+					}
+					return "", "", 0
+				}).Times(testCase.checks + 1)
 			logger := log.NewPrefixLogger("test")
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
@@ -139,8 +138,8 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			default:
 				require.True(current.done)
 				require.True(current.targetPresent)
-				require.Equal(digest, current.resolvedDigest)
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, manager.deltaApplyResults["app"][target].outcome)
+				require.Empty(current.resolvedDigest)
+				require.Empty(manager.deltaApplyResults)
 			}
 		})
 	}
@@ -148,7 +147,6 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 
 func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 	const image = "quay.io/acme/app:target"
-	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testCases := []struct {
 		name         string
 		cancelBefore bool
@@ -183,10 +181,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 				cancel()
 			}
 			if testCase.checks > 0 {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(testCase.checks)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
-					Return(fmt.Sprintf(`{"Digest": %q}`, digest), "", 0).Times(testCase.checks)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).
 					DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
 						manager.mu.Lock()
 						manager.deltaGeneration++
@@ -195,7 +190,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 						if testCase.cancelDuring {
 							cancel()
 						}
-						return "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "", 0
+						return "", "", 0
 					}).Times(testCase.checks)
 			}
 			manager.mu.Lock()
@@ -205,11 +200,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 			require.Equal(testCase.wantDone, task.done)
 			require.True(task.targetPresent)
 			require.Empty(task.resolvedDigest)
-			if testCase.wantDone {
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults["app"][target].outcome)
-			} else {
-				require.Empty(manager.deltaApplyResults)
-			}
+			require.Empty(manager.deltaApplyResults)
 		})
 	}
 }
@@ -223,8 +214,8 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 		checkOnly bool
 		checks    int
 	}{
-		{name: "When an auto artifact is cached it should not queue a new pull", checks: 3},
-		{name: "When an auto artifact task is reused it should not queue a new pull", reused: true, checks: 2},
+		{name: "When an auto artifact is cached it should not queue a new pull", checks: 1},
+		{name: "When an auto artifact task is reused it should not queue a new pull", reused: true, checks: 1},
 		{name: "When an auto artifact task is completed it should preserve the cache", reused: true, completed: true, checks: 1},
 		{name: "When auto digest checking finds an artifact it should report unknown rather than mismatched", checkOnly: true, checks: 1},
 	}
@@ -236,6 +227,8 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 			exec := executer.NewMockExecuter(ctrl)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1).Times(testCase.checks)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return("{}", "", 0).Times(testCase.checks)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return(`{"Digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "", 0).AnyTimes()
 			logger := log.NewPrefixLogger("test")
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
@@ -252,9 +245,6 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 				require.Equal(digestUnknown, result)
 				return
 			}
-			if !testCase.completed {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return("", "inspection unavailable", 1)
-			}
 			if testCase.reused {
 				manager.tasks[target] = &prefetchTask{ociType: OCITypeAuto, done: true, deltaGeneration: 1}
 				if !testCase.completed {
@@ -265,7 +255,12 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 			require.NoError(err)
 			require.False(needsQueue)
 			require.True(manager.tasks[target].done)
-			require.True(manager.tasks[target].targetPresent)
+			if testCase.reused {
+				require.True(manager.tasks[target].targetPresent)
+			} else {
+				// A resolved OCI artifact has no image-cache comparison identity.
+				require.False(manager.tasks[target].targetPresent)
+			}
 		})
 	}
 }

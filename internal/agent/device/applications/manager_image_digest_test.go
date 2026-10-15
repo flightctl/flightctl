@@ -7,140 +7,94 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
-func TestAddCachedParentImageDigests(t *testing.T) {
+func TestPodmanImageVolumeObservationRequiresRuntimeDigestBinding(t *testing.T) {
 	const (
-		appID          = "app-id"
-		parentImage    = "quay.io/example/parent:v1"
-		parentDigest   = "sha256:parent"
-		workloadImage  = "quay.io/example/workload:v1"
-		workloadDigest = "sha256:workload"
+		applicationID = "app-id"
+		lifetime      = "lifetime-1"
+		reference     = "quay.io/example/volume:v1"
+		owner         = v1beta1.RootUsername
+		imageID       = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		digestValue   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
 
-	imageDigests := func(digests ...v1beta1.ApplicationImageDigest) *[]v1beta1.ApplicationImageDigest {
-		return &digests
-	}
-	cacheEntry := func(id, image, digest string) provider.CacheEntry {
-		return provider.CacheEntry{
-			Name: id,
-			Parent: dependency.OCIPullTarget{
-				Reference: image,
-				Digest:    digest,
-			},
-		}
-	}
-
 	testCases := []struct {
-		name         string
-		result       AppStatusResult
-		cacheEntries []provider.CacheEntry
-		want         []v1beta1.ApplicationImageDigest
+		name        string
+		runtimeOut  string
+		runtimeErr  int
+		label       string
+		malformedID bool
+		want        bool
 	}{
 		{
-			name: "When the status list is nil, it should include the cached parent image",
-			result: AppStatusResult{
-				ID:     appID,
-				Status: v1beta1.DeviceApplicationStatus{Name: "parent-app"},
-			},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
-			want:         []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: parentDigest}},
+			name:       "When the source image ID resolves to the labeled digest it should accept the observation",
+			runtimeOut: digestValue,
+			label:      digestValue,
+			want:       true,
 		},
 		{
-			name: "When the parent ref is absent, it should append the cached parent image",
-			result: AppStatusResult{
-				ID: appID,
-				Status: v1beta1.DeviceApplicationStatus{
-					Name:         "parent-app",
-					ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: workloadImage, Digest: workloadDigest}),
-				},
-			},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
-			want: []v1beta1.ApplicationImageDigest{
-				{Image: parentImage, Digest: parentDigest},
-				{Image: workloadImage, Digest: workloadDigest},
-			},
+			name:       "When the source image ID resolves to a different digest it should reject the observation",
+			runtimeOut: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			label:      digestValue,
 		},
 		{
-			name: "When the parent digest is empty, it should fill the cached digest",
-			result: AppStatusResult{
-				ID: appID,
-				Status: v1beta1.DeviceApplicationStatus{
-					Name:         "parent-app",
-					ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: parentImage}),
-				},
-			},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
-			want:         []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: parentDigest}},
+			name:       "When the source image ID cannot be inspected it should reject the observation",
+			runtimeErr: 125,
+			label:      digestValue,
 		},
 		{
-			name: "When the cached digest is empty, it should leave other status entries unchanged",
-			result: AppStatusResult{
-				ID: appID,
-				Status: v1beta1.DeviceApplicationStatus{
-					Name:         "parent-app",
-					ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: workloadImage, Digest: workloadDigest}),
-				},
-			},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, "")},
-			want:         []v1beta1.ApplicationImageDigest{{Image: workloadImage, Digest: workloadDigest}},
-		},
-		{
-			name: "When result and display names differ, it should match cache by application ID",
-			result: AppStatusResult{
-				ID: appID,
-				Status: v1beta1.DeviceApplicationStatus{
-					Name: "parent-app",
-				},
-			},
-			cacheEntries: []provider.CacheEntry{
-				cacheEntry(appID, parentImage, parentDigest),
-				cacheEntry("parent-app", "quay.io/example/wrong:v1", "sha256:wrong"),
-			},
-			want: []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: parentDigest}},
-		},
-		{
-			name: "When the workload reports a newer parent digest it should preserve the runtime observation",
-			result: AppStatusResult{ID: appID, Status: v1beta1.DeviceApplicationStatus{
-				ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: parentImage, Digest: workloadDigest}),
-			}},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
-			want:         []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: workloadDigest}},
-		},
-		{
-			name: "When the cached parent pair is already present, it should not duplicate it",
-			result: AppStatusResult{
-				ID: appID,
-				Status: v1beta1.DeviceApplicationStatus{
-					Name:         "parent-app",
-					ImageDigests: imageDigests(v1beta1.ApplicationImageDigest{Image: parentImage, Digest: parentDigest}),
-				},
-			},
-			cacheEntries: []provider.CacheEntry{cacheEntry(appID, parentImage, parentDigest)},
-			want:         []v1beta1.ApplicationImageDigest{{Image: parentImage, Digest: parentDigest}},
+			name:        "When the source image ID is malformed it should reject the observation without inspecting it",
+			label:       digestValue,
+			malformedID: true,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := provider.NewOCITargetCache()
-			for _, entry := range tc.cacheEntries {
-				cache.Set(entry)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			inspection := &client.PodmanVolumeInspect{
+				Name:   "volume-1",
+				Driver: "image",
+				Options: map[string]string{
+					"image": imageID,
+				},
+				Labels: map[string]string{
+					client.PodmanDeltaVolumeApplicationLabel: applicationID,
+					client.PodmanDeltaVolumeLifetimeLabel:    lifetime,
+					client.PodmanDeltaVolumeReferenceLabel:   reference,
+					client.PodmanDeltaVolumeOwnerLabel:       string(owner),
+					client.PodmanDeltaVolumeOCITypeLabel:     string(dependency.OCITypePodmanImage),
+					client.PodmanDeltaVolumeDigestLabel:      tc.label,
+				},
 			}
-
-			results := []AppStatusResult{tc.result}
-			addCachedParentImageDigests(results, cache)
-
-			require.NotNil(t, results[0].Status.ImageDigests)
-			require.Equal(t, tc.want, *results[0].Status.ImageDigests)
+			if !tc.malformedID {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).
+					Return(tc.runtimeOut, "source image unavailable", tc.runtimeErr)
+			} else {
+				inspection.Options["image"] = "mutable:tag"
+			}
+			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()), poll.Config{})
+			observed, ok := podmanImageVolumeObservation(context.Background(), podman, inspection, applicationID, lifetime, owner)
+			require.Equal(t, tc.want, ok)
+			if tc.want {
+				require.Equal(t, deltastatus.ApplicationImage{
+					Image: reference, Owner: string(owner), OCIType: string(dependency.OCITypePodmanImage), Digest: digestValue,
+				}, observed)
+			}
 		})
 	}
 }
@@ -179,7 +133,7 @@ func TestWhenManagerObservesMatchingWorkloadImagesItShouldReportTheirOutcome(t *
 				{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: image, Digest: digest}}},
 				{Name: "unknown-replica", Status: StatusRunning, Images: []WorkloadImage{{Image: image}}},
 			},
-			wantImageDigest: digest,
+			wantImageDigest: "",
 		},
 		{
 			name:            "When only the provider digest is known it should not invent an observed digest",
@@ -230,6 +184,7 @@ func TestWhenApplicationStatusIsUpdatedItShouldPreserveThePreviousReport(t *test
 	recordApplicationOutcome(t, store, appName, targets, observed, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
 	manager, _ := newApplicationOutcomeManager(t, appName, [][]deltastatus.ApplicationImage{{observed}}, store, logger)
 	app := manager.podmanMonitor.apps[appName].(*application)
+
 	reported := &v1beta1.DeviceStatus{}
 	require.NoError(manager.Status(context.Background(), reported))
 	firstReport := reported.Applications[0]
@@ -240,6 +195,7 @@ func TestWhenApplicationStatusIsUpdatedItShouldPreserveThePreviousReport(t *test
 	require.Nil(reported.Applications[0].LastDelta)
 	require.Empty((*reported.Applications[0].ImageDigests)[0].Digest)
 	require.Equal(digest, (*firstReport.ImageDigests)[0].Digest)
+	require.NotNil(firstReport.LastDelta)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, firstReport.LastDelta.Outcome)
 }
 
@@ -374,7 +330,7 @@ func TestWhenInlineQuadletWorkloadsAreObservedItShouldReportOnlyCompleteOutcomes
 			require.NoError(err)
 			appSpec := &provider.ApplicationSpec{
 				ID: appName, Name: appName, AppType: v1beta1.AppTypeQuadlet,
-				User: v1beta1.RootUsername, QuadletApp: &quadlet, Volume: volume,
+				User: v1beta1.RootUsername, Lifetime: store.ApplicationLifetime(appName), QuadletApp: &quadlet, Volume: volume,
 			}
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -409,7 +365,7 @@ func TestWhenInlineQuadletWorkloadsAreObservedItShouldReportOnlyCompleteOutcomes
 	}
 }
 
-func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(t *testing.T) {
+func TestWhenImageBasedComposeBundleHasNoDeltaHistoryItShouldReportWorkloadOutcome(t *testing.T) {
 	require := require.New(t)
 	const (
 		appName       = "web"
@@ -425,7 +381,6 @@ func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(
 	}
 	workload := applicationOutcomeImage(workloadImage, workloadHash)
 	targets := prepareApplicationOutcomeTargets(t, store, appName, []deltastatus.ApplicationImage{bundleImage, workload})
-	recordApplicationOutcome(t, store, appName, targets, bundleImage, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired})
 	recordApplicationOutcome(t, store, appName, targets, workload, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied})
 
 	volume, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
@@ -434,7 +389,7 @@ func TestWhenImageBasedComposeHasBundleAndWorkloadOutcomesItShouldReportApplied(
 	require.NoError(composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: bundle}))
 	appSpec := &provider.ApplicationSpec{
 		ID: appName, Name: appName, AppType: v1beta1.AppTypeCompose, User: v1beta1.RootUsername,
-		Image: bundle, ImageDigest: bundleDigest,
+		Image: bundle, ImageDigest: bundleDigest, ImageOCIType: string(dependency.OCITypePodmanArtifact),
 		ComposeApp: &composeApp, Volume: volume,
 	}
 	targetCache := provider.NewOCITargetCache()
@@ -488,7 +443,7 @@ func TestWhenImageBasedQuadletHasCompleteWorkloadOutcomesItShouldReportApplied(t
 	require.NoError(quadletApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: bundle}))
 	appSpec := &provider.ApplicationSpec{
 		ID: appName, Name: appName, AppType: v1beta1.AppTypeQuadlet, User: v1beta1.RootUsername,
-		Image: bundle, ImageDigest: bundleDigest,
+		Image: bundle, ImageDigest: bundleDigest, ImageOCIType: string(dependency.OCITypePodmanArtifact),
 		QuadletApp: &quadletApp, Volume: volume,
 	}
 	targetCache := provider.NewOCITargetCache()
@@ -774,6 +729,7 @@ func newApplicationOutcomeManager(t *testing.T, appName string, workloadImages [
 	}
 	app := &application{
 		id:                      appName,
+		lifetime:                store.ApplicationLifetime(appName),
 		requiredImages:          make([]string, 0, len(requiredImages)),
 		imageCollectionComplete: true,
 		workloads:               workloads,
@@ -795,4 +751,273 @@ func newApplicationOutcomeManager(t *testing.T, appName string, workloadImages [
 		kubernetesMonitor: &KubernetesMonitor{monitor: newMonitor(logger, "kubernetes")},
 	}
 	return manager, want
+}
+
+func TestManagerReportsCompleteOutcomeForApplicationWithMoreThanEightImages(t *testing.T) {
+	const (
+		applicationName = "large-app"
+		applicationID   = "large-app-id"
+	)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	images := make([]deltastatus.ApplicationImage, 12)
+	workloads := make([]Workload, 12)
+	requiredImages := make([]string, 12)
+	for i := range images {
+		image := deltastatus.ApplicationImage{
+			Image:   fmt.Sprintf("quay.io/acme/workload-%02d:latest", i),
+			Owner:   string(v1beta1.RootUsername),
+			OCIType: string(dependency.OCITypePodmanImage),
+			Digest:  fmt.Sprintf("sha256:observed-%02d", i),
+		}
+		images[i] = image
+		requiredImages[i] = image.Image
+		workloads[i] = Workload{
+			Name:   fmt.Sprintf("workload-%02d", i),
+			Status: StatusRunning,
+			Images: []WorkloadImage{{Image: image.Image, Digest: image.Digest}},
+		}
+	}
+	lifetime := recordApplicationImageOutcomes(t, store, applicationName, "spec", images)
+	volume, err := provider.NewVolumeManager(logger, applicationName, v1beta1.AppTypeContainer, v1beta1.RootUsername, nil)
+	require.NoError(t, err)
+	app := &application{
+		id:                      applicationID,
+		lifetime:                lifetime,
+		requiredImages:          requiredImages,
+		imageCollectionComplete: true,
+		volume:                  volume,
+		status:                  &v1beta1.DeviceApplicationStatus{Name: applicationName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeContainer},
+		workloads:               workloads,
+	}
+	manager := &manager{
+		log:               logger,
+		deltaStatusStore:  store,
+		podmanMonitor:     &PodmanMonitor{apps: map[string]Application{applicationID: app}},
+		kubernetesMonitor: &KubernetesMonitor{monitor: &monitor{apps: map[string]Application{}}},
+	}
+
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(t, manager.Status(context.Background(), reported))
+	require.Len(t, reported.Applications, 1)
+	require.Len(t, *reported.Applications[0].ImageDigests, 12)
+	var expected []v1beta1.ApplicationImageDigest
+	for _, image := range images {
+		expected = append(expected, v1beta1.ApplicationImageDigest{Image: image.Image, Digest: image.Digest})
+	}
+	require.ElementsMatch(t, expected, *reported.Applications[0].ImageDigests)
+	require.NotNil(t, reported.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+}
+
+func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testing.T) {
+	const (
+		appName                = "web"
+		applicationID          = "web-id"
+		appSpecKey             = "web-spec"
+		workloadRef            = "quay.io/acme/web:latest"
+		parentRef              = "quay.io/acme/parent:v1"
+		volumeRef              = "quay.io/acme/disk:latest"
+		volumeID               = "web-data"
+		volumeImageID          = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		workloadIndexDigest    = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		workloadPlatformDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		parentDigest           = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		volumeDigest           = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	)
+
+	for _, tc := range []struct {
+		name                     string
+		recordedWorkloadDigest   string
+		recreateDuringVolumeRead bool
+		wantDelta                bool
+	}{
+		{name: "When workload, image volume, and artifact parent are complete it should aggregate", recordedWorkloadDigest: workloadIndexDigest, wantDelta: true},
+		{name: "When the index and platform manifest differ it should withhold the exact match", recordedWorkloadDigest: workloadPlatformDigest},
+		{name: "When the application is recreated during volume inspection it should reject the stale snapshot", recordedWorkloadDigest: workloadIndexDigest, recreateDuringVolumeRead: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+			images := []deltastatus.ApplicationImage{
+				{Image: workloadRef, Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: tc.recordedWorkloadDigest},
+				{Image: parentRef, Owner: "root", OCIType: string(dependency.OCITypePodmanArtifact), Digest: parentDigest},
+				{Image: volumeRef, Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: volumeDigest},
+			}
+			lifetime := recordApplicationImageOutcomes(t, store, appName, appSpecKey, images)
+			volumeManager, err := provider.NewVolumeManager(logger, appName, v1beta1.AppTypeQuadlet, v1beta1.RootUsername, nil)
+			require.NoError(t, err)
+			volumeManager.Add(&provider.Volume{
+				Name: "data", ID: volumeID, Reference: volumeRef,
+				OCIType: string(dependency.OCITypePodmanImage), Available: true,
+			})
+			observedApp := &application{
+				id:                      applicationID,
+				imageRef:                parentRef,
+				imageDigest:             parentDigest,
+				imageOCIType:            string(dependency.OCITypePodmanArtifact),
+				lifetime:                lifetime,
+				parentOutcomeRequired:   true,
+				requiredImages:          []string{workloadRef, volumeRef},
+				imageCollectionComplete: true,
+				volume:                  volumeManager,
+				status:                  &v1beta1.DeviceApplicationStatus{Name: appName, RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeQuadlet},
+				workloads:               []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: workloadRef, Digest: workloadIndexDigest}}}},
+			}
+
+			inspection := client.PodmanVolumeInspect{
+				Name: volumeID, Driver: "image", CreatedAt: "2026-10-12T12:00:00Z",
+				Options: map[string]string{"image": volumeImageID},
+				Labels: map[string]string{
+					client.PodmanDeltaVolumeApplicationLabel: applicationID,
+					client.PodmanDeltaVolumeLifetimeLabel:    lifetime,
+					client.PodmanDeltaVolumeReferenceLabel:   volumeRef,
+					client.PodmanDeltaVolumeOwnerLabel:       "root",
+					client.PodmanDeltaVolumeOCITypeLabel:     string(dependency.OCITypePodmanImage),
+					client.PodmanDeltaVolumeDigestLabel:      volumeDigest,
+				},
+			}
+			inspectionJSON, err := json.Marshal(inspection)
+			require.NoError(t, err)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(string(inspectionJSON), "", 0).AnyTimes()
+			imageDigestCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", volumeImageID)
+			if tc.recreateDuringVolumeRead {
+				imageDigestCall.DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
+					require.NoError(t, store.RemoveApplication(appName))
+					newLifetime := recordApplicationImageOutcomes(t, store, appName, appSpecKey, images)
+					require.NotEqual(t, lifetime, newLifetime)
+					return volumeDigest, "", 0
+				})
+			} else {
+				imageDigestCall.Return(volumeDigest, "", 0)
+			}
+			podman := client.NewPodman(logger, mockExec, rw, poll.Config{})
+			manager := &manager{
+				log: logger, deltaStatusStore: store,
+				podmanFactory:     func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+				ociTargetCache:    provider.NewOCITargetCache(),
+				podmanMonitor:     &PodmanMonitor{apps: map[string]Application{applicationID: observedApp}},
+				kubernetesMonitor: &KubernetesMonitor{monitor: &monitor{apps: map[string]Application{}}},
+			}
+
+			reported := &v1beta1.DeviceStatus{}
+			require.NoError(t, manager.Status(context.Background(), reported))
+			require.Len(t, reported.Applications, 1)
+			require.ElementsMatch(t, []v1beta1.ApplicationImageDigest{
+				{Image: workloadRef, Digest: workloadIndexDigest},
+				{Image: parentRef, Digest: parentDigest},
+				{Image: volumeRef, Digest: volumeDigest},
+			}, *reported.Applications[0].ImageDigests)
+			if tc.wantDelta {
+				require.NotNil(t, reported.Applications[0].LastDelta)
+				require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
+				// Repeated collection still inspects the volume, but should reuse its
+				// verified immutable image digest.
+				require.NoError(t, manager.Status(context.Background(), &v1beta1.DeviceStatus{}))
+			} else {
+				require.Nil(t, reported.Applications[0].LastDelta)
+			}
+		})
+	}
+}
+
+func TestManagerWithholdsArtifactVolumeDigestWhenBindingChangesDuringInspection(t *testing.T) {
+	const (
+		application = "web"
+		volumeID    = "web-data"
+		volumeRef   = "quay.io/acme/data:latest"
+		createdAt   = "2026-10-12T12:00:00Z"
+	)
+
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: "spec"}))
+	currentLifetime := store.ApplicationLifetime(application)
+	workload := deltastatus.ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: string(dependency.OCITypePodmanImage), Digest: "sha256:workload"}
+	volumeBefore := deltastatus.ApplicationImage{Image: volumeRef, Owner: "root", OCIType: string(dependency.OCITypePodmanArtifact), Digest: "sha256:artifact-before"}
+	volumeAfter := volumeBefore
+	volumeAfter.Digest = "sha256:artifact-after"
+	workloadTargetID := deltastatus.Fingerprint(workload.Owner, workload.Image, workload.OCIType)
+	volumeTargetID := deltastatus.Fingerprint(volumeBefore.Owner, volumeBefore.Image, volumeBefore.OCIType)
+	targets := map[string]string{workloadTargetID: "workload-target", volumeTargetID: "volume-target"}
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: targets}, true))
+	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(deltastatus.ApplicationAttempt{Application: application, Lifetime: currentLifetime, SpecKey: "spec", TargetID: workloadTargetID, TargetKey: targets[workloadTargetID]}, workload, outcome))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(deltastatus.ApplicationAttempt{Application: application, Lifetime: currentLifetime, SpecKey: "spec", TargetID: volumeTargetID, TargetKey: targets[volumeTargetID]}, volumeBefore, outcome))
+	require.NoError(t, store.RecordApplicationVolumeImage(application, currentLifetime, volumeID, createdAt, volumeBefore))
+
+	inspection := client.PodmanVolumeInspect{Name: volumeID, Driver: "local", CreatedAt: createdAt}
+	inspectionJSON, err := json.Marshal(inspection)
+	require.NoError(t, err)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	inspectCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}")
+	inspectCall.DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
+		// Artifact content can change in place without changing the volume's
+		// public CreatedAt identity. Collection must not pair the old runtime
+		// inspection with this newly recorded digest.
+		require.NoError(t, store.RecordApplicationVolumeImage(application, currentLifetime, volumeID, createdAt, volumeAfter))
+		return string(inspectionJSON), "", 0
+	})
+	podman := client.NewPodman(logger, mockExec, rw, poll.Config{})
+	result := AppStatusResult{
+		Images: ImageSnapshot{
+			ID:       "web-id",
+			Lifetime: currentLifetime,
+			Images:   []deltastatus.ApplicationImage{workload},
+			Volumes:  []ImageVolumeSnapshot{{ID: volumeID, Reference: volumeRef, OCIType: string(dependency.OCITypePodmanArtifact), Available: true}},
+			Complete: true,
+		},
+		Status: v1beta1.DeviceApplicationStatus{Name: application, RunAs: v1beta1.RootUsername},
+	}
+	manager := &manager{
+		log:              logger,
+		deltaStatusStore: store,
+		podmanFactory:    func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+	}
+	results := []AppStatusResult{result}
+	manager.addVolumeImageObservations(context.Background(), results)
+
+	require.False(t, results[0].Images.Complete)
+	require.Len(t, results[0].Images.Images, 1)
+	require.Nil(t, store.ObservedApplicationResultForLifetime(application, currentLifetime, results[0].Images.Images, results[0].Images.Complete))
+	currentBinding, ok := store.ApplicationVolumeBinding(application, currentLifetime, volumeID)
+	require.True(t, ok)
+	require.Equal(t, createdAt, currentBinding.CreatedAt)
+	require.Equal(t, volumeAfter, currentBinding.Image)
+}
+
+func recordApplicationImageOutcomes(
+	t *testing.T,
+	store *deltastatus.Store,
+	application, specKey string,
+	images []deltastatus.ApplicationImage,
+) string {
+	t.Helper()
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: specKey}))
+	lifetime := store.ApplicationLifetime(application)
+	targets := make(map[string]string, len(images))
+	for _, image := range images {
+		targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
+		targets[targetID] = "target:" + image.Image + ":" + image.OCIType
+	}
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: targets}, true))
+	for _, image := range images {
+		targetID := deltastatus.Fingerprint(image.Owner, image.Image, image.OCIType)
+		require.NoError(t, store.RecordApplicationImageResultForAttempt(
+			deltastatus.ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: specKey, TargetID: targetID, TargetKey: targets[targetID]}, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		))
+	}
+	return lifetime
 }

@@ -145,7 +145,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 	}
 }
 
-func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *testing.T) {
+func TestWhenCRICacheIdentityIsUnavailableItShouldWithholdNotRequired(t *testing.T) {
 	const (
 		application = "app"
 		image       = "quay.io/acme/app:v2"
@@ -155,12 +155,6 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", image).Return("IMAGE TAG ID\napp v2 image-id", "", 0)
-	exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "crictl", "inspecti", "--output", "json", image,
-	).Return(`{"status":{"repoDigests":["quay.io/acme/app@`+digest+`"]}}`, "", 0)
-	exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
-	).Return(digest, "", 0)
 
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(
@@ -169,7 +163,6 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	)
 	logger := log.NewPrefixLogger("test")
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
-	skopeo := client.NewSkopeo(logger, exec, rw)
 	target := imageRef{image: image, ociType: OCITypeCRIImage}
 	targetID := target.targetID()
 	targetKey := applicationImageTargetKeyFor(target, digest, OCITypeCRIImage)
@@ -182,10 +175,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 		deltaGeneration:      1,
 	}
 	manager := &prefetchManager{
-		log: logger,
-		skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
-			return skopeo, nil
-		},
+		log:                   logger,
 		cliClients:            client.NewCLIClients(client.WithCRIClient(cri)),
 		pullTimeout:           time.Minute,
 		tasks:                 map[imageRef]*prefetchTask{target: task},
@@ -206,8 +196,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
+	require.Nil(t, deviceStatus.Applications[0].LastDelta)
 }
 
 func TestApplicationDeltaCRIHintedCandidateFallsBackWhenDeltaClientIsUnavailable(t *testing.T) {

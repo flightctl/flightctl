@@ -19,6 +19,7 @@ import (
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -60,13 +61,32 @@ type pendingRecovery struct {
 	allServices        bool
 }
 
+// PodmanMonitorOption configures optional Podman monitor dependencies.
+type PodmanMonitorOption func(*podmanMonitorOptions)
+
+type podmanMonitorOptions struct {
+	deltaStatusStore *deltastatus.Store
+}
+
+// WithPodmanMonitorDeltaStatusStore supplies the store used by application lifecycle handlers.
+func WithPodmanMonitorDeltaStatusStore(store *deltastatus.Store) PodmanMonitorOption {
+	return func(options *podmanMonitorOptions) {
+		options.deltaStatusStore = store
+	}
+}
+
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podmanFactory client.PodmanFactory,
 	systemdFactory systemd.ManagerFactory,
 	bootTime string,
 	rwFactory fileio.ReadWriterFactory,
+	options ...PodmanMonitorOption,
 ) *PodmanMonitor {
+	var configured podmanMonitorOptions
+	for _, option := range options {
+		option(&configured)
+	}
 	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
 	startTime, err := time.Parse(time.RFC3339, bootTime)
 	if err != nil {
@@ -77,8 +97,8 @@ func NewPodmanMonitor(
 		clientFactory:  podmanFactory,
 		systemdFactory: systemdFactory,
 		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
-			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory),
-			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory),
+			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory, lifecycle.WithDeltaStatusStore(configured.deltaStatusStore)),
+			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory, lifecycle.WithDeltaStatusStore(configured.deltaStatusStore)),
 		},
 		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),
@@ -246,6 +266,7 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 	m.actions = append(m.actions, lifecycle.Action{
 		ID:                 appID,
 		Name:               app.Name(),
+		Lifetime:           app.ImageSnapshot().Lifetime,
 		User:               app.User(),
 		AppType:            app.AppType(),
 		Path:               app.Path(),
@@ -334,6 +355,7 @@ func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 		Type:     lifecycle.ActionAdd,
 		User:     app.User(),
 		Name:     appName,
+		Lifetime: app.ImageSnapshot().Lifetime,
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
@@ -358,12 +380,13 @@ func (m *PodmanMonitor) QueueRemove(app Application) error {
 	appName := app.Name()
 
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionRemove,
-		Name:    appName,
-		User:    app.User(),
-		ID:      appID,
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionRemove,
+		Name:     appName,
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		ID:       appID,
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -384,13 +407,14 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionUpdate,
-		Name:    app.Name(),
-		User:    app.User(),
-		ID:      appID,
-		Path:    app.Path(),
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionUpdate,
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		ID:       appID,
+		Path:     app.Path(),
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -533,11 +557,12 @@ func (m *PodmanMonitor) lifecycleDispatch(appID string) (lifecycle.LifecycleHand
 	}
 
 	action := lifecycle.Action{
-		ID:      app.ID(),
-		Name:    app.Name(),
-		User:    app.User(),
-		AppType: app.AppType(),
-		Path:    app.Path(),
+		ID:       app.ID(),
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		AppType:  app.AppType(),
+		Path:     app.Path(),
 	}
 	return handler, action, app, nil
 }
