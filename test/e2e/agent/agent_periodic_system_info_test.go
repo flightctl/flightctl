@@ -122,9 +122,6 @@ func cleanupStatusFixture(harness *e2e.Harness) error {
 	if err := harness.RemoveAgentFile(statusFixtureDropIn); err != nil {
 		return fmt.Errorf("remove status fixture selection: %w", err)
 	}
-	if err := harness.ReloadFlightCtlAgent(); err != nil {
-		return fmt.Errorf("restore prepared collector selection: %w", err)
-	}
 	if err := harness.RemoveAgentFile(statusFixtureValue); err != nil {
 		return fmt.Errorf("remove status fixture input: %w", err)
 	}
