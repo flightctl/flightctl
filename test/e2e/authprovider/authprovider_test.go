@@ -329,7 +329,7 @@ var _ = Describe("Auth provider browser login", func() {
 	})
 
 	Context("AAP auth on quadlet", func() {
-		It("is visible as an available auth provider", Label("authprovider", "quadlets"), func() {
+		It("is visible as an available auth provider", Label("88169", "authprovider", "quadlets"), func() {
 			infra.SkipIfNotQuadlet("AAP provider only applies to quadlet deployments")
 			Expect(ensureQuadletAAPProviderConfiguredForCurrentSpec()).To(Succeed())
 
@@ -340,7 +340,7 @@ var _ = Describe("Auth provider browser login", func() {
 			Expect(strings.ToLower(out)).To(ContainSubstring(aapProviderName), "AAP provider should be listed")
 		})
 
-		It("logs in through the browser and can call the API", Label("authprovider", "quadlets"), func() {
+		It("logs in through the browser and can call the API", Label("88539", "authprovider", "quadlets"), func() {
 			infra.SkipIfNotQuadlet("AAP browser login only applies to quadlet deployments")
 
 			scenario := aapBrowserScenario()
