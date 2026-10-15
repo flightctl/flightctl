@@ -34,6 +34,10 @@ const (
 
 	// SystemFileName is the name of the file where the system boot status is stored in the data-dir.
 	SystemFileName = "system.json"
+	// ExecutorCacheFileName is the name of the file where executor cache state is persisted.
+	// This preserves lastTransitionTime values across agent restarts so that
+	// transition timestamps only update when the collected value actually changes.
+	ExecutorCacheFileName = "systeminfo-cache.json"
 	// HardwareMapFileName is the name of the file where the hardware map is stored.
 	HardwareMapFileName = "hardware-map.yaml"
 )
