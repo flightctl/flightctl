@@ -22,15 +22,21 @@ const (
 	fleetImage                  = "quay.io/redhat/rhde:9.2"
 )
 
+// Every device-backed spec in this suite drives the agent through a real bootc image switch
+// to the OTEL-enabled image (ensureOTelDevice -> WaitForBootstrapAndUpdateToVersion plus a
+// reboot), which a container-backed device cannot do, so each one carries e2e.NeedVMLabel.
+// Specs with no label need no device at all and run against the API/Prometheus only.
 var _ = Describe("Device observability", func() {
 	Context("telemetry gateway metrics", func() {
-		It("should export device host metrics via the telemetry gateway", Label("85040"), func(ctx SpecContext) {
+		// ensureOTelDevice switches the device to the v10 OS image and waits for the reboot,
+		// so this spec needs a real VM.
+		It("should export device host metrics via the telemetry gateway", Label("85040", e2e.NeedVMLabel), func(ctx SpecContext) {
 			harness := e2e.GetWorkerHarness()
 			p := setup.GetDefaultProviders()
 			workerID := GinkgoParallelProcess()
 
-			By("setting up VM and starting agent")
-			err := harness.SetupVMFromPoolAndStartAgent(workerID)
+			By("setting up the device and starting agent")
+			err := harness.SetupDeviceForCurrentSpec(workerID)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
@@ -107,7 +113,8 @@ var _ = Describe("Device observability", func() {
 		})
 	})
 
-	Context("TPM-based telemetry", func() {
+	// swtpm-backed enrollment/attestation plus a rendered-version reboot: VM only.
+	Context("TPM-based telemetry", Label(e2e.NeedVMLabel), func() {
 		var (
 			harness   *e2e.Harness
 			providers *infra.Providers
@@ -211,6 +218,8 @@ var _ = Describe("Device observability", func() {
 	})
 })
 
+// Service observability asserts on service-side Prometheus metrics only; it never touches
+// harness.VM, so it carries no device label and runs without any device being created.
 var _ = Describe("Service observability", func() {
 	Context("service level prometheus metrics", func() {
 		It("should expose service level metrics via the prometheus server", Label("88170"), func() {

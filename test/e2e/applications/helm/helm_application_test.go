@@ -15,7 +15,13 @@ import (
 	"github.com/samber/lo"
 )
 
-var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift"), func() {
+// Suite-level backend selection: every spec here is pinned to a VM with e2e.NeedVMLabel.
+// MicroShift is not part of the container device image - that image is the "base" tag built from
+// test/scripts/agent-images/containerfiles/<os>/Containerfile (see GetContainerDeviceImage /
+// auxiliary.ResolveAgentDeviceImage), which installs no microshift/helm. These specs obtain
+// MicroShift only by setting device.Spec.Os to the v12 variant (test/scripts/agent-images/variants/v12),
+// i.e. a real bootc OS image switch plus reboot, which a container-backed device cannot perform.
+var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift", e2e.NeedVMLabel), func() {
 	var (
 		harness        *e2e.Harness
 		services       *auxiliary.Services

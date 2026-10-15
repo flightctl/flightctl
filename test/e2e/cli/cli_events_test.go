@@ -360,7 +360,11 @@ var _ = Describe("cli events operation", func() {
 			}, "30s", "2s").Should(ContainSubstring("Device specification is valid"))
 		})
 
-		It("should show events for application workload validation", Label("83588", "sanity", "client", e2e.NeedVMLabel), func() {
+		// The other two specs in this Context are API-only (they apply device/fleet/repo YAML and
+		// never touch an agent), so they stay deliberately unlabeled and get no device at all.
+		// This one needs a live enrolled agent to report application status, but no OS switch or
+		// reboot, so a container-backed device is enough.
+		It("should show events for application workload validation", Label("83588", "sanity", "client", e2e.NeedContainerLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

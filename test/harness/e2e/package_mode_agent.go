@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/containers"
+	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -32,13 +33,6 @@ const (
 	packageModeAgentImageEnv      = "E2E_PACKAGE_MODE_IMAGE"
 	packageModeRegistriesConfPath = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 	packageModeRegistryCAPath     = "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt"
-
-	nestedPodmanStorageConf = `[storage]
-driver = "overlay"
-
-[storage.options.overlay]
-mount_program = "/usr/bin/fuse-overlayfs"
-`
 )
 
 var (
@@ -89,7 +83,7 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 		{
 			ContainerFilePath: "/etc/containers/storage.conf",
 			FileMode:          0644,
-			Reader:            strings.NewReader(nestedPodmanStorageConf),
+			Reader:            strings.NewReader(vm.NestedPodmanStorageConf),
 		},
 		{HostFilePath: agentConfigPath, ContainerFilePath: "/etc/flightctl/config.yaml", FileMode: 0644},
 	}

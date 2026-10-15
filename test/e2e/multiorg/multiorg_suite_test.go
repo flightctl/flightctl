@@ -180,10 +180,16 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	if e2e.CurrentSpecNeedsVM() {
+	// Most specs here are API/RBAC-only and need no device, so setup stays gated. The specs that
+	// do need one must get enrollment credentials scoped to the organization selected just below,
+	// which is why this uses the org-aware dispatcher rather than SetupDeviceForCurrentSpec: a
+	// container device snapshots bin/agent/etc/flightctl at creation time, so the plain
+	// dispatcher would enroll it into the default organization.
+	if e2e.CurrentSpecNeedsVM() || e2e.CurrentSpecUsesContainerDevice() {
 		creds := testUserCreds()
 		Expect(loginAndSetOrg(harness, creds[0].name, creds[0].password)).To(Succeed())
-		Expect(harness.SetupVMFromPoolWithCurrentOrgAgent(workerID)).To(Succeed())
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up multiorg test with %s\n", workerID, e2e.DeviceBackendName())
+		Expect(harness.SetupDeviceForCurrentSpecWithCurrentOrgAgent(workerID)).To(Succeed())
 	}
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Multiorg test setup completed\n", workerID)

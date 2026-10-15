@@ -35,7 +35,8 @@ var auxSvcs *auxiliary.Services
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -53,13 +54,16 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	// Backend selection is label-driven: specs default to a VM (OS deltas, MicroShift and VM-type
+	// applications all need one) and only the application-delta specs that carry
+	// NeedContainerLabel get a container-backed device.
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
 
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 	Expect(clearDeltaCache(ctx)).To(Succeed())
 
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	err = harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Test setup completed\n", workerID)

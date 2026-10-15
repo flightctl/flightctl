@@ -28,9 +28,14 @@ var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(ctx)
 
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
 
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxSvcs = auxFuture.Wait()
+
 	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
 	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
 	auxSvcs.FileServer = fileServerSvcs.FileServer
@@ -50,17 +55,17 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
-	Expect(err).ToNot(HaveOccurred())
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides a suite-level
+	// NeedContainerLabel (see e2e.CurrentSpecUsesContainerDevice), so the dispatcher is the
+	// only place that rule lives.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	Expect(harness.SetupDeviceForCurrentSpec(workerID)).To(Succeed())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })

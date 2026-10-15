@@ -13,7 +13,11 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Microshift cluster ACM enrollment tests", func() {
+// VM-only: the spec sets deviceSpec.Os to the MicroShift v7 variant image, i.e. a real bootc
+// image switch. MicroShift lives only in the v7/v12 variants; the container device always runs
+// the base- tagged agent image (GetContainerDeviceImage -> ResolveAgentDeviceImage), which has
+// no MicroShift, and a container cannot switch OS images at all.
+var _ = Describe("Microshift cluster ACM enrollment tests", Label(e2e.NeedVMLabel), func() {
 
 	Describe("Test Setup", Ordered, func() {
 

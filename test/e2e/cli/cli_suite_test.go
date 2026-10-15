@@ -75,15 +75,26 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
+	// Most CLI specs are API-only and need no device at all, so device setup stays gated.
+	// Backend selection for the specs that do need one is label-driven: a spec-level
+	// NeedVMLabel overrides an inherited NeedContainerLabel (see e2e.CurrentSpecUsesContainerDevice).
 	needsVM := e2e.CurrentSpecNeedsVM()
-	if !needsVM {
+	usesContainerDevice := e2e.CurrentSpecUsesContainerDevice()
+	if !needsVM && !usesContainerDevice {
 		harness.VM = nil
 	}
 
 	_, err := ensureFlightctlLogin(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	if needsVM {
+	switch {
+	case usesContainerDevice:
+		// Container devices are created fresh per spec from the current run's prepared agent
+		// config/certs (see buildAgentIdentityFiles), so they need no equivalent of the VM
+		// path's post-snapshot-restore agent config refresh.
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+		Expect(harness.SetupDeviceForCurrentSpec(workerID)).To(Succeed())
+	case needsVM:
 		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up VM from pool\n", workerID)
 		err = setupCLIWorkerVMWithRefreshedAgentConfig(workerID, harness)
 		Expect(err).ToNot(HaveOccurred())

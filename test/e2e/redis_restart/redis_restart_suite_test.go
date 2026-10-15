@@ -32,8 +32,11 @@ func init() {
 var _ = BeforeSuite(func() {
 	GinkgoWriter.Printf("🚀 Starting Redis Restart E2E Test Suite\n")
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	// Setup VM and harness for this worker
-	e2e.SetupWorkerHarnessOrAbort()
+	// No device backend at all: every spec in this suite exercises the service-side Redis
+	// (restart/stop/start) and the API resources whose tasks it queues. Nothing here talks to an
+	// agent, so the suite needs neither a VM nor a container device.
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 })
 
 var _ = AfterEach(func() {

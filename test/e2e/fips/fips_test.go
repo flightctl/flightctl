@@ -98,7 +98,12 @@ var _ = Describe("FIPS verification", Label("fips"), func() {
 	//       Enroll FIPS-enabled VM.
 	// Expected: VM has FIPS enabled and enrollment request is created; VM is correctly enrolled.
 	// This test is skipped unless a FIPS-enabled agent image/VM is provided (see README).
-	It("FIPS-enabled VM can enroll", Label("88251"), func() {
+	//
+	// needvm: FIPS is a host-kernel property (crypto.fips_enabled) and the whole point of this
+	// spec is that a FIPS-built bootc image with kargs=["fips=1"] enrolls. A container-backed
+	// device shares the CI host's (non-FIPS) kernel, so it would assert nothing while appearing
+	// to pass. The other two specs in this suite are service-side and take no device at all.
+	It("FIPS-enabled VM can enroll", Label("88251", e2e.NeedVMLabel), func() {
 		if os.Getenv("E2E_FIPS_VM") != "1" {
 			Skip("88251 requires a FIPS-enabled VM image. Set E2E_FIPS_VM=1 and use an agent image built with FIPS (01-fips.toml, crypto-policies). See test/e2e/fips/README.md")
 		}
@@ -106,6 +111,9 @@ var _ = Describe("FIPS verification", Label("fips"), func() {
 		// Here we only run enrollment flow if the harness has a VM (same as agent suite).
 		harness := e2e.GetWorkerHarness()
 		workerID := GinkgoParallelProcess()
+		// Deliberately NOT SetupDeviceForCurrentSpec: that dispatcher calls AbortSuite when VM
+		// setup fails, whereas this spec wants to Skip when no FIPS-enabled VM pool is present.
+		// The needvm label above still documents (and pins) the backend.
 		err := harness.SetupVMFromPoolAndStartAgent(workerID)
 		if err != nil {
 			Skip("FIPS VM pool or agent not available: " + err.Error())

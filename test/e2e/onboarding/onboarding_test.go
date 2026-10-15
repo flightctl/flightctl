@@ -312,7 +312,20 @@ func navigateFromNetworkToApply(browser *e2e.OnboardingBrowser) {
 	Expect(browser.WizardClickApply()).To(Succeed())
 }
 
-var _ = Describe("Onboarding wizard configuration flow", func() {
+// The whole onboarding suite is VM-only and is labelled as such at the suite
+// level, so no spec here can ever inherit a container-backed device.
+// Unlike the converted suites, this one does not route device setup through
+// Harness.SetupDeviceForCurrentSpec: its BeforeSuite builds one bespoke
+// VM-only harness (NewTestHarnessWithVMOnly -> CreateFreshVMWithTPM, agent
+// deliberately NOT started), transiently dnf-installs cockpit + the
+// flightctl-onboarding RPM into it, and takes a libvirt memory snapshot that
+// BeforeEach reverts to for per-spec isolation. Container devices support
+// none of that: CreateSnapshot/RevertToSnapshot return vm.ErrUnsupported, and
+// every spec drives the Cockpit wizard through a real sshpass/ssh -L tunnel to
+// 127.0.0.1:<sshPortBase+workerID>, which only exists because the libvirt guest
+// forwards SSH over QEMU user-mode (SLIRP) networking -- a ContainerDevice has
+// no sshd and no forwarded port (RunSSH is `podman exec`).
+var _ = Describe("Onboarding wizard configuration flow", Label(e2e.NeedVMLabel), func() {
 
 	It("When all config domains are set it should apply all configurations successfully", Label("90408"), func() {
 		harness := e2e.GetWorkerHarness()

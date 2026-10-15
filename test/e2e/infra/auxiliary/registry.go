@@ -147,6 +147,16 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	if err := ApplyDeltaWorkerRegistryRemap(ctx, r.URL); err != nil {
 		return fmt.Errorf("configure registry remap: %w", err)
 	}
+	// Trust the CA directly because the Podman API service may cache registry config
+	// before this drop-in is written.
+	runtimeCLI := containers.RuntimeCLIName()
+	certsRoot := "/etc/containers/certs.d"
+	if runtimeCLI == "docker" {
+		certsRoot = "/etc/docker/certs.d"
+	}
+	if err := configureRegistryTrust(ctx, certsRoot, r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
+		logrus.Warnf("Failed to configure %s registry trust for %s (container device pulls may fail): %v", runtimeCLI, r.URL, err)
+	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
 	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
@@ -359,9 +369,30 @@ func ensureRegistryCerts() (string, error) {
 	return certDir, nil
 }
 
-// configureInsecureRegistry writes a registries.conf.d snippet marking registryURL
-// as insecure so that the local podman/docker daemon can push and pull without TLS
-// verification. It is idempotent: if the file already exists and is non-empty it does nothing.
+// registryCertsDir returns the per-registry certificate directory for a host:port reference.
+func registryCertsDir(certsRoot, registryURL string) (string, error) {
+	if host, port, err := net.SplitHostPort(registryURL); err != nil || host == "" || port == "" || strings.ContainsAny(registryURL, `/\`) {
+		return "", fmt.Errorf("invalid registry URL %q: must be a plain host:port with no path separators", registryURL)
+	}
+	return filepath.Join(certsRoot, registryURL), nil
+}
+
+// configureRegistryTrust installs the registry CA in the runtime's per-registry cert directory.
+func configureRegistryTrust(ctx context.Context, certsRoot, registryURL, caCertPath string) error {
+	certsDir, err := registryCertsDir(certsRoot, registryURL)
+	if err != nil {
+		return err
+	}
+	if err := exec.CommandContext(ctx, "sudo", "-n", "mkdir", "-p", certsDir).Run(); err != nil { //nolint:gosec // G204: certsDir is built from our own registry URL/constants, not external input.
+		return fmt.Errorf("failed to create %s: %w", certsDir, err)
+	}
+	if err := exec.CommandContext(ctx, "sudo", "-n", "cp", caCertPath, filepath.Join(certsDir, "ca.crt")).Run(); err != nil { //nolint:gosec // G204: paths are our own registry cert path/constants, not external input.
+		return fmt.Errorf("failed to install CA cert into %s: %w", certsDir, err)
+	}
+	return nil
+}
+
+// configureInsecureRegistry marks the local registry insecure for Podman CLI and Skopeo operations.
 func configureInsecureRegistry(registryURL string) error {
 	if existingConfig, err := os.ReadFile(registriesConfPath); err == nil && string(existingConfig) != "" {
 		return nil

@@ -18,9 +18,16 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-var _ = Describe("VM Agent behavior", func() {
+// Most of this suite only needs an enrolled agent plus API-level fleet/config/resource
+// assertions, so it defaults to container-backed devices. Specs that switch the device OS image,
+// reboot, or assert on bootc-install-time filesystem state override with Label(e2e.NeedVMLabel)
+// on their own It.
+var _ = Describe("VM Agent behavior", Label(e2e.NeedContainerLabel), func() {
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455", "rpm-sanity", "agent"), func() {
+		// needvm: asserts the agent binary carries the flightctl_agent_exec_t SELinux domain,
+		// which is applied when bootc installs and relabels the root filesystem. Container
+		// image layers do not carry security.selinux xattrs, so this only holds on a VM.
+		It("Verify VM agent", Label("80455", "rpm-sanity", "agent", e2e.NeedVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -172,7 +179,9 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("status", func() {
-		It("Device status tests", Label("75991", "sanity", "agent"), func() {
+		// needvm: sets device.Spec.Os to a non-existent image and then restores the previous
+		// one, which drives a real bootc image switch and rollback.
+		It("Device status tests", Label("75991", "sanity", "agent", e2e.NeedVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -431,7 +440,9 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("This is used to test k8s secret config."))
 		})
 
-		It("System Info Timeout Tests", Label("81864", "agent"), func() {
+		// needvm: WaitForBootstrapAndUpdateToVersion switches the OS image to v9 and
+		// WaitForDeviceNewRenderedVersionWithReboot waits out a real reboot.
+		It("System Info Timeout Tests", Label("81864", "agent", e2e.NeedVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

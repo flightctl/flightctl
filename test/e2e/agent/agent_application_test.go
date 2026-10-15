@@ -18,7 +18,10 @@ const (
 	inlineAppName = "my-app"
 )
 
-var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
+// Application lifecycle only needs an enrolled agent plus (nested) podman, so this suite defaults
+// to container-backed devices. Specs that need a real boot cycle or OS-image switch override with
+// Label(e2e.NeedVMLabel) on their own It.
+var _ = Describe("VM Agent behaviour during the application lifecycle", Label(e2e.NeedContainerLabel), func() {
 	var (
 		deviceId     string
 		device       *v1beta1.Device

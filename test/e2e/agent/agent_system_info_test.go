@@ -14,7 +14,20 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Agent System Info", func() {
+// Pinned to the VM backend: the spec asserts that the agent reports the full DefaultSystemInfo
+// key set (including DMI-derived keys such as productSerial) plus a non-empty BootID. Those come
+// from the guest's own sysfs and boot, not from the agent's config handling.
+//
+// A container does not reproduce that reliably, and the failure mode is environment-dependent,
+// which is worse than an outright failure. Measured on a privileged container: the host's
+// /sys/class/dmi/id is passed straight through, so product_name reads fine, but product_serial
+// is mode 0400 and root-owned, so under a rootless runtime (where the container's uid 0 maps to
+// an unprivileged host uid) it returns "Permission denied" while under a rootful runtime it
+// succeeds. The e2e suites have to pass on local kind/quadlet, GitHub CI, and QE Jenkins, which
+// do not all use the same runtime mode, so this would be flaky rather than consistently wrong.
+// An earlier iteration of the container-device work already moved this suite from needcontainer
+// back to needvm; keep it on a VM.
+var _ = Describe("Agent System Info", Label(e2e.NeedVMLabel), func() {
 	var (
 		ctx      context.Context
 		deviceId string

@@ -74,7 +74,10 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label("sanity", "agent", "rootless", "87844"), func() {
+	// VM-only: the "Rootless after reboot" checkpoint below calls RebootVMAndWaitForSSH, i.e. a real
+	// `sudo reboot`. On a container-backed device systemd-as-PID1 exits instead of rebooting, the
+	// container stops, and every subsequent `<runtime> exec` (ContainerDevice.RunSSH) fails.
+	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label(e2e.NeedVMLabel, "sanity", "agent", "rootless", "87844"), func() {
 		var names string
 		var err error
 
@@ -317,7 +320,7 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		Expect(denied).To(BeEmpty(), "expected no AVC denials for flightctl/podman")
 	})
 
-	It("validates rootless workload execution: non-existent user, no home, privileged port, invalid username, no linger, empty runAs, duplicate name", Label("agent", "rootless", "87846"), func() {
+	It("validates rootless workload execution: non-existent user, no home, privileged port, invalid username, no linger, empty runAs, duplicate name", Label(e2e.NeedVMLabel, "agent", "rootless", "87846"), func() {
 		By("Verify agent fails gracefully when specified user does not exist")
 		specNonexistent, err := e2e.NewQuadletInlineSpec(rootlessAppOCP87846PrivPort, userNonexistent87846, []string{"nginx.container"}, []string{rootlessNginxContainerContentWithPort(rootlessNginxImage, "8080")})
 		Expect(err).ToNot(HaveOccurred())
@@ -371,7 +374,6 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		// Single checkpoint is enough: app status is sourced from device status, so a second manual scan of Status.Applications is redundant.
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppOCP87846PrivPort, v1beta1.ApplicationStatusError, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
 		clearRootlessDeviceApplicationsAndWaitUpToDate(harness, deviceID)
-
 		By("Invalid username in runAs: API accepts the spec; agent fails user lookup during prefetch (OutOfDate + error detail)")
 		invalidUserSpec, err := e2e.NewQuadletInlineSpec(rootlessAppOCP87846PrivPort, "user@invalid!", []string{"app.container"}, []string{rootlessAlpineContainerContent(rootlessAlpineImage)})
 		Expect(err).ToNot(HaveOccurred())

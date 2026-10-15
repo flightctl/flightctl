@@ -7,7 +7,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("VM Agent systemd status", func() {
+// Pinned to the VM backend: the spec asserts chronyd.service is reported active/loaded and
+// stops/restores host-style units (rsyslog.service). A time-sync daemon is not reliably active
+// inside a container that shares the host clock, so these assertions need a real booted system.
+var _ = Describe("VM Agent systemd status", Label(e2e.NeedVMLabel), func() {
 	var (
 		deviceId       string
 		chronydService = "chronyd.service"

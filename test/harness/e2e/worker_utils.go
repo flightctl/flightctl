@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -21,6 +23,10 @@ const E2ESetupAbortStderrMarker = "FLIGHTCTL_E2E_SETUP_ABORT=1"
 // NeedVMLabel marks specs that require a live VM/agent during suites that
 // otherwise use a no-VM harness by default.
 const NeedVMLabel = "needvm"
+
+// NeedContainerLabel marks specs that should use a container-backed device
+// instead of a VM.
+const NeedContainerLabel = "needcontainer"
 
 var (
 	// Per-worker storage
@@ -70,6 +76,56 @@ func SetupWorkerHarnessOrAbort() (*Harness, context.Context) {
 		os.Exit(E2ESetupAbortExitCode)
 	}
 	return harness, ctx
+}
+
+// SetupWorkerHarnessWithContainerDevice sets up a harness for container-backed device specs for
+// the current worker. The device itself is created per spec by SetupContainerFromPool. This should
+// be called in BeforeSuite by suites that don't need a real
+// OS-image-switch/reboot device. See test/e2e/README.md for prerequisites.
+func SetupWorkerHarnessWithContainerDevice() (*Harness, context.Context, error) {
+	workerID := ginkgo.GinkgoParallelProcess()
+	logrus.Infof("🔄 [SetupWorkerHarnessWithContainerDevice] Worker %d: Setting up container-backed harness", workerID)
+
+	if err := validateContainerDevicePrerequisites(); err != nil {
+		return nil, nil, fmt.Errorf("container device prerequisites unavailable for worker %d: %w", workerID, err)
+	}
+
+	suiteCtx := context.Background()
+
+	// Container devices are created for each spec, unlike VMs which are pooled and reset. Keep the
+	// suite-level harness device-free so BeforeSuite does not start a container that BeforeEach
+	// would immediately discard.
+	harness, err := newTestHarnessBase(suiteCtx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create harness for worker %d: %w", workerID, err)
+	}
+
+	workerHarnesses.Store(workerID, harness)
+	workerContexts.Store(workerID, suiteCtx)
+
+	logrus.Infof("✅ [SetupWorkerHarnessWithContainerDevice] Worker %d: Container-backed harness setup completed", workerID)
+	return harness, suiteCtx, nil
+}
+
+// SetupWorkerHarnessWithContainerDeviceOrAbort calls SetupWorkerHarnessWithContainerDevice and
+// skips on error unless container devices are required, in which case it aborts the process.
+func SetupWorkerHarnessWithContainerDeviceOrAbort() (*Harness, context.Context) {
+	harness, ctx, err := SetupWorkerHarnessWithContainerDevice()
+	if err != nil {
+		if !containerDeviceRequired() {
+			ginkgo.Skip(fmt.Sprintf("Container device prerequisites unavailable: %v", err))
+		}
+		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
+		fmt.Fprint(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, E2ESetupAbortStderrMarker+"\n")
+		os.Exit(E2ESetupAbortExitCode)
+	}
+	return harness, ctx
+}
+
+func containerDeviceRequired() bool {
+	required, _ := strconv.ParseBool(os.Getenv("E2E_REQUIRE_CONTAINER_DEVICE"))
+	return required
 }
 
 // SetupWorkerHarnessWithoutVM sets up a harness for the current worker without VM.
@@ -145,13 +201,49 @@ func (f *AuxServicesFuture) Wait() *auxiliary.Services {
 
 // CurrentSpecNeedsVM reports whether the currently running Ginkgo spec is
 // labeled as requiring VM setup.
+//
+// Ginkgo reports the labels of every enclosing container node together with the
+// spec's own labels, so a NeedVMLabel on an It always wins over a
+// NeedContainerLabel inherited from its Describe/Context. That is what lets a
+// suite default to container-backed devices while individual specs opt back
+// into a VM.
 func CurrentSpecNeedsVM() bool {
-	for _, label := range ginkgo.CurrentSpecReport().Labels() {
-		if label == NeedVMLabel {
-			return true
-		}
+	return slices.Contains(ginkgo.CurrentSpecReport().Labels(), NeedVMLabel)
+}
+
+// CurrentSpecUsesContainerDevice reports whether the currently running spec resolves to a
+// container-backed device. It applies the same precedence as SetupDeviceForCurrentSpec: a
+// spec-level NeedVMLabel overrides a suite-level NeedContainerLabel. Suites use it for
+// backend-specific logging and setup without duplicating the precedence rule.
+func CurrentSpecUsesContainerDevice() bool {
+	labels := ginkgo.CurrentSpecReport().Labels()
+	return !slices.Contains(labels, NeedVMLabel) && slices.Contains(labels, NeedContainerLabel)
+}
+
+func (h *Harness) SetupDeviceForCurrentSpec(workerID int) error {
+	if CurrentSpecUsesContainerDevice() {
+		return h.SetupContainerFromPoolAndStartAgent(workerID)
 	}
-	return false
+	// Unlabeled specs default to a VM so OS-image and reboot operations remain safe.
+	if err := h.SetupVMFromPoolAndStartAgent(workerID); err != nil {
+		abortVMSetup(workerID, err)
+		return err
+	}
+	return nil
+}
+
+// DeviceBackendName returns a human-readable name for the device backend the current spec
+// resolves to. Suites use it in setup logging.
+func DeviceBackendName() string {
+	if CurrentSpecUsesContainerDevice() {
+		return "container device"
+	}
+	return "VM"
+}
+
+func abortVMSetup(workerID int, err error) {
+	fmt.Fprintf(os.Stderr, "VM infrastructure setup failed for worker %d: %v\n%s\n", workerID, err, E2ESetupAbortStderrMarker)
+	ginkgo.AbortSuite(fmt.Sprintf("VM infrastructure setup failed for worker %d: %v", workerID, err))
 }
 
 // StoreWorkerHarness stores a harness and context for the given worker ID.

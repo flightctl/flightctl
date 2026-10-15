@@ -34,7 +34,8 @@ func TestCLIDecommission(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxFuture.Wait()
 })
 
@@ -43,12 +44,13 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides the suite-level
+	// NeedContainerLabel, so the wipe-and-reboot decommission spec still gets a VM.
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Test setup completed\n", workerID)

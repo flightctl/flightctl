@@ -32,8 +32,16 @@ var applicationDeltaNonHelmAppNames = []string{
 	applicationDeltaVMName,
 }
 
-var _ = Describe("application delta applications", Label("delta", "slow", "vm"), Serial, func() {
-	It("When a standalone device updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("standalone"), func() {
+// Default to a container-backed device: these specs only need an enrolled agent plus nested
+// podman to run container/Compose/Quadlet workloads, and they assert on application deltas, not
+// on the device OS. The two specs that also deploy a VM-type application carry an explicit
+// e2e.NeedVMLabel, which always wins over this container-node label.
+// Note: the "vm" label below is descriptive (these specs cover VM-type applications); only the
+// e2e.NeedVMLabel/e2e.NeedContainerLabel constants select the device backend.
+var _ = Describe("application delta applications", Label("delta", "slow", "vm", e2e.NeedContainerLabel), Serial, func() {
+	// VM-only: deploys an AppTypeVm application (a KubeVirt containerdisk booted as a KVM guest
+	// inside the device) and waits for it to report Running.
+	It("When a standalone device updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("standalone", e2e.NeedVMLabel), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("enrolling a standalone device on the delta-capable base image")
@@ -132,7 +140,9 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
 
-	It("When a fleet updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("fleet"), func() {
+	// VM-only: same AppTypeVm (KVM guest) application set as the standalone spec above, driven
+	// through fleet ownership.
+	It("When a fleet updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("fleet", e2e.NeedVMLabel), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("enrolling a device on the delta-capable base image")

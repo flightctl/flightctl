@@ -35,7 +35,10 @@ const (
 
 // This regression covers Edge Manager deployments where agent long-poll requests
 // traverse a load balancer with an idle timeout shorter than the server poll.
-var _ = Describe("VM Agent behavior behind HAProxy", func() {
+// The device only needs an enrolled agent plus a local HAProxy systemd unit bound to loopback -
+// no OS-image switch or reboot - so this suite defaults to container-backed devices. Specs that
+// need a real boot cycle override with Label(e2e.NeedVMLabel) on their own It.
+var _ = Describe("VM Agent behavior behind HAProxy", Label(e2e.NeedContainerLabel), func() {
 	It("keeps syncing rendered specs in RHEM behind HAProxy idle timeouts", Label("89640", "sanity", "agent"), func() {
 		harness := e2e.GetWorkerHarness()
 

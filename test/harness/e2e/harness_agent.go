@@ -638,7 +638,16 @@ func (h *Harness) CaptureStandardEvidence(artifactDir, deviceID string) error {
 		return err
 	}
 	_ = h.CaptureVMCommand(artifactDir, "vm_refs_cat.txt", "sudo cat /var/lib/flightctl/image-artifact-references.json", true)
-	if err := h.CaptureVMCommand(artifactDir, "vm_podman_images_all.txt", "podman images --no-trunc", false); err != nil {
+	// Run podman as root, like WaitForPodmanImagePresence and every other image assertion in this
+	// harness: the agent runs as root and pulls into root's container store, so the unprivileged
+	// "user" store this used to read is always empty - the one evidence file the pruning suite
+	// most needs was never capturing the images it asserts on. Dropping sudo also breaks
+	// container-backed devices outright: the device container is itself started by the CI
+	// runner's *rootless* podman, so its uid_map only covers that runner's subuid range, and a
+	// nested rootless podman inside it cannot allocate a further user namespace
+	// ("newuidmap: write to uid_map failed: Operation not permitted", exit 125). Root podman
+	// inside the container needs no new namespace and works on both backends.
+	if err := h.CaptureVMCommand(artifactDir, "vm_podman_images_all.txt", "sudo podman images --no-trunc", false); err != nil {
 		return err
 	}
 	if err := h.CaptureHostCLI(artifactDir, "host_flightctl_get_device_yaml.txt", "get", "device", deviceID, "-o", "yaml"); err != nil {

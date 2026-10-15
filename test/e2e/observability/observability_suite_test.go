@@ -40,12 +40,15 @@ var _ = BeforeSuite(func() {
 		auxFuture = e2e.StartAuxServicesAsync(ctx)
 	}
 
-	e2e.SetupWorkerHarnessOrAbort()
+	// Device-backed specs create their own device (see the NeedVMLabel overrides in the spec
+	// files), so BeforeSuite must not boot a VM: the service-level and telemetry gateway
+	// config-validation specs need no device at all.
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 
 	if auxFuture != nil {
 		auxSvcs = auxFuture.Wait()
 	} else {
-		var err error
 		auxSvcs, err = auxiliary.StartServices(ctx, []auxiliary.Service{
 			auxiliary.ServiceRegistry,
 			auxiliary.ServiceGitServer,

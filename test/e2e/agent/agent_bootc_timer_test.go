@@ -18,7 +18,11 @@ const (
 		"(systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | grep -q '^bootc-fetch-apply-updates.timer' && echo exists) || echo not-exists"
 )
 
-var _ = Describe("Bootc timer masking", func() {
+// The spec only asserts a systemd fact - that /etc/systemd/system/bootc-fetch-apply-updates.timer
+// is a symlink to /dev/null after flightctl-agent.service's ExecStartPre ran mask-bootc-timer.sh.
+// It never invokes bootc or reboots, so a container-backed device built from the same bootc image
+// exercises it faithfully. Specs needing a real boot cycle override with Label(e2e.NeedVMLabel).
+var _ = Describe("Bootc timer masking", Label(e2e.NeedContainerLabel), func() {
 	It("should automatically mask bootc timer on installation", Label("89237", "bootc-timer", "sanity", "agent"), func() {
 		harness := e2e.GetWorkerHarness()
 

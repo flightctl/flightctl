@@ -312,7 +312,13 @@ func expectSSIDVisible(h *e2e.Harness, clientIface, ssid string) {
 		"client radio should see the broadcast SSID %q", ssid)
 }
 
-var _ = Describe("Onboarding WiFi access point", Label("onboarding"), Label("wifi"), func() {
+// VM-only, and for a reason independent of the rest of the suite: every spec
+// here loads the mac80211_hwsim kernel module (`modprobe mac80211_hwsim
+// radios=2`) to synthesize virtual radios and then runs hostapd/wpa_supplicant/
+// dnsmasq on them. Loading kernel modules is a host-kernel operation that a
+// container -- privileged or not -- cannot perform against the shared host
+// kernel, so these can never move to a container-backed device.
+var _ = Describe("Onboarding WiFi access point", Label("onboarding"), Label("wifi"), Label(e2e.NeedVMLabel), func() {
 	var h *e2e.Harness
 
 	BeforeEach(func() {

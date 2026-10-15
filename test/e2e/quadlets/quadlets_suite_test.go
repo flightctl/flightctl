@@ -31,7 +31,8 @@ func TestQuadlets(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxFuture.Wait()
 })
 
@@ -43,12 +44,13 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides the
+	// NeedContainerLabel its Context carries, so the reboot-survival spec still gets a VM.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	err = harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)

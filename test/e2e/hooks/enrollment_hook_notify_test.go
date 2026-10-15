@@ -45,7 +45,11 @@ type enrollmentNotifyServer struct {
 	responseCode chan int
 }
 
-var _ = Describe("Enrollment hook notify and fleet gate", Label(enrollmentHookScenarioLabel), Serial, func() {
+// VM-only for the same reason as the other enrollmentHookScenarioLabel specs: the suite
+// BeforeEach switches the device OS image to the v13 enrollment-hook fixture and reboots before
+// re-enrolling. The spec additionally requires a VM/Quadlet profile so the device can reach the
+// notify webhook bound to the E2E host IP.
+var _ = Describe("Enrollment hook notify and fleet gate", Label(enrollmentHookScenarioLabel, e2e.NeedVMLabel), Serial, func() {
 
 	It("transitions NotifyPending to Pending and gates fleet/rendered state", Label("EDM-5712", "90608", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
 		if !testinfra.IsQuadletEnvironment() {

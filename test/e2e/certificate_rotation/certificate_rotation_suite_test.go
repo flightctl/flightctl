@@ -39,7 +39,10 @@ var _ = BeforeSuite(func() {
 	err := lifecycle.SetDeploymentEnv(infra.ServiceAPI, "FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS", certExpirySeconds)
 	Expect(err).ToNot(HaveOccurred())
 
-	e2e.SetupWorkerHarnessOrAbort()
+	// No VM is created here: the device backend is chosen per spec in BeforeEach, so the
+	// libvirt pool is only built on demand for the specs that actually need a VM.
+	_, _, err = e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -67,19 +70,34 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("BeforeEach Worker %d: Setting up test with VM from pool (cert rotation)\n", workerID)
+	GinkgoWriter.Printf("BeforeEach Worker %d: Setting up test with %s from pool (cert rotation)\n", workerID, e2e.DeviceBackendName())
 
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPool(workerID)
-	Expect(err).ToNot(HaveOccurred())
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides the suite-level
+	// NeedContainerLabel, which is exactly what e2e.CurrentSpecUsesContainerDevice encodes.
+	var err error
+	if e2e.CurrentSpecUsesContainerDevice() {
+		// Unlike the VM path, container devices gate flightctl-agent startup behind a marker
+		// file that only the harness' container setup creates, so the agent has to be started
+		// through the dispatcher here. The accelerated-rotation drop-in and the metrics config
+		// written below are picked up by the StartFlightCtlAgent restart at the end of this
+		// BeforeEach, before the spec enrolls the device and any management cert is issued.
+		// No clock sync is needed either: a fresh container uses the host clock directly
+		// instead of resuming a snapshot's stale one.
+		err = harness.SetupDeviceForCurrentSpec(workerID)
+		Expect(err).ToNot(HaveOccurred())
+	} else {
+		err = harness.SetupVMFromPool(workerID)
+		Expect(err).ToNot(HaveOccurred())
 
-	// Sync the VM clock with the host after snapshot revert. The snapshot
-	// preserves the clock state from creation time, so a stale clock
-	// causes the certmanager to misjudge certificate expiry windows
-	err = harness.SyncVMClock()
-	Expect(err).ToNot(HaveOccurred())
+		// Sync the VM clock with the host after snapshot revert. The snapshot
+		// preserves the clock state from creation time, so a stale clock
+		// causes the certmanager to misjudge certificate expiry windows
+		err = harness.SyncVMClock()
+		Expect(err).ToNot(HaveOccurred())
+	}
 
 	// Create systemd drop-in to configure accelerated certificate rotation
 	dropInContent := `[Service]

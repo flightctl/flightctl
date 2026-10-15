@@ -21,6 +21,7 @@ cleanup_e2e_runtime() {
     stop_testcontainers_podman_service
 }
 trap cleanup_e2e_runtime EXIT
+export E2E_SESSION_ID="${E2E_SESSION_ID:-$(cat /proc/sys/kernel/random/uuid)}"
 
 REPORTS=${1}
 GO_E2E_DIRS=("${@:2}")

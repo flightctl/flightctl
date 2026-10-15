@@ -40,7 +40,9 @@ const (
 	expectedStatusBadRequest = 400
 )
 
-var _ = Describe("Quadlets application type support", Label("quadlets"), func() {
+// The suite defaults to container-backed devices; specs that need a real boot cycle
+// override with Label(e2e.NeedVMLabel) at the Context or It level.
+var _ = Describe("Quadlets application type support", Label("quadlets", e2e.NeedContainerLabel), func() {
 	var harness *e2e.Harness
 	var deviceID string
 
@@ -160,9 +162,11 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		})
 	})
 
-	Context("Inline quadlets with references and reboot", func() {
+	Context("Inline quadlets with references and reboot", Label(e2e.NeedVMLabel), func() {
 		// Test plan 4.2: Inline quadlets complex application with references ... survives a reboot (OCP-86280).
-		It("inline quadlets complex application with references can be deployed to an EM device and survives a reboot", Label("86281", "sanity"), func() {
+		// RebootVMAndWaitForSSH needs a real boot cycle, so this spec pins the VM backend even though
+		// the rest of the suite runs on container-backed devices.
+		It("inline quadlets complex application with references can be deployed to an EM device and survives a reboot", Label(e2e.NeedVMLabel, "86281", "sanity"), func() {
 			By("Adding inline quadlet app with refs (network, pod, container, volumes, worker-image.image)")
 			imageRef := getQuadletTestImage(harness)
 			envVars := map[string]string{"LOG_MESSAGE": "Hello from FlightControl (Inline Ref)"}
