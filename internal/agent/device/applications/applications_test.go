@@ -419,8 +419,9 @@ func TestCollectImageDigests(t *testing.T) {
 	t.Run("When parent and workloads report image pairs it should deduplicate and sort them", func(t *testing.T) {
 		const nginx = "quay.io/acme/nginx:latest"
 		app := &application{
-			imageRef:    nginx,
-			imageDigest: "sha256:parent",
+			imageRef:              nginx,
+			imageDigest:           "sha256:parent",
+			parentOutcomeRequired: true,
 			workloads: []Workload{
 				{Images: []WorkloadImage{
 					{Image: nginx},
@@ -436,7 +437,9 @@ func TestCollectImageDigests(t *testing.T) {
 
 		require.NotNil(t, app.status.ImageDigests)
 		require.Equal(t, []v1beta1.ApplicationImageDigest{
+			{Image: nginx},
 			{Image: nginx, Digest: "sha256:old"},
+			{Image: nginx, Digest: "sha256:parent"},
 			{Image: "quay.io/acme/redis:latest"},
 		}, *app.status.ImageDigests)
 	})
@@ -455,6 +458,24 @@ func TestWorkloadImageSnapshotsAreCopied(t *testing.T) {
 	stored, ok := app.Workload("container")
 	require.True(t, ok)
 	require.Equal(t, "sha256:one", stored.Images[0].Digest)
+}
+
+func TestImageSnapshotKeepsUnidentifiedImageVolumesIncomplete(t *testing.T) {
+	volumeManager := mustNewVolumeManager(t)
+	volumeManager.Add(&provider.Volume{Name: "data", ID: "app-data", Available: true})
+	app := &application{
+		id:                      "app-id",
+		imageCollectionComplete: true,
+		volume:                  volumeManager,
+		status:                  &v1beta1.DeviceApplicationStatus{Name: "app", RunAs: v1beta1.RootUsername, AppType: v1beta1.AppTypeCompose},
+		workloads:               []Workload{{Name: "web", Status: StatusRunning, Images: []WorkloadImage{{Image: "quay.io/acme/web:v1", Digest: "sha256:web"}}}},
+	}
+
+	snapshot := app.ImageSnapshot()
+
+	require.False(t, snapshot.Complete)
+	require.Len(t, snapshot.Volumes, 1)
+	require.Equal(t, ImageVolumeSnapshot{ID: "app-data", Available: true}, snapshot.Volumes[0])
 }
 
 func TestNewAppFromProvider(t *testing.T) {

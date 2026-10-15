@@ -2594,3 +2594,67 @@ func TestQuadletCollectNativeVMImageTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestBindQuadletImageVolumes(t *testing.T) {
+	const (
+		reference = "quay.io/acme/disk:latest"
+		imageID   = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		digest    = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	t.Run("When the owning Podman store resolves the source it should pin and label the volume", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockExec := executer.NewMockExecuter(ctrl)
+		tmpDir := t.TempDir()
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		const appPath = "/app"
+		require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
+		require.NoError(rw.WriteFile(filepath.Join(appPath, "disk.volume"), []byte("[Volume]\nDriver=image\nImage="+reference+"\n"), fileio.DefaultFilePermissions))
+
+		gomock.InOrder(
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", reference).Return(imageID, "", 0),
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(digest, "", 0),
+		)
+		podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, testutil.NewPollConfig())
+
+		require.NoError(bindQuadletImageVolumes(context.Background(), podman, rw, appPath, "app-id", "lifetime-1", v1beta1.RootUsername, log.NewPrefixLogger("test")))
+
+		content, err := rw.ReadFile(filepath.Join(appPath, "disk.volume"))
+		require.NoError(err)
+		unitContent := string(content)
+		require.Contains(unitContent, "Image="+imageID)
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeApplicationLabel+"=app-id")
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeLifetimeLabel+"=lifetime-1")
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeReferenceLabel+"="+reference)
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeDigestLabel+"="+digest)
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeOwnerLabel+"=root")
+		require.Contains(unitContent, "Label="+client.PodmanDeltaVolumeOCITypeLabel+"=PodmanImage")
+	})
+
+	t.Run("When the source cannot be bound it should leave the reference untrusted", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockExec := executer.NewMockExecuter(ctrl)
+		tmpDir := t.TempDir()
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		const appPath = "/app"
+		require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
+		require.NoError(rw.WriteFile(filepath.Join(appPath, "disk.volume"), []byte("[Volume]\nDriver=image\nImage="+reference+"\n"), fileio.DefaultFilePermissions))
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", reference).Return("", "image missing", 125)
+		podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, testutil.NewPollConfig())
+
+		require.NoError(bindQuadletImageVolumes(context.Background(), podman, rw, appPath, "app-id", "lifetime-1", v1beta1.RootUsername, log.NewPrefixLogger("test")))
+		content, err := rw.ReadFile(filepath.Join(appPath, "disk.volume"))
+		require.NoError(err)
+		require.Contains(string(content), "Image="+reference)
+		require.NotContains(string(content), "Label="+client.PodmanDeltaVolumeDigestLabel)
+	})
+}

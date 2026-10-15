@@ -87,6 +87,11 @@ type ApplicationSpec struct {
 	Image string
 	// ImageDigest is the known content digest of Image in local storage, when available.
 	ImageDigest string
+	// ImageOCIType is the installed parent's storage type.
+	ImageOCIType string
+	// Lifetime is assigned from the shared delta outcome store and remains stable
+	// across ordinary desired updates.
+	Lifetime string
 
 	// App-type-specific specs (only one will be set based on AppType)
 	ContainerApp *v1beta1.ContainerApplication
@@ -216,6 +221,7 @@ func collectProviderTargets(
 	var activeNames []string
 	var depsErr error
 	needsRequeue := false
+	pruneStaleAppData(log, providers, appDataCache)
 
 	for _, p := range providers {
 		activeNames = append(activeNames, p.ID())
@@ -236,6 +242,9 @@ func collectProviderTargets(
 		parentHint, nestedHints := applicationDeltaHints(p.Spec())
 		for user, userTargets := range baseTargets {
 			baseTargets[user] = decorateApplicationTargets(userTargets, parentHint, nestedHints, p.Name())
+			if p.Spec().AppType == v1beta1.AppTypeCompose && p.Spec().Image != "" && len(userTargets) > 0 {
+				baseTargets[user][0].Delta = &dependency.OCIDeltaTarget{Application: p.Name(), Package: true}
+			}
 		}
 		targets = targets.MergeWith(baseTargets)
 
@@ -259,6 +268,40 @@ func collectProviderTargets(
 	}, depsErr
 }
 
+func pruneStaleAppData(log *log.PrefixLogger, providers []appProvider, appDataCache map[string]*AppData) {
+	if len(appDataCache) == 0 {
+		return
+	}
+	activeParentReferences := make(map[string]string, len(providers))
+	for _, p := range providers {
+		if p == nil || p.Spec() == nil || p.Spec().Image == "" {
+			continue
+		}
+		activeParentReferences[p.ID()] = p.Spec().Image
+	}
+	for application, appData := range appDataCache {
+		reference, active := activeParentReferences[application]
+		if active && appData != nil && appData.ParentReference == reference {
+			continue
+		}
+		cleanupAppData(log, appDataCache, application)
+	}
+}
+
+func cleanupAppData(log *log.PrefixLogger, appDataCache map[string]*AppData, application string) {
+	appData, found := appDataCache[application]
+	if !found {
+		return
+	}
+	delete(appDataCache, application)
+	if appData == nil {
+		return
+	}
+	if err := appData.Cleanup(); err != nil {
+		log.Warnf("Failed to cleanup stale extraction for app %s: %v", application, err)
+	}
+}
+
 func decorateApplicationTargets(
 	targets []dependency.OCIPullTarget,
 	parentHint *string,
@@ -268,9 +311,8 @@ func decorateApplicationTargets(
 	for i := range targets {
 		target := &targets[i]
 		if target.Type == dependency.OCITypeHelmChart {
-			// The chart artifact is resolved to render workload manifests. Delta
-			// apply outcomes describe the workload images, not the chart package.
-			target.Delta = nil
+			// Chart packages resolve normally and do not participate in workload deltas.
+			target.Delta = &dependency.OCIDeltaTarget{Application: application, Package: true}
 			continue
 		}
 		var hint string
@@ -397,6 +439,9 @@ func collectNestedForProvider(
 		return nil, false, err
 	}
 	if !available {
+		// The previous extraction cannot be proven to match a parent that is
+		// absent from the owning store. Keep no old bytes for provider install.
+		cleanupAppData(log, appDataCache, p.ID())
 		return nil, true, nil
 	}
 
@@ -405,12 +450,26 @@ func collectNestedForProvider(
 		return nil, false, err
 	}
 
-	if cachedEntry, found := ociCache.Get(p.ID()); found {
-		if cachedEntry.IsValid(ref, digest, inputsHash) {
-			log.Debugf("Using cached nested targets for app %s", p.Name())
+	cachedEntry, found := ociCache.Get(p.ID())
+	if found && cachedEntry.IsValid(ref, digest, p.Spec().User, inputsHash) && (digest != "" || cachedEntry.Parent.Type == "") {
+		appData, hasAppData := appDataCache[p.ID()]
+		if hasAppData && appDataMatchesParent(appData, cachedEntry.Parent) {
+			log.Debugf("Using cached nested targets and parent extraction for app %s", p.Name())
 			return cachedEntry.Children, false, nil
 		}
-		log.Debugf("Cache invalidated for app %s: reference, digest, or provider inputs changed", p.Name())
+		if !hasAppData {
+			log.Debugf("Using cached nested targets without parent extraction for app %s", p.Name())
+			return cachedEntry.Children, false, nil
+		}
+		if hasAppData {
+			cleanupAppData(log, appDataCache, p.ID())
+		}
+		log.Debugf("Cached nested targets lack a matching parent extraction for app %s", p.Name())
+	} else {
+		if found {
+			log.Debugf("Cache invalidated for app %s: parent reference, digest, owner, or provider inputs changed", p.Name())
+		}
+		cleanupAppData(log, appDataCache, p.ID())
 	}
 
 	cacheEntry := CacheEntry{
@@ -436,13 +495,31 @@ func collectNestedForProvider(
 		ociCache.Set(cacheEntry)
 		return nil, false, nil
 	}
+	if appData.ParentReference != "" || appData.TmpPath != "" {
+		if appData.ParentReference != ref || appData.ParentOCIType == "" || appData.TmpPath == "" {
+			if err := appData.Cleanup(); err != nil {
+				log.Warnf("Failed to cleanup invalid parent extraction for app %s: %v", p.Name(), err)
+			}
+			return nil, false, fmt.Errorf("extracted parent identity does not match the available parent %s", ref)
+		}
+		cacheEntry.Parent.Reference = appData.ParentReference
+		cacheEntry.Parent.Digest = appData.ParentDigest
+		cacheEntry.Parent.Type = appData.ParentOCIType
+	}
 
 	cacheEntry.Children = appData.Targets
 	ociCache.Set(cacheEntry)
-	if len(appData.Targets) > 0 {
+	if appData.TmpPath != "" {
+		// Install consumes these exact extracted bytes. Retain them until the
+		// enclosing application update batch finishes, even when there are no
+		// nested image targets. The cache entry above carries the same parent
+		// reference, digest, and OCI type as this extraction.
+		cleanupAppData(log, appDataCache, p.ID())
 		appDataCache[p.ID()] = appData
+	}
+	if len(appData.Targets) > 0 {
 		log.Debugf("Cached %d nested targets for app %s", len(appData.Targets), p.Name())
-	} else {
+	} else if appData.TmpPath == "" {
 		if err := appData.Cleanup(); err != nil {
 			log.Warnf("Failed to cleanup extraction for app %s with no targets: %v", p.Name(), err)
 		}
@@ -452,9 +529,8 @@ func collectNestedForProvider(
 }
 
 // nestedTargetsInputsHash returns a stable hash for provider inputs that can
-// change the result of nested target extraction. Helm has no parent image
-// digest, so its chart values and other dry-run inputs must be tracked
-// separately from CacheEntry.Parent.Digest.
+// change the result of nested target extraction. Helm has no parent image digest,
+// so its chart values and other dry-run inputs must be tracked separately.
 func nestedTargetsInputsHash(p appProvider) (string, error) {
 	spec := p.Spec()
 	if spec == nil || spec.AppType != v1beta1.AppTypeHelm || spec.HelmApp == nil {
@@ -483,6 +559,14 @@ func nestedTargetsInputsHash(p appProvider) (string, error) {
 	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+func appDataMatchesParent(appData *AppData, parent dependency.OCIPullTarget) bool {
+	return appData != nil && appData.TmpPath != "" &&
+		appData.extractionAvailable() &&
+		appData.ParentReference == parent.Reference &&
+		appData.ParentDigest != "" && appData.ParentDigest == parent.Digest &&
+		appData.ParentOCIType != "" && appData.ParentOCIType == parent.Type
 }
 
 // discoverEmbeddedProviders discovers embedded compose and quadlet applications
@@ -1104,10 +1188,18 @@ func stripLifecycleFromUnionApp[T any](app *T) {
 
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
-	Owner     v1beta1.Username
-	Targets   []dependency.OCIPullTarget
-	TmpPath   string
-	CleanupFn func() error
+	Owner            v1beta1.Username
+	Targets          []dependency.OCIPullTarget
+	TmpPath          string
+	ParentReference  string
+	ParentDigest     string
+	ParentOCIType    dependency.OCIType
+	CleanupFn        func() error
+	extractionExists func() bool
+}
+
+func (e *AppData) extractionAvailable() bool {
+	return e.extractionExists == nil || e.extractionExists()
 }
 
 // NewAppDataCache creates a new app data cache
@@ -1129,6 +1221,7 @@ func extractAppDataFromOCITarget(
 	ctx context.Context,
 	podman *client.Podman,
 	readWriter fileio.ReadWriter,
+	logger *log.PrefixLogger,
 	appName string,
 	imageRef string,
 	appType v1beta1.AppType,
@@ -1144,28 +1237,12 @@ func extractAppDataFromOCITarget(
 		return readWriter.RemoveAll(tmpAppPath)
 	}
 
-	ociType, err := detectOCIType(ctx, podman, imageRef)
+	parentDigest, ociType, err := extractOCIContentsToPathWithIdentity(ctx, podman, logger, readWriter, imageRef, tmpAppPath)
 	if err != nil {
 		if rmErr := cleanupFn(); rmErr != nil {
-			return nil, fmt.Errorf("%w %w: %w (cleanup failed: %v)", errors.ErrDetectingOCIType, errors.WithElement(appName), err, rmErr)
+			return nil, fmt.Errorf("%w %w: %w (cleanup failed: %v)", errors.ErrExtractingArtifact, errors.WithElement(appName), err, rmErr)
 		}
-		return nil, fmt.Errorf("%w %w: %w", errors.ErrDetectingOCIType, errors.WithElement(appName), err)
-	}
-
-	if ociType == dependency.OCITypePodmanArtifact {
-		if err := extractAndProcessArtifact(ctx, podman, log.NewPrefixLogger(""), imageRef, tmpAppPath, readWriter); err != nil {
-			if rmErr := cleanupFn(); rmErr != nil {
-				return nil, fmt.Errorf("%w %w: %w (cleanup failed: %v)", errors.ErrExtractingArtifact, errors.WithElement(appName), err, rmErr)
-			}
-			return nil, fmt.Errorf("%w %w: %w", errors.ErrExtractingArtifact, errors.WithElement(appName), err)
-		}
-	} else {
-		if err := podman.CopyContainerData(ctx, imageRef, tmpAppPath); err != nil {
-			if rmErr := cleanupFn(); rmErr != nil {
-				return nil, fmt.Errorf("%w %w: %w (cleanup failed: %v)", errors.ErrCopyingImage, errors.WithElement(appName), err, rmErr)
-			}
-			return nil, fmt.Errorf("%w %w: %w", errors.ErrCopyingImage, errors.WithElement(appName), err)
-		}
+		return nil, fmt.Errorf("%w %w: %w", errors.ErrExtractingArtifact, errors.WithElement(appName), err)
 	}
 
 	var targets []dependency.OCIPullTarget
@@ -1238,9 +1315,16 @@ func extractAppDataFromOCITarget(
 	}
 
 	return &AppData{
-		Targets:   targets,
-		TmpPath:   tmpAppPath,
-		CleanupFn: cleanupFn,
+		Targets:         targets,
+		TmpPath:         tmpAppPath,
+		ParentReference: imageRef,
+		ParentDigest:    parentDigest,
+		ParentOCIType:   ociType,
+		CleanupFn:       cleanupFn,
+		extractionExists: func() bool {
+			exists, err := readWriter.PathExists(tmpAppPath)
+			return err == nil && exists
+		},
 	}, nil
 }
 

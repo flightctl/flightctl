@@ -10,8 +10,31 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
+
+// HandlerOption configures optional dependencies shared by application lifecycle handlers.
+type HandlerOption func(*handlerOptions)
+
+type handlerOptions struct {
+	deltaStatusStore *deltastatus.Store
+}
+
+// WithDeltaStatusStore supplies the store used to record application image outcomes.
+func WithDeltaStatusStore(store *deltastatus.Store) HandlerOption {
+	return func(options *handlerOptions) {
+		options.deltaStatusStore = store
+	}
+}
+
+func applyHandlerOptions(options []HandlerOption) handlerOptions {
+	var configured handlerOptions
+	for _, option := range options {
+		option(&configured)
+	}
+	return configured
+}
 
 type ActionType string
 
@@ -54,6 +77,8 @@ type Action struct {
 	ID string
 	// Name of the application
 	Name string
+	// Lifetime identifies this installed application across desired updates.
+	Lifetime string
 	// Environment variables to be passed to the manifest handler at runtime
 	EnvVars map[string]string
 	// Type of the action
@@ -131,6 +156,7 @@ func (as Actions) ByUser() iter.Seq2[v1beta1.Username, ActionsByType] {
 type Volume struct {
 	ID            string
 	Reference     string
+	OCIType       string
 	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 

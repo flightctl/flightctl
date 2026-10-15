@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -172,6 +173,24 @@ func TestPodman_ListImageDigests(t *testing.T) {
 	}
 }
 
+func TestPodman_InspectVolumeReturnsPublicProvenance(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	volumeJSON := `{"Name":"app-data","Driver":"image","CreatedAt":"2026-10-12T12:00:00Z","Labels":{"io.flightctl.delta.digest":"sha256:observed"},"Options":{"image":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"StorageID":"not-an-image-id"}`
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"volume", "inspect", "app-data", "--format", "{{json .}}"}).Return(volumeJSON, "", 0)
+	podman := NewPodman(log.NewPrefixLogger("test"), mockExec, readWriter, poll.Config{})
+	volume, err := podman.InspectVolume(context.Background(), "app-data")
+	require.NoError(err)
+	require.Equal("app-data", volume.Name)
+	require.Equal("image", volume.Driver)
+	require.Equal("2026-10-12T12:00:00Z", volume.CreatedAt)
+	require.Equal("sha256:observed", volume.Labels[PodmanDeltaVolumeDigestLabel])
+	require.Equal("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", volume.Options["image"])
+}
+
 func TestPodman_ListArtifacts(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
@@ -264,6 +283,135 @@ func TestPodman_ListArtifacts(t *testing.T) {
 				require.NoError(err)
 				require.Equal(tc.want, got)
 			}
+		})
+	}
+}
+
+func TestPodmanArtifactReferenceCompatibility(t *testing.T) {
+	const (
+		taggedReference  = "quay.io/example/artifact:v1"
+		digestValue      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		otherDigestValue = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	parsedDigest, err := digest.Parse(digestValue)
+	require.NoError(t, err)
+	digestReference := "quay.io/example/artifact@" + digestValue
+	malformedReference := taggedReference + "@" + digestValue
+
+	testCases := []struct {
+		name      string
+		setupMock func(*executer.MockExecuter)
+		run       func(*testing.T, *Podman)
+	}{
+		{
+			name: "When artifact reference is tagged it should return digest-pinned repository reference",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", taggedReference}).
+					Return(`{"Digest":"`+digestValue+`"}`, "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				immutableReference, observedDigest, err := podman.ImmutableArtifactReference(context.Background(), taggedReference)
+				require.NoError(err)
+				require.Equal("quay.io/example/artifact@"+digestValue, immutableReference)
+				require.Equal(digestValue, observedDigest)
+			},
+		},
+		{
+			name: "When artifact reference is digest pinned it should inspect encoded selector",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", parsedDigest.Encoded()}).
+					Return(`{"Digest":"`+digestValue+`"}`, "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				observedDigest, err := podman.ArtifactDigest(context.Background(), digestReference)
+				require.NoError(err)
+				require.Equal(digestValue, observedDigest)
+			},
+		},
+		{
+			name: "When artifact digest is pinned it should reject mismatch",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", parsedDigest.Encoded()}).
+					Return(`{"Digest":"`+otherDigestValue+`"}`, "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				_, err := podman.ArtifactDigest(context.Background(), digestReference)
+				require.Error(err)
+				require.Contains(err.Error(), "artifact digest mismatch")
+			},
+		},
+		{
+			name: "When artifact annotations are inspected it should use encoded selector",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", parsedDigest.Encoded()}).
+					Return(`{"Manifest":{"layers":[{"annotations":{"appType":"compose"}}]}}`, "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				annotations, err := podman.InspectArtifactAnnotations(context.Background(), digestReference)
+				require.NoError(err)
+				require.Equal(map[string]string{"appType": "compose"}, annotations)
+			},
+		},
+		{
+			name: "When artifact reference is digest pinned it should exist by encoded selector",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", parsedDigest.Encoded()}).
+					Return("{}", "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				require.True(podman.ArtifactExists(context.Background(), digestReference))
+			},
+		},
+		{
+			name: "When artifact is digest pinned it should extract encoded selector",
+			setupMock: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "extract", parsedDigest.Encoded(), "/destination"}).
+					Return("", "", 0)
+			},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				_, err := podman.ExtractArtifact(context.Background(), digestReference, "/destination")
+				require.NoError(err)
+			},
+		},
+		{
+			name:      "When artifact reference combines tag and digest it should reject",
+			setupMock: func(*executer.MockExecuter) {},
+			run: func(t *testing.T, podman *Podman) {
+				require := require.New(t)
+				_, err := podman.ExtractArtifact(context.Background(), malformedReference, "/destination")
+				require.Error(err)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			podman := NewPodman(logger, mockExec, readWriter, poll.Config{})
+
+			testCase.setupMock(mockExec)
+			testCase.run(t, podman)
 		})
 	}
 }

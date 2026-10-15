@@ -182,6 +182,7 @@ func (m *KubernetesMonitor) QueueLifecycle(appID string, desiredState v1beta1.Ap
 	m.actions = append(m.actions, lifecycle.Action{
 		ID:                appID,
 		Name:              app.Name(),
+		Lifetime:          app.ImageSnapshot().Lifetime,
 		AppType:           app.AppType(),
 		Path:              app.Path(),
 		Type:              actionType,
@@ -237,11 +238,12 @@ func (m *KubernetesMonitor) lifecycleDispatch(appID string) (lifecycle.Lifecycle
 	}
 
 	action := lifecycle.Action{
-		ID:      app.ID(),
-		Name:    app.Name(),
-		AppType: app.AppType(),
-		Path:    app.Path(),
-		Spec:    app.ActionSpec(),
+		ID:       app.ID(),
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		AppType:  app.AppType(),
+		Path:     app.Path(),
+		Spec:     app.ActionSpec(),
 	}
 	return handler, action, app, nil
 }

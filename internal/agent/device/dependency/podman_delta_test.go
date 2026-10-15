@@ -289,6 +289,7 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 	const parent = "quay.io/acme/compose:v2"
 	const nested = "quay.io/acme/web:v2"
 	const hint = "quay.io/acme/delta:web"
+	const parentDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, parentHint := range []string{"", "quay.io/acme/delta:compose"} {
 		t.Run("When a Compose artifact has hint "+parentHint+" it should apply its nested image delta independently", func(t *testing.T) {
 			require := require.New(t)
@@ -326,8 +327,12 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 				},
 				tasks: tasks, deltaGeneration: 1, deltaTargetsScheduled: true, deltaTargetRefs: refs, deltaAppTargetKeys: map[string]map[string]string{"compose": keys},
 			}
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
+			if parentHint != "" {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", parent).Return("", "artifact not found", 1)
+			}
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).Times(2)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "pull", parent).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", parent).Return(`{"Digest":"`+parentDigest+`"}`, "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+hint).Return(podmanDeltaManifest, "", 0)
 			expectPodmanDeltaTarget(t, exec, nested, 1)
 			expectPodmanDeltaSource(exec, 1)

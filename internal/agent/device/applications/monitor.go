@@ -187,6 +187,7 @@ func (m *monitor) Ensure(app Application) error {
 		AppType:  app.AppType(),
 		Type:     lifecycle.ActionAdd,
 		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
@@ -210,12 +211,13 @@ func (m *monitor) Remove(app Application) error {
 	delete(m.apps, appID)
 
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionRemove,
-		Name:    app.Name(),
-		ID:      appID,
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
-		Spec:    app.ActionSpec(),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionRemove,
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		ID:       appID,
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
+		Spec:     app.ActionSpec(),
 	}
 
 	m.actions = append(m.actions, action)
@@ -234,13 +236,14 @@ func (m *monitor) Update(app Application) error {
 	m.apps[appID] = app
 
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionUpdate,
-		Name:    app.Name(),
-		ID:      appID,
-		Path:    app.Path(),
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
-		Spec:    app.ActionSpec(),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionUpdate,
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		ID:       appID,
+		Path:     app.Path(),
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
+		Spec:     app.ActionSpec(),
 	}
 
 	m.actions = append(m.actions, action)
@@ -258,13 +261,14 @@ func (m *monitor) updateWithWorkloads(app Application) error {
 	m.apps[appID] = app
 
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionUpdate,
-		Name:    app.Name(),
-		ID:      appID,
-		Path:    app.Path(),
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
-		Spec:    app.ActionSpec(),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionUpdate,
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		ID:       appID,
+		Path:     app.Path(),
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
+		Spec:     app.ActionSpec(),
 	}
 
 	m.actions = append(m.actions, action)
