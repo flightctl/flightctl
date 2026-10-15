@@ -65,7 +65,8 @@ The **auxiliary** package (`test/e2e/infra/auxiliary/`) provides:
 - **Registry** – TLS registry on port 5000; used for agent and app images. Certificates come from e2e certs (`make prepare-e2e-test`).
 - **Git server** – SSH git server (port 2222); generates SSH keys in the container; keys are copied to the host so tests and Repository CRs use the same key.
 - **Prometheus** – Scrapes metrics; used by observability tests.
-- **Keycloak** – OIDC IdP (port 8080); used by the auth-provider suite. Not in the default set; start with `StartServices(ctx, []Service{ServiceKeycloak})` or `make start-keycloak`.
+- **Keycloak** – OIDC IdP (port 8080); used by the auth-provider and catalog collector suites. Not in the default set; start with `StartServices(ctx, []Service{ServiceKeycloak})` or `make start-keycloak`.
+- **Kubeflow Model Registry** – version-pinned Model Registry REST server with its own PostgreSQL; used by the catalog collector suite. Not in the default set; start with `StartServices(ctx, []Service{ServiceModelRegistry})` or `make start-model-registry`.
 - **Tracing (Jaeger)** – Optional; started via `infra.TracingProvider` (e.g. `make start-tracing`) or by suites that use the tracing provider.
 
 Containers are reused by default (`reuse=true`) so multiple suites can share them. Start/stop from the command line with `make start-aux`, `make stop-aux`, `make clean-aux`.

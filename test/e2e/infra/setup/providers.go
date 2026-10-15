@@ -106,12 +106,17 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 		return nil, fmt.Errorf("k8s secrets: %w", err)
 	}
 	tpmP := k8s.NewTPMProvider(cluster, infraP, lifecycleP)
+	chartsP, err := k8s.NewChartDeployer(cluster, infraP)
+	if err != nil {
+		return nil, fmt.Errorf("k8s chart deployer: %w", err)
+	}
 	return &infra.Providers{
 		Infra:     infraP,
 		Lifecycle: lifecycleP,
 		RBAC:      rbacP,
 		Secrets:   secretsP,
 		TPM:       tpmP,
+		Charts:    chartsP,
 	}, nil
 }
 
