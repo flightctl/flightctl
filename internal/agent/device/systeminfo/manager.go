@@ -121,6 +121,11 @@ func (m *manager) Initialize(ctx context.Context) (err error) {
 		}
 	}
 
+	// Restore persisted executor cache so that lastTransitionTime values
+	// survive agent restarts and only update when values actually change.
+	m.loadExecutorCache()
+	m.rebuildCollectors()
+
 	m.collect(ctx)
 
 	return nil
@@ -275,6 +280,7 @@ func (m *manager) collect(ctx context.Context) {
 	m.collectConfigured(ctx, false)
 	m.refreshGPU(ctx)
 	m.refreshKVM(ctx)
+	m.saveExecutorCache()
 }
 
 // CollectPending collects sources that have not yet been collected.
@@ -557,6 +563,47 @@ func getBoot(readWriter fileio.ReadWriter, dataDir string) (*Boot, error) {
 	}
 
 	return &boot, nil
+}
+
+// loadExecutorCache reads the persisted executor cache from disk and seeds
+// m.collection so that a subsequent rebuildCollectors call preserves the
+// cached lastTransitionTime values.
+func (m *manager) loadExecutorCache() {
+	cachePath := filepath.Join(m.dataDir, ExecutorCacheFileName)
+	data, err := m.readWriter.ReadFile(cachePath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			m.log.Warnf("failed to read executor cache, starting fresh: %v", err)
+		}
+		return
+	}
+	var states []persistedExecutorState
+	if err := json.Unmarshal(data, &states); err != nil {
+		m.log.Warningf("Failed to parse executor cache %s: %v", cachePath, err)
+		return
+	}
+	m.collection = collectionFromPersistedStates(states)
+}
+
+// saveExecutorCache persists the current executor states to disk so that
+// lastTransitionTime values survive agent restarts.
+func (m *manager) saveExecutorCache() {
+	if m.readWriter == nil {
+		return
+	}
+	m.mu.Lock()
+	states := snapshotExecutorStates(m.collection)
+	m.mu.Unlock()
+
+	data, err := json.Marshal(states)
+	if err != nil {
+		m.log.Warningf("Failed to marshal executor cache: %v", err)
+		return
+	}
+	cachePath := filepath.Join(m.dataDir, ExecutorCacheFileName)
+	if err := m.readWriter.WriteFile(cachePath, data, 0644); err != nil {
+		m.log.Warningf("Failed to write executor cache %s: %v", cachePath, err)
+	}
 }
 
 // returns the boot time as a string.

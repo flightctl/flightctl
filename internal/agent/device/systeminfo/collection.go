@@ -95,6 +95,19 @@ type cachedExecutor struct {
 	lastTransitionTime time.Time
 }
 
+// persistedExecutorState is a serializable snapshot of a cachedExecutor's
+// state.  It is persisted to disk so that lastTransitionTime values survive
+// agent restarts and only update when the collected value actually changes.
+type persistedExecutorState struct {
+	Key                string     `json:"key"`
+	Kind               sourceKind `json:"kind"`
+	Value              string     `json:"value"`
+	HasValue           bool       `json:"hasValue"`
+	Failed             bool       `json:"failed"`
+	Message            string     `json:"message,omitempty"`
+	LastTransitionTime time.Time  `json:"lastTransitionTime"`
+}
+
 type collectionError struct {
 	message    string
 	clearValue bool
@@ -614,6 +627,56 @@ func hasExecutor(collectors []*collector, kind sourceKind, key string) bool {
 		}
 	}
 	return false
+}
+
+// snapshotExecutorStates captures the current state of all attempted
+// executors for persistence.  The caller must hold m.mu.
+func snapshotExecutorStates(collection []*collector) []persistedExecutorState {
+	var states []persistedExecutorState
+	for _, source := range collection {
+		for _, exec := range source.executors {
+			if !exec.attempted || exec.kind == hiddenSource {
+				continue
+			}
+			states = append(states, persistedExecutorState{
+				Key:                exec.key,
+				Kind:               exec.kind,
+				Value:              exec.value,
+				HasValue:           exec.hasValue,
+				Failed:             exec.failed,
+				Message:            exec.message,
+				LastTransitionTime: exec.lastTransitionTime,
+			})
+		}
+	}
+	return states
+}
+
+// collectionFromPersistedStates creates a minimal collector slice from
+// persisted executor states.  The returned collectors carry only executor
+// state (value, failed, lastTransitionTime, etc.) so that cachedExecutorFor
+// can find and reuse them during a subsequent rebuildCollectors call.
+func collectionFromPersistedStates(states []persistedExecutorState) []*collector {
+	if len(states) == 0 {
+		return nil
+	}
+	placeholder := &collector{
+		source:    &sourceDefinition{},
+		executors: make([]*cachedExecutor, 0, len(states)),
+	}
+	for _, state := range states {
+		placeholder.executors = append(placeholder.executors, &cachedExecutor{
+			key:                state.Key,
+			kind:               state.Kind,
+			value:              state.Value,
+			hasValue:           state.HasValue,
+			failed:             state.Failed,
+			message:            state.Message,
+			attempted:          true,
+			lastTransitionTime: state.LastTransitionTime,
+		})
+	}
+	return []*collector{placeholder}
 }
 
 func sanitizeCollectorValue(value string) string {
