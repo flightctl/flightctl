@@ -88,6 +88,22 @@ The `device.status.updated.status` field can have the following values:
 
 <sup>1</sup> For the detailed definitions derived from the device specs and statuses, see [Helper Definitions](#helper-definitions).
 
+While an update is in progress, `device.status.updated.stage` provides an operator-facing description of the current update stage. The coarse `device.status.updated.status` value remains `Updating` for all active stages so fleet and overview counts continue to group them together.
+
+The `device.status.updated.stage` field can have the following values:
+
+| Stage | Agent condition reason | Description |
+| ----- | ---------------------- | ----------- |
+| `Downloading` | `Preparing` | The agent is validating the desired device spec and downloading dependencies. |
+| `Staged` | `ReadyToUpdate` | The update is downloaded and waiting to be applied, for example because of an update policy or maintenance window. |
+| `Applying` | `ApplyingUpdate` | The agent is writing the update to disk. |
+| `Rebooting` | `Rebooting` | The device is rebooting to activate the new OS image and configuration. |
+| `Rolling back` | `RollingBack` | The device is returning to the pre-update OS image and configuration after an update error. |
+| `Failed` | `Error` | The update failed and will not retry; the device has been rolled back. Its coarse update status is `OutOfDate`. |
+| `Retrying` | `Retrying` | The update failed temporarily and will be retried. |
+
+The stage is omitted after the agent reports `Updated` or `Canceled`, and for ordinary non-updating statuses. Use the stage for device details and drill-down views; use `device.status.updated.status` for fleet and overview aggregation.
+
 The `device.status.conditions.Updating.Reason` field contains the current state of the update in progress and can take the following values:
 
 | Update State | Description |
