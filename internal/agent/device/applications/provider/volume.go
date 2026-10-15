@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -26,6 +27,9 @@ type Volume struct {
 	ID string
 	// Reference is the reference used to populate the volume
 	Reference string
+	// OCIType identifies the storage representation required to observe the
+	// image-backed volume without treating artifact manifests as executable images.
+	OCIType string
 	// Available is true if the volume has been created
 	Available bool
 	// ReclaimPolicy controls how the volume is handled when the application is removed
@@ -71,6 +75,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 			return nil, fmt.Errorf("volume type: %w", err)
 		}
 		var image *v1beta1.ImageVolumeSource
+		ociType := dependency.OCITypePodmanArtifact
 		switch volType {
 		case v1beta1.ImageApplicationVolumeProviderType:
 			provider, err := v.AsImageVolumeProviderSpec()
@@ -84,6 +89,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 				return nil, err
 			}
 			image = &provider.Image
+			ociType = dependency.OCITypeAuto
 		case v1beta1.MountApplicationVolumeProviderType:
 			// nothing to manage
 			continue
@@ -95,6 +101,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 		m.volumes[volID] = &Volume{
 			Name:          v.Name,
 			Reference:     image.Reference,
+			OCIType:       string(ociType),
 			ID:            volID,
 			Available:     true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 			ReclaimPolicy: policy,
@@ -308,6 +315,7 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 		out[i] = lifecycle.Volume{
 			ID:            vol.ID,
 			Reference:     vol.Reference,
+			OCIType:       vol.OCIType,
 			ReclaimPolicy: vol.ReclaimPolicy,
 		}
 	}
@@ -326,6 +334,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 			Name:          name,
 			ID:            quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
 			Reference:     *quad.Image,
+			OCIType:       string(dependency.OCITypePodmanImage),
 			ReclaimPolicy: v1beta1.Retain,
 		})
 	}

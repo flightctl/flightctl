@@ -104,7 +104,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			restarted := &prefetchManager{
 				log: logger, deltaStatusStore: deltastatus.New(rw, "/var/lib/flightctl", logger),
 				deltaAppSpecKeys: manager.deltaAppSpecKeys, deltaAppTargetKeys: manager.deltaAppTargetKeys,
-				deltaTargetRefs: manager.deltaTargetRefs, deltaTargetsScheduled: true,
+				deltaTargetRefs: manager.deltaTargetRefs, deltaAppLifetimes: manager.deltaAppLifetimes, deltaTargetsScheduled: true,
 			}
 			restarted.deltaApplyResults = restarted.restoreApplicationDeltaResults(restarted.deltaAppTargetKeys, restarted.deltaTargetRefs)
 			checkStatus(restarted)
@@ -137,9 +137,7 @@ func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestOnce(t *tes
 	secondExists := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
 	localMetadata := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
 		Return(fmt.Sprintf(`{"Id":%q,"Digest":%q,"RepoDigests":[%q]}`, imageID, digest, "quay.io/acme/web@"+digest), "", 0)
-	remoteDigest := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).
-		Return(digest, "", 0)
-	gomock.InOrder(firstExists, secondExists, localMetadata, remoteDigest)
+	gomock.InOrder(firstExists, secondExists, localMetadata)
 
 	name := appName
 	app := v1beta1.ContainerApplication{Name: &name, AppType: v1beta1.AppTypeContainer}

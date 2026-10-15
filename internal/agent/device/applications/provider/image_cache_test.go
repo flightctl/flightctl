@@ -3,6 +3,7 @@ package provider
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +38,40 @@ func TestNestedTargetCacheGetSet(t *testing.T) {
 	require.Equal("image-app", entry.Name)
 	require.Equal("sha256:abc123", entry.Parent.Digest)
 	require.Len(entry.Children, 2)
+}
+
+func TestNestedTargetCacheRequiresExactParentAndOwnerIdentity(t *testing.T) {
+	entry := CacheEntry{
+		Owner:  "alice",
+		Parent: dependency.OCIPullTarget{Reference: "quay.io/acme/app:latest", Digest: "sha256:old"},
+	}
+	for _, tt := range []struct {
+		name       string
+		ref        string
+		digest     string
+		owner      v1beta1.Username
+		inputsHash string
+		want       bool
+	}{
+		{name: "When the parent and owner match it should reuse the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "alice", want: true},
+		{name: "When the owner changes it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "bob"},
+		{name: "When the parent digest changes it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:new", owner: "alice"},
+		{name: "When the parent digest is unknown it should invalidate the cache", ref: "quay.io/acme/app:latest", owner: "alice"},
+		{name: "When the parent reference changes it should invalidate the cache", ref: "quay.io/acme/app:v2", digest: "sha256:old", owner: "alice"},
+		{name: "When the default owner differs from the cached owner it should invalidate the cache", ref: "quay.io/acme/app:latest", digest: "sha256:old", owner: "", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, entry.IsValid(tt.ref, tt.digest, tt.owner, tt.inputsHash))
+		})
+	}
+}
+
+func TestNestedTargetCacheNormalizesEmptyRootOwner(t *testing.T) {
+	entry := CacheEntry{
+		Owner:  v1beta1.RootUsername,
+		Parent: dependency.OCIPullTarget{Reference: "quay.io/acme/app:latest", Digest: "sha256:old"},
+	}
+	require.True(t, entry.IsValid("quay.io/acme/app:latest", "sha256:old", "", ""))
 }
 
 func TestNestedTargetCacheGC(t *testing.T) {
@@ -229,6 +264,6 @@ func TestCacheEntryIsValid_WhenInputsChange_ItShouldInvalidate(t *testing.T) {
 		InputsHash: "values-v1",
 	}
 
-	require.True(t, entry.IsValid(entry.Parent.Reference, "", "values-v1"))
-	require.False(t, entry.IsValid(entry.Parent.Reference, "", "values-v2"))
+	require.True(t, entry.IsValid(entry.Parent.Reference, "", v1beta1.RootUsername, "values-v1"))
+	require.False(t, entry.IsValid(entry.Parent.Reference, "", v1beta1.RootUsername, "values-v2"))
 }
