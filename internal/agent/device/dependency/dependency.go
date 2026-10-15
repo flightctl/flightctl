@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"iter"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -84,6 +85,9 @@ type ClientOptsFn func() []client.ClientOption
 
 // OCIDeltaTarget describes an optional delta transition for an OCI target.
 type OCIDeltaTarget struct {
+	// Package marks non-workload packages, such as Compose bundles and Helm
+	// charts, whose normal preparation contributes neutral NotRequired.
+	Package      bool
 	Hint         string
 	SourceDigest string
 	Application  string   // application supplying Hint and SourceDigest
@@ -104,6 +108,7 @@ func mergeOCIDeltaTargets(first, second *OCIDeltaTarget) *OCIDeltaTarget {
 	}
 	merged := *selected
 	merged.Applications = append(deltaApplications(first), deltaApplications(second)...)
+	merged.Package = first.Package && second.Package
 	slices.Sort(merged.Applications)
 	merged.Applications = slices.Compact(merged.Applications)
 	return &merged
@@ -329,6 +334,7 @@ type prefetchManager struct {
 	deltaStatusStore        *deltastatus.Store
 	applicationNameResolver ApplicationNameResolver
 	deltaAppSpecKeys        map[string]string
+	deltaAppLifetimes       map[string]string
 	deltaAppTargetKeys      map[string]map[string]string
 	deltaTargetRefs         map[string]imageRef
 	deltaTargetsScheduled   bool
@@ -338,9 +344,12 @@ type prefetchTask struct {
 	operationTask        *prefetchTask // Registered task whose immutable operation this snapshot describes.
 	clientOptsFn         ClientOptsFn
 	ociType              OCIType
+	resolvedOCIType      OCIType
+	pullPolicy           v1beta1.ImagePullPolicy
 	targetDigest         string
 	resolvedDigest       string
 	applicationTargetKey string
+	applicationAttempts  map[string]deltastatus.ApplicationAttempt
 	targetPresent        bool
 	delta                *OCIDeltaTarget
 	deltaGeneration      uint64
@@ -358,6 +367,7 @@ func snapshotOperationLocked(task *prefetchTask) *prefetchTask {
 	}
 	snapshot := *task
 	snapshot.operationTask = task
+	snapshot.applicationAttempts = maps.Clone(task.applicationAttempts)
 	if task.delta != nil {
 		delta := *task.delta
 		delta.Applications = slices.Clone(task.delta.Applications)
@@ -529,6 +539,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		desiredFingerprint = deltastatus.Fingerprint(string(desiredJSON))
 	}
 	appSpecKeys := make(map[string]string)
+	appLifetimes := make(map[string]string)
 	canPersistDeltaStatus := m.deltaStatusStore != nil
 	if m.deltaStatusStore != nil {
 		var err error
@@ -541,6 +552,13 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		if canPersistDeltaStatus {
 			if err := m.deltaStatusStore.ReconcileApplicationSpecs(appSpecKeys); err != nil {
 				m.log.Warnf("Failed to reconcile persisted application delta specs: %v", err)
+				canPersistDeltaStatus = false
+			} else {
+				for application := range appSpecKeys {
+					if lifetime := m.deltaStatusStore.ApplicationLifetime(application); lifetime != "" {
+						appLifetimes[application] = lifetime
+					}
+				}
 			}
 		}
 	}
@@ -557,6 +575,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		m.deltaApplyResults = make(map[string]map[imageRef]applicationDeltaApplyResult)
 	}
 	m.deltaAppSpecKeys = appSpecKeys
+	m.deltaAppLifetimes = appLifetimes
 	m.deltaTargetsScheduled = false
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
@@ -588,7 +607,12 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	}
 	appTargetKeys, targetRefs := applicationTargetIdentities(targetsByRef)
 	if canPersistDeltaStatus {
-		if err := m.deltaStatusStore.ReconcileApplicationTargets(appTargetKeys, !requeueNeeded); err != nil {
+		workloadTargets := maps.Clone(targetsByRef)
+		maps.DeleteFunc(workloadTargets, func(_ imageRef, target OCIPullTarget) bool {
+			return target.Delta != nil && target.Delta.Package
+		})
+		workloadKeys, _ := applicationTargetIdentities(workloadTargets)
+		if err := m.deltaStatusStore.ReconcileApplicationTargets(workloadKeys, !requeueNeeded); err != nil {
 			m.log.Warnf("Failed to reconcile persisted application delta targets: %v", err)
 		}
 	}
@@ -730,6 +754,20 @@ func applicationImageTargetKeyFor(ref imageRef, digest string, ociType OCIType) 
 	return deltastatus.Fingerprint(string(ref.owner), ref.image, digest, string(ociType))
 }
 
+func (m *prefetchManager) applicationAttemptsLocked(target imageRef, targetKey string, delta *OCIDeltaTarget) map[string]deltastatus.ApplicationAttempt {
+	applications := deltaApplications(delta)
+	if len(applications) == 0 {
+		return nil
+	}
+	attempts := make(map[string]deltastatus.ApplicationAttempt, len(applications))
+	for _, application := range applications {
+		attempts[application] = deltastatus.ApplicationAttempt{Application: application,
+			Lifetime: m.deltaAppLifetimes[application], SpecKey: m.deltaAppSpecKeys[application],
+			TargetID: target.targetID(), TargetKey: targetKey}
+	}
+	return attempts
+}
+
 func (m *prefetchManager) restoreApplicationDeltaResults(
 	applicationTargets map[string]map[string]string,
 	targetRefs map[string]imageRef,
@@ -740,7 +778,7 @@ func (m *prefetchManager) restoreApplicationDeltaResults(
 	}
 	for application, targets := range applicationTargets {
 		snapshot := m.deltaStatusStore.ApplicationSnapshot(application)
-		if snapshot == nil || snapshot.SpecKey != m.deltaAppSpecKeys[application] {
+		if snapshot == nil || snapshot.SpecKey != m.deltaAppSpecKeys[application] || snapshot.Lifetime != m.deltaAppLifetimes[application] {
 			continue
 		}
 		for targetID, targetKey := range targets {
@@ -897,6 +935,9 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefetchTask) error {
 	task = m.snapshotOperation(task)
 	ociType := task.ociType
+	if task.resolvedOCIType == OCITypePodmanArtifact {
+		ociType = OCITypePodmanArtifact
+	}
 
 	// Evaluate client options lazily at pull time
 	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
@@ -920,7 +961,7 @@ func (m *prefetchManager) preparePullClients(
 	var err error
 	needsPodman := ociType == OCITypePodmanImage || ociType == OCITypePodmanArtifact || ociType == OCITypeAuto
 	needsSkopeo := ociType == OCITypeAuto ||
-		(ociType == OCITypePodmanImage && task.delta != nil &&
+		(ociType == OCITypePodmanImage && task.delta != nil && !task.delta.Package &&
 			(hasApplicationDeltaContext(task.delta) || m.ociDelta != nil || m.ociDeltaFactory != nil)) ||
 		(ociType == OCITypeCRIImage && task.delta != nil &&
 			(hasApplicationDeltaContext(task.delta) || m.ociDelta != nil))
@@ -958,7 +999,13 @@ func (m *prefetchManager) pullByOCIType(
 	case OCITypePodmanArtifact:
 		return m.pullApplicationArtifact(ctx, target, task, podman, opts...)
 	case OCITypeHelmChart:
-		return m.cliClients.Helm().Resolve(ctx, target.image, opts...)
+		if err := m.cliClients.Helm().Resolve(ctx, target.image, opts...); err != nil {
+			return err
+		}
+		if task.delta != nil && task.delta.Package {
+			m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
+		}
+		return nil
 	case OCITypeAuto:
 		return m.pullAutoDetectedOCIType(ctx, target, task, podman, skopeo, opts...)
 	default:
@@ -984,6 +1031,7 @@ func (m *prefetchManager) pullAutoDetectedOCIType(
 		return fmt.Errorf("detecting OCI type: %w", err)
 	}
 	m.log.Infof("Detected OCI type for %s: %s", target, detectedType)
+	task.resolvedOCIType = detectedType
 
 	switch detectedType {
 	case OCITypePodmanImage:
@@ -1162,8 +1210,11 @@ func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, targe
 
 func (m *prefetchManager) pullApplicationImage(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) error {
 	task = m.snapshotOperation(task)
-	if task.delta == nil {
-		_, err := podman.Pull(ctx, target.image, opts...)
+	if task.delta == nil || task.delta.Package {
+		imageID, err := podman.Pull(ctx, target.image, opts...)
+		if err == nil && task.delta != nil {
+			m.recordObservedDeltaResult(ctx, target, task, podman, imageID, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", opts...)
+		}
 		return err
 	}
 	if m.ociDelta == nil && m.ociDeltaFactory == nil {
@@ -1262,7 +1313,8 @@ func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target i
 
 func (m *prefetchManager) pullApplicationArtifact(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, opts ...client.ClientOption) error {
 	task = m.snapshotOperation(task)
-	if task.delta != nil && task.delta.Hint != "" {
+	task.resolvedOCIType = OCITypePodmanArtifact
+	if task.delta != nil && !task.delta.Package && task.delta.Hint != "" {
 		return m.applicationArtifactDeltaFallback(
 			ctx,
 			target,
@@ -1272,17 +1324,58 @@ func (m *prefetchManager) pullApplicationArtifact(ctx context.Context, target im
 			opts...,
 		)
 	}
-	_, err := podman.PullArtifact(ctx, target.image, opts...)
-	m.recordDeltaNotUsed(target, task)
-	return err
+	outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	packageTarget := task.delta != nil && task.delta.Package
+	if packageTarget {
+		outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+	}
+	if !packageTarget || task.pullPolicy == v1beta1.PullAlways || !podman.ArtifactExists(ctx, target.image) {
+		if _, err := podman.PullArtifact(ctx, target.image, opts...); err != nil {
+			return err
+		}
+	}
+	digestValue, err := podman.ArtifactDigest(ctx, target.image)
+	if err != nil || !validObservedDigest(digestValue) {
+		m.recordArtifactDeltaResult(target, task, outcome, "", "")
+		return nil
+	}
+	m.recordArtifactDeltaResult(target, task, outcome, "", digestValue)
+	return nil
 }
 
 func (m *prefetchManager) applicationArtifactDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, deltaErr error, opts ...client.ClientOption) error {
 	m.recordDeltaFallback(target, task, deltaErr)
-	if _, err := podman.PullArtifact(ctx, target.image, opts...); err != nil {
-		return fmt.Errorf("application delta failed: %w; full artifact pull failed: %w", deltaErr, err)
+	// A failed image-delta hint still follows the full-artifact path. Respect
+	// the pull policy when the artifact is already available locally.
+	present := task.pullPolicy != v1beta1.PullAlways && podman.ArtifactExists(ctx, target.image)
+	if !present {
+		if task.pullPolicy == v1beta1.PullNever {
+			return fmt.Errorf("application delta failed: %w; artifact %s is absent and pull policy is Never", deltaErr, target.image)
+		}
+		if _, err := podman.PullArtifact(ctx, target.image, opts...); err != nil {
+			return fmt.Errorf("application delta failed: %w; full artifact pull failed: %w", deltaErr, err)
+		}
 	}
+	digestValue, err := podman.ArtifactDigest(ctx, target.image)
+	if err != nil || !validObservedDigest(digestValue) {
+		return nil
+	}
+	m.recordArtifactDeltaResult(target, task, v1beta1.DeviceDeltaApplyOutcomeFallback, deltaErr.Error(), digestValue)
 	return nil
+}
+
+func validObservedDigest(value string) bool {
+	_, err := digest.Parse(value)
+	return err == nil
+}
+
+func (m *prefetchManager) recordArtifactDeltaResult(target imageRef, task *prefetchTask, outcome v1beta1.DeviceDeltaApplyOutcomeType, reason, observedDigest string) {
+	if task == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), outcome, reason, observedDigest)
 }
 
 func applicationTargetUsesAgentStorage(owner v1beta1.Username) bool {
@@ -1316,11 +1409,13 @@ func (m *prefetchManager) removeApplicationDeltaTempDir(readWriter fileio.ReadWr
 // canRecordObservedResultLocked avoids runtime verification for unregistered or
 // superseded attempts. The accepted write validates these identities again.
 func (m *prefetchManager) canRecordObservedResultLocked(target imageRef, task *prefetchTask) bool {
-	if m.deltaStatusStore == nil || task == nil || task.delta == nil || !m.currentOperationLocked(target, task) {
+	if m.deltaStatusStore == nil || task == nil || task.delta == nil || task.delta.Package || !m.currentOperationLocked(target, task) {
 		return false
 	}
 	for _, application := range deltaApplications(task.delta) {
-		if task.applicationTargetKey != "" && m.deltaAppSpecKeys[application] != "" && m.deltaAppTargetKeys[application][target.targetID()] == task.applicationTargetKey {
+		if task.applicationTargetKey != "" && task.applicationAttempts[application].Lifetime != "" &&
+			m.deltaAppLifetimes[application] == task.applicationAttempts[application].Lifetime &&
+			m.deltaAppSpecKeys[application] != "" && m.deltaAppTargetKeys[application][target.targetID()] == task.applicationTargetKey {
 			return true
 		}
 	}
@@ -1438,10 +1533,6 @@ func (m *prefetchManager) recordDeltaApplied(target imageRef, task *prefetchTask
 	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeApplied, "")
 }
 
-func (m *prefetchManager) recordDeltaNotUsed(target imageRef, task *prefetchTask) {
-	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
-}
-
 func (m *prefetchManager) recordDeltaApplyResult(target imageRef, task *prefetchTask, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string) {
 	if task == nil || task.delta == nil {
 		return
@@ -1488,6 +1579,7 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			status:             applicationDeltaApplyStatus(outcome, fallbackReason),
 		}
 		m.persistObservedDeltaApplyResultLocked(persistence, observedDigest)
+
 		results := m.deltaApplyResults[application]
 		if results == nil {
 			results = make(map[imageRef]applicationDeltaApplyResult)
@@ -1506,12 +1598,11 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 				continue
 			}
 		}
-		result := applicationDeltaApplyResult{
+		results[target] = applicationDeltaApplyResult{
 			outcome:        outcome,
 			fallbackReason: fallbackReason,
 			targetKey:      task.applicationTargetKey,
 		}
-		results[target] = result
 		logResult := m.log.Debugf
 		if outcome == v1beta1.DeviceDeltaApplyOutcomeFallback {
 			logResult = m.log.Infof
@@ -1533,10 +1624,14 @@ func (m *prefetchManager) deltaApplicationTargetKeyForResult(application, target
 }
 
 func (m *prefetchManager) persistObservedDeltaApplyResultLocked(result applicationDeltaPersistence, observedDigest []string) {
-	if m.deltaStatusStore == nil || result.persistedTargetKey != result.task.applicationTargetKey || len(observedDigest) == 0 || observedDigest[0] == "" {
+	attempt := result.task.applicationAttempts[result.application]
+	if m.deltaStatusStore == nil || result.task.delta.Package || result.persistedTargetKey != result.task.applicationTargetKey || attempt.Lifetime == "" || len(observedDigest) == 0 || observedDigest[0] == "" {
 		return
 	}
-	imageType := result.task.ociType
+	imageType := result.task.resolvedOCIType
+	if imageType == "" {
+		imageType = result.task.ociType
+	}
 	if imageType == OCITypeAuto {
 		imageType = OCITypePodmanImage
 	}
@@ -1546,21 +1641,20 @@ func (m *prefetchManager) persistObservedDeltaApplyResultLocked(result applicati
 		OCIType: string(imageType),
 		Digest:  observedDigest[0],
 	}
-	if err := m.deltaStatusStore.RecordApplicationImageResult(result.application, m.deltaAppSpecKeys[result.application], result.targetID, result.task.applicationTargetKey, image, result.status); err != nil {
+	if err := m.deltaStatusStore.RecordApplicationImageResultForAttempt(
+		attempt, image, result.status,
+	); err != nil {
 		m.log.Warnf("Failed to persist observed delta result for application %s image %s: %v", result.application, result.target.image, err)
 	}
 }
 
 func (m *prefetchManager) persistDeltaApplyResultLocked(result applicationDeltaPersistence) {
-	if m.deltaStatusStore == nil || result.persistedTargetKey != result.task.applicationTargetKey {
+	attempt := result.task.applicationAttempts[result.application]
+	if m.deltaStatusStore == nil || result.task.delta.Package || result.persistedTargetKey != result.task.applicationTargetKey || attempt.Lifetime == "" {
 		return
 	}
-	if err := m.deltaStatusStore.RecordApplicationResult(
-		result.application,
-		m.deltaAppSpecKeys[result.application],
-		result.targetID,
-		result.task.applicationTargetKey,
-		result.status,
+	if err := m.deltaStatusStore.RecordApplicationResultForAttempt(
+		attempt, result.status,
 	); err != nil {
 		m.log.Warnf("Failed to persist delta result for application %s image %s: %v", result.application, result.target.image, err)
 	}
@@ -1608,7 +1702,7 @@ func (m *prefetchManager) setError(target imageRef, err error, operation *prefet
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user, ociType: target.Type}
-		if err := m.schedule(ctx, ref, target.Type, target.Digest, target.ClientOptsFn, target.Delta); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.Digest, target.ClientOptsFn, target.Delta, target.PullPolicy); err != nil {
 			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
@@ -1616,8 +1710,8 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) error {
-	needsQueue, err := m.prepareTask(ctx, target, ociType, targetDigest, clientOptsFn, delta)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget, pullPolicy v1beta1.ImagePullPolicy) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, targetDigest, clientOptsFn, delta, pullPolicy)
 	if err != nil {
 		return err
 	}
@@ -1641,48 +1735,42 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	}
 }
 
-func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) (bool, error) {
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget, pullPolicies ...v1beta1.ImagePullPolicy) (bool, error) {
+	var pullPolicy v1beta1.ImagePullPolicy
+	if len(pullPolicies) > 0 {
+		pullPolicy = pullPolicies[0]
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Superseded in-flight work is cancelled and queued under a new identity.
 	if existing := m.tasks[target]; existing != nil && !existing.done && existing.deltaGeneration != m.deltaGeneration {
-		if existing.cancelFn != nil {
-			existing.cancelFn()
+		if existing.cancelFn == nil {
+			// The queued entry will read this registration when it is processed.
+			existing.deltaGeneration = m.deltaGeneration
+			existing.operationTask = nil
+			existing.ociType = ociType
+			existing.pullPolicy = pullPolicy
+			existing.targetDigest = targetDigest
+			existing.resolvedDigest = ""
+			existing.applicationTargetKey = applicationImageTargetKeyFor(target, targetDigest, ociType)
+			existing.applicationAttempts = m.applicationAttemptsLocked(target, applicationImageTargetKeyFor(target, targetDigest, ociType), delta)
+			existing.delta = cloneOCIDeltaTarget(delta)
+			existing.clientOptsFn = clientOptsFn
+			return false, nil
 		}
+		existing.cancelFn()
 		delete(m.tasks, target)
 	}
 
 	if existing, exists := m.tasks[target]; exists {
-		// BeforeUpdate runs cleanupChangedTasks before Schedule, so a reused
-		// task still has the current digest, OCI type, delta, and target key.
-		// Reuse a matching task across update generations. If it already
-		// completed successfully, the target is present and no delta was used
-		// for this generation unless a restored result already says otherwise.
-		generationChanged := existing.deltaGeneration != m.deltaGeneration
-		existing.deltaGeneration = m.deltaGeneration
-		if existing.done && existing.err == nil && delta != nil {
-			if supportsApplicationImageDigestCheck(existing.ociType) {
-				if !generationChanged {
-					return m.checkCachedApplicationTask(ctx, target, existing), nil
-				}
-				existing.clientOptsFn = clientOptsFn
-				existing.targetPresent = false
-				existing.delta = delta
-				existing.done = false
-				existing.err = nil
-				existing.resolvedDigest = ""
-				return m.checkCachedApplicationTask(ctx, target, existing), nil
-			}
-			m.recordDeltaApplyResultLocked(
-				target,
-				existing,
-				deltaApplications(delta),
-				v1beta1.DeviceDeltaApplyOutcomeNotUsed,
-				"",
-			)
+		if existing.done && delta != nil && delta.Package && existing.deltaGeneration != m.deltaGeneration {
+			// Recheck local availability and publish the neutral package outcome
+			// for this generation without resolving a mutable tag remotely.
+			delete(m.tasks, target)
+		} else {
+			return m.prepareExistingTaskLocked(ctx, target, existing, clientOptsFn, delta)
 		}
-		return false, nil
 	}
 
 	podman, err := m.podmanFactory(target.owner)
@@ -1690,111 +1778,181 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 		return false, fmt.Errorf("creating podman client: %w", err)
 	}
 
-	existence, err := m.checkTargetExistence(ctx, target, ociType, podman, clientOptsFn)
+	targetExists, targetArtifact, resolvedOCIType, err := m.resolveTargetAvailability(ctx, target, ociType, clientOptsFn, podman)
 	if err != nil {
 		return false, err
 	}
-	targetExists, targetArtifact := existence.exists, existence.artifact
 
-	hintedArtifact := targetArtifact && delta != nil && delta.Hint != ""
-	if targetExists && hintedArtifact {
-		m.log.Debugf("Scheduled prefetch artifact already exists with an unusable delta hint: %s", target)
-		task := newPrefetchTask(target, ociType, targetDigest, clientOptsFn, delta, m.deltaGeneration)
-		task.done = true
-		m.tasks[target] = task
-		m.recordDeltaApplyResultLocked(
-			target,
-			task,
-			deltaApplications(delta),
-			v1beta1.DeviceDeltaApplyOutcomeNotRequired,
-			"",
-		)
-		return false, nil
-	}
-	if targetExists && !hintedArtifact {
-		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
-		targetPresent := delta != nil && supportsApplicationImageDigestCheck(ociType)
-		task := newPrefetchTask(target, ociType, targetDigest, clientOptsFn, delta, m.deltaGeneration)
-		task.targetPresent = targetPresent
-		task.done = !targetPresent
-		m.tasks[target] = task
-		if task.targetPresent {
-			return m.checkCachedApplicationTask(ctx, target, task), nil
-		}
-		if delta != nil {
-			m.recordDeltaApplyResultLocked(
-				target,
-				task,
-				deltaApplications(delta),
-				v1beta1.DeviceDeltaApplyOutcomeNotUsed,
-				"",
-			)
-		}
-		return false, nil
+	if m.canUseExistingTarget(targetExists, targetArtifact, delta) {
+		return m.preparePresentTargetLocked(ctx, target, ociType, resolvedOCIType, targetDigest, clientOptsFn, delta, pullPolicy, podman)
 	}
 
-	task := newPrefetchTask(target, ociType, targetDigest, clientOptsFn, delta, m.deltaGeneration)
+	task := &prefetchTask{
+		ociType:              ociType,
+		targetPresent:        targetExists && targetArtifact,
+		resolvedOCIType:      resolvedOCIType,
+		pullPolicy:           pullPolicy,
+		targetDigest:         targetDigest,
+		applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
+		applicationAttempts:  m.applicationAttemptsLocked(target, applicationImageTargetKeyFor(target, targetDigest, ociType), delta),
+		clientOptsFn:         clientOptsFn,
+		delta:                delta,
+		deltaGeneration:      m.deltaGeneration,
+	}
 	m.tasks[target] = task
 	return true, nil
 }
 
-type targetExistence struct {
-	exists   bool
-	artifact bool
+func (m *prefetchManager) prepareExistingTaskLocked(
+	ctx context.Context,
+	target imageRef,
+	existing *prefetchTask,
+	clientOptsFn ClientOptsFn,
+	delta *OCIDeltaTarget,
+) (bool, error) {
+	// BeforeUpdate runs cleanupChangedTasks before Schedule, so a reused task
+	// still has the current digest, OCI type, delta, and target key.
+	generationChanged := existing.deltaGeneration != m.deltaGeneration
+	if generationChanged && existing.done {
+		// A completed task can be reused for a new update attempt, but the prior
+		// immutable operation must keep its captured application tokens.
+		existing.operationTask = nil
+		existing.applicationAttempts = m.applicationAttemptsLocked(target, existing.applicationTargetKey, delta)
+	}
+	existing.deltaGeneration = m.deltaGeneration
+	if !existing.done || existing.err != nil || delta == nil {
+		return false, nil
+	}
+	if existing.resolvedOCIType == OCITypePodmanArtifact && delta.Hint != "" {
+		existing.delta = cloneOCIDeltaTarget(delta)
+		existing.applicationAttempts = m.applicationAttemptsLocked(target, existing.applicationTargetKey, delta)
+		if generationChanged {
+			existing.clientOptsFn = clientOptsFn
+			existing.done = false
+			return true, nil
+		}
+		return false, nil
+	}
+	if !supportsApplicationImageDigestCheck(existing.ociType) {
+		m.recordDeltaApplyResultLocked(target, existing, deltaApplications(delta), v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
+		return false, nil
+	}
+	if generationChanged {
+		existing.clientOptsFn = clientOptsFn
+		existing.targetPresent = false
+		existing.delta = delta
+		existing.done = false
+		existing.err = nil
+		existing.resolvedDigest = ""
+	}
+	return m.checkCachedApplicationTask(ctx, target, existing), nil
 }
 
-func (m *prefetchManager) checkTargetExistence(
+func (m *prefetchManager) resolveTargetAvailability(
 	ctx context.Context,
 	target imageRef,
 	ociType OCIType,
-	podman *client.Podman,
 	clientOptsFn ClientOptsFn,
-) (targetExistence, error) {
+	podman *client.Podman,
+) (bool, bool, OCIType, error) {
+	var targetExists, targetArtifact bool
 	switch ociType {
 	case OCITypePodmanImage:
-		return targetExistence{exists: podman.ImageExists(ctx, target.image)}, nil
+		targetExists = podman.ImageExists(ctx, target.image)
 	case OCITypeCRIImage:
 		var opts []client.ClientOption
 		if clientOptsFn != nil {
 			opts = clientOptsFn()
 		}
-		return targetExistence{exists: m.cliClients.CRI().ImageExists(ctx, target.image, opts...)}, nil
+		targetExists = m.cliClients.CRI().ImageExists(ctx, target.image, opts...)
 	case OCITypePodmanArtifact:
-		exists := podman.ArtifactExists(ctx, target.image)
-		return targetExistence{exists: exists, artifact: exists}, nil
+		targetExists = podman.ArtifactExists(ctx, target.image)
+		targetArtifact = targetExists
 	case OCITypeAuto:
-		if podman.ImageExists(ctx, target.image) {
-			return targetExistence{exists: true}, nil
+		targetExists = podman.ImageExists(ctx, target.image)
+		if !targetExists {
+			targetArtifact = podman.ArtifactExists(ctx, target.image)
+			targetExists = targetArtifact
 		}
-		exists := podman.ArtifactExists(ctx, target.image)
-		return targetExistence{exists: exists, artifact: exists}, nil
 	case OCITypeHelmChart:
 		resolved, err := m.cliClients.Helm().IsResolved(target.image)
 		if err != nil {
-			return targetExistence{}, fmt.Errorf("check helm chart resolved: %w", err)
+			return false, false, "", fmt.Errorf("check helm chart resolved: %w", err)
 		}
-		return targetExistence{exists: resolved}, nil
+		targetExists = resolved
 	default:
-		return targetExistence{}, fmt.Errorf("invalid oci type %s", ociType)
+		return false, false, "", fmt.Errorf("invalid oci type %s", ociType)
 	}
+	resolvedOCIType := ociType
+	if ociType == OCITypeAuto && targetExists {
+		resolvedOCIType = OCITypePodmanImage
+		if targetArtifact {
+			resolvedOCIType = OCITypePodmanArtifact
+		}
+	}
+	return targetExists, targetArtifact, resolvedOCIType, nil
 }
 
-func newPrefetchTask(
+func (m *prefetchManager) canUseExistingTarget(
+	targetExists bool,
+	targetArtifact bool,
+	delta *OCIDeltaTarget,
+) bool {
+	hintedArtifact := targetArtifact && delta != nil && !delta.Package && delta.Hint != ""
+	return targetExists && !hintedArtifact
+}
+
+func (m *prefetchManager) preparePresentTargetLocked(
+	ctx context.Context,
 	target imageRef,
 	ociType OCIType,
+	resolvedOCIType OCIType,
 	targetDigest string,
 	clientOptsFn ClientOptsFn,
 	delta *OCIDeltaTarget,
-	deltaGeneration uint64,
-) *prefetchTask {
-	return &prefetchTask{
+	pullPolicy v1beta1.ImagePullPolicy,
+	podman *client.Podman,
+) (bool, error) {
+	m.log.Debugf("Scheduled prefetch target already exists: %s", target)
+	targetPresent := delta != nil && supportsApplicationImageDigestCheck(resolvedOCIType)
+	task := &prefetchTask{
 		ociType:              ociType,
+		resolvedOCIType:      resolvedOCIType,
+		pullPolicy:           pullPolicy,
 		targetDigest:         targetDigest,
 		applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
+		applicationAttempts:  m.applicationAttemptsLocked(target, applicationImageTargetKeyFor(target, targetDigest, ociType), delta),
 		clientOptsFn:         clientOptsFn,
+		targetPresent:        targetPresent,
+		done:                 !targetPresent,
 		delta:                delta,
-		deltaGeneration:      deltaGeneration,
+		deltaGeneration:      m.deltaGeneration,
 	}
+	m.tasks[target] = task
+	if delta != nil && delta.Package {
+		task.done = true
+		m.recordDeltaApplyResultLocked(target, task, deltaApplications(delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
+		return false, nil
+	}
+	if targetPresent {
+		return m.checkCachedApplicationTask(ctx, target, task), nil
+	}
+	if delta != nil {
+		m.recordPresentTargetAsNotUsed(ctx, target, task, podman)
+	}
+	return false, nil
+}
+
+func (m *prefetchManager) recordPresentTargetAsNotUsed(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman) {
+	applications := deltaApplications(task.delta)
+	if task.resolvedOCIType == OCITypePodmanArtifact {
+		artifactDigest, err := podman.ArtifactDigest(ctx, target.image)
+		if err == nil && validObservedDigest(artifactDigest) {
+			m.recordDeltaApplyResultLocked(target, task, applications, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", artifactDigest)
+			return
+		}
+	}
+	m.recordDeltaApplyResultLocked(target, task, applications, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
 }
 
 // checkUncachedApplicationTask invalidates restored outcomes when a known source
@@ -1820,21 +1978,18 @@ func (m *prefetchManager) checkUncachedApplicationTask(
 	return result
 }
 
-// mu must be held on entry; may be temporarily released during registry inspection; mu is held on return.
+// mu must be held on entry; may be temporarily released during runtime inspection; mu is held on return.
 func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target imageRef, task *prefetchTask) bool {
-	result := digestUnknown
 	observedDigest := ""
-	confirmedMismatch := false
+	present := false
 	for attempt := 0; attempt < 3; attempt++ {
 		if ctx.Err() != nil {
 			return true
 		}
 		snapshot := *task
 		canRecord := m.canRecordObservedResultLocked(target, task)
-		result = digestMismatched
-		confirmedMismatch = false
 		observedDigest = ""
-		var inspectedImage applicationImageInspection
+		present = false
 		func() {
 			m.mu.Unlock()
 			defer m.mu.Lock()
@@ -1846,7 +2001,6 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			if m.podmanFactory != nil {
 				podman, _ = m.podmanFactory(target.owner)
 			}
-			present := false
 			if snapshot.ociType == OCITypeCRIImage {
 				if m.cliClients != nil && m.cliClients.CRI() != nil {
 					present = m.cliClients.CRI().ImageExists(ctx, target.image, opts...)
@@ -1855,19 +2009,10 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 				present = podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image)
 			}
 			if present {
-				result = digestUnknown
-				if !snapshot.done && m.skopeoFactory != nil {
-					skopeo, err := m.skopeoFactory(target.owner)
-					if err == nil {
-						// Revalidate cached tags against the registry. A resolved digest
-						// is reusable by the subsequent pull, but not by this cache check.
-						snapshot.resolvedDigest = ""
-						result, inspectedImage = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
-						confirmedMismatch = result == digestMismatched && snapshot.resolvedDigest != ""
-					}
-				}
-				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.ociType, podman, inspectedImage, canRecord && result != digestMismatched, opts...)
-
+				// PullIfNotPresent treats the local runtime image as the cache hit.
+				// Resolve its immutable local identity for status, but don't follow a
+				// mutable tag to the registry just to decide whether to pull it.
+				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.resolvedOCIType, podman, applicationImageInspection{}, canRecord, opts...)
 			}
 		}()
 		if m.tasks[target] != task || task.delta != snapshot.delta || task.done != snapshot.done ||
@@ -1876,16 +2021,11 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			return false
 		}
 		if task.deltaGeneration != snapshot.deltaGeneration {
-			result = digestUnknown
 			continue
 		}
-		task.resolvedDigest = snapshot.resolvedDigest
 		break
 	}
-	if result == digestMismatched {
-		if confirmedMismatch {
-			m.invalidateApplicationDeltaResultLocked(target, task)
-		}
+	if !present {
 		task.targetPresent = false
 		task.done = false
 		return true
@@ -1895,23 +2035,27 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		return false
 	}
 	task.done = true
-	outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
-	if result == digestMatched {
-		outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+	// A cache hit satisfies PullIfNotPresent, but only a verified desired
+	// digest can establish that no update was required. Never resolve a
+	// mutable tag merely to produce an outcome for cached content.
+	desiredDigest := task.targetDigest
+	if desiredDigest == "" {
+		_, desiredDigest, _ = strings.Cut(target.image, "@")
 	}
-	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), outcome, "", observedDigest)
+	if validObservedDigest(desiredDigest) && observedDigest == desiredDigest {
+		m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+	}
 	return false
 }
 
 // mu must be held. A confirmed content change supersedes results for the same tag.
 func (m *prefetchManager) invalidateApplicationDeltaResultLocked(target imageRef, task *prefetchTask) {
-	targetID := target.targetID()
 	for _, application := range deltaApplications(task.delta) {
 		if existing, exists := m.deltaApplyResults[application][target]; exists && existing.targetKey == task.applicationTargetKey {
 			delete(m.deltaApplyResults[application], target)
 		}
 		if m.deltaStatusStore != nil {
-			if err := m.deltaStatusStore.ClearApplicationResult(application, m.deltaAppSpecKeys[application], targetID, task.applicationTargetKey); err != nil {
+			if err := m.deltaStatusStore.ClearApplicationResultForAttempt(task.applicationAttempts[application]); err != nil {
 				m.log.Warnf("Failed to invalidate delta result for application %s image %s: %v", application, target.image, err)
 			}
 		}
@@ -2188,7 +2332,7 @@ func sameDeltaTarget(first, second *OCIDeltaTarget) bool {
 	if first == nil || second == nil {
 		return first == second
 	}
-	return first.Hint == second.Hint &&
+	return first.Package == second.Package && first.Hint == second.Hint &&
 		first.SourceDigest == second.SourceDigest &&
 		first.Application == second.Application &&
 		slices.Equal(first.Applications, second.Applications)
@@ -2415,13 +2559,20 @@ func (m *prefetchManager) persistedApplicationDeltaResults(
 	if !exists || len(expectedTargets) == 0 {
 		return nil, false
 	}
+	// Packages have neutral scheduling results but never enter workload history.
+	workloadTargets := maps.Clone(expectedTargets)
+	for targetID := range workloadTargets {
+		if task := m.tasks[m.deltaTargetRefs[targetID]]; task != nil && task.delta != nil && task.delta.Package {
+			delete(workloadTargets, targetID)
+		}
+	}
 	snapshot := m.deltaStatusStore.ApplicationSnapshot(application)
-	if snapshot == nil || snapshot.SpecKey != specKey || !sameStringMap(snapshot.Targets, expectedTargets) {
+	if snapshot == nil || snapshot.SpecKey != specKey || snapshot.Lifetime != m.deltaAppLifetimes[application] || !sameStringMap(snapshot.Targets, workloadTargets) {
 		return nil, false
 	}
 
-	results := make(map[string]applicationDeltaApplyResult, len(snapshot.Targets))
-	for targetID, targetKey := range snapshot.Targets {
+	results := make(map[string]applicationDeltaApplyResult, len(expectedTargets))
+	for targetID, targetKey := range expectedTargets {
 		result, hasResult := applicationDeltaResultFromSnapshot(snapshot, targetID, targetKey)
 		if !hasResult {
 			result, hasResult = m.currentApplicationDeltaResult(application, targetID, targetKey)

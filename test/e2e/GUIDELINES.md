@@ -93,6 +93,41 @@ Containers are reused by default (`reuse=true`) so multiple suites can share the
 - **Suite-specific READMEs:** Document special requirements (Quadlet VM, TPM, rollout multi-VM, etc.) in a `README.md` in the suite directory.
 - **Ginkgo:** Use descriptive `Describe`/`Context`/`It` strings so `GINKGO_FOCUS` is useful. Use labels (e.g. `sanity`) where CI needs to filter.
 
+## Code style and test hygiene
+
+### Before you start
+
+- **Read all existing tests first:** Before writing or modifying tests, read every test file in the `test/e2e/` area you are working in. Learn the patterns already in use and reuse existing code — avoid duplication.
+- **Search before creating:** Search `test/harness/e2e/` and `test/util/` for existing functions before writing new helpers or inlining CLI commands.
+- **Check for existing constants:** Look in the constants file (e.g. `test/util/`) before defining new ones. Common durations like `time.Second * 5` likely already exist.
+
+### File structure
+
+- **Ordering:** Constants and package-level variables at the top. Ginkgo specs (`Describe`/`Context`/`It`) in the middle. Helper functions at the bottom.
+- **No inline functions in tests:** Do not define anonymous/inline functions inside `It` blocks. Extract them as named helper functions at the bottom of the file.
+- **Extract repeated literals:** If a string literal appears more than once, move it to a `const`.
+
+### Assertions
+
+- **No `Expect()` in helpers:** Use `Expect()` only in test bodies (`It` blocks), not in helper functions. Helpers should return values or errors that the test asserts on.
+- **Assert positive outcomes:** Beyond `Expect(err).NotTo(HaveOccurred())`, always verify a positive result (e.g. `Expect(resp).To(ContainSubstring("201"))`).
+
+### Helper functions
+
+- **Consolidate:** Look for opportunities to merge similar helpers and reduce repetition across test files.
+- **Harden:** Add logging and guard against nil, empty, and error cases.
+- **Remove wrappers:** Eliminate single-line wrapper functions that add no value.
+- **Docstrings:** Add a doc comment to every function you create.
+- **Harness helpers:** If a helper takes `harness` as a parameter and is intended for reuse across suites, consider moving it to an existing file in `test/harness/e2e/` that fits. Keep suite-specific orchestration in the suite's own area. Do not create new harness files without team approval.
+
+### Cleanup
+
+- **Unused code:** Check for and remove unused variables and functions before submitting.
+
+### Environment coverage
+
+- **OCP:** If a feature is expected to run on an OCP environment, add test coverage for OCP as well.
+
 ## Quick reference
 
 - **Run tests and env vars:** [README.md](README.md)

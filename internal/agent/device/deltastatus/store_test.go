@@ -1,6 +1,7 @@
 package deltastatus
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -123,12 +124,12 @@ func TestReconcileApplicationTargetsPreservesReindexedRuntimeResults(t *testing.
 			logger := log.NewPrefixLogger("test")
 			store := New(rw, "/var/lib/flightctl", logger)
 			const image = "quay.io/acme/app:target"
-			legacyID := Fingerprint("", image)
+			unresolvedID := Fingerprint("", image)
 			targetKey := Fingerprint("", image, "", tt.runtime)
 			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
-			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {legacyID: targetKey}}, true))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {unresolvedID: targetKey}}, true))
 			applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
-			require.NoError(store.RecordApplicationResult("app", "spec", legacyID, targetKey, applied))
+			require.NoError(store.RecordApplicationResult("app", "spec", unresolvedID, targetKey, applied))
 			targets := make(map[string]string)
 			for _, runtime := range []string{"PodmanImage", "CRIImage"} {
 				targets[Fingerprint("", image, runtime)] = Fingerprint("", image, "", runtime)
@@ -178,6 +179,7 @@ func TestWhenOSIsAlreadyPresentItShouldPreserveTheRecordedOutcome(t *testing.T) 
 	require.NoError(t, store.SetOSTarget("attempt"))
 	require.NoError(t, store.RecordOSImageResult("attempt", "os:a", "sha256:a", applied))
 	require.NoError(t, store.RecordOSImageResult("attempt", "os:a", "sha256:a", v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired}))
+	require.NoError(t, store.RecordOSImageResult("attempt", "os:a", "sha256:a", v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback}))
 	require.Equal(t, applied, *store.ObservedOSResult("os:a", "sha256:a"))
 }
 
@@ -218,12 +220,84 @@ func TestWhenOSPersistenceFailsItShouldRetryWithoutClaimingDurability(t *testing
 	require.Equal(applied, *New(rw, "/state", logger).ObservedOSResult("os:a", "sha256:a"))
 }
 
-func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testing.T) {
-	cases := []struct {
-		name, data  string
-		appRetained bool
+func TestWhenApplicationLifetimeWritesFailItShouldRetryOnTheNextNoOp(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		run  func(*testing.T, *Store, *fileio.MockReadWriter, *bool, *[]byte, error)
 	}{
-		{name: "When legacy state has no digest association it should retain unrelated application records", data: `{"version":1,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}},"applications":{"web":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","status":{"outcome":"Fallback"}}}}}}`, appRetained: true},
+		{
+			name: "When ensuring a lifetime after a failed write it should persist the existing in-memory lifetime",
+			run: func(t *testing.T, store *Store, rw *fileio.MockReadWriter, failWrite *bool, _ *[]byte, writeErr error) {
+				require := require.New(t)
+				*failWrite = true
+				_, err := store.EnsureApplicationLifetime("web")
+				require.ErrorIs(err, writeErr)
+				*failWrite = false
+				lifetime, err := store.EnsureApplicationLifetime("web")
+				require.NoError(err)
+				require.NotEmpty(lifetime)
+				restarted := New(rw, "/state", log.NewPrefixLogger("test"))
+				require.Equal(lifetime, restarted.ApplicationLifetime("web"))
+			},
+		},
+		{
+			name: "When removing an application after a failed write it should persist the removal",
+			run: func(t *testing.T, store *Store, rw *fileio.MockReadWriter, failWrite *bool, _ *[]byte, writeErr error) {
+				require := require.New(t)
+				require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+				oldLifetime := store.ApplicationLifetime("web")
+				*failWrite = true
+				require.ErrorIs(store.RemoveApplication("web"), writeErr)
+				*failWrite = false
+				require.NoError(store.RemoveApplication("web"))
+				restarted := New(rw, "/state", log.NewPrefixLogger("test"))
+				require.Empty(restarted.ApplicationLifetime("web"))
+				newLifetime, err := restarted.EnsureApplicationLifetime("web")
+				require.NoError(err)
+				require.NotEqual(oldLifetime, newLifetime)
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			failWrite := false
+			var durable []byte
+			writeErr := errors.New("disk full")
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			rw := newFailingReadWriter(t, ctrl, &failWrite, &durable, writeErr)
+			testCase.run(t, New(rw, "/state", log.NewPrefixLogger("test")), rw, &failWrite, &durable, writeErr)
+		})
+	}
+}
+
+func newFailingReadWriter(t *testing.T, ctrl *gomock.Controller, failWrite *bool, durable *[]byte, writeErr error) *fileio.MockReadWriter {
+	t.Helper()
+	rw := fileio.NewMockReadWriter(ctrl)
+	rw.EXPECT().ReadFile(gomock.Any()).DoAndReturn(func(string) ([]byte, error) {
+		if *durable == nil {
+			return nil, fs.ErrNotExist
+		}
+		return append([]byte(nil), (*durable)...), nil
+	}).AnyTimes()
+	rw.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	rw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ string, data []byte, _ fs.FileMode, _ ...fileio.FileOption) error {
+		if *failWrite {
+			return writeErr
+		}
+		*durable = append([]byte(nil), data...)
+		return nil
+	}).AnyTimes()
+	return rw
+}
+
+func TestWhenStateIsCorruptOrUnsupportedItShouldStartWithoutOutcomes(t *testing.T) {
+	cases := []struct {
+		name, data string
+	}{
+		{name: "When state has version two it should reject the unsupported format", data: `{"version":2,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When state has version three it should reject the unsupported format", data: `{"version":3,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When state has version four it should reject the unsupported format", data: `{"version":4,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+		{name: "When an application has no lifetime it should discard unscoped evidence", data: `{"version":1,"applications":{"web":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","status":{"outcome":"Applied"}}}}}}`},
 		{name: "When state is corrupt it should start without an outcome", data: `{incomplete`},
 		{name: "When state has an unsupported version it should start without an outcome", data: `{"version":999,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
 	}
@@ -243,9 +317,7 @@ func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testi
 			require.NoError(store.RecordOSImageResult("next-attempt", "os:a", "sha256:a", applied))
 			restarted := New(rw, "/state", logger)
 			require.Equal(applied, *restarted.ObservedOSResult("os:a", "sha256:a"))
-			if tt.appRetained {
-				require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, restarted.ApplicationResults("web")["image"].Status.Outcome)
-			}
+			require.Nil(restarted.ApplicationSnapshot("web"))
 		})
 	}
 }
@@ -423,7 +495,7 @@ func newUpdatedApplicationHistory(t *testing.T) (fileio.ReadWriter, *log.PrefixL
 	return rw, logger, store, image, newer
 }
 
-func TestWhenApplicationHistoryExceedsItsLimitItShouldRetainRecentOutcomesAcrossRestart(t *testing.T) {
+func TestWhenPendingApplicationHistoryExceedsSoftCapacityItShouldPruneInactiveResults(t *testing.T) {
 	require := require.New(t)
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
@@ -439,18 +511,23 @@ func TestWhenApplicationHistoryExceedsItsLimitItShouldRetainRecentOutcomesAcross
 		image.Digest = fmt.Sprintf("sha256:%d", n)
 		require.NoError(store.RecordApplicationImageResult("web", specKey, targetID, targetKey, image,
 			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
-	}
-	restarted := New(rw, "/state", logger)
-	for n := 0; n < 130; n++ {
-		image.Digest = fmt.Sprintf("sha256:%d", n)
-		observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
-		if n < 2 {
-			require.Nil(observed)
-		} else {
-			require.NotNil(observed)
-			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+		if n == 0 {
+			require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{image}, true))
 		}
 	}
+	restarted := New(rw, "/state", logger)
+	image.Digest = "sha256:0"
+	observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
+	require.NotNil(observed)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+	for n := 1; n < 129; n++ {
+		image.Digest = fmt.Sprintf("sha256:%d", n)
+		require.Nil(restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true))
+	}
+	image.Digest = "sha256:129"
+	observed = restarted.ObservedApplicationResult("web", []ApplicationImage{image}, true)
+	require.NotNil(observed)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
 }
 
 func TestWhenApplicationHistoryPersistenceFailsItShouldRetryTheSameIdentity(t *testing.T) {
@@ -483,4 +560,532 @@ func TestWhenApplicationHistoryPersistenceFailsItShouldRetryTheSameIdentity(t *t
 	observed := New(rw, "/var/lib/flightctl", logger).ObservedApplicationResult("web", []ApplicationImage{image}, true)
 	require.NotNil(observed)
 	require.Equal(result, *observed)
+}
+
+func TestApplicationLifetimeRejectsStaleCollectionsAndCompletions(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	image := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:old"}
+	targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+	status := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "old-spec"}))
+	oldLifetime := store.ApplicationLifetime("web")
+	require.NotEmpty(oldLifetime)
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "old-target"}}, true))
+	require.NoError(store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: "web", Lifetime: oldLifetime, SpecKey: "old-spec", TargetID: targetID, TargetKey: "old-target"}, image, status))
+
+	// An ordinary desired update keeps previously observed content associated.
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "new-spec"}))
+	require.Equal(oldLifetime, store.ApplicationLifetime("web"))
+	require.Equal(status, *store.ObservedApplicationResultForLifetime("web", oldLifetime, []ApplicationImage{image}, true))
+
+	// Removal followed by the same name and spec creates a distinct lifetime.
+	require.NoError(store.ReconcileApplicationSpecs(nil))
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "new-spec"}))
+	newLifetime := store.ApplicationLifetime("web")
+	require.NotEmpty(newLifetime)
+	require.NotEqual(oldLifetime, newLifetime)
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "new-target"}}, true))
+	require.NoError(store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: "web", Lifetime: oldLifetime, SpecKey: "new-spec", TargetID: targetID, TargetKey: "new-target"}, image, status))
+	require.Nil(store.ObservedApplicationResultForLifetime("web", oldLifetime, []ApplicationImage{image}, true))
+	require.Nil(store.ObservedApplicationResultForLifetime("web", newLifetime, []ApplicationImage{image}, true))
+
+	// A persisted lifetime remains stable over restart, and the old token remains rejected.
+	restarted := New(rw, "/state", logger)
+	require.NoError(restarted.ReconcileApplicationSpecs(map[string]string{"web": "new-spec"}))
+	require.Equal(newLifetime, restarted.ApplicationLifetime("web"))
+	require.NoError(restarted.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: "web", Lifetime: oldLifetime, SpecKey: "new-spec", TargetID: targetID, TargetKey: "new-target"}, image, status))
+	require.Nil(restarted.ObservedApplicationResultForLifetime("web", oldLifetime, []ApplicationImage{image}, true))
+}
+
+func TestApplicationVolumeImageEvidencePersistsAndIsLifetimeScoped(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	lifetime := store.ApplicationLifetime("web")
+	image := ApplicationImage{Image: "quay.io/acme/data:release", Owner: "root", OCIType: "PodmanArtifact", Digest: "sha256:artifact-manifest"}
+	require.NoError(store.RecordApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z", image))
+
+	restarted := New(rw, "/state", logger)
+	require.NoError(restarted.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	evidence, ok := restarted.ApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z")
+	require.True(ok)
+	require.Equal(image, evidence)
+	_, ok = restarted.ApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:01Z")
+	require.False(ok)
+
+	require.NoError(restarted.ReconcileApplicationSpecs(nil))
+	require.NoError(restarted.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	newLifetime := restarted.ApplicationLifetime("web")
+	_, ok = restarted.ApplicationVolumeImage("web", newLifetime, "web_data", "2026-10-12T12:00:00Z")
+	require.False(ok)
+	require.NoError(restarted.RecordApplicationVolumeImage("web", lifetime, "web_data", "2026-10-12T12:00:00Z", image))
+	_, ok = restarted.ApplicationVolumeImage("web", newLifetime, "web_data", "2026-10-12T12:00:00Z")
+	require.False(ok)
+}
+
+func TestWhenApplicationHasManyScopedImagesItShouldScaleHistoryByDistinctObservedCount(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	const application = "large-app"
+	const spec = "spec"
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+
+	images := make([]ApplicationImage, 30)
+	allTargets := make(map[string]string, len(images))
+	for i := range images {
+		image := ApplicationImage{
+			Image:   fmt.Sprintf("quay.io/acme/workload-%02d:latest", i),
+			Owner:   "root",
+			OCIType: "PodmanImage",
+			Digest:  fmt.Sprintf("sha256:observed-%02d", i),
+		}
+		images[i] = image
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		targetKey := fmt.Sprintf("target-%02d", i)
+		allTargets[targetID] = targetKey
+		require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, false))
+		require.NoError(t, store.RecordApplicationImageResultForAttempt(
+			ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		))
+		require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true))
+	}
+
+	activeTargets := make(map[string]string, 12)
+	for _, image := range images[:12] {
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		activeTargets[targetID] = allTargets[targetID]
+	}
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: activeTargets}, true))
+	observedWithReplicas := append([]ApplicationImage(nil), images[:12]...)
+	observedWithReplicas = append(observedWithReplicas, images[3], images[3])
+	selected := store.ObservedApplicationResultForLifetime(application, lifetime, observedWithReplicas, true)
+	require.NotNil(t, selected)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, selected.Outcome)
+
+	// With 12 distinct observed and active images the limit is 24 records.
+	// The 12 current images plus the 12 most recently collected old images fit;
+	// duplicate replicas do not consume extra capacity.
+	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, images[18:30], true))
+	require.Nil(t, store.ObservedApplicationResultForLifetime(application, lifetime, images[14:18], true))
+	require.Nil(t, store.ObservedApplicationResultForLifetime(application, lifetime, images[12:18], true))
+}
+
+func TestWhenCollectionIsIncompleteItShouldKeepObservedAndActivePendingResults(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const application = "web"
+	const spec = "spec"
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	images := []ApplicationImage{
+		{Image: "quay.io/acme/web:a", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"},
+		{Image: "quay.io/acme/web:b", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"},
+		{Image: "quay.io/acme/web:c", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"},
+	}
+	targetIDs := make([]string, len(images))
+	targetKeys := []string{"target-a", "target-b", "target-c"}
+	for i, image := range images {
+		targetIDs[i] = Fingerprint(image.Owner, image.Image, image.OCIType)
+	}
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetIDs[0]: targetKeys[0]}}, true))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetIDs[0], TargetKey: targetKeys[0]}, images[0], result))
+	require.Equal(t, result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+
+	// This normal state write persists the prior complete observation before B
+	// completes. B is pending until a complete observation includes it.
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetIDs[1]: targetKeys[1]}}, true))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetIDs[1], TargetKey: targetKeys[1]}, images[1], result))
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetIDs[2]: targetKeys[2]}}, true))
+	require.NoError(t, store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetIDs[2], TargetKey: targetKeys[2]}, images[2], result))
+
+	restarted := New(rw, "/state", logger)
+	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, false))
+	// The incomplete collection did not replace A as the protected observed set.
+	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	// A complete collection of C keeps the active result. Superseded pending B
+	// is eligible for LRU eviction, while the recent A result fits within capacity.
+	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
+	require.Equal(t, result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
+
+	// Selection updates retention only in memory. The next normal state write
+	// persists the eviction for a new process.
+	require.NoError(t, restarted.SetOSTarget("flush-application-lru"))
+	postWriteRestart := New(rw, "/state", logger)
+	require.Nil(t, postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[1]}, true))
+	require.Equal(t, result, *postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Equal(t, result, *postWriteRestart.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
+}
+
+func TestWhenSupersededPendingResultsExceedCapacityItShouldKeepOnlyObservedAndActiveTargets(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const application = "web"
+	const spec = "spec"
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	images := []ApplicationImage{
+		{Image: "quay.io/acme/web:a", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"},
+		{Image: "quay.io/acme/web:b", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"},
+		{Image: "quay.io/acme/web:c", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"},
+		{Image: "quay.io/acme/web:d", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:d"},
+	}
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	var activeTarget map[string]string
+	for i, image := range images {
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		targetKey := fmt.Sprintf("target-%s", image.Digest)
+		activeTarget = map[string]string{targetID: targetKey}
+		require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{application: activeTarget}, true))
+		require.NoError(store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image, result))
+
+		observed := images[0]
+		if i == 0 {
+			observed = image
+		}
+		require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{observed}, true))
+	}
+
+	// Persist the latest observations before checking the retained history.
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{application: activeTarget}, true))
+	restarted := New(rw, "/state", logger)
+	for _, superseded := range images[1:3] {
+		require.Nil(restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{superseded}, true))
+	}
+	require.Equal(result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[0]}, true))
+	require.Equal(result, *restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[3]}, true))
+}
+
+func TestWhenProtectedHistoryOverflowsItShouldKeepUnknownObservedKeysSafe(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	const application = "web"
+	const spec = "spec"
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	images := []ApplicationImage{
+		{Image: "quay.io/acme/web:b", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"},
+		{Image: "quay.io/acme/web:c", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"},
+		{Image: "quay.io/acme/web:d", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:d"},
+	}
+	for _, image := range images {
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		targetKey := fmt.Sprintf("target-%s", image.Digest)
+		require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, true))
+		require.NoError(t, store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	}
+	unknown := ApplicationImage{Image: "quay.io/acme/web:a", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"}
+	require.Nil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{unknown}, true))
+	// The unknown observed key protects no history entry. Pruning keeps the
+	// active target available while removing superseded pending history as needed.
+	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{images[2]}, true))
+	require.Len(t, store.state.Applications[application].History, 2)
+}
+
+func TestWhenCompleteStatusUsesHistoryItShouldPersistRecencyWithNextWrite(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const application = "web"
+	const spec = "spec"
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+
+	first := ApplicationImage{Image: "quay.io/acme/cache-a:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"}
+	second := ApplicationImage{Image: "quay.io/acme/cache-b:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"}
+	if applicationHistoryKey(first) > applicationHistoryKey(second) {
+		first, second = second, first
+	}
+	third := ApplicationImage{Image: "quay.io/acme/cache-c:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"}
+
+	record := func(image ApplicationImage, targetKey string) {
+		t.Helper()
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, true))
+		require.NoError(t, store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+		require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true))
+	}
+	record(first, "target-first")
+	record(second, "target-second")
+
+	statePath := filepath.Join("/state", FileName)
+	before, err := rw.ReadFile(statePath)
+	require.NoError(t, err)
+	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{first}, true))
+	after, err := rw.ReadFile(statePath)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "status collection must not write retained history")
+
+	// A normal no-op reconciliation is still the next state write and persists
+	// the newer recency value even though status delivery is outside the store.
+	secondID := Fingerprint(second.Owner, second.Image, second.OCIType)
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{application: {secondID: "target-second"}}, true))
+	restarted := New(rw, "/state", logger)
+	thirdID := Fingerprint(third.Owner, third.Image, third.OCIType)
+	require.NoError(t, restarted.ReconcileApplicationTargets(map[string]map[string]string{application: {thirdID: "target-third"}}, true))
+	require.NoError(t, restarted.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: thirdID, TargetKey: "target-third"}, third,
+		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.NotNil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{third}, true))
+	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{second}, true))
+	require.NotNil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{first}, true))
+}
+
+func TestWhenRecencyWriteFailsItShouldRetryBeforeEvictingByLRU(t *testing.T) {
+	failWrite := false
+	var durable []byte
+	writeErr := errors.New("disk full")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	rw := newFailingReadWriter(t, ctrl, &failWrite, &durable, writeErr)
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const application = "web"
+	const spec = "spec"
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	first := ApplicationImage{Image: "quay.io/acme/cache-a:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:a"}
+	second := ApplicationImage{Image: "quay.io/acme/cache-b:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:b"}
+	if applicationHistoryKey(first) > applicationHistoryKey(second) {
+		first, second = second, first
+	}
+	third := ApplicationImage{Image: "quay.io/acme/cache-c:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:c"}
+
+	record := func(target *Store, image ApplicationImage, targetKey string) {
+		t.Helper()
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		require.NoError(t, target.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, true))
+		require.NoError(t, target.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image,
+			v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+		require.NotNil(t, target.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true))
+	}
+	record(store, first, "target-first")
+	record(store, second, "target-second")
+	require.NotNil(t, store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{first}, true))
+	secondID := Fingerprint(second.Owner, second.Image, second.OCIType)
+	activeTargets := map[string]map[string]string{application: {secondID: "target-second"}}
+
+	failWrite = true
+	require.ErrorIs(t, store.ReconcileApplicationTargets(activeTargets, true), writeErr)
+	failWrite = false
+	require.NoError(t, store.ReconcileApplicationTargets(activeTargets, true))
+
+	restarted := New(rw, "/state", logger)
+	thirdID := Fingerprint(third.Owner, third.Image, third.OCIType)
+	require.NoError(t, restarted.ReconcileApplicationTargets(map[string]map[string]string{application: {thirdID: "target-third"}}, true))
+	require.NoError(t, restarted.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: thirdID, TargetKey: "target-third"}, third,
+		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.NotNil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{third}, true))
+	require.Nil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{second}, true))
+	require.NotNil(t, restarted.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{first}, true))
+}
+
+func TestWhenBootedAndActiveOSResultsExceedCapacityItShouldEvictSupersededResults(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(t, store.SetOSTarget("attempt-a"))
+	require.NoError(t, store.RecordOSImageResult("attempt-a", "os:a", "sha256:a", result))
+	require.Equal(t, result, *store.ObservedOSResult("os:a", "sha256:a"))
+	require.NoError(t, store.SetOSTarget("attempt-b"))
+	require.NoError(t, store.RecordOSImageResult("attempt-b", "os:b", "sha256:b", result))
+	require.NoError(t, store.SetOSTarget("attempt-c"))
+	require.NoError(t, store.RecordOSImageResult("attempt-c", "os:c", "sha256:c", result))
+
+	// Restart with A still booted. A and active C are protected; completed B is
+	// superseded and must be eligible for eviction.
+	restarted := New(rw, "/state", logger)
+	require.Equal(t, result, *restarted.ObservedOSResult("os:a", "sha256:a"))
+	require.Equal(t, result, *restarted.ObservedOSResult("os:c", "sha256:c"))
+	require.Nil(t, restarted.ObservedOSResult("os:b", "sha256:b"))
+	require.Equal(t, result, *restarted.ObservedOSResult("os:a", "sha256:a"))
+}
+
+func TestWhenMutableOSTargetChangesDigestItShouldEvictSupersededHistory(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	const targetKey = "mutable-os-target"
+	const image = "quay.io/acme/os:stable"
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+
+	require.NoError(t, store.SetOSTarget(targetKey))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:a", result))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:a"))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:b", result))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:b"))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:c", result))
+
+	// B is still booted and C is pending. A has been superseded even though all
+	// three results share the same mutable OS target reference.
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:b"))
+	require.Len(t, store.state.OS.History, 2)
+	require.Nil(t, store.ObservedOSResult(image, "sha256:a"))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:c"))
+}
+
+func TestWhenAMutableApplicationTargetChangesDigestItShouldEvictSupersededHistory(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	const application, spec, targetKey = "web", "spec", "mutable-target"
+	image := ApplicationImage{Image: "quay.io/acme/web:stable", Owner: "root", OCIType: "PodmanImage"}
+	targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{application: spec}))
+	lifetime := store.ApplicationLifetime(application)
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{application: {targetID: targetKey}}, true))
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	for _, value := range []string{"sha256:a", "sha256:b"} {
+		image.Digest = value
+		require.NoError(store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image, result))
+		require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true))
+	}
+	image.Digest = "sha256:c"
+	require.NoError(store.RecordApplicationImageResultForAttempt(ApplicationAttempt{Application: application, Lifetime: lifetime, SpecKey: spec, TargetID: targetID, TargetKey: targetKey}, image, result))
+	image.Digest = "sha256:b"
+	require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true))
+	image.Digest = "sha256:a"
+	require.Nil(store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true), "old observed content must become evictable even when its mutable target key stays active")
+	image.Digest = "sha256:c"
+	require.Equal(result, *store.ObservedApplicationResultForLifetime(application, lifetime, []ApplicationImage{image}, true), "the active unobserved result must remain protected")
+}
+
+func TestWhenVersionOneStateIsReloadedItShouldPreserveVerifiedOutcomes(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(store.SetOSTarget("attempt"))
+	require.NoError(store.RecordOSImageResult("attempt", "quay.io/acme/os:v1", "sha256:verified", applied))
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "spec"}))
+	lifetime := store.ApplicationLifetime("web")
+	require.NoError(store.RecordApplicationVolumeImage("web", lifetime, "data", "created", ApplicationImage{
+		Image: "quay.io/acme/data:v1", Owner: "root", OCIType: "PodmanArtifact", Digest: "sha256:artifact",
+	}))
+	data, err := rw.ReadFile("/state/" + FileName)
+	require.NoError(err)
+	var document map[string]json.RawMessage
+	require.NoError(json.Unmarshal(data, &document))
+	require.JSONEq("1", string(document["version"]))
+	restarted := New(rw, "/state", logger)
+	require.Equal(applied, *restarted.ObservedOSResult("quay.io/acme/os:v1", "sha256:verified"))
+	require.Equal(lifetime, restarted.ApplicationLifetime("web"))
+	_, found := restarted.ApplicationVolumeImage("web", lifetime, "data", "created")
+	require.True(found)
+}
+
+func TestWhenMutableApplicationAttemptsAreSupersededItShouldKeepOnlyObservedAndActiveEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sameSpec bool
+	}{
+		{name: "When the desired attempt changes it should evict superseded mutable content"},
+		{name: "When mutable content is replaced during the same attempt it should evict superseded content", sameSpec: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/state", logger)
+			outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+			observed := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:observed"}
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "initial"}))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"image": "mutable-target"}}, true))
+			require.NoError(store.RecordApplicationImageResult("web", "initial", "image", "mutable-target", observed, outcome))
+			require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{observed}, true))
+			var first, latest ApplicationImage
+			for i := 1; i <= 8; i++ {
+				spec := fmt.Sprintf("update-%d", i)
+				if tc.sameSpec {
+					spec = "initial"
+				}
+				require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": spec}))
+				require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"image": "mutable-target"}}, true))
+				latest = observed
+				latest.Digest = fmt.Sprintf("sha256:pending-%d", i)
+				if i == 1 {
+					first = latest
+				}
+				require.NoError(store.RecordApplicationImageResult("web", spec, "image", "mutable-target", latest, outcome))
+				require.Nil(store.ObservedApplicationResult("web", nil, false))
+			}
+			require.Nil(New(rw, "/state", logger).ObservedApplicationResult("web", []ApplicationImage{first}, true), "superseded evidence should be evicted while collection remains incomplete")
+			restarted := New(rw, "/state", logger)
+			require.NotNil(restarted.ObservedApplicationResult("web", []ApplicationImage{observed}, true), "incomplete collection must preserve previous observed evidence")
+			require.NotNil(restarted.ObservedApplicationResult("web", []ApplicationImage{latest}, true), "the active update must survive restart before its first report")
+			require.Nil(restarted.ObservedApplicationResult("web", []ApplicationImage{first}, true), "superseded unobserved attempts must become evictable even when the target key is unchanged")
+		})
+	}
+}
+func TestWhenMutableOSStagesAreReplacedItShouldKeepTheBootedAndLatestStagedEvidence(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	const image = "quay.io/acme/os:latest"
+	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(store.SetOSTarget("mutable-target"))
+	require.NoError(store.RecordOSImageResult("mutable-target", image, "sha256:booted", outcome))
+	require.NotNil(store.ObservedOSResult(image, "sha256:booted"))
+	for i := 1; i <= 8; i++ {
+		require.NoError(store.RecordOSImageResult("mutable-target", image, fmt.Sprintf("sha256:stage-%d", i), outcome))
+		require.NotNil(store.ObservedOSResult(image, "sha256:booted"))
+	}
+	require.NoError(store.RecordOSResult("mutable-target", outcome))
+	restarted := New(rw, "/state", logger)
+	require.NotNil(restarted.ObservedOSResult(image, "sha256:booted"))
+	require.NotNil(restarted.ObservedOSResult(image, "sha256:stage-8"), "the most recently accepted stage must survive restart")
+	require.Nil(restarted.ObservedOSResult(image, "sha256:stage-1"), "replaced stages are no longer active even if the mutable target key is unchanged")
+}
+
+func TestWhenAnUnobservedCachedImageIsReusedItShouldKeepItsEvidenceAcrossSpecChanges(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	outcome := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	booted := ApplicationImage{Image: "quay.io/acme/old:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:observed"}
+	cached := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:pending"}
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "initial"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"old": "old-target", "cached": "cached-target"}}, true))
+	require.NoError(store.RecordApplicationImageResult("web", "initial", "old", "old-target", booted, outcome))
+	require.NotNil(store.ObservedApplicationResult("web", []ApplicationImage{booted}, true))
+	require.NoError(store.RecordApplicationImageResult("web", "initial", "cached", "cached-target", cached, outcome))
+	// An environment-only change can reuse cached content without generating a
+	// new outcome when a mutable desired digest cannot be verified.
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"web": "changed-environment"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"web": {"cached": "cached-target", "other": "other-target"}}, true))
+	for i := 0; i < 32; i++ {
+		image := ApplicationImage{Image: "quay.io/acme/other:latest", Owner: "root", OCIType: "PodmanImage", Digest: fmt.Sprintf("sha256:replacement-%d", i)}
+		require.NoError(store.RecordApplicationImageResult("web", "changed-environment", "other", "other-target", image, outcome))
+		require.Nil(store.ObservedApplicationResult("web", nil, false))
+	}
+	require.NotNil(New(rw, "/state", log.NewPrefixLogger("test")).ObservedApplicationResult("web", []ApplicationImage{cached}, true), "the latest accepted content of an unchanged active target must remain protected")
 }

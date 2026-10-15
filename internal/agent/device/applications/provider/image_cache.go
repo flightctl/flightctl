@@ -23,14 +23,11 @@ type CacheEntry struct {
 	Children []dependency.OCIPullTarget
 }
 
-func (e *CacheEntry) IsValid(ref string, digest string, inputsHash string) bool {
-	if e.Parent.Reference != ref {
-		return false
-	}
-	if digest != "" && e.Parent.Digest != digest {
-		return false
-	}
-	return e.InputsHash == inputsHash
+func (e *CacheEntry) IsValid(ref string, digest string, owner v1beta1.Username, inputsHash string) bool {
+	return e.Parent.Reference == ref &&
+		e.Parent.Digest == digest &&
+		e.Owner.WithDefault(v1beta1.RootUsername) == owner.WithDefault(v1beta1.RootUsername) &&
+		e.InputsHash == inputsHash
 }
 
 // OCITargetCache caches parent image state and child OCI targets.

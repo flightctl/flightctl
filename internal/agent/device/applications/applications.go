@@ -159,8 +159,20 @@ type WorkloadImage struct {
 }
 
 type ImageSnapshot struct {
+	ID       string
+	Lifetime string
 	Images   []deltastatus.ApplicationImage
+	Volumes  []ImageVolumeSnapshot
 	Complete bool
+}
+
+// ImageVolumeSnapshot is the expected identity of one image-backed volume in
+// the installed application. Runtime collection supplies its observed digest.
+type ImageVolumeSnapshot struct {
+	ID        string
+	Reference string
+	OCIType   string
+	Available bool
 }
 
 type application struct {
@@ -170,6 +182,9 @@ type application struct {
 	path                    string
 	imageRef                string
 	imageDigest             string
+	imageOCIType            string
+	lifetime                string
+	parentOutcomeRequired   bool
 	workloads               []Workload
 	volume                  provider.VolumeManager
 	status                  *v1beta1.DeviceApplicationStatus
@@ -191,10 +206,13 @@ func NewApplication(p provider.Provider) *application {
 		}
 	}
 	return &application{
-		id:          spec.ID,
-		path:        spec.Path,
-		imageRef:    spec.Image,
-		imageDigest: spec.ImageDigest,
+		id:                    spec.ID,
+		path:                  spec.Path,
+		imageRef:              spec.Image,
+		imageDigest:           spec.ImageDigest,
+		imageOCIType:          spec.ImageOCIType,
+		lifetime:              spec.Lifetime,
+		parentOutcomeRequired: spec.Image != "" && spec.AppType == v1beta1.AppTypeQuadlet,
 		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
@@ -240,7 +258,11 @@ func NewHelmApplication(p provider.Provider) *application {
 // ImageSnapshot preserves every workload's identity, including unknown replicas.
 // Callers collect it while holding the owning monitor lock.
 func (a *application) ImageSnapshot() ImageSnapshot {
-	snapshot := ImageSnapshot{Complete: len(a.workloads) > 0 && a.imageCollectionComplete}
+	snapshot := ImageSnapshot{
+		ID:       a.id,
+		Lifetime: a.lifetime,
+		Complete: len(a.workloads) > 0 && a.imageCollectionComplete,
+	}
 	observed := make(map[string]bool)
 	ociType := dependency.OCITypePodmanImage
 	if a.AppType() == v1beta1.AppTypeHelm {
@@ -258,11 +280,41 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 			snapshot.Images = append(snapshot.Images, deltastatus.ApplicationImage{Image: image.Image, Owner: string(a.User().WithDefault(v1beta1.RootUsername)), OCIType: string(ociType), Digest: image.Digest})
 		}
 	}
+	if a.parentOutcomeRequired {
+		if a.imageDigest == "" || a.imageOCIType == "" {
+			snapshot.Complete = false
+		}
+		snapshot.Images = append(snapshot.Images, deltastatus.ApplicationImage{
+			Image:   a.imageRef,
+			Owner:   string(a.User().WithDefault(v1beta1.RootUsername)),
+			OCIType: a.imageOCIType,
+			Digest:  a.imageDigest,
+		})
+	}
+	if a.volume != nil {
+		for _, volume := range a.volume.List() {
+			snapshot.Volumes = append(snapshot.Volumes, ImageVolumeSnapshot{
+				ID:        volume.ID,
+				Reference: volume.Reference,
+				OCIType:   volume.OCIType,
+				Available: volume.Available,
+			})
+			// The manager verifies these volume identities before selecting status.
+			// A volume reference is not required to also run as a workload image.
+			if volume.Available {
+				observed[volume.Reference] = true
+			}
+			if !volume.Available || volume.ID == "" || volume.Reference == "" || volume.OCIType == "" {
+				snapshot.Complete = false
+			}
+		}
+	}
 	for _, image := range a.requiredImages {
 		if !observed[image] {
 			snapshot.Complete = false
 		}
 	}
+
 	return snapshot
 }
 
@@ -448,10 +500,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	// update volume status
 	a.volume.Status(a.status)
 
-	// Collect image references and known digests from the parent image and
-	// workload container images. The manager adds image-backed volume digests and
-	// merges the parent digest from the OCI target cache because OCI collection
-	// uses temporary provider instances.
+	// Collect image references and known digests from the installed parent and
+	// workload container images. The manager adds image-backed volume observations.
 	a.collectImageDigests()
 
 	return a.status, summary, nil
@@ -459,21 +509,24 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 // collectImageDigests populates status.ImageDigests from the application's
 // parent image and workload images observed by the runtime monitors. The manager
-// adds volume image digests and merges the cached parent-image digest after
-// collecting monitor status. Entries with an unknown digest are included so the
-// control plane can identify images that require a full pull.
+// adds image-backed volume observations after collecting monitor status. Entries
+// with an unknown digest are included so the control plane can identify images
+// that require a full pull.
 func (a *application) collectImageDigests() {
 	byImage := make(map[string]map[string]struct{})
+	unknownByImage := make(map[string]bool)
 	add := func(image, digest string) {
 		if image == "" {
+			return
+		}
+		if digest == "" {
+			unknownByImage[image] = true
 			return
 		}
 		if _, ok := byImage[image]; !ok {
 			byImage[image] = make(map[string]struct{})
 		}
-		if digest != "" {
-			byImage[image][digest] = struct{}{}
-		}
+		byImage[image][digest] = struct{}{}
 	}
 
 	// Workload container images from the runtime.
@@ -483,19 +536,22 @@ func (a *application) collectImageDigests() {
 		}
 	}
 
-	// Use the provider observation only when no workload has observed this image.
-	if _, observed := byImage[a.imageRef]; !observed {
+	// Parent artifacts are independent reported inputs even when a workload
+	// happens to use the same reference in the executable image store. Helm charts
+	// and Compose bundles stay visible in status without joining the delta snapshot.
+	if a.parentOutcomeRequired || a.AppType() == v1beta1.AppTypeCompose || (a.AppType() == v1beta1.AppTypeHelm && a.imageRef != "") {
 		add(a.imageRef, a.imageDigest)
 	}
 
 	var digests []v1beta1.ApplicationImageDigest
 	for image, knownDigests := range byImage {
-		if len(knownDigests) == 0 {
-			digests = append(digests, v1beta1.ApplicationImageDigest{Image: image})
-			continue
-		}
 		for digest := range knownDigests {
 			digests = append(digests, v1beta1.ApplicationImageDigest{Image: image, Digest: digest})
+		}
+	}
+	for image, unknown := range unknownByImage {
+		if unknown {
+			digests = append(digests, v1beta1.ApplicationImageDigest{Image: image})
 		}
 	}
 	sort.Slice(digests, func(i, j int) bool {

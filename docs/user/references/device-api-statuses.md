@@ -279,8 +279,12 @@ The following outcomes describe the application as a whole. The agent reuses ima
 | `NotRequired` | All image targets are already present on the device with the correct digest. The agent reuses those images. |
 | `NotUsed` | Every target requiring preparation uses the regular image path because delta application was skipped. The agent pulls full images as needed. |
 | `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
-| `Fallback` | No target applied a delta, and at least one delta attempt failed. For an OCI artifact package with a supplied hint that is not already present, the agent records this outcome and uses the regular artifact pull path; an already-present artifact is reused and reported as `NotRequired`. It uses full image pulls for other targets requiring preparation and reuses already matching images. |
+| `Fallback` | No target applied a delta, and at least one delta attempt failed. For a Quadlet parent OCI artifact with a supplied image-delta hint, the agent records this outcome and follows the regular artifact path according to the pull policy. It uses full image pulls for other targets requiring preparation and reuses already matching images. |
 | `Partial` | The application combines at least one successful delta application with regular image preparation or a full-pull fallback for another image target. |
+
+Top-level Compose bundles and Helm chart packages ignore image-delta hints and use regular preparation. Their `NotRequired` contribution is neutral: packages are excluded from workload outcome aggregation. Nested workload images remain eligible for deltas.
+
+With `IfNotPresent`, the agent reuses cached workload images without resolving mutable tags again. It records `NotRequired` only when the observed image digest matches a known desired digest. If that match cannot be verified, the agent withholds a new outcome and retains any previous matching history.
 
 Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
 
