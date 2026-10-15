@@ -175,15 +175,22 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
 				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names, "+
 				"COALESCE(jsonb_agg(DISTINCT jsonb_build_object("+
-				"'deviceName', d.name, "+
-				"'fingerprint', rendered_ref->>'fingerprint', "+
+				"'fleetName', dr.fleet_name, "+
+				"'deviceName', rendered_ref.device_name, "+
+				"'fingerprint', rendered_ref.fingerprint, "+
 				"'deviceLevel', dr.device_name <> ''"+
-				")) FILTER (WHERE rendered_ref->>'fingerprint' IS NOT NULL AND rendered_ref->>'fingerprint' <> ''), '[]'::jsonb) AS rendered_targets",
+				")) FILTER (WHERE rendered_ref.fingerprint IS NOT NULL AND rendered_ref.fingerprint <> ''), '[]'::jsonb) AS rendered_targets",
 		).
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Joins("LEFT JOIN repositories r ON r.org_id = dr.org_id AND r.name = dr.repository_name").
-		Joins("LEFT JOIN devices d ON d.org_id = dr.org_id AND d.deleted_at IS NULL AND ((dr.device_name <> '' AND d.name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND d.owner = CONCAT('Fleet/', dr.fleet_name)))").
-		Joins("LEFT JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref ON rendered_ref->>'configProviderName' = dr.config_provider_name OR rendered_ref->>'configProviderName' = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[]))").
+		Joins("LEFT JOIN ("+
+			"SELECT d.org_id, d.name AS device_name, d.owner, "+
+			"rendered_ref->>'configProviderName' AS config_provider_name, "+
+			"rendered_ref->>'fingerprint' AS fingerprint "+
+			"FROM devices d "+
+			"CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref "+
+			"WHERE d.deleted_at IS NULL"+
+			") AS rendered_ref ON rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))").
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").

@@ -610,8 +610,8 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(probes[0].DeviceNames).To(BeEmpty())
 			Expect(probes[0].RenderedTargets).NotTo(BeNil())
 			Expect(probes[0].RenderedTargets.Data).To(ConsistOf(
-				model.GitDependencyRenderedTarget{DeviceName: "device-x", Fingerprint: "old-commit", DeviceLevel: false},
-				model.GitDependencyRenderedTarget{DeviceName: "device-y", Fingerprint: "current-commit", DeviceLevel: false},
+				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-x", Fingerprint: "old-commit", DeviceLevel: false},
+				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-y", Fingerprint: "current-commit", DeviceLevel: false},
 			))
 		})
 

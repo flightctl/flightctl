@@ -106,6 +106,7 @@ type SecretDependencyRef struct {
 // device that produced it. DeviceLevel distinguishes a direct device ref from
 // a fleet ref expanded to its owned devices for first-probe comparisons.
 type GitDependencyRenderedTarget struct {
+	FleetName   string `json:"fleetName"`
 	DeviceName  string `json:"deviceName"`
 	Fingerprint string `json:"fingerprint"`
 	DeviceLevel bool   `json:"deviceLevel"`

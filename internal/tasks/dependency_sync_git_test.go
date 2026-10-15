@@ -392,10 +392,16 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			{
 				RepositoryName: "new-repo",
 				Revision:       "main",
-				FleetNames:     model.StringArray{"fleet-1"},
+				FleetNames:     model.StringArray{"fleet-1", "fleet-2"},
 				RenderedTargets: model.MakeJSONField([]model.GitDependencyRenderedTarget{{
+					FleetName:   "fleet-1",
 					DeviceName:  "device-1",
 					Fingerprint: "rendered-old-sha",
+					DeviceLevel: false,
+				}, {
+					FleetName:   "fleet-2",
+					DeviceName:  "device-2",
+					Fingerprint: "rendered-new-sha",
 					DeviceLevel: false,
 				}}),
 				RepoSpec: repoSpec,
@@ -436,6 +442,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 				RepositoryName: "new-repo",
 				Revision:       "main",
 				RenderedTargets: model.MakeJSONField([]model.GitDependencyRenderedTarget{{
+					FleetName:   "fleet-1",
 					DeviceName:  "device-1",
 					Fingerprint: "rendered-sha",
 					DeviceLevel: false,
