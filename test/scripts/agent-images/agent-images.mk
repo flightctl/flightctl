@@ -98,6 +98,12 @@ push-e2e-agent-images: e2e-agent-images
 		echo "App bundle not found at $(APP_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
 	fi
+	@set -e; \
+	registry_endpoint="$${REGISTRY_ENDPOINT:-$${REGISTRY_ADDRESS:-}}"; \
+	if [ -z "$$registry_endpoint" ]; then \
+		registry_endpoint="$$(bash -c 'source "$(ROOT_DIR)/test/scripts/functions" && registry_address')"; \
+	fi; \
+	export REGISTRY_ENDPOINT="$$registry_endpoint"; \
 	go run ./test/e2e/infra/cmd/push-e2e-images
 
 bin/.e2e-agent-certs:

@@ -327,6 +327,7 @@ func ensureRegistryCerts() (string, error) {
 		return "", err
 	}
 	hostIP := GetHostIP()
+	dnsNames, ipAddresses := registryCertificateSANs(hostIP)
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
@@ -335,8 +336,8 @@ func ensureRegistryCerts() (string, error) {
 		NotAfter:     time.Now().AddDate(1, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost", "e2e-registry"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP(hostIP)},
+		DNSNames:     dnsNames,
+		IPAddresses:  ipAddresses,
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &registryKey.PublicKey, caKey)
 	if err != nil {
@@ -355,8 +356,20 @@ func ensureRegistryCerts() (string, error) {
 	}
 	_ = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	certFile.Close()
-	logrus.Infof("Generated registry certificate in %s (IP: %s)", certDir, hostIP)
+	logrus.Infof("Generated registry certificate in %s (host: %s)", certDir, hostIP)
 	return certDir, nil
+}
+
+// registryCertificateSANs returns the default registry SANs plus the configured host.
+func registryCertificateSANs(host string) ([]string, []net.IP) {
+	dnsNames := []string{"localhost", "e2e-registry"}
+	ipAddresses := []net.IP{net.ParseIP("127.0.0.1")}
+	if ip := net.ParseIP(host); ip != nil {
+		ipAddresses = append(ipAddresses, ip)
+	} else if host != "" {
+		dnsNames = append(dnsNames, host)
+	}
+	return dnsNames, ipAddresses
 }
 
 // configureInsecureRegistry writes a registries.conf.d snippet marking registryURL
