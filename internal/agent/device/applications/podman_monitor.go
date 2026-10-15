@@ -753,6 +753,10 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, event client.PodmanEven
 		m.log.Debugf("Application not found: %s", appID)
 		return
 	}
+	if event.StoreOwner != nil && *event.StoreOwner != app.User() {
+		m.log.Debugf("Ignoring event from another Podman user store for app %s", appID)
+		return
+	}
 	m.updateAppStatus(ctx, app, &event)
 }
 
@@ -904,6 +908,18 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 
 	image := WorkloadImage{Image: event.Image}
+
+	// Create events preserve the container's registry identity after --rm, without
+	// resolving the mutable image reference or requiring the container to survive.
+	if snapshot := event.ContainerInspectData; snapshot != nil && event.ID != "" && snapshot.ID == event.ID && snapshot.Image != "" {
+		if observed, err := digest.Parse(snapshot.ImageDigest); err == nil {
+			image.Digest = observed.String()
+			return image, true
+		}
+		if inspectData == nil {
+			inspectData = []client.PodmanInspect{{Image: snapshot.Image}}
+		}
+	}
 
 	// A container restart may resolve the same mutable tag to different content.
 	// Reuse a known digest only while both the container ID and image reference
@@ -1192,28 +1208,32 @@ func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.
 	// the pipe will be closed by calling cmd.Wait
 	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
 
-	scanner := bufio.NewScanner(stdoutPipe)
-	for scanner.Scan() {
-		e.log.Debugf("Received podman event for user %s: %s", e.username, scanner.Text())
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			e.handleEvent(ctx, scanner.Bytes(), events)
+	reader := bufio.NewReader(stdoutPipe)
+	for {
+		// Inspect snapshots can exceed Scanner's default 64 KiB token limit.
+		data, err := reader.ReadBytes('\n')
+		if len(data) > 0 {
+			if ctx.Err() != nil {
+				return
+			}
+			e.handleEvent(ctx, data, events)
 		}
-	}
-	// scanner won't emit an io.EOF error if it encounters one
-	if err := scanner.Err(); err != nil {
-		e.log.Errorf("Error reading podman events: %v", err)
+		if err != nil {
+			if err != io.EOF {
+				e.log.Errorf("Error reading podman events: %v", err)
+			}
+			return
+		}
 	}
 }
 
 func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, events chan<- client.PodmanEvent) {
 	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
-		e.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
+		e.log.Errorf("Failed to decode podman event: %v", err)
 		return
 	}
+	event.StoreOwner = lo.ToPtr(e.username)
 	eventTime := time.Unix(0, event.TimeNano)
 	e.lastEventTime.Store(&eventTime)
 	e.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)

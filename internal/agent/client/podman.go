@@ -28,6 +28,10 @@ import (
 const (
 	podmanCmd              = "podman"
 	defaultPullLogInterval = 30 * time.Second
+	// PodmanEventsConfigFilename names the process-scoped containers.conf override.
+	PodmanEventsConfigFilename = ".flightctl-podman-events.conf"
+	PodmanEventsConfigContents = "[engine]\nevents_container_create_inspect_data = true\n"
+
 	// PodmanImageDigestsListFormat lists registry digests in one Podman invocation.
 	PodmanImageDigestsListFormat = `{{printf "%s\t%s" .Digest (json .RepoDigests)}}`
 )
@@ -104,19 +108,44 @@ type PodmanVolumeInspect struct {
 	Options   map[string]string `json:"Options"`
 }
 
+// PodmanContainerIdentity retains only image evidence from a create-event snapshot.
+// Podman encodes ContainerInspectData as a JSON string containing inspect JSON.
+type PodmanContainerIdentity struct {
+	ID          string `json:"Id"`
+	Image       string `json:"Image"`
+	ImageDigest string `json:"ImageDigest"`
+}
+
+func (identity *PodmanContainerIdentity) UnmarshalJSON(data []byte) error {
+	var snapshot string
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return nil // Optional malformed evidence must not discard lifecycle events.
+	}
+	type identityFields PodmanContainerIdentity
+	var fields identityFields
+	if err := json.Unmarshal([]byte(snapshot), &fields); err != nil {
+		return nil
+	}
+	*identity = PodmanContainerIdentity(fields)
+	return nil
+}
+
 // PodmanEvent represents the structure of a podman event as produced via a CLI events command.
 // It should be noted that the CLI represents events differently from libpod. (notably the time properties)
 // https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
-	ContainerExitCode *int              `json:"ContainerExitCode,omitempty"`
-	ID                string            `json:"ID"`
-	Image             string            `json:"Image"`
-	Name              string            `json:"Name"`
-	Status            string            `json:"Status"`
-	Type              string            `json:"Type"`
-	TimeNano          int64             `json:"timeNano"`
-	HealthStatus      string            `json:"health_status,omitempty"`
-	Attributes        map[string]string `json:"Attributes"`
+	// StoreOwner is attached by the watcher, never trusted from event JSON.
+	StoreOwner           *v1beta1.Username        `json:"-"`
+	ContainerInspectData *PodmanContainerIdentity `json:"ContainerInspectData,omitempty"`
+	ContainerExitCode    *int                     `json:"ContainerExitCode,omitempty"`
+	ID                   string                   `json:"ID"`
+	Image                string                   `json:"Image"`
+	Name                 string                   `json:"Name"`
+	Status               string                   `json:"Status"`
+	Type                 string                   `json:"Type"`
+	TimeNano             int64                    `json:"timeNano"`
+	HealthStatus         string                   `json:"health_status,omitempty"`
+	Attributes           map[string]string        `json:"Attributes"`
 }
 
 type Podman struct {

@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -629,6 +630,11 @@ Image=nginx:latest
 					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
 					require.Contains(t, contentStr, "[Container]")
 					require.Contains(t, contentStr, "io.flightctl.quadlet.project=myapp")
+					unit, err := quadlet.NewUnit(content)
+					require.NoError(t, err)
+					environment, err := unit.Lookup("Service", "Environment")
+					require.NoError(t, err)
+					require.Equal(t, `"CONTAINERS_CONF_OVERRIDE=/.flightctl-podman-events.conf"`, environment)
 				},
 			},
 		},
@@ -1480,6 +1486,10 @@ spec:
 				}
 			}
 
+			config, err := rw.ReadFile("/.flightctl-podman-events.conf")
+			require.NoError(t, err)
+			require.Equal(t, "[engine]\nevents_container_create_inspect_data = true\n", string(config))
+
 			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID)
 			require.NoError(t, err, "second call to installQuadlet should succeed (idempotency)")
 
@@ -2205,6 +2215,10 @@ func TestQuadletInlineProvider(t *testing.T) {
 					Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/nginx:latest\n"),
 					Path:    "web.container",
 				},
+				{
+					Content: lo.ToPtr("[Container]\nImage=quay.io/containerdisks/fedora:40\n[Service]\nType=oneshot\nRemainAfterExit=yes\n"),
+					Path:    "volumecontainerdisk.container",
+				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().
@@ -2289,6 +2303,17 @@ func TestQuadletInlineProvider(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+			require.NoError(quadletProvider.Install(ctx))
+			config, err := rw.ReadFile(filepath.Join(quadletProvider.Spec().Path, ".flightctl-podman-events.conf"))
+			require.NoError(err)
+			require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(config))
+			dropIn, err := rw.ReadFile(filepath.Join(quadletProvider.Spec().Path, quadletProvider.ID()+"-.container.d", "99-flightctl.conf"))
+			require.NoError(err)
+			unit, err := quadlet.NewUnit(dropIn)
+			require.NoError(err)
+			environment, err := unit.Lookup("Service", "Environment")
+			require.NoError(err)
+			require.Equal(`"CONTAINERS_CONF_OVERRIDE=`+filepath.Join(quadletProvider.Spec().Path, ".flightctl-podman-events.conf")+`"`, environment)
 		})
 	}
 }
