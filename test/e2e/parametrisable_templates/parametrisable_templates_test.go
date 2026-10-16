@@ -14,7 +14,10 @@ import (
 	"github.com/samber/lo"
 )
 
-const fleetControllerErrorAnnotation = v1beta1.DeviceAnnotationLastRolloutError
+const (
+	fleetControllerErrorAnnotation = v1beta1.DeviceAnnotationLastRolloutError
+	systemInfoArchitectureLabel    = "systeminfo.flightctl.io/architecture"
+)
 
 var (
 	fleetSelectorKey                  = "fleet"
@@ -351,6 +354,50 @@ var _ = Describe("Template variables in the device configuration", func() {
 				Expect(inlineConfigPathResponse.Inline[0].Path).To(ContainSubstring(teamLabelValue))
 				Expect(inlineConfigPathResponse.Inline[0].Content).To(ContainSubstring(defaultTeamLabelValue))
 			}
+		})
+
+		It("When a fleet selects a device by its promoted architecture label it should render that value in the template", Label("sanity"), func() {
+			By("Wait for the default architecture label to be promoted")
+			architecture := harness.WaitForDeviceReportedLabel(deviceId, systemInfoArchitectureLabel, testutil.LONGTIMEOUT)
+
+			const architectureConfigName = "architecture-inline-config"
+			architectureConfigProvider := v1beta1.ConfigProviderSpec{}
+			err := architectureConfigProvider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
+				Name: architectureConfigName,
+				Inline: []v1beta1.FileSpec{{
+					Path:    "/var/home/user/architecture.txt",
+					Mode:    modePointer,
+					Content: fmt.Sprintf(`architecture={{ index .metadata.labels %q }}`, systemInfoArchitectureLabel),
+				}},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			architectureFleetSelectorLabels := map[string]string{
+				fleetSelectorKey:            fleetSelectorValue,
+				systemInfoArchitectureLabel: architecture,
+			}
+			architectureFleetSelector := v1beta1.LabelSelector{MatchLabels: &architectureFleetSelectorLabels}
+			fleetTestName := fmt.Sprintf("architecture-template-fleet-%s", testID)
+			Expect(harness.CreateTestFleetWithConfig(fleetTestName, architectureFleetSelector, architectureConfigProvider)).To(Succeed())
+
+			By("Associate the device with the fleet while preserving its promoted label")
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+				harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{fleetSelectorKey: fleetSelectorValue})
+			})).To(Succeed())
+
+			device, err := harness.GetDevice(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*device.Metadata.Labels).To(HaveKeyWithValue(systemInfoArchitectureLabel, architecture))
+			Expect(harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)).To(Succeed())
+
+			device, err = harness.GetDevice(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			architectureConfig, err := harness.GetDeviceInlineConfig(device, architectureConfigName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(architectureConfig.Inline).To(HaveLen(1))
+			Expect(architectureConfig.Inline[0].Content).To(Equal("architecture=" + architecture))
 		})
 
 		It(`Verifies that if a device is missing a parametrisable device label
