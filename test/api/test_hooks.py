@@ -805,6 +805,55 @@ class TestReusableRequestBodyScoping:
             "Unused reusable inline body must not get integer limits"
 
 
+    def test_reusable_body_inline_nodes_not_duplicated(self):
+        """Each inline schema from a reusable body must appear exactly once."""
+        raw = _make_raw_spec(
+            schemas={},
+            paths={"/x": {"post": {
+                "requestBody": {"$ref": "#/components/requestBodies/Body"},
+                "responses": {"201": {"description": "OK"}},
+            }}},
+            extra_components={
+                "requestBodies": {"Body": {"content": {"application/json": {
+                    "schema": {"type": "object", "properties": {"f": {"type": "string"}}},
+                }}}},
+            },
+        )
+        inline, _ = hooks._request_body_schemas(raw)
+        assert len(inline) == 1, f"Expected 1 inline node, got {len(inline)}"
+
+    def test_used_reusable_body_constraints_via_loader(self):
+        """Reusable requestBody referenced by an operation: constraints applied
+        through the public from_dict loader (positive end-to-end proof)."""
+        spec = _make_raw_spec(
+            schemas={
+                "Item": {"type": "object", "properties": {
+                    "name": {"type": "string", "maxLength": 253},
+                    "count": {"type": "integer"},
+                }},
+            },
+            paths={"/items": {"post": {
+                "requestBody": {"$ref": "#/components/requestBodies/CreateItem"},
+                "responses": {"201": {"description": "Created"}},
+            }}},
+            extra_components={
+                "requestBodies": {"CreateItem": {"content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/Item"},
+                }}}},
+            },
+        )
+        loaded = schemathesis.openapi.from_dict(spec)
+        item = spec["components"]["schemas"]["Item"]
+        assert item.get("additionalProperties") is False, \
+            "Used reusable body schema must get additionalProperties"
+        assert item["properties"]["count"]["minimum"] == hooks.INT64_MIN, \
+            "Integer limits must be applied"
+        assert item["properties"]["name"]["pattern"] == hooks._RFC1123_RE.pattern, \
+            "Name pattern must be applied"
+        op = loaded["/items"]["POST"]
+        assert op.body, "POST /items must have a body definition"
+
+
 class TestEndToEndLoaderBehaviour:
     """Verify constraints survive through the public Schemathesis loader."""
 
