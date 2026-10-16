@@ -273,7 +273,7 @@ def test_before_call_preserves_linked_catalog_response_identity(monkeypatch, cat
 # verify public loader behaviour.
 # ===========================================================================
 
-def _make_raw_spec(schemas=None, *, paths=None):
+def _make_raw_spec(schemas=None, *, paths=None, extra_components=None):
     """Build a minimal raw OpenAPI document for direct hook calls."""
     spec = {
         "openapi": "3.0.3",
@@ -292,7 +292,9 @@ def _make_raw_spec(schemas=None, *, paths=None):
         },
     }
     if schemas is not None:
-        spec["components"] = {"schemas": schemas}
+        spec.setdefault("components", {})["schemas"] = schemas
+    if extra_components:
+        spec.setdefault("components", {}).update(extra_components)
     return spec
 
 
@@ -685,6 +687,122 @@ class TestResponseScopePreservation:
         )
         hooks.before_load_schema(None, raw)
         assert raw["components"]["schemas"]["RespOnly"]["properties"]["count"]["minimum"] == hooks.INT64_MIN
+
+
+class TestReusableRequestBodyScoping:
+    """Reusable requestBodies only affect schemas when used by an operation."""
+
+    def _spec_with_reusable_body(self, *, operation_uses_body):
+        """Build a spec with a reusable requestBody referencing RespOnly."""
+        paths = {"/items": {"get": {
+            "responses": {"200": {"description": "OK", "content": {"application/json": {
+                "schema": {"$ref": "#/components/schemas/RespOnly"},
+            }}}},
+        }}}
+        if operation_uses_body:
+            paths["/items"]["post"] = {
+                "requestBody": {"$ref": "#/components/requestBodies/CreateBody"},
+                "responses": {"201": {"description": "Created"}},
+            }
+        return _make_raw_spec(
+            schemas={
+                "RespOnly": {"type": "object", "properties": {"field": {"type": "string"}}},
+            },
+            paths=paths,
+            extra_components={
+                "requestBodies": {"CreateBody": {"content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/RespOnly"},
+                }}}},
+            },
+        )
+
+    def test_unused_reusable_body_does_not_constrain_schema(self):
+        """Schema referenced only by an unused reusable requestBody must not
+        get additionalProperties: false."""
+        raw = self._spec_with_reusable_body(operation_uses_body=False)
+        hooks.before_load_schema(None, raw)
+        assert "additionalProperties" not in raw["components"]["schemas"]["RespOnly"], \
+            "Unused reusable requestBody must not taint response-only schema"
+
+    def test_used_reusable_body_constrains_schema(self):
+        """Schema referenced by a reusable requestBody that IS used by an
+        operation must get additionalProperties: false."""
+        raw = self._spec_with_reusable_body(operation_uses_body=True)
+        hooks.before_load_schema(None, raw)
+        assert raw["components"]["schemas"]["RespOnly"].get("additionalProperties") is False
+
+    def test_chained_reusable_body_alias(self):
+        """Operation $ref -> requestBody $ref -> requestBody with content."""
+        raw = _make_raw_spec(
+            schemas={
+                "Target": {"type": "object", "properties": {"x": {"type": "string"}}},
+            },
+            paths={"/items": {"post": {
+                "requestBody": {"$ref": "#/components/requestBodies/Alias"},
+                "responses": {"201": {"description": "Created"}},
+            }}},
+            extra_components={
+                "requestBodies": {
+                    "Alias": {"$ref": "#/components/requestBodies/Real"},
+                    "Real": {"content": {"application/json": {
+                        "schema": {"$ref": "#/components/schemas/Target"},
+                    }}},
+                },
+            },
+        )
+        hooks.before_load_schema(None, raw)
+        assert raw["components"]["schemas"]["Target"].get("additionalProperties") is False
+
+    def test_missing_reusable_body_alias_terminates(self):
+        """$ref to a non-existent components/requestBodies entry must not hang."""
+        raw = _make_raw_spec(
+            schemas={},
+            paths={"/items": {"post": {
+                "requestBody": {"$ref": "#/components/requestBodies/Missing"},
+                "responses": {"201": {"description": "Created"}},
+            }}},
+        )
+        hooks.before_load_schema(None, raw)  # must not hang
+
+    def test_cyclic_reusable_body_aliases_terminate(self):
+        """Mutually-referencing requestBody aliases must not hang."""
+        raw = _make_raw_spec(
+            schemas={},
+            paths={"/x": {"post": {
+                "requestBody": {"$ref": "#/components/requestBodies/A"},
+                "responses": {"201": {"description": "OK"}},
+            }}},
+            extra_components={
+                "requestBodies": {
+                    "A": {"$ref": "#/components/requestBodies/B"},
+                    "B": {"$ref": "#/components/requestBodies/A"},
+                },
+            },
+        )
+        hooks.before_load_schema(None, raw)  # must not hang
+
+    def test_unused_reusable_body_inline_content_untouched(self):
+        """Inline content in an unused reusable requestBody must not be patched."""
+        raw = _make_raw_spec(
+            schemas={},
+            paths={"/items": {"get": {
+                "responses": {"200": {"description": "OK"}},
+            }}},
+            extra_components={
+                "requestBodies": {"Orphan": {"content": {"application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"count": {"type": "integer"}},
+                    },
+                }}}},
+            },
+        )
+        hooks.before_load_schema(None, raw)
+        orphan_schema = raw["components"]["requestBodies"]["Orphan"]["content"]["application/json"]["schema"]
+        assert "additionalProperties" not in orphan_schema, \
+            "Unused reusable inline body must not get additionalProperties"
+        assert "minimum" not in orphan_schema["properties"]["count"], \
+            "Unused reusable inline body must not get integer limits"
 
 
 class TestEndToEndLoaderBehaviour:
