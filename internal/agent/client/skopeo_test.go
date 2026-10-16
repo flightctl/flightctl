@@ -563,30 +563,49 @@ func TestSkopeoInspectPlatformDigestUsesPinnedDigestAlgorithm(t *testing.T) {
 	require.Equal(pinnedDigest.String(), got)
 }
 
-func TestSkopeoCopyWithDefaultAuth(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockExec := executer.NewMockExecuter(ctrl)
-	skopeo := NewSkopeo(
-		log.NewPrefixLogger("test"),
-		mockExec,
-		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
-	)
-	mockExec.EXPECT().
-		ExecuteWithContext(
-			gomock.Any(),
-			"skopeo",
-			"copy",
-			"docker://quay.io/acme/delta:latest",
-			"oci-archive:/tmp/delta.oci",
-		).
-		Return("", "", 0)
-
-	require.NoError(t, skopeo.Copy(
-		context.Background(),
-		"docker://quay.io/acme/delta:latest",
-		"oci-archive:/tmp/delta.oci",
-		WithDefaultAuth(),
-	))
+func TestSkopeoCopyAuthentication(t *testing.T) {
+	const source = "docker://quay.io/acme/delta:latest"
+	const destination = "oci-archive:/tmp/delta.oci"
+	for _, method := range []struct {
+		name     string
+		preserve bool
+	}{
+		{name: "Copy"},
+		{name: "CopyPreservingDigests", preserve: true},
+	} {
+		t.Run(method.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name string
+				opts []ClientOption
+				args []string
+			}{
+				{name: "When default authentication is requested it should use the credential store", opts: []ClientOption{WithDefaultAuth()}},
+				{name: "When authentication is not requested it should disable source credentials", args: []string{"--src-no-creds"}},
+				{name: "When a pull secret is supplied it should use that source auth file", opts: []ClientOption{WithPullSecret("/auth.json")}, args: []string{"--src-authfile", "/auth.json"}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					require := require.New(t)
+					ctrl := gomock.NewController(t)
+					defer ctrl.Finish()
+					root := t.TempDir()
+					rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+					require.NoError(rw.WriteFile("/auth.json", []byte(`{"auths":{}}`), fileio.DefaultFilePermissions))
+					mockExec := executer.NewMockExecuter(ctrl)
+					skopeo := NewSkopeo(log.NewPrefixLogger("test"), mockExec, rw)
+					args := []any{gomock.Any(), "skopeo", "copy"}
+					copyImage := skopeo.Copy
+					if method.preserve {
+						args = append(args, "--preserve-digests")
+						copyImage = skopeo.CopyPreservingDigests
+					}
+					args = append(args, source, destination)
+					for _, arg := range tc.args {
+						args = append(args, arg)
+					}
+					mockExec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return("", "", 0)
+					require.NoError(copyImage(t.Context(), source, destination, tc.opts...))
+				})
+			}
+		})
+	}
 }

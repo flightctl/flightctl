@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -49,7 +50,8 @@ type manager struct {
 
 	// verified image-volume identities avoid repeating an image inspect while
 	// the same application lifetime and volume incarnation remain installed.
-	imageVolumeObservations map[imageVolumeObservationKey]cachedImageVolumeObservation
+	imageVolumeObservationsMu sync.Mutex
+	imageVolumeObservations   map[imageVolumeObservationKey]cachedImageVolumeObservation
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -91,6 +93,11 @@ type ManagerOption func(*manager)
 
 func WithDeltaStatusStore(store *deltastatus.Store) ManagerOption {
 	return func(m *manager) { m.deltaStatusStore = store }
+}
+
+// WithAppDataCache shares prepared parent contents with the application controller.
+func WithAppDataCache(cache map[string]*provider.AppData) ManagerOption {
+	return func(m *manager) { m.appDataCache = cache }
 }
 
 func isDeferrableAppError(osUpdatePending bool, err error) bool {
@@ -356,7 +363,7 @@ func (m *manager) clearAppDataCache() {
 			m.log.Warnf("Failed to cleanup extraction for app %s: %v", name, err)
 		}
 	}
-	m.appDataCache = provider.NewAppDataCache()
+	clear(m.appDataCache)
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
@@ -505,6 +512,7 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 					continue
 				}
 				if inspection.CreatedAt != "" {
+					m.imageVolumeObservationsMu.Lock()
 					if m.imageVolumeObservations == nil {
 						m.imageVolumeObservations = make(map[imageVolumeObservationKey]cachedImageVolumeObservation)
 					}
@@ -512,6 +520,7 @@ func (m *manager) addVolumeImageObservations(ctx context.Context, results []AppS
 						lifetime: result.Images.Lifetime, createdAt: inspection.CreatedAt,
 						imageID: inspection.Options["image"], image: image,
 					}
+					m.imageVolumeObservationsMu.Unlock()
 				}
 			default:
 				result.Images.Complete = false
@@ -539,6 +548,8 @@ func (m *manager) volumePodmanClient(owner v1beta1.Username) (*client.Podman, er
 }
 
 func (m *manager) clearImageVolumeObservations(applicationID string) {
+	m.imageVolumeObservationsMu.Lock()
+	defer m.imageVolumeObservationsMu.Unlock()
 	maps.DeleteFunc(m.imageVolumeObservations, func(key imageVolumeObservationKey, _ cachedImageVolumeObservation) bool {
 		return key.applicationID == applicationID
 	})
@@ -565,7 +576,9 @@ func (m *manager) cachedImageVolumeObservation(
 	if inspection == nil || inspection.Driver != "image" || !client.IsImmutablePodmanImageID(inspection.Options["image"]) {
 		return deltastatus.ApplicationImage{}, false
 	}
+	m.imageVolumeObservationsMu.Lock()
 	cached, ok := m.imageVolumeObservations[imageVolumeObservationKey{applicationID: applicationID, volumeID: volumeID, owner: owner}]
+	m.imageVolumeObservationsMu.Unlock()
 	if !ok || inspection.CreatedAt == "" || cached.lifetime != lifetime || cached.createdAt != inspection.CreatedAt || cached.imageID != inspection.Options["image"] {
 		return deltastatus.ApplicationImage{}, false
 	}
