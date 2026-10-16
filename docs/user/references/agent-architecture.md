@@ -137,6 +137,8 @@ For OS updates, the agent reuses a desired image that is already booted or cache
 
 Top-level Compose bundles and Helm chart packages use regular preparation, ignore image-delta hints, and contribute neutral `NotRequired`. They do not participate in the workload delta snapshot. Nested workload images remain eligible for deltas. A hinted Quadlet parent artifact reports `Fallback` with a reason before following its regular artifact pull policy. Application results report `Partial` when an `Applied` target accompanies a `NotUsed` or `Fallback` target; `NotRequired` targets remain neutral. Multiple fallback reasons use the lexically first reason.
 
+An application image reused from the local cache under `PullIfNotPresent` reports `NotRequired` for its verified local digest. A separately supplied desired digest must match when present; otherwise, cache reuse does not require resolving the tag in the registry. For cached Podman images, the agent records the local manifest digest and repository digests matching the requested repository separately. This allows runtime reporting to select either a verified manifest or index identity without transferring `Applied` between digest forms. Reusing the same image can upgrade its saved `NotUsed` outcome to `NotRequired`. Saved `Applied` and `Fallback` outcomes remain associated with that image identity across updates and restarts.
+
 Image digests remain separate from `lastDelta`, which contains only the delta outcome and optional fallback reason.
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.

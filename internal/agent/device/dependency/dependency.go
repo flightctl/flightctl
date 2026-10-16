@@ -1542,13 +1542,13 @@ func (m *prefetchManager) recordObservedDeltaResult(ctx context.Context, target 
 	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), outcome, reason, observed)
 }
 
-// observedCachedImageDigest verifies a held image without following a mutable
-// reference after its immutable runtime identity has been captured.
-func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target imageRef, ociType OCIType, podman *client.Podman, inspection applicationImageInspection, eligible bool, opts ...client.ClientOption) string {
+// observedCachedImageDigests verifies identities of a held image without
+// following a mutable reference after its runtime identity has been captured.
+func (m *prefetchManager) observedCachedImageDigests(ctx context.Context, target imageRef, ociType OCIType, podman *client.Podman, inspection applicationImageInspection, eligible bool, opts ...client.ClientOption) []string {
 	if !eligible {
-		return ""
+		return nil
 	}
-	observed := ""
+	var observed []string
 	if ociType == OCITypeCRIImage {
 		runtimeImageRef := inspection.runtimeImageRef
 		if runtimeImageRef == "" && m.cliClients != nil && m.cliClients.CRI() != nil {
@@ -1557,7 +1557,7 @@ func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target 
 				runtimeImageRef = metadata.ID
 			}
 		}
-		observed = m.observedCRIImageDigest(ctx, target, runtimeImageRef, opts...)
+		observed = append(observed, m.observedCRIImageDigest(ctx, target, runtimeImageRef, opts...))
 	} else if podman != nil {
 		metadata := inspection.podmanMetadata
 		if metadata == nil {
@@ -1567,13 +1567,31 @@ func (m *prefetchManager) observedCachedImageDigest(ctx context.Context, target 
 			}
 		}
 		if metadata != nil && metadata.ID != "" {
-			observed = metadata.Digest
+			observed = append(observed, metadata.Digest)
+			// Podman may report the platform manifest here while create events
+			// retain an index digest. Record each locally verified identity for
+			// cache reuse, without transferring Applied between digest forms.
+			named, err := reference.ParseNormalizedNamed(target.image)
+			if err == nil {
+				for _, value := range metadata.RepoDigests {
+					candidate, err := reference.ParseNormalizedNamed(value)
+					if err != nil || candidate.Name() != named.Name() {
+						continue
+					}
+					if pinned, ok := candidate.(reference.Digested); ok {
+						observed = append(observed, pinned.Digest().String())
+					}
+				}
+			}
 		}
 	}
-	if _, err := digest.Parse(observed); err != nil {
-		return ""
+	verified := make([]string, 0, len(observed))
+	for _, value := range observed {
+		if validObservedDigest(value) && !slices.Contains(verified, value) {
+			verified = append(verified, value)
+		}
 	}
-	return observed
+	return verified
 }
 
 // observedCRIImageDigest verifies a selected platform manifest against the same
@@ -2077,7 +2095,7 @@ func (m *prefetchManager) checkUncachedApplicationTask(
 
 // mu must be held on entry; may be temporarily released during runtime inspection; mu is held on return.
 func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target imageRef, task *prefetchTask) bool {
-	observedDigest := ""
+	var observedDigests []string
 	present := false
 	for attempt := 0; attempt < 3; attempt++ {
 		if ctx.Err() != nil {
@@ -2085,7 +2103,7 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		}
 		snapshot := *task
 		canRecord := m.canRecordObservedResultLocked(target, task)
-		observedDigest = ""
+		observedDigests = nil
 		present = false
 		func() {
 			m.mu.Unlock()
@@ -2109,7 +2127,7 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 				// PullIfNotPresent treats the local runtime image as the cache hit.
 				// Resolve its immutable local identity for status, but don't follow a
 				// mutable tag to the registry just to decide whether to pull it.
-				observedDigest = m.observedCachedImageDigest(ctx, target, snapshot.resolvedOCIType, podman, applicationImageInspection{}, canRecord, opts...)
+				observedDigests = m.observedCachedImageDigests(ctx, target, snapshot.resolvedOCIType, podman, applicationImageInspection{}, canRecord, opts...)
 			}
 		}()
 		if m.tasks[target] != task || task.delta != snapshot.delta || task.done != snapshot.done ||
@@ -2128,19 +2146,21 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		return true
 	}
 	task.targetPresent = true
-	if task.done && observedDigest == "" {
+	if task.done && len(observedDigests) == 0 {
 		return false
 	}
 	task.done = true
-	// A cache hit satisfies PullIfNotPresent, but only a verified desired
-	// digest can establish that no update was required. Never resolve a
-	// mutable tag merely to produce an outcome for cached content.
+	// A cache hit satisfies PullIfNotPresent without resolving a mutable tag.
+	// Associate NotRequired with the verified local identity, checking the
+	// desired digest as well when one was supplied.
 	desiredDigest := task.targetDigest
 	if desiredDigest == "" {
 		_, desiredDigest, _ = strings.Cut(target.image, "@")
 	}
-	if validObservedDigest(desiredDigest) && observedDigest == desiredDigest {
-		m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+	if desiredDigest == "" || slices.Contains(observedDigests, desiredDigest) {
+		for _, observedDigest := range observedDigests {
+			m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", observedDigest)
+		}
 	}
 	return false
 }

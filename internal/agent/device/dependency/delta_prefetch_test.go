@@ -533,9 +533,11 @@ func TestWhenPresentMutableApplicationImageIsCollectedItShouldFollowPullIfMissin
 		name            string
 		reference       string
 		desiredDigest   string
+		unknownIdentity bool
 		wantNotRequired bool
 	}{
-		{name: "When a mutable tag has no desired digest it should withhold NotRequired", reference: "quay.io/acme/compose:stable"},
+		{name: "When a cached mutable tag has no desired digest it should report NotRequired", reference: "quay.io/acme/compose:stable", wantNotRequired: true},
+		{name: "When a cached mutable tag has no observed identity it should withhold NotRequired", reference: "quay.io/acme/compose:stable", unknownIdentity: true},
 		{name: "When a cached tag has a different desired digest it should withhold NotRequired", reference: "quay.io/acme/compose:stable", desiredDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{name: "When a cached tag matches the desired digest it should report NotRequired", reference: "quay.io/acme/compose:stable", desiredDigest: localDigest, wantNotRequired: true},
 		{name: "When a cached pinned reference matches it should report NotRequired", reference: "quay.io/acme/compose@" + localDigest, wantNotRequired: true},
@@ -546,10 +548,14 @@ func TestWhenPresentMutableApplicationImageIsCollectedItShouldFollowPullIfMissin
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(3)
-			localMetadata, err := json.Marshal(client.PodmanImageMetadata{
+			metadata := client.PodmanImageMetadata{
 				ID:     "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 				Digest: localDigest,
-			})
+			}
+			if tc.unknownIdentity {
+				metadata.ID = ""
+			}
+			localMetadata, err := json.Marshal(metadata)
 			require.NoError(t, err)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
 				Return(string(localMetadata), "", 0).Times(2)
@@ -595,7 +601,7 @@ func TestWhenPresentMutableApplicationImageIsCollectedItShouldFollowPullIfMissin
 				require.NotNil(t, persisted)
 				require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, persisted.Outcome)
 			} else {
-				require.Nil(t, persisted, "local presence does not verify the desired digest behind a mutable tag")
+				require.Nil(t, persisted, "a missing or mismatched immutable identity cannot establish the cached outcome")
 			}
 		})
 	}
@@ -2134,7 +2140,7 @@ func TestWhenCRITagMovesAfterPullItShouldRecordThePulledImage(t *testing.T) {
 	require.Nil(newResult)
 }
 
-func TestWhenCRICacheTagMovesItShouldWithholdUnverifiedNotRequired(t *testing.T) {
+func TestWhenCRICacheTagMovesItShouldReportNotRequiredForTheCachedIdentity(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -2184,5 +2190,9 @@ func TestWhenCRICacheTagMovesItShouldWithholdUnverifiedNotRequired(t *testing.T)
 	oldImage := deltastatus.ApplicationImage{Image: target.image, Owner: "root", OCIType: string(target.ociType), Digest: oldDigest}
 	oldResult := store.ObservedApplicationResult("web", []deltastatus.ApplicationImage{oldImage}, true)
 	require.Equal(1, targetInspections)
-	require.Nil(oldResult)
+	require.NotNil(oldResult)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, oldResult.Outcome)
+	otherImage := oldImage
+	otherImage.Digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	require.Nil(store.ObservedApplicationResult("web", []deltastatus.ApplicationImage{otherImage}, true))
 }
