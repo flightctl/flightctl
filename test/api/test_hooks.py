@@ -923,35 +923,123 @@ class TestEndToEndLoaderBehaviour:
         _check()
 
 
+def _find_spec_path():
+    """Locate a real OpenAPI spec in both repo checkout and CI container layouts.
+
+    Tries ``SPEC_PATH`` env var first (set by ``run_suite.sh`` in CI),
+    then falls back to the repo-relative path from this file.
+    Always returns an absolute path when a spec is found.
+    """
+    env_path = os.environ.get("SPEC_PATH")
+    if env_path:
+        abs_env = os.path.abspath(env_path)
+        if os.path.isfile(abs_env):
+            return abs_env
+    repo_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "api", "core", "v1beta1", "openapi.yaml"),
+    )
+    if os.path.isfile(repo_path):
+        return repo_path
+    return None
+
+
+class TestFindSpecPath:
+    """Verify _find_spec_path resolves specs in repo and container layouts."""
+
+    def test_returns_spec_path_env_when_valid(self, tmp_path, monkeypatch):
+        spec = tmp_path / "openapi.yaml"
+        spec.write_text("openapi: '3.0.3'")
+        monkeypatch.setenv("SPEC_PATH", str(spec))
+        result = _find_spec_path()
+        assert result == str(spec)
+
+    def test_normalises_relative_env_to_absolute(self, tmp_path, monkeypatch):
+        """A relative SPEC_PATH is resolved to an absolute path."""
+        spec = tmp_path / "openapi.yaml"
+        spec.write_text("openapi: '3.0.3'")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("SPEC_PATH", "openapi.yaml")
+        result = _find_spec_path()
+        assert os.path.isabs(result)
+        assert result == str(spec)
+
+    def test_ignores_missing_spec_path_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SPEC_PATH", "/nonexistent/openapi.yaml")
+        # Patch __file__ to a dir without repo layout so fallback returns None
+        import test_hooks
+        monkeypatch.setattr(test_hooks, "__file__", str(tmp_path / "test_hooks.py"))
+        assert _find_spec_path() is None
+
+    def test_repo_fallback_finds_spec(self, tmp_path, monkeypatch):
+        """With no SPEC_PATH, falls back to repo-relative from __file__."""
+        monkeypatch.delenv("SPEC_PATH", raising=False)
+        # Build a minimal repo tree: __file__ at test/api/test_hooks.py
+        repo = tmp_path / "repo"
+        api_dir = repo / "api" / "core" / "v1beta1"
+        api_dir.mkdir(parents=True)
+        spec = api_dir / "openapi.yaml"
+        spec.write_text("openapi: '3.0.3'")
+        test_dir = repo / "test" / "api"
+        test_dir.mkdir(parents=True)
+        import test_hooks
+        monkeypatch.setattr(test_hooks, "__file__", str(test_dir / "test_hooks.py"))
+        result = _find_spec_path()
+        assert result == str(spec)
+
+    def test_container_layout_env_over_missing_repo(self, tmp_path, monkeypatch):
+        """Simulated container: specs at app/specs, tests at app/config."""
+        specs_dir = tmp_path / "app" / "specs"
+        specs_dir.mkdir(parents=True)
+        spec = specs_dir / "openapi.yaml"
+        spec.write_text("openapi: '3.0.3'")
+        config_dir = tmp_path / "app" / "config"
+        config_dir.mkdir(parents=True)
+        import test_hooks
+        monkeypatch.setattr(test_hooks, "__file__", str(config_dir / "test_hooks.py"))
+        monkeypatch.setenv("SPEC_PATH", str(spec))
+        result = _find_spec_path()
+        assert result == str(spec)
+
+
 class TestBeforeLoadSchemaOnRealSpec:
     """Smoke tests against the actual flightctl OpenAPI spec using raw hook."""
 
     @pytest.fixture
     def real_raw(self):
-        import os
         import yaml
-        spec_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "api", "core", "v1beta1", "openapi.yaml",
-        )
-        if not os.path.isfile(spec_path):
+        spec_path = _find_spec_path()
+        if spec_path is None:
             pytest.skip("openapi.yaml not found")
         with open(spec_path) as f:
             return yaml.safe_load(f)
 
-    def test_device_schema_has_integer_limits(self, real_raw):
+    def test_component_schemas_have_integer_limits(self, real_raw):
         hooks.before_load_schema(None, real_raw)
-        device = real_raw["components"]["schemas"]["Device"]
-        int_missing = []
-        hooks._walk_schema(device, lambda s: (
-            int_missing.append(s) if s.get("type") == "integer" and "minimum" not in s else None
-        ))
-        assert not int_missing, f"Device: {len(int_missing)} integer fields missing limits"
+        schemas = real_raw.get("components", {}).get("schemas", {})
+        # Pick a schema that has integer properties (spec-agnostic).
+        for name, schema_def in schemas.items():
+            if not isinstance(schema_def, dict):
+                continue
+            int_missing = []
+            hooks._walk_schema(schema_def, lambda s: (
+                int_missing.append(s) if s.get("type") == "integer" and "minimum" not in s else None
+            ))
+            assert not int_missing, f"{name}: {len(int_missing)} integer fields missing limits"
 
-    def test_objectmeta_has_label_constraints(self, real_raw):
+    def test_label_properties_have_constraints(self, real_raw):
         hooks.before_load_schema(None, real_raw)
-        meta = real_raw["components"]["schemas"].get("ObjectMeta", {})
-        labels = meta.get("properties", {}).get("labels", {})
-        assert "propertyNames" in labels, "ObjectMeta.labels should have propertyNames"
+        schemas = real_raw.get("components", {}).get("schemas", {})
+        found = False
+        for schema_def in schemas.values():
+            if not isinstance(schema_def, dict):
+                continue
+            props = schema_def.get("properties", {})
+            labels = props.get("labels")
+            if isinstance(labels, dict) and labels.get("type") == "object":
+                assert "propertyNames" in labels, "labels property should have propertyNames"
+                found = True
+        if not found:
+            pytest.skip("No labels property found in spec")
 
 
 class TestConftestHookRegistration:
@@ -960,10 +1048,8 @@ class TestConftestHookRegistration:
     @pytest.fixture
     def _paths(self):
         test_api_dir = os.path.abspath(os.path.dirname(__file__))
-        spec_path = os.path.abspath(
-            os.path.join(test_api_dir, "..", "..", "api", "core", "v1beta1", "openapi.yaml"),
-        )
-        if not os.path.isfile(spec_path):
+        spec_path = _find_spec_path()
+        if spec_path is None:
             pytest.skip("openapi.yaml not found")
         return test_api_dir, spec_path
 
@@ -982,6 +1068,7 @@ class TestConftestHookRegistration:
             conftest_dir = test_api_dir
         # Build sys.path: test_api_dir for common/schemathesis deps,
         # conftest_dir on top (last insert(0) wins) for the conftest.py.
+        # Check any schema with a labels property (spec-agnostic).
         script = (
             "import os, sys\n"
             f"sys.path.insert(0, {test_api_dir!r})\n"
@@ -991,9 +1078,19 @@ class TestConftestHookRegistration:
             "os.environ['SCHEMATHESIS_HOOKS'] = ''\n"
             "import conftest\n"
             "raw = conftest.schema.raw_schema\n"
-            "labels = raw['components']['schemas']['ObjectMeta']"
-            "['properties']['labels']\n"
-            "has_pn = 'propertyNames' in labels\n"
+            "schemas = raw.get('components', {}).get('schemas', {})\n"
+            "found_labels = False\n"
+            "has_pn = False\n"
+            "for s in schemas.values():\n"
+            "    if not isinstance(s, dict): continue\n"
+            "    labels = s.get('properties', {}).get('labels', {})\n"
+            "    if isinstance(labels, dict) and labels.get('type') == 'object':\n"
+            "        found_labels = True\n"
+            "        has_pn = 'propertyNames' in labels\n"
+            "        break\n"
+            "if not found_labels:\n"
+            "    print('no_labels_property')\n"
+            "    sys.exit(2)\n"
             "print(f'propertyNames={has_pn}')\n"
             "sys.exit(0 if has_pn else 1)\n"
         )
@@ -1006,6 +1103,8 @@ class TestConftestHookRegistration:
     def test_conftest_applies_constraints_via_from_path(self, _paths):
         """Real conftest.py (with 'import common') applies before_load_schema."""
         ok, output = self._run_conftest_check(*_paths)
+        if "no_labels_property" in output:
+            pytest.skip("Spec has no labels property to test")
         assert ok, f"Conftest schema missing constraints:\n{output}"
 
     def test_conftest_without_import_common_lacks_constraints(self, _paths, tmp_path):
@@ -1029,6 +1128,8 @@ class TestConftestHookRegistration:
         ok, output = self._run_conftest_check(
             test_api_dir, spec_path, conftest_dir=str(tmp_path),
         )
+        if "no_labels_property" in output:
+            pytest.skip("Spec has no labels property to test")
         assert not ok, (
             "Without 'import common', conftest schema should lack constraints. "
             f"Got: {output}"
