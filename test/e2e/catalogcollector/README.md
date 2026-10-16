@@ -90,7 +90,9 @@ In scope:
 - Collector authentication against Flight Control with the OAuth2
   client-credentials grant, using the existing e2e Keycloak.
 - Deployment through the shipped Helm chart, with credentials and the CA bundle
-  mounted through chart values.
+  mounted through chart values. The suite drives this through
+  `infra.CollectorDeployer` and never touches Helm, kubectl, or the Kubernetes
+  client itself.
 
 Out of scope (deliberately not covered here):
 
@@ -104,8 +106,10 @@ Out of scope (deliberately not covered here):
 
 - A Kubernetes deployment of Flight Control. The suite skips on Quadlet.
 - A **kind** cluster. The collector image is a local build, and loading a local
-  image into cluster nodes is only implemented for kind
-  (`infra.ChartDeployer.LoadLocalImage`). The suite skips on OpenShift.
+  image into cluster nodes is only implemented for kind. The suite does not
+  check this itself: it asks `infra.CollectorDeployer.Available`, and the
+  Kubernetes implementation reports the deployment as unavailable with that
+  reason, so the suite skips on OpenShift.
 - `helm` and `kind` on `PATH` (both are installed by the standard e2e
   environment setup).
 - Podman (or Docker) for the Keycloak and Model Registry aux containers.
@@ -203,16 +207,23 @@ it is deliberately not matched by that pattern.)
    model, one LIVE SemVer version, and one LIVE ModelCar artifact whose URI is
    pinned to an immutable `sha256:` digest. Every other scenario seeds its own
    content once the collector is running.
-4. **Deployment** — a per-run namespace holding the OAuth2 client credentials
-   Secret and the Flight Control CA bundle ConfigMap, both mounted into the
-   collector through `extraVolumes`/`extraVolumeMounts` chart values, and one
-   collector configured with one source and one pipeline per scenario. TLS
-   verification stays on: the collector verifies the API against that CA bundle
-   and `insecureSkipVerify` is set nowhere.
+4. **Deployment** — `infra.CollectorDeployer.Start`, given the rendered
+   configuration, the OAuth2 client credentials, and a logical instance ID.
+   Everything cluster-shaped behind that call — the per-run namespace, the
+   credentials Secret, the Flight Control CA bundle ConfigMap, the
+   `extraVolumes`/`extraVolumeMounts` chart values that mount both, the image
+   load, and the release — belongs to `test/e2e/infra/k8s`, and the suite
+   names none of it. What the suite does own is the configuration: one source
+   and one pipeline per scenario. The endpoint and the in-container paths that
+   configuration refers to come from `ConfigContext`, because only the
+   deployment knows them. TLS verification stays on: the collector verifies
+   the API against the CA bundle the deployment discovered and
+   `insecureSkipVerify` is set nowhere.
 
-Every name (namespace, Helm release, catalog, pipeline, scenario selector,
-model, artifact digest, AuthProvider) carries the same random per-run suffix,
-so concurrent runs and reruns against a reused cluster cannot collide.
+Every name the suite owns (catalog, pipeline, scenario selector, model,
+artifact digest, AuthProvider) carries the same random per-run suffix, which
+is also the instance ID the deployment derives its own names from, so
+concurrent runs and reruns against a reused cluster cannot collide.
 
 ## Teardown
 
@@ -226,10 +237,14 @@ breaks the following run.
 
 The order is:
 
-1. **Stop the collector** — uninstall the Helm release, confirm it is gone, and
-   wait for the pods to disappear. If any of that fails the namespace is
-   deleted as a fallback, which stops the collector just as effectively; the
-   original failure is still reported.
+1. **Stop the collector** — `infra.CollectorInstance.Stop`. How that is done,
+   and what to fall back to when it does not work, belongs to the deployment:
+   the Kubernetes implementation uninstalls the release, confirms it is gone,
+   waits for the pods to disappear, and deletes the namespace as a fallback,
+   which stops the collector just as effectively while still reporting the
+   original failure. `Stop` answers two questions on two channels — whether
+   the collector is confirmed down, and whether anything was left behind —
+   because a fallback that worked makes those answers disagree.
 2. **Delete the catalog resources** the collector created: the item of every
    model any scenario seeded, then every scenario's catalog. This is the one
    real ordering dependency: nothing may delete them until the collector can no
@@ -244,12 +259,17 @@ The order is:
    are moved out of the LIVE selection). A model is recorded as soon as the
    server accepts it, so content from a seeding call that failed halfway is
    retired too.
-4. **Remove the suite-owned AuthProvider, namespace, and rendered values file.**
-5. **Clean up the aux services** (a no-op while container reuse is on).
+4. **Delete the suite-owned AuthProvider.**
+5. **Remove the collector deployment** — `infra.CollectorInstance.Cleanup`,
+   which removes whatever the deployment still owns (for Kubernetes, the
+   namespace and the rendered values file). It is idempotent, so it is safe
+   after a stop that already deleted part of it as its fallback, and it is
+   independent of step 1, so it runs even when stopping failed.
+6. **Clean up the aux services** (a no-op while container reuse is on).
 
 Each step is skipped when the setup step that created its resource never ran,
 so a suite that skipped or failed early tears down only what it created.
 
-On a failing spec, `AfterEach` dumps collector pod state, namespace events,
-container logs, and the current catalogs and catalog items before teardown
-removes them.
+On a failing spec, `AfterEach` dumps `infra.CollectorInstance.Diagnostics`
+(for Kubernetes: collector pod state, namespace events, and container logs)
+and the current catalogs and catalog items before teardown removes them.

@@ -40,7 +40,7 @@ func TestLocalImageExists(t *testing.T) {
 		dockerHost string
 		// result is what the stubbed command reports.
 		result func(t *testing.T) commandResult
-		// wantArgs is the subcommand the deployer must use for this runtime.
+		// wantArgs is the subcommand the runtime must use for this CLI.
 		wantArgs []string
 
 		wantExists bool
@@ -150,14 +150,14 @@ func TestLocalImageExists(t *testing.T) {
 			t.Setenv("DOCKER_HOST", tt.dockerHost)
 
 			var gotArgs []string
-			deployer := &ChartDeployer{
+			runtime := &clusterRuntime{
 				runCommand: func(_ context.Context, _ string, args ...string) commandResult {
 					gotArgs = args
 					return tt.result(t)
 				},
 			}
 
-			exists, err := deployer.LocalImageExists(context.Background(), image)
+			exists, err := runtime.localImageExists(context.Background(), image)
 
 			require.Equal(t, tt.wantArgs, gotArgs, "the runtime subcommand must match the runtime in use")
 			if tt.wantErr {
@@ -178,7 +178,7 @@ func TestLocalImageExistsCancellation(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// newContext returns an already-finished context, as the deployer sees
+		// newContext returns an already-finished context, as the runtime sees
 		// it after exec kills the child process.
 		newContext func(t *testing.T) context.Context
 		wantErr    error
@@ -205,7 +205,7 @@ func TestLocalImageExistsCancellation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			deployer := &ChartDeployer{
+			runtime := &clusterRuntime{
 				runCommand: func(_ context.Context, _ string, _ ...string) commandResult {
 					// exec kills the child on context end, which surfaces as a
 					// signalled process rather than a clean exit status.
@@ -213,7 +213,7 @@ func TestLocalImageExistsCancellation(t *testing.T) {
 				},
 			}
 
-			exists, err := deployer.LocalImageExists(tt.newContext(t), image)
+			exists, err := runtime.localImageExists(tt.newContext(t), image)
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, tt.wantErr)
@@ -223,14 +223,14 @@ func TestLocalImageExistsCancellation(t *testing.T) {
 }
 
 func TestLocalImageExistsRejectsEmptyImage(t *testing.T) {
-	deployer := &ChartDeployer{
+	runtime := &clusterRuntime{
 		runCommand: func(_ context.Context, _ string, _ ...string) commandResult {
 			t.Fatal("the runtime must not be invoked for an empty image")
 			return commandResult{}
 		},
 	}
 
-	exists, err := deployer.LocalImageExists(context.Background(), "   ")
+	exists, err := runtime.localImageExists(context.Background(), "   ")
 
 	require.Error(t, err)
 	require.False(t, exists)

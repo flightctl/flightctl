@@ -385,7 +385,7 @@ func waitForCatalogItem(sc *scenario, itemName string, timeout time.Duration) *v
 // rejectedCollectionCount reads the collector log once and returns how many
 // rejected collection cycles it attributes to this scenario's source.
 func rejectedCollectionCount(ctx context.Context, sc *scenario, detail string) (int, error) {
-	lines, err := collectorLogLines(ctx, providers.Charts, resources)
+	lines, err := collectorLogLines(ctx, collectorInstance)
 	if err != nil {
 		return 0, err
 	}
