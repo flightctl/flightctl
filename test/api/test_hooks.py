@@ -702,29 +702,58 @@ class TestEndToEndLoaderBehaviour:
             assert s["properties"]["count"]["minimum"] == hooks.INT64_MIN
 
     def test_composition_target_exempt_through_loader(self):
-        """Composition target stays unconstrained through the public from_dict loader."""
-        spec = _make_raw_spec({
-            "Resource": {"allOf": [
-                {"$ref": "#/components/schemas/Base"},
-                {"type": "object", "properties": {"extra": {"type": "string"}}},
-            ]},
-            "Base": {"type": "object", "properties": {
-                "core": {"type": "string"},
-                "count": {"type": "integer"},
-            }},
-        })
-        # from_dict fires before_load_schema, which modifies the spec dict in-place.
+        """Composition target stays unconstrained through the public from_dict loader.
+
+        With additionalProperties: false incorrectly on Base, the allOf
+        becomes unsatisfiable (extra is rejected by Base).  This test
+        generates a body via the public as_strategy() API and asserts
+        both allOf branches contribute required properties — proving
+        the composition exemption survived loading, not just the
+        raw-hook callback.
+        """
+        from hypothesis import given, settings as h_settings, HealthCheck
+        from hypothesis import strategies as st
+
+        spec = _make_raw_spec(
+            schemas={
+                "Resource": {"allOf": [
+                    {"$ref": "#/components/schemas/Base"},
+                    {"type": "object", "required": ["extra"],
+                     "properties": {"extra": {"type": "string"}}},
+                ]},
+                "Base": {"type": "object", "required": ["core"], "properties": {
+                    "core": {"type": "string"},
+                    "count": {"type": "integer"},
+                }},
+            },
+            paths={"/resources": {"post": {
+                "requestBody": {"required": True, "content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/Resource"},
+                }}},
+                "responses": {"201": {"description": "Created"}},
+            }}},
+        )
         loaded = schemathesis.openapi.from_dict(spec)
         base = spec["components"]["schemas"]["Base"]
-        # Composition target must NOT get additionalProperties: false.
-        assert "additionalProperties" not in base, \
-            "Composition target Base must remain unconstrained after from_dict loading"
-        # Positive proof that before_load_schema DID run: integer limits applied.
-        assert base["properties"]["count"]["minimum"] == hooks.INT64_MIN, \
-            "Integer limits must be applied even to composition targets"
-        # Loaded schema produces a usable operation with body.
+        # Positive proof that before_load_schema ran: integer limits present.
+        assert base["properties"]["count"]["minimum"] == hooks.INT64_MIN
+        # Composition target must NOT have additionalProperties: false.
+        assert "additionalProperties" not in base
+
+        # Generate a body through the public loaded-schema strategy.
+        # If Base were wrongly constrained, Hypothesis raises Unsatisfiable.
         op = loaded["/resources"]["POST"]
-        assert op.body, "POST /resources must have a body definition"
+
+        @h_settings(max_examples=1, derandomize=True,
+                     suppress_health_check=list(HealthCheck))
+        @given(data=st.data())
+        def _check(data):
+            case = data.draw(op.as_strategy())
+            assert isinstance(case.body, dict), "body must be a dict"
+            assert "core" in case.body, "Base's required 'core' must be present"
+            assert "extra" in case.body, "Sibling branch's required 'extra' must be present"
+
+        _check()
 
 
 class TestBeforeLoadSchemaOnRealSpec:
@@ -817,6 +846,8 @@ class TestConftestHookRegistration:
 
         This is the regression baseline: removing the import line must
         cause constraints to be absent, proving the import is required.
+        Asserts the specific expected output (propertyNames=False) so
+        that an unrelated subprocess failure cannot satisfy the baseline.
         """
         test_api_dir, spec_path = _paths
         # Write a conftest.py without the 'import common' line
@@ -834,4 +865,8 @@ class TestConftestHookRegistration:
         assert not ok, (
             "Without 'import common', conftest schema should lack constraints. "
             f"Got: {output}"
+        )
+        assert "propertyNames=False" in output, (
+            "Expected 'propertyNames=False' in output to confirm constraints "
+            f"are absent (not an unrelated error). Got: {output}"
         )
