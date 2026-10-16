@@ -104,12 +104,14 @@ Out of scope (deliberately not covered here):
 
 ## Requirements
 
-- A Kubernetes deployment of Flight Control. The suite skips on Quadlet.
+- A Kubernetes deployment of Flight Control. On Quadlet the suite skips, unless
+  the run required a collector (see below), in which case it fails.
 - A **kind** cluster. The collector image is a local build, and loading a local
   image into cluster nodes is only implemented for kind. The suite does not
   check this itself: it asks `infra.CollectorDeployer.Available`, and the
   Kubernetes implementation reports the deployment as unavailable with that
-  reason, so the suite skips on OpenShift.
+  reason, so on OpenShift the suite skips — again, unless the run required a
+  collector, in which case it fails.
 - `helm` and `kind` on `PATH` (both are installed by the standard e2e
   environment setup).
 - Podman (or Docker) for the Keycloak and Model Registry aux containers.
@@ -141,8 +143,32 @@ There are two paths, and they differ in where the image comes from:
   nothing. The workflow also asserts, after the run, that the initial
   synchronization spec actually executed rather than being skipped.
 
-Skips for deployment types that cannot run the suite at all (Quadlet,
-OpenShift) are unaffected by these variables.
+`E2E_CATALOG_COLLECTOR_REQUIRED` governs every reason a collector cannot be
+deployed, not just a missing image. A deployment type that cannot host one at
+all (Quadlet, OpenShift) is reported through the same
+`infra.CollectorDeployer.Available` answer as an absent image, so one rule
+decides what happens next. The run is either **optional** or **required**:
+
+- **required** when `E2E_CATALOG_COLLECTOR_REQUIRED=true`.
+- **required by default** on a Kubernetes deployment when
+  `E2E_CATALOG_COLLECTOR_IMAGE` is set and `E2E_CATALOG_COLLECTOR_REQUIRED` is
+  left unset — naming an exact image is itself a statement that this suite was
+  meant to run against it. Quadlet does not apply that default: it cannot host
+  a collector however the image was chosen, so it reads
+  `E2E_CATALOG_COLLECTOR_REQUIRED` alone and an unset value leaves the run
+  optional.
+- **optional** when nothing is set, or whenever
+  `E2E_CATALOG_COLLECTOR_REQUIRED` is explicitly `false`. An explicit `false`
+  always wins, so an image can be named without making the run mandatory.
+
+| Situation | Optional run | Required run |
+|-----------|--------------|--------------|
+| Deployment type cannot host a collector (Quadlet, OpenShift) | **skip**, with the reason | **fail** |
+| No collector image available | **skip**, with the reason | **fail** |
+| Setting is not a boolean, container runtime unreachable, or any other genuine error | **fail** | **fail** |
+
+An error is never downgraded to a skip: only a settled "this environment
+cannot run it" produces one, and only when the run is optional.
 
 ## Environment variables
 
@@ -150,7 +176,7 @@ OpenShift) are unaffected by these variables.
 |----------|---------|
 | `E2E_CATALOG_COLLECTOR_IMAGE` | The exact collector image under test. Overrides the local-tag lookup. |
 | `E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED` | `true` when that image is already in the cluster image store, so the suite neither looks for it in the host runtime nor loads it. |
-| `E2E_CATALOG_COLLECTOR_REQUIRED` | `true` to fail setup instead of skipping when no collector image is available. Defaults to `true` whenever `E2E_CATALOG_COLLECTOR_IMAGE` is set. |
+| `E2E_CATALOG_COLLECTOR_REQUIRED` | `true` to fail setup instead of skipping whenever a collector cannot be deployed — whether because no image is available or because the deployment type cannot host one. Defaults to `true` whenever `E2E_CATALOG_COLLECTOR_IMAGE` is set. |
 | `KIND_CLUSTER_NAME` | kind cluster to load the collector image into. Defaults to `kind`. |
 
 ## Running
