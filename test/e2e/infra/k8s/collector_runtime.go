@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	// chartPollInterval is how often namespace and pod teardown are re-checked.
+	// chartPollInterval is how often namespace and pod state are re-checked.
 	chartPollInterval = 2 * time.Second
 	// diagnosticsLogTailLines bounds the log dump collected on failure so a
 	// crash-looping container cannot bury the failure message.
@@ -48,12 +48,58 @@ const (
 	dockerImageInspectFailureExitCode = 1
 )
 
-// ChartDeployer implements infra.ChartDeployer for Kubernetes environments.
+// chartRelease describes one Helm release this package installs.
+//
+// It is private because installing arbitrary charts is not a capability any
+// caller outside this package has: the only release is the collector's own,
+// and the collector deployment builds this value itself.
+type chartRelease struct {
+	// name is the Helm release name.
+	name string
+	// namespace is the namespace the release is installed into. It is created
+	// when missing.
+	namespace string
+	// chartPath is a path to the chart directory, relative to the repository
+	// root or absolute.
+	chartPath string
+	// valuesFiles are rendered values files passed with --values, in order.
+	valuesFiles []string
+	// setValues are additional --set-string overrides.
+	setValues map[string]string
+	// timeout bounds the install, including --wait. Must be positive.
+	timeout time.Duration
+}
+
+// collectorRuntime is the set of cluster operations a collector deployment
+// performs.
+//
+// It exists as an interface so the deployment's decision logic - image
+// selection, the start sequence, and above all the stop sequence and its
+// fallback - can be exercised without a cluster. It is private: it is this
+// package's own plumbing, not a deployment mechanism other packages may reach
+// for.
+type collectorRuntime interface {
+	ensureNamespace(ctx context.Context, namespace string) error
+	deleteNamespace(ctx context.Context, namespace string, timeout time.Duration) error
+	applySecret(ctx context.Context, namespace, name string, data map[string]string) error
+	applyConfigMap(ctx context.Context, namespace, name string, data map[string]string) error
+	localImageExists(ctx context.Context, image string) (bool, error)
+	loadLocalImage(ctx context.Context, image string) error
+	installChart(ctx context.Context, release chartRelease) error
+	uninstallChart(ctx context.Context, name, namespace string, timeout time.Duration) error
+	releaseInstalled(ctx context.Context, name, namespace string) (bool, error)
+	waitForWorkloadReady(ctx context.Context, namespace, labelSelector string, timeout time.Duration) error
+	waitForWorkloadGone(ctx context.Context, namespace, labelSelector string, timeout time.Duration) error
+	workloadDiagnostics(ctx context.Context, namespace, labelSelector string) string
+	workloadLogs(ctx context.Context, namespace, labelSelector string, tailLines int64) (string, error)
+}
+
+// clusterRuntime is the collectorRuntime backed by a real cluster.
 //
 // Namespace, Secret, ConfigMap, and pod operations go through client-go; Helm
 // releases and kind image loads shell out to the same CLIs the deploy scripts
 // use, because neither has a usable library surface here.
-type ChartDeployer struct {
+type clusterRuntime struct {
 	client      kubernetes.Interface
 	kubeConfig  string
 	kubeContext string
@@ -65,21 +111,21 @@ type ChartDeployer struct {
 	runCommand commandRunner
 }
 
-// NewChartDeployer creates a K8s ChartDeployer. infraP supplies the kubeconfig,
-// context, and environment type so chart installs target the same cluster as
-// the rest of the infra providers.
-func NewChartDeployer(client kubernetes.Interface, infraP *InfraProvider) (*ChartDeployer, error) {
+// newClusterRuntime creates the cluster-backed runtime. infraP supplies the
+// kubeconfig, context, and environment type so everything installed here
+// targets the same cluster as the rest of the infra providers.
+func newClusterRuntime(client kubernetes.Interface, infraP *InfraProvider) (*clusterRuntime, error) {
 	if client == nil {
-		return nil, fmt.Errorf("k8s ChartDeployer requires a non-nil Kubernetes client")
+		return nil, fmt.Errorf("cluster runtime requires a non-nil Kubernetes client")
 	}
 	if infraP == nil {
-		return nil, fmt.Errorf("k8s ChartDeployer requires a non-nil InfraProvider")
+		return nil, fmt.Errorf("cluster runtime requires a non-nil InfraProvider")
 	}
 	root, err := projectRoot()
 	if err != nil {
-		return nil, fmt.Errorf("k8s ChartDeployer: %w", err)
+		return nil, fmt.Errorf("cluster runtime: %w", err)
 	}
-	return &ChartDeployer{
+	return &clusterRuntime{
 		client:      client,
 		kubeConfig:  infraP.kubeConfig,
 		kubeContext: infraP.kubeContext,
@@ -88,10 +134,10 @@ func NewChartDeployer(client kubernetes.Interface, infraP *InfraProvider) (*Char
 	}, nil
 }
 
-// EnsureNamespace creates the namespace when it does not exist.
-func (d *ChartDeployer) EnsureNamespace(ctx context.Context, namespace string) error {
+// ensureNamespace creates the namespace when it does not exist.
+func (d *clusterRuntime) ensureNamespace(ctx context.Context, namespace string) error {
 	if strings.TrimSpace(namespace) == "" {
-		return fmt.Errorf("EnsureNamespace: namespace is required")
+		return fmt.Errorf("ensureNamespace: namespace is required")
 	}
 	_, err := d.client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: namespace},
@@ -102,10 +148,11 @@ func (d *ChartDeployer) EnsureNamespace(ctx context.Context, namespace string) e
 	return fmt.Errorf("create namespace %s: %w", namespace, err)
 }
 
-// DeleteNamespace removes the namespace and waits for it to disappear.
-func (d *ChartDeployer) DeleteNamespace(ctx context.Context, namespace string, timeout time.Duration) error {
+// deleteNamespace removes the namespace and waits for it to disappear. A
+// missing namespace is not an error, so this is safe to repeat.
+func (d *clusterRuntime) deleteNamespace(ctx context.Context, namespace string, timeout time.Duration) error {
 	if strings.TrimSpace(namespace) == "" {
-		return fmt.Errorf("DeleteNamespace: namespace is required")
+		return fmt.Errorf("deleteNamespace: namespace is required")
 	}
 	err := d.client.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -124,10 +171,10 @@ func (d *ChartDeployer) DeleteNamespace(ctx context.Context, namespace string, t
 	}, fmt.Sprintf("namespace %s was not removed", namespace))
 }
 
-// ApplySecret creates or replaces an Opaque Secret from string data.
-func (d *ChartDeployer) ApplySecret(ctx context.Context, namespace, name string, data map[string]string) error {
+// applySecret creates or replaces an Opaque Secret from string data.
+func (d *clusterRuntime) applySecret(ctx context.Context, namespace, name string, data map[string]string) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(name) == "" {
-		return fmt.Errorf("ApplySecret: namespace and name are required")
+		return fmt.Errorf("applySecret: namespace and name are required")
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -149,10 +196,10 @@ func (d *ChartDeployer) ApplySecret(ctx context.Context, namespace, name string,
 	return nil
 }
 
-// ApplyConfigMap creates or replaces a ConfigMap.
-func (d *ChartDeployer) ApplyConfigMap(ctx context.Context, namespace, name string, data map[string]string) error {
+// applyConfigMap creates or replaces a ConfigMap.
+func (d *clusterRuntime) applyConfigMap(ctx context.Context, namespace, name string, data map[string]string) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(name) == "" {
-		return fmt.Errorf("ApplyConfigMap: namespace and name are required")
+		return fmt.Errorf("applyConfigMap: namespace and name are required")
 	}
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -186,8 +233,8 @@ type commandResult struct {
 	err error
 }
 
-// commandRunner runs an image-lookup command. It is a field on ChartDeployer so
-// the failure paths (runtime down, missing executable, cancellation) can be
+// commandRunner runs an image-lookup command. It is a field on clusterRuntime
+// so the failure paths (runtime down, missing executable, cancellation) can be
 // exercised without a container runtime.
 type commandRunner func(ctx context.Context, name string, args ...string) commandResult
 
@@ -217,7 +264,7 @@ func runLookupCommand(ctx context.Context, name string, args ...string) commandR
 // Only markers that name an image are accepted. A bare "not found" would also
 // match environment failures that are not "image absent" - a broken CLI
 // context reports `context "x": context not found` and exits 1 - and reporting
-// those as a missing image is the conflation LocalImageExists forbids.
+// those as a missing image is the conflation localImageExists forbids.
 func notFoundMessage(stderr string) bool {
 	lowered := strings.ToLower(stderr)
 	for _, marker := range []string{"no such image", "image not known"} {
@@ -228,16 +275,16 @@ func notFoundMessage(stderr string) bool {
 	return false
 }
 
-// LocalImageExists reports whether the image is present in the local runtime.
+// localImageExists reports whether the image is present in the local runtime.
 //
 // Only a runtime that positively reports "this image is not in the local store"
 // yields (false, nil). A missing runtime binary, an unreachable runtime, any
 // other runtime failure, and a cancelled or timed-out context are returned as
 // errors, so a broken environment is never silently reported as a missing
 // image.
-func (d *ChartDeployer) LocalImageExists(ctx context.Context, image string) (bool, error) {
+func (d *clusterRuntime) localImageExists(ctx context.Context, image string) (bool, error) {
 	if strings.TrimSpace(image) == "" {
-		return false, fmt.Errorf("LocalImageExists: image is required")
+		return false, fmt.Errorf("localImageExists: image is required")
 	}
 	cli := containers.RuntimeCLIName()
 	// "podman image exists" is purpose-built for this question and documents
@@ -287,13 +334,14 @@ func (d *ChartDeployer) LocalImageExists(ctx context.Context, image string) (boo
 	return false, fmt.Errorf("%s %s: %w: %s", cli, strings.Join(args, " "), result.err, stderr)
 }
 
-// LoadLocalImage loads a locally built image into the kind node image store.
-func (d *ChartDeployer) LoadLocalImage(ctx context.Context, image string) error {
+// loadLocalImage loads a locally built image into the kind node image store.
+func (d *clusterRuntime) loadLocalImage(ctx context.Context, image string) error {
 	if strings.TrimSpace(image) == "" {
-		return fmt.Errorf("LoadLocalImage: image is required")
+		return fmt.Errorf("loadLocalImage: image is required")
 	}
 	if d.envType != infra.EnvironmentKind {
-		return fmt.Errorf("%w: loading a locally built image requires kind, got %q", infra.ErrChartDeploymentNotSupported, d.envType)
+		return fmt.Errorf("%w: loading a locally built image requires kind, got %q",
+			infra.ErrCollectorDeploymentUnsupported, d.envType)
 	}
 
 	clusterName := os.Getenv(kindClusterNameEnv)
@@ -327,7 +375,7 @@ func (d *ChartDeployer) LoadLocalImage(ctx context.Context, image string) error 
 	return nil
 }
 
-func (d *ChartDeployer) saveImageArchive(ctx context.Context, image string) (string, error) {
+func (d *clusterRuntime) saveImageArchive(ctx context.Context, image string) (string, error) {
 	file, err := os.CreateTemp("", "e2e-chart-image-*.tar")
 	if err != nil {
 		return "", fmt.Errorf("create image archive file: %w", err)
@@ -346,75 +394,76 @@ func (d *ChartDeployer) saveImageArchive(ctx context.Context, image string) (str
 	return path, nil
 }
 
-// InstallChart installs or upgrades a Helm release and waits for readiness.
-func (d *ChartDeployer) InstallChart(ctx context.Context, release infra.ChartRelease) error {
-	if strings.TrimSpace(release.Name) == "" {
-		return fmt.Errorf("InstallChart: release name is required")
+// installChart installs or upgrades a Helm release and waits for readiness.
+func (d *clusterRuntime) installChart(ctx context.Context, release chartRelease) error {
+	if strings.TrimSpace(release.name) == "" {
+		return fmt.Errorf("installChart: release name is required")
 	}
-	if strings.TrimSpace(release.Namespace) == "" {
-		return fmt.Errorf("InstallChart: release namespace is required")
+	if strings.TrimSpace(release.namespace) == "" {
+		return fmt.Errorf("installChart: release namespace is required")
 	}
-	if strings.TrimSpace(release.ChartPath) == "" {
-		return fmt.Errorf("InstallChart: chart path is required")
+	if strings.TrimSpace(release.chartPath) == "" {
+		return fmt.Errorf("installChart: chart path is required")
 	}
-	if release.Timeout <= 0 {
-		return fmt.Errorf("InstallChart: timeout must be positive")
+	if release.timeout <= 0 {
+		return fmt.Errorf("installChart: timeout must be positive")
 	}
 
-	chartPath := release.ChartPath
+	chartPath := release.chartPath
 	if !filepath.IsAbs(chartPath) {
 		chartPath = filepath.Join(d.projectRoot, chartPath)
 	}
 	if _, err := os.Stat(chartPath); err != nil {
-		return fmt.Errorf("InstallChart: chart %s: %w", chartPath, err)
+		return fmt.Errorf("installChart: chart %s: %w", chartPath, err)
 	}
 
-	if err := d.EnsureNamespace(ctx, release.Namespace); err != nil {
+	if err := d.ensureNamespace(ctx, release.namespace); err != nil {
 		return err
 	}
 
 	args := []string{
-		"upgrade", "--install", release.Name, chartPath,
-		"--namespace", release.Namespace,
+		"upgrade", "--install", release.name, chartPath,
+		"--namespace", release.namespace,
 		"--wait",
-		"--timeout", release.Timeout.String(),
+		"--timeout", release.timeout.String(),
 	}
-	for _, valuesFile := range release.ValuesFiles {
+	for _, valuesFile := range release.valuesFiles {
 		args = append(args, "--values", valuesFile)
 	}
 	// Sort so the rendered command is reproducible and easy to compare between
 	// runs when a failure has to be reproduced by hand.
-	keys := make([]string, 0, len(release.SetValues))
-	for key := range release.SetValues {
+	keys := make([]string, 0, len(release.setValues))
+	for key := range release.setValues {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		args = append(args, "--set-string", fmt.Sprintf("%s=%s", key, release.SetValues[key]))
+		args = append(args, "--set-string", fmt.Sprintf("%s=%s", key, release.setValues[key]))
 	}
 	args = append(args, d.helmKubeArgs()...)
 
 	// Give the process a little more than the Helm timeout so a hung helm is
 	// killed by the context rather than left running after the spec ends.
-	runCtx, cancel := context.WithTimeout(ctx, release.Timeout+time.Minute)
+	runCtx, cancel := context.WithTimeout(ctx, release.timeout+time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, "helm", args...) //nolint:gosec // G204: args come from suite configuration
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("helm upgrade --install %s in %s: %w: %s", release.Name, release.Namespace, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("helm upgrade --install %s in %s: %w: %s",
+			release.name, release.namespace, err, strings.TrimSpace(string(out)))
 	}
-	logrus.Infof("K8s: installed Helm release %s in namespace %s", release.Name, release.Namespace)
+	logrus.Infof("K8s: installed Helm release %s in namespace %s", release.name, release.namespace)
 	return nil
 }
 
-// UninstallChart removes a Helm release; a missing release is not an error.
-func (d *ChartDeployer) UninstallChart(ctx context.Context, name, namespace string, timeout time.Duration) error {
+// uninstallChart removes a Helm release; a missing release is not an error.
+func (d *clusterRuntime) uninstallChart(ctx context.Context, name, namespace string, timeout time.Duration) error {
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(namespace) == "" {
-		return fmt.Errorf("UninstallChart: release name and namespace are required")
+		return fmt.Errorf("uninstallChart: release name and namespace are required")
 	}
 	if timeout <= 0 {
-		return fmt.Errorf("UninstallChart: timeout must be positive")
+		return fmt.Errorf("uninstallChart: timeout must be positive")
 	}
 
 	args := append([]string{
@@ -435,10 +484,10 @@ func (d *ChartDeployer) UninstallChart(ctx context.Context, name, namespace stri
 	return nil
 }
 
-// ReleaseInstalled reports whether a Helm release exists in the namespace.
-func (d *ChartDeployer) ReleaseInstalled(ctx context.Context, name, namespace string) (bool, error) {
+// releaseInstalled reports whether a Helm release exists in the namespace.
+func (d *clusterRuntime) releaseInstalled(ctx context.Context, name, namespace string) (bool, error) {
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(namespace) == "" {
-		return false, fmt.Errorf("ReleaseInstalled: release name and namespace are required")
+		return false, fmt.Errorf("releaseInstalled: release name and namespace are required")
 	}
 	args := append([]string{"status", name, "--namespace", namespace}, d.helmKubeArgs()...)
 	cmd := exec.CommandContext(ctx, "helm", args...) //nolint:gosec // G204: args come from suite configuration
@@ -454,10 +503,47 @@ func (d *ChartDeployer) ReleaseInstalled(ctx context.Context, name, namespace st
 	return false, fmt.Errorf("helm status %s in %s: %w: %s", name, namespace, err, strings.TrimSpace(string(out)))
 }
 
-// WaitForWorkloadGone waits until no pod matching labelSelector remains.
-func (d *ChartDeployer) WaitForWorkloadGone(ctx context.Context, namespace, labelSelector string, timeout time.Duration) error {
+// waitForWorkloadReady waits until at least one pod matching labelSelector
+// exists and every matching pod reports the Ready condition.
+//
+// This is the readiness question asked of a running deployment, kept separate
+// from whatever mechanism installed it: a caller asks whether the collector is
+// up, not whether a packaging tool finished.
+func (d *clusterRuntime) waitForWorkloadReady(ctx context.Context, namespace, labelSelector string, timeout time.Duration) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(labelSelector) == "" {
-		return fmt.Errorf("WaitForWorkloadGone: namespace and label selector are required")
+		return fmt.Errorf("waitForWorkloadReady: namespace and label selector are required")
+	}
+	return pollUntil(ctx, timeout, func() (bool, error) {
+		list, err := d.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		if err != nil {
+			return false, fmt.Errorf("list pods %s in %s: %w", labelSelector, namespace, err)
+		}
+		if len(list.Items) == 0 {
+			return false, nil
+		}
+		for i := range list.Items {
+			if !podReady(&list.Items[i]) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}, fmt.Sprintf("pods matching %s in namespace %s did not become ready", labelSelector, namespace))
+}
+
+// podReady reports whether the pod carries a true Ready condition.
+func podReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// waitForWorkloadGone waits until no pod matching labelSelector remains.
+func (d *clusterRuntime) waitForWorkloadGone(ctx context.Context, namespace, labelSelector string, timeout time.Duration) error {
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(labelSelector) == "" {
+		return fmt.Errorf("waitForWorkloadGone: namespace and label selector are required")
 	}
 	return pollUntil(ctx, timeout, func() (bool, error) {
 		list, err := d.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
@@ -471,8 +557,8 @@ func (d *ChartDeployer) WaitForWorkloadGone(ctx context.Context, namespace, labe
 	}, fmt.Sprintf("pods matching %s in namespace %s were not removed", labelSelector, namespace))
 }
 
-// WorkloadDiagnostics returns a best-effort dump of pod state, events, and logs.
-func (d *ChartDeployer) WorkloadDiagnostics(ctx context.Context, namespace, labelSelector string) string {
+// workloadDiagnostics returns a best-effort dump of pod state, events, and logs.
+func (d *clusterRuntime) workloadDiagnostics(ctx context.Context, namespace, labelSelector string) string {
 	var report strings.Builder
 	fmt.Fprintf(&report, "diagnostics for pods %q in namespace %q:\n", labelSelector, namespace)
 
@@ -516,14 +602,14 @@ func (d *ChartDeployer) WorkloadDiagnostics(ctx context.Context, namespace, labe
 	return report.String()
 }
 
-// WorkloadLogs returns the logs of every pod matching labelSelector, bounded to
+// workloadLogs returns the logs of every pod matching labelSelector, bounded to
 // the last tailLines lines per pod.
 //
-// Unlike WorkloadDiagnostics this reports failures instead of folding them into
+// Unlike workloadDiagnostics this reports failures instead of folding them into
 // the returned text: a caller that asserts on log content has to be able to
 // tell "the collector did not log that yet" from "the logs could not be read",
 // and an empty, successful-looking result would conflate the two.
-func (d *ChartDeployer) WorkloadLogs(ctx context.Context, namespace, labelSelector string, tailLines int64) (string, error) {
+func (d *clusterRuntime) workloadLogs(ctx context.Context, namespace, labelSelector string, tailLines int64) (string, error) {
 	if tailLines <= 0 {
 		return "", fmt.Errorf("tailLines must be positive, got %d", tailLines)
 	}
@@ -549,7 +635,7 @@ func (d *ChartDeployer) WorkloadLogs(ctx context.Context, namespace, labelSelect
 }
 
 // readPodLogs streams the last tailLines lines of one pod's logs.
-func (d *ChartDeployer) readPodLogs(ctx context.Context, namespace, podName string, tailLines int64) (string, error) {
+func (d *clusterRuntime) readPodLogs(ctx context.Context, namespace, podName string, tailLines int64) (string, error) {
 	tail := tailLines
 	request := d.client.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{TailLines: &tail})
 	stream, err := request.Stream(ctx)
@@ -567,7 +653,7 @@ func (d *ChartDeployer) readPodLogs(ctx context.Context, namespace, podName stri
 
 // helmKubeArgs returns the kubeconfig and context flags matching the rest of
 // the infra providers, so a chart never lands in a different cluster.
-func (d *ChartDeployer) helmKubeArgs() []string {
+func (d *clusterRuntime) helmKubeArgs() []string {
 	var args []string
 	if d.kubeConfig != "" {
 		args = append(args, "--kubeconfig", d.kubeConfig)

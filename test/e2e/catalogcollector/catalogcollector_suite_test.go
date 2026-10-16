@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -47,8 +46,12 @@ var (
 	// synchronization is needed here.
 	seededModels []*seededModel
 
-	valuesFilePath  string
-	chartInstalled  bool
+	// collectorInstance is the handle to the deployed collector. It is set as
+	// soon as the deployment created anything, including when starting it
+	// failed partway, because teardown has to remove what was created either
+	// way. Nil means nothing was deployed and there is nothing to tear down.
+	collectorInstance infra.CollectorInstance
+
 	authProviderSet bool
 	// collectorStopped records that the collector workload is confirmed gone,
 	// so nothing can recreate the Catalog resources teardown deletes next. It
@@ -65,35 +68,22 @@ var _ = BeforeSuite(func() {
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
 	defer cancel()
 
-	// The collector is deployed from the shipped Helm chart using the image
-	// built from this branch, so the suite needs a Helm-managed cluster whose
-	// nodes can be fed a locally built image. That is kind; Quadlet ships the
-	// collector as a Podman unit instead and is out of scope here.
-	infra.SkipIfNotK8s("Catalog collector e2e requires a Kubernetes deployment")
-
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	providers = setup.GetDefaultProviders()
 	Expect(providers).ToNot(BeNil(), "infra providers must be initialized")
-	Expect(providers.Charts).ToNot(BeNil(), "chart deployer is required to install the collector chart")
+	Expect(providers.CollectorDeployment).ToNot(BeNil(), "a collector deployment provider is required")
 
-	if providers.Infra.GetEnvironmentType() != infra.EnvironmentKind {
-		Skip(fmt.Sprintf(
-			"Catalog collector e2e loads the locally built collector image into the cluster, which is only implemented for kind (current environment: %s)",
-			providers.Infra.GetEnvironmentType(),
-		))
+	// Whether a collector can be deployed here at all is the deployment's
+	// answer, not this suite's: it knows what it needs and whether it has it.
+	// An error means the question could not be answered and fails the run; a
+	// settled "no" skips, unless the run explicitly asked for this suite, in
+	// which case skipping would report a green run that executed nothing.
+	availability, err := providers.CollectorDeployment.Available(ctx)
+	Expect(err).ToNot(HaveOccurred(), "determine whether a catalog collector can be deployed")
+	if !availability.Available {
+		Expect(availability.Required).To(BeFalse(), availability.Reason)
+		Skip(availability.Reason)
 	}
-
-	image, err := resolveCollectorImage(ctx, providers.Charts)
-	Expect(err).ToNot(HaveOccurred(), "failed to look up the collector image under test")
-	if image.Reference == "" {
-		// Required means a CI job asked for this suite: skipping there would
-		// report a green run that executed nothing, so it fails instead. The
-		// skips above, for deployment types that cannot run it at all, stay.
-		Expect(image.Required).To(BeFalse(), missingImageMessage())
-		Skip(missingImageMessage())
-	}
-	GinkgoWriter.Printf("[catalogcollector] using collector image %s (source=%s, preloaded=%t, required=%t)\n",
-		image.Reference, image.Source, image.Preloaded, image.Required)
 
 	// Only the API and the CLI are needed; no device agent takes part in
 	// catalog synchronization.
@@ -103,8 +93,7 @@ var _ = BeforeSuite(func() {
 
 	resources, err = newTestResources()
 	Expect(err).ToNot(HaveOccurred(), "failed to generate isolated resource names")
-	GinkgoWriter.Printf("[catalogcollector] run suffix %s, namespace %s, release %s\n",
-		resources.suffix, resources.namespace, resources.releaseName)
+	GinkgoWriter.Printf("[catalogcollector] run suffix %s\n", resources.suffix)
 	for _, name := range allScenarios {
 		sc := resources.scenario(name)
 		GinkgoWriter.Printf("[catalogcollector] scenario %s: catalog %s, pipeline %s, selection %q\n",
@@ -149,65 +138,45 @@ var _ = BeforeSuite(func() {
 	GinkgoWriter.Printf("[catalogcollector] seeded model %s (id=%s) version %s (id=%s) artifact %s\n",
 		smokeModel.name, smokeModel.id, smokeModel.versions[0].name, smokeModel.versions[0].id, smokeModel.versions[0].uri)
 
-	By("preparing the collector namespace, credentials, and CA bundle")
-	Expect(providers.Charts.EnsureNamespace(ctx, resources.namespace)).To(Succeed())
-	Expect(providers.Charts.ApplySecret(ctx, resources.namespace, collectorOAuthSecretName, map[string]string{
-		collectorOAuthClientIDKey: auxiliary.KeycloakE2ECatalogCollectorClientID,
-		collectorOAuthSecretKey:   auxiliary.KeycloakE2ECatalogCollectorSecret,
-	})).To(Succeed())
-
-	caBundle, err := providers.Secrets.GetSecretData(ctx, providers.Infra.GetExternalNamespace(), flightctlCABundleSecret, flightctlCABundleSecretKey)
-	Expect(err).ToNot(HaveOccurred(), "read the Flight Control CA bundle")
-	Expect(caBundle).ToNot(BeEmpty(), "the Flight Control CA bundle must not be empty")
-	Expect(providers.Charts.ApplyConfigMap(ctx, resources.namespace, collectorCAConfigMapName, map[string]string{
-		collectorCAFileName: string(caBundle),
-	})).To(Succeed())
-
-	if image.Preloaded {
-		By("using the collector image already present in the cluster image store")
-	} else {
-		By("loading the collector image built from this branch into the cluster")
-		Expect(providers.Charts.LoadLocalImage(ctx, image.Reference)).To(Succeed())
-	}
-
-	By("installing the collector Helm chart")
-	apiHost, apiPort, err := providers.Infra.GetServiceEndpoint(infra.ServiceAPI)
-	Expect(err).ToNot(HaveOccurred(), "resolve the in-cluster Flight Control API endpoint")
-	flightctlServer := fmt.Sprintf("https://%s:%d", apiHost, apiPort)
+	By("rendering the collector configuration for this deployment")
+	deploymentContext, err := providers.CollectorDeployment.ConfigContext(ctx)
+	Expect(err).ToNot(HaveOccurred(), "resolve the deployment's collector configuration context")
 
 	collectorConfig := renderCollectorConfig(
 		resources,
+		deploymentContext,
 		auxSvcs.ModelRegistry.URL,
-		flightctlServer,
 		auxSvcs.Keycloak.TokenURL(),
 	)
 	GinkgoWriter.Printf("[catalogcollector] collector configuration:\n%s\n", collectorConfig)
 
-	valuesFilePath, err = renderCollectorValues(collectorConfig)
-	Expect(err).ToNot(HaveOccurred(), "render the collector Helm values")
-
-	imageRepository, imageTag := splitImageRef(image.Reference)
-	installErr := providers.Charts.InstallChart(ctx, infra.ChartRelease{
-		Name:        resources.releaseName,
-		Namespace:   resources.namespace,
-		ChartPath:   collectorChartPath,
-		ValuesFiles: []string{valuesFilePath},
-		SetValues: map[string]string{
-			"image.image":      imageRepository,
-			"image.tag":        imageTag,
-			"image.pullPolicy": "IfNotPresent",
-		},
-		Timeout: chartInstallTimeout,
+	By("deploying the collector")
+	var startErr error
+	// The instance is assigned before the error is asserted: a start that
+	// failed partway still created state, and this handle is what teardown
+	// removes it with.
+	collectorInstance, startErr = providers.CollectorDeployment.Start(ctx, infra.CollectorDeploymentConfig{
+		InstanceID:        resources.suffix,
+		Config:            []byte(collectorConfig),
+		OAuthClientID:     auxiliary.KeycloakE2ECatalogCollectorClientID,
+		OAuthClientSecret: auxiliary.KeycloakE2ECatalogCollectorSecret,
+		StartTimeout:      collectorStartTimeout,
+		StopTimeout:       collectorStopTimeout,
 	})
-	// Set before asserting: an install that fails its readiness wait still
-	// leaves the release and its pods behind, and teardown has to remove them.
-	chartInstalled = true
-	if installErr != nil {
-		// A failing BeforeSuite never reaches AfterEach, so the pod state that
+	if startErr != nil {
+		// A failing BeforeSuite never reaches AfterEach, so the state that
 		// explains the failure has to be dumped here.
-		dumpDiagnostics(ctx, providers.Charts, suiteHarness, resources)
+		dumpDiagnostics(ctx, collectorInstance, suiteHarness)
 	}
-	Expect(installErr).ToNot(HaveOccurred(), "install the collector chart")
+	Expect(startErr).ToNot(HaveOccurred(), "deploy the collector")
+	Expect(collectorInstance).ToNot(BeNil(), "a successful deployment must return an instance")
+
+	By("waiting for the collector to report ready")
+	readyErr := collectorInstance.WaitReady(ctx, collectorReadyTimeout)
+	if readyErr != nil {
+		dumpDiagnostics(ctx, collectorInstance, suiteHarness)
+	}
+	Expect(readyErr).ToNot(HaveOccurred(), "the collector must become ready")
 })
 
 var _ = BeforeEach(func() {
@@ -223,12 +192,8 @@ var _ = AfterEach(func() {
 	}
 	if CurrentSpecReport().Failed() {
 		// Dump while the collector is still running: once teardown removes the
-		// release, the pod logs that explain the failure are gone.
-		var charts infra.ChartDeployer
-		if providers != nil {
-			charts = providers.Charts
-		}
-		dumpDiagnostics(context.Background(), charts, suiteHarness, resources)
+		// deployment, the logs that explain the failure are gone.
+		dumpDiagnostics(context.Background(), collectorInstance, suiteHarness)
 		suiteHarness.CaptureDeploymentLogsIfFailed()
 	}
 	suiteHarness.SetTestContext(e2e.GetWorkerContext())
@@ -241,9 +206,9 @@ var _ = AfterSuite(func() {
 	// infra.RunCleanup runs every step even after an earlier one fails, then
 	// reports the failures together. Asserting between steps instead would
 	// abort this callback on the first problem and strand everything the later
-	// steps own: a Helm release that refuses to uninstall would leave the
-	// catalog resources, the AuthProvider, and the namespace behind, on a
-	// cluster the next run reuses.
+	// steps own: a collector that refuses to stop would leave the catalog
+	// resources, the AuthProvider, and the deployment behind, in an
+	// environment the next run reuses.
 	//
 	// Failures are returned, not logged and swallowed: a step that could not
 	// remove suite-owned state has to fail the suite, because the state it
@@ -267,12 +232,10 @@ func recordSeededModel(model *seededModel) {
 // single step: nothing may delete the Catalog resources until the collector
 // can no longer recreate them. Everything after that is independent.
 func suiteCleanupSteps() []infra.CleanupStep {
-	chartsAvailable := func() bool { return providers != nil && providers.Charts != nil && resources != nil }
-
 	return []infra.CleanupStep{
 		{
 			Name: "stop the collector",
-			Skip: func() bool { return !chartInstalled || !chartsAvailable() },
+			Skip: func() bool { return collectorInstance == nil },
 			Run:  stopCollector,
 		},
 		{
@@ -284,7 +247,7 @@ func suiteCleanupSteps() []infra.CleanupStep {
 			// error already says the resources were left behind.
 			Name: "delete the catalog resources the collector created",
 			Skip: func() bool {
-				return !chartInstalled || !collectorStopped || suiteHarness == nil || resources == nil
+				return collectorInstance == nil || !collectorStopped || suiteHarness == nil || resources == nil
 			},
 			Run: func(context.Context) error {
 				var errs []error
@@ -342,21 +305,13 @@ func suiteCleanupSteps() []infra.CleanupStep {
 			},
 		},
 		{
-			Name: "delete the collector namespace",
-			Skip: func() bool { return !chartsAvailable() || resources.namespace == "" },
-			Run: func(ctx context.Context) error {
-				return providers.Charts.DeleteNamespace(ctx, resources.namespace, namespaceDeleteTimeout)
-			},
-		},
-		{
-			Name: "remove the rendered Helm values file",
-			Skip: func() bool { return valuesFilePath == "" },
-			Run: func(context.Context) error {
-				if err := os.Remove(valuesFilePath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("remove values file %s: %w", valuesFilePath, err)
-				}
-				return nil
-			},
+			// Whatever the deployment still owns - a namespace, a rendered
+			// values file, a unit - is its own to remove, and it is idempotent
+			// so this is safe after a stop that already deleted some of it as
+			// its fallback.
+			Name: "remove the collector deployment",
+			Skip: func() bool { return collectorInstance == nil },
+			Run:  func(ctx context.Context) error { return collectorInstance.Cleanup(ctx) },
 		},
 		{
 			Name: "clean up the aux services",
@@ -372,55 +327,31 @@ func suiteCleanupSteps() []infra.CleanupStep {
 	}
 }
 
-// stopCollector removes the Helm release and confirms the workload is gone, so
-// that nothing can recreate the Catalog resources the next step deletes.
+// stopCollector takes the collector down so that nothing can recreate the
+// Catalog resources the next step deletes.
 //
-// If any of that fails the namespace is deleted as a fallback, which stops the
-// collector just as effectively. The original failure is still reported: the
-// release record is suite-owned state and leaving it behind is a problem in its
-// own right.
-//
-// Whether the collector is gone and whether the step succeeded are two
-// different answers, so they are reported through two different channels.
-// collectorStopped is set on both paths that end with the workload down - the
-// normal removal and a fallback that worked - and only on those, because it is
-// what the dependent catalog deletion keys off. The returned error is
-// unconditional once anything went wrong, and always wraps the original
-// failures so the report names what actually broke.
+// How that is done, and what to fall back to when it does not work, belongs to
+// the deployment. What belongs here is the consequence: whether the collector
+// is confirmed stopped and whether the step failed are two different answers,
+// and this suite needs both. collectorStopped records the first, because it is
+// what the dependent catalog deletion keys off, and it is set whenever the
+// deployment confirms the collector is down - including when it had to fall
+// back to a blunter mechanism and still has a failure to report. The error
+// records the second, and always carries the original failures so the report
+// names what actually broke.
 func stopCollector(ctx context.Context) error {
-	err := errors.Join(
-		providers.Charts.UninstallChart(ctx, resources.releaseName, resources.namespace, chartUninstallTimeout),
-		releaseGone(ctx),
-		providers.Charts.WaitForWorkloadGone(ctx, resources.namespace, resources.podSelector(), workloadGoneTimeout),
-	)
+	stopped, err := collectorInstance.Stop(ctx)
+	collectorStopped = stopped
 	if err == nil {
-		collectorStopped = true
 		return nil
 	}
-	if deleteErr := providers.Charts.DeleteNamespace(ctx, resources.namespace, namespaceDeleteTimeout); deleteErr != nil {
-		// Neither path confirmed the collector is down, so collectorStopped
-		// stays false and the catalog deletion that depends on it is skipped.
-		// Saying so here is the only place a reader of the failure learns that
-		// those resources were left behind on purpose.
-		return errors.Join(
-			err,
-			fmt.Errorf("namespace deletion fallback: %w", deleteErr),
-			fmt.Errorf("catalogs %s were left in place because the collector could not be confirmed stopped",
-				strings.Join(resources.catalogNames(), ", ")),
-		)
+	if !stopped {
+		// Which catalogs were left behind is this suite's knowledge, not the
+		// deployment's. Saying so here is the only place a reader of the
+		// failure learns they were skipped on purpose rather than forgotten.
+		return errors.Join(err, fmt.Errorf(
+			"catalogs %s were left in place because the collector could not be confirmed stopped",
+			strings.Join(resources.catalogNames(), ", ")))
 	}
-	collectorStopped = true
-	return fmt.Errorf("%w (the collector was stopped by deleting namespace %s instead)", err, resources.namespace)
-}
-
-// releaseGone reports an error unless the Helm release no longer exists.
-func releaseGone(ctx context.Context) error {
-	installed, err := providers.Charts.ReleaseInstalled(ctx, resources.releaseName, resources.namespace)
-	if err != nil {
-		return fmt.Errorf("check whether release %s is gone: %w", resources.releaseName, err)
-	}
-	if installed {
-		return fmt.Errorf("Helm release %s in namespace %s survived teardown", resources.releaseName, resources.namespace)
-	}
-	return nil
+	return err
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,51 +17,6 @@ import (
 )
 
 const (
-	// collectorChartPath is the shipped chart, relative to the repository root.
-	collectorChartPath = "deploy/helm/flightctl-catalog-collector"
-	// collectorChartName is the chart name, which is also the value of the
-	// app.kubernetes.io/name selector label the chart renders.
-	collectorChartName = "flightctl-catalog-collector"
-
-	// collectorImageEnv names the exact collector image under test. CI sets it
-	// to the image produced by the build job that this run is testing, which
-	// never carries the local development tags below.
-	collectorImageEnv = "E2E_CATALOG_COLLECTOR_IMAGE"
-	// collectorImagePreloadedEnv declares that collectorImageEnv is already in
-	// the cluster's image store. The standard CI job loads the backend image
-	// bundle straight into kind and never has those images in the host
-	// runtime, so the suite must neither look for them there nor try to load
-	// them again.
-	collectorImagePreloadedEnv = "E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED"
-	// collectorImageRequiredEnv turns a missing image into a setup failure
-	// instead of a skip. CI sets it so that a build which stops shipping the
-	// collector image fails the job loudly rather than quietly reducing the
-	// suite to zero executed specs.
-	collectorImageRequiredEnv = "E2E_CATALOG_COLLECTOR_REQUIRED"
-
-	// collectorImageEL9 and collectorImageGeneric are the tags "make
-	// build-containers" produces for the branch under test, in the same
-	// preference order as choose_image in test/scripts/deploy_with_helm.sh.
-	// They are the local development path: built on the host, then loaded into
-	// kind by this suite.
-	collectorImageEL9     = "localhost/flightctl-catalog-collector-el9:latest"
-	collectorImageGeneric = "localhost/flightctl-catalog-collector:latest"
-
-	// Paths inside the collector container. The config mount path is the chart
-	// default; the other two are the extraVolumeMounts this suite adds.
-	collectorConfigMountPath = "/etc/flightctl/catalog-collector"
-	collectorOAuthMountPath  = collectorConfigMountPath + "/oauth"
-	collectorCertsMountPath  = collectorConfigMountPath + "/certs"
-	collectorCAFileName      = "flightctl-ca.crt"
-
-	// Names of the Secret and ConfigMap this suite mounts into the collector.
-	collectorOAuthSecretName   = "e2e-catalog-collector-oauth"
-	collectorCAConfigMapName   = "e2e-catalog-collector-ca"
-	collectorOAuthClientIDKey  = "client-id"
-	collectorOAuthSecretKey    = "client-secret" //nolint:gosec // G101: ConfigMap/Secret key name, not a credential
-	flightctlCABundleSecret    = "flightctl-ca-bundle"
-	flightctlCABundleSecretKey = "ca-bundle.crt"
-
 	// collectorPollInterval keeps the smoke test short: the collector polls the
 	// Model Registry far more often than a production deployment would, so the
 	// first synchronization lands well inside catalogSyncTimeout.
@@ -82,15 +36,14 @@ const (
 	// Pinned flat, every rejected cycle is one interval behind the last.
 	collectorFailureRetryInterval = 5 * time.Second
 
-	// Every wait in this suite is bounded so a stuck cluster fails the spec
+	// Every wait in this suite is bounded so a stuck deployment fails the spec
 	// with diagnostics instead of hanging the run.
-	chartInstallTimeout    = 5 * time.Minute
-	chartUninstallTimeout  = 2 * time.Minute
-	namespaceDeleteTimeout = 3 * time.Minute
-	workloadGoneTimeout    = 2 * time.Minute
-	catalogSyncTimeout     = 4 * time.Minute
-	catalogSyncPolling     = 5 * time.Second
-	setupTimeout           = 10 * time.Minute
+	collectorStartTimeout = 5 * time.Minute
+	collectorStopTimeout  = 2 * time.Minute
+	collectorReadyTimeout = 2 * time.Minute
+	catalogSyncTimeout    = 4 * time.Minute
+	catalogSyncPolling    = 5 * time.Second
+	setupTimeout          = 10 * time.Minute
 
 	// catalogChangeTimeout bounds a wait for the collector to publish a change
 	// to registry content it has already imported once. The first cycle is the
@@ -232,18 +185,18 @@ func (m *seededModel) version(name string) *seededVersion {
 }
 
 // testResources holds the per-run identifiers. Every name carries the same
-// random suffix so concurrent runs, and reruns against a reused cluster, never
-// collide on a Kubernetes namespace, a Helm release, a Flight Control catalog,
-// or a Model Registry model.
+// random suffix so concurrent runs, and reruns against a reused environment,
+// never collide on a Flight Control catalog, an AuthProvider, or a Model
+// Registry model.
 //
-// The cluster-side deployment is shared by every scenario: one collector, one
-// namespace, one Helm release, one AuthProvider. What is not shared is
-// everything a scenario can mutate - see scenario.
+// The suffix is also the logical instance ID the collector deployment is given.
+// Whatever the deployment derives from it - a namespace, a release, a unit - is
+// its own business and never appears here.
+//
+// The deployment is shared by every scenario: one collector, one AuthProvider.
+// What is not shared is everything a scenario can mutate - see scenario.
 type testResources struct {
 	suffix string
-
-	namespace   string
-	releaseName string
 
 	authProviderName string
 
@@ -261,8 +214,6 @@ func newTestResources() (*testResources, error) {
 
 	res := &testResources{
 		suffix:           suffix,
-		namespace:        "flightctl-e2e-cc-" + suffix,
-		releaseName:      "e2e-catalog-collector-" + suffix,
 		authProviderName: "e2e-collector-oidc-" + suffix,
 		scenarios:        make(map[scenarioName]*scenario, len(allScenarios)),
 	}
@@ -323,120 +274,6 @@ func artifactURI(digest string) string {
 	return fmt.Sprintf("oci://%s@%s", artifactRepository, digest)
 }
 
-// podSelector matches the collector pods rendered by the chart.
-func (r *testResources) podSelector() string {
-	return fmt.Sprintf("app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s", collectorChartName, r.releaseName)
-}
-
-// collectorImage is the outcome of deciding which collector image this run
-// installs and how it reaches the cluster nodes.
-type collectorImage struct {
-	// Reference is the image to install. Empty when no candidate was found.
-	Reference string
-	// Preloaded reports that Reference is already in the cluster's image
-	// store, so the suite must not load it from the host runtime.
-	Preloaded bool
-	// Required reports that a missing image must fail setup rather than skip
-	// it.
-	Required bool
-	// Source describes where Reference came from, for the run log and for the
-	// failure message when nothing was found.
-	Source string
-}
-
-// resolveCollectorImage decides which collector image the suite installs.
-//
-// Two paths are supported and they are deliberately different:
-//
-//   - CI passes the exact image from the build under test in
-//     collectorImageEnv and sets collectorImagePreloadedEnv, because the job
-//     loads the backend image bundle directly into kind. Nothing is looked up
-//     in, or loaded from, the host runtime.
-//   - Local development builds the collector with "make
-//     flightctl-catalog-collector-container" and leaves it in the host
-//     runtime under one of the well-known tags, which the suite finds here
-//     and loads into kind itself.
-//
-// A lookup error is returned rather than treated as "image absent": a broken
-// container runtime must not quietly turn the suite into a skip.
-func resolveCollectorImage(ctx context.Context, charts infra.ChartDeployer) (collectorImage, error) {
-	preloaded, err := boolFromEnv(collectorImagePreloadedEnv)
-	if err != nil {
-		return collectorImage{}, err
-	}
-	override := strings.TrimSpace(os.Getenv(collectorImageEnv))
-	// An explicitly named image is required by default: whoever set it meant
-	// this suite to run against it, so a missing one is a failure, not a skip.
-	required, err := boolFromEnvDefault(collectorImageRequiredEnv, override != "")
-	if err != nil {
-		return collectorImage{}, err
-	}
-
-	result := collectorImage{Required: required}
-	if override != "" {
-		result.Reference = override
-		result.Preloaded = preloaded
-		result.Source = collectorImageEnv
-		return result, nil
-	}
-
-	// Without an explicit reference there is nothing to trust as preloaded:
-	// the local tags only mean anything if the host runtime really has them.
-	for _, candidate := range []string{collectorImageEL9, collectorImageGeneric} {
-		exists, err := charts.LocalImageExists(ctx, candidate)
-		if err != nil {
-			return collectorImage{}, fmt.Errorf("look up collector image %s: %w", candidate, err)
-		}
-		if exists {
-			result.Reference = candidate
-			result.Source = "local container runtime"
-			return result, nil
-		}
-	}
-	return result, nil
-}
-
-// missingImageMessage explains what was looked for and how to supply it.
-func missingImageMessage() string {
-	return fmt.Sprintf(
-		"no collector image available: %s is unset and neither %s nor %s is in the local container runtime. "+
-			"Build it from this branch with 'make flightctl-catalog-collector-container', or set %s "+
-			"(plus %s=true when the image is already in the cluster image store)",
-		collectorImageEnv, collectorImageEL9, collectorImageGeneric, collectorImageEnv, collectorImagePreloadedEnv)
-}
-
-// boolFromEnv parses an optional boolean environment variable, defaulting to
-// false. A value that is set but unparseable is an error rather than a silent
-// false, because a typo there would silently change how the suite runs.
-func boolFromEnv(name string) (bool, error) {
-	return boolFromEnvDefault(name, false)
-}
-
-func boolFromEnvDefault(name string, fallback bool) (bool, error) {
-	raw := strings.TrimSpace(os.Getenv(name))
-	if raw == "" {
-		return fallback, nil
-	}
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, fmt.Errorf("%s must be a boolean, got %q: %w", name, raw, err)
-	}
-	return value, nil
-}
-
-// splitImageRef splits "repository:tag" into the two chart values. A reference
-// without a tag defaults to "latest", matching the locally built images.
-func splitImageRef(image string) (repository, tag string) {
-	// Only the last colon can introduce a tag, and only when it comes after the
-	// last slash; a colon before that belongs to a registry port.
-	lastColon := strings.LastIndex(image, ":")
-	lastSlash := strings.LastIndex(image, "/")
-	if lastColon > lastSlash {
-		return image[:lastColon], image[lastColon+1:]
-	}
-	return image, "latest"
-}
-
 // renderCollectorConfig builds the collector configuration.
 //
 // Every pipeline is deliberately minimal: one Kubeflow Model Registry source
@@ -454,7 +291,12 @@ func splitImageRef(image string) (repository, tag string) {
 // TLS verification is on everywhere TLS is used: the Flight Control endpoint is
 // verified against the deployment's own CA bundle and insecureSkipVerify is set
 // nowhere.
-func renderCollectorConfig(res *testResources, modelRegistryEndpoint, flightctlServer, tokenURL string) string {
+//
+// deployment supplies the three things only the deployment can know: where the
+// collector reaches Flight Control from inside it, and where the credentials
+// and the CA bundle it was handed are placed. Everything else - the sources,
+// the per-scenario selection, the pipelines - is this suite's.
+func renderCollectorConfig(res *testResources, deployment infra.CollectorConfigContext, modelRegistryEndpoint, tokenURL string) string {
 	var config strings.Builder
 
 	fmt.Fprintf(&config, `service:
@@ -469,9 +311,9 @@ extensions:
     readyPath: /readyz
 
   oauth2client/flightctl:
-    clientIdFile: %[1]s/%[2]s
-    clientSecretFile: %[1]s/%[3]s
-    tokenUrl: %[4]s
+    clientIdFile: %[1]s
+    clientSecretFile: %[2]s
+    tokenUrl: %[3]s
     scopes:
       - openid
     timeout: 30s
@@ -479,9 +321,8 @@ extensions:
 
 sources:
 `,
-		collectorOAuthMountPath,
-		collectorOAuthClientIDKey,
-		collectorOAuthSecretKey,
+		deployment.OAuthClientIDFile,
+		deployment.OAuthClientSecretFile,
 		tokenURL,
 	)
 
@@ -518,14 +359,13 @@ destinations:
     server: %[1]s
     auth:
       authenticator: oauth2client/flightctl
-    certificateAuthority: %[2]s/%[3]s
+    certificateAuthority: %[2]s
     timeout: 30s
 
 pipelines:
 `,
-		flightctlServer,
-		collectorCertsMountPath,
-		collectorCAFileName,
+		deployment.FlightControlServer,
+		deployment.CertificateAuthorityFile,
 	)
 
 	for _, name := range allScenarios {
@@ -540,88 +380,6 @@ pipelines:
 	}
 
 	return config.String()
-}
-
-// renderCollectorValues writes a Helm values file mounting the OAuth2 client
-// credentials and the Flight Control CA bundle into the collector, and returns
-// its path. The file is removed when the suite ends.
-func renderCollectorValues(config string) (string, error) {
-	values := fmt.Sprintf(`config:
-  content: |
-%[1]s
-
-health:
-  enabled: true
-  port: 13133
-
-metrics:
-  enabled: true
-  port: 8888
-  serviceMonitor:
-    # The kind cluster used by e2e has no Prometheus Operator CRDs.
-    enabled: false
-
-service:
-  enabled: true
-
-serviceAccount:
-  create: true
-  automountServiceAccountToken: false
-
-extraVolumes:
-  - name: oauth
-    secret:
-      secretName: %[2]s
-      # 0440, not 0400: the kubelet leaves a Secret volume owned by root:root
-      # and the collector runs as a non-root uid, so the group bit is what
-      # makes the files readable.
-      defaultMode: 0440
-  - name: ca
-    configMap:
-      name: %[3]s
-      defaultMode: 0444
-
-extraVolumeMounts:
-  - name: oauth
-    mountPath: %[4]s
-    readOnly: true
-  - name: ca
-    mountPath: %[5]s
-    readOnly: true
-`,
-		indentBlock(config, 4),
-		collectorOAuthSecretName,
-		collectorCAConfigMapName,
-		collectorOAuthMountPath,
-		collectorCertsMountPath,
-	)
-
-	file, err := os.CreateTemp("", "e2e-catalog-collector-values-*.yaml")
-	if err != nil {
-		return "", fmt.Errorf("create values file: %w", err)
-	}
-	path := file.Name()
-	if _, err := file.WriteString(values); err != nil {
-		_ = file.Close()
-		return "", fmt.Errorf("write values file %s: %w", path, err)
-	}
-	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close values file %s: %w", path, err)
-	}
-	return path, nil
-}
-
-// indentBlock indents every line of a YAML block scalar.
-func indentBlock(value string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	lines := strings.Split(strings.TrimRight(value, "\n"), "\n")
-	for i := range lines {
-		if lines[i] == "" {
-			continue
-		}
-		lines[i] = prefix + lines[i]
-	}
-	return strings.Join(lines, "\n")
 }
 
 // versionSpec describes one LIVE ModelVersion to seed, with the single
@@ -763,8 +521,13 @@ func applyAuthProvider(harness *e2e.Harness, manifest string) (string, error) {
 }
 
 // collectorLogLines returns the collector's most recent log lines.
-func collectorLogLines(ctx context.Context, charts infra.ChartDeployer, res *testResources) ([]string, error) {
-	logs, err := charts.WorkloadLogs(ctx, res.namespace, res.podSelector(), collectorLogTailLines)
+//
+// The bound is the same every time, so a caller comparing two readings is
+// comparing the same window rather than a growing one. See
+// waitForRejectedCollections for what that means for a count taken relative to
+// an earlier one.
+func collectorLogLines(ctx context.Context, instance infra.CollectorInstance) ([]string, error) {
+	logs, err := instance.Logs(ctx, collectorLogTailLines)
 	if err != nil {
 		return nil, err
 	}
@@ -796,16 +559,13 @@ func countRejectedCollections(lines []string, sc *scenario, detail string) int {
 	return count
 }
 
-// dumpDiagnostics writes collector pod state, events and logs plus the current
+// dumpDiagnostics writes the deployment's own diagnostics plus the current
 // catalog resources to the Ginkgo output. Called only on failure, while the
-// deployment is still up, so a failed assertion is accompanied by the state
+// collector is still up, so a failed assertion is accompanied by the state
 // that produced it.
-func dumpDiagnostics(ctx context.Context, charts infra.ChartDeployer, harness *e2e.Harness, res *testResources) {
-	if res == nil {
-		return
-	}
-	if charts != nil {
-		GinkgoWriter.Printf("[catalogcollector] %s\n", charts.WorkloadDiagnostics(ctx, res.namespace, res.podSelector()))
+func dumpDiagnostics(ctx context.Context, instance infra.CollectorInstance, harness *e2e.Harness) {
+	if instance != nil {
+		GinkgoWriter.Printf("[catalogcollector] %s\n", instance.Diagnostics(ctx))
 	}
 	if harness == nil {
 		return

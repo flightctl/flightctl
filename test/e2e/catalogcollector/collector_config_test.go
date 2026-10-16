@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/catalogcollector/config"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/destination/flightctldestination"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/kubeflowmodelregistrysource"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,12 +32,24 @@ const (
 	testTokenURL         = "https://keycloak.example.com/realms/e2e/protocol/openid-connect/token"
 )
 
+// testDeploymentContext stands in for what a real deployment reports: where
+// the collector reaches Flight Control from inside it, and where it places the
+// credentials and CA bundle it was handed. The exact values are the
+// deployment's business; what this file checks is that the suite renders a
+// configuration the collector accepts around whatever it is told.
+var testDeploymentContext = infra.CollectorConfigContext{
+	FlightControlServer:      testFlightctlServer,
+	OAuthClientIDFile:        "/etc/flightctl/catalog-collector/oauth/client-id",
+	OAuthClientSecretFile:    "/etc/flightctl/catalog-collector/oauth/client-secret",
+	CertificateAuthorityFile: "/etc/flightctl/catalog-collector/certs/flightctl-ca.crt",
+}
+
 // parseRenderedConfig renders this suite's collector configuration for res and
 // decodes it exactly as the collector would.
 func parseRenderedConfig(t *testing.T, res *testResources) *config.Config {
 	t.Helper()
 
-	rendered := renderCollectorConfig(res, testRegistryEndpoint, testFlightctlServer, testTokenURL)
+	rendered := renderCollectorConfig(res, testDeploymentContext, testRegistryEndpoint, testTokenURL)
 	parsed, err := config.Parse([]byte(rendered))
 	require.NoError(t, err, "the collector must accept the configuration this suite renders:\n%s", rendered)
 	return parsed
