@@ -200,7 +200,6 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 			Type: domain.ConditionTypeLabelSyncMappingReady, Status: domain.ConditionStatusFalse, Reason: "Pending", ObservedGeneration: lo.ToPtr(int64(1)),
 		}}}
 		store.EXPECT().Delete(gomock.Any(), firstOrg, "architecture").Return(true, nil)
-		store.EXPECT().FinalizeDelete(gomock.Any(), firstOrg, "architecture").Return(false, nil)
 		store.EXPECT().Get(gomock.Any(), firstOrg, "architecture").Return(terminating, nil)
 		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
 		require.EqualValues(t, 200, status.Code)
@@ -210,15 +209,11 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		assert.Equal(t, "Pending", lo.FromPtr(deleted.Status.Conditions)[0].Reason)
 	})
 
-	t.Run("When an unowned mapping is deleted it should be removed during finalization", func(t *testing.T) {
+	t.Run("When an unowned mapping is deleted it should defer finalization to the periodic scan", func(t *testing.T) {
 		handler, store := newCRUDServiceHandler(t, handlerTestEvaluator{})
 		store.EXPECT().Delete(gomock.Any(), firstOrg, "unowned").Return(true, nil)
-		store.EXPECT().FinalizeDelete(gomock.Any(), firstOrg, "unowned").Return(true, nil)
 		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "unowned")
 		assert.EqualValues(t, 200, status.Code)
-		store.EXPECT().Get(gomock.Any(), firstOrg, "unowned").Return(nil, flterrors.ErrResourceNotFound)
-		_, getStatus := handler.GetLabelSyncMapping(ctx, firstOrg, "unowned")
-		assert.EqualValues(t, 404, getStatus.Code)
 	})
 
 	t.Run("When deletion fails it should not attempt finalization", func(t *testing.T) {
@@ -233,13 +228,5 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		store.EXPECT().Delete(gomock.Any(), firstOrg, "missing").Return(false, nil)
 		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "missing")
 		assert.EqualValues(t, 200, status.Code)
-	})
-
-	t.Run("When finalization fails it should return an internal server error", func(t *testing.T) {
-		handler, store := newCRUDServiceHandler(t, handlerTestEvaluator{})
-		store.EXPECT().Delete(gomock.Any(), firstOrg, "finalize-failure").Return(true, nil)
-		store.EXPECT().FinalizeDelete(gomock.Any(), firstOrg, "finalize-failure").Return(false, errors.New("finalization failed"))
-		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "finalize-failure")
-		assert.EqualValues(t, 500, status.Code)
 	})
 }
