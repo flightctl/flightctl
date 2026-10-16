@@ -1,6 +1,7 @@
 """Unit tests for shared Schemathesis API hooks."""
 
 import json
+import os
 from copy import deepcopy
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -701,6 +702,7 @@ class TestEndToEndLoaderBehaviour:
             assert s["properties"]["count"]["minimum"] == hooks.INT64_MIN
 
     def test_composition_target_exempt_through_loader(self):
+        """Composition target stays unconstrained through the public from_dict loader."""
         spec = _make_raw_spec({
             "Resource": {"allOf": [
                 {"$ref": "#/components/schemas/Base"},
@@ -708,10 +710,14 @@ class TestEndToEndLoaderBehaviour:
             ]},
             "Base": {"type": "object", "properties": {"core": {"type": "string"}}},
         })
-        # Verify on raw schema before loader consumes it.
-        raw_copy = json.loads(json.dumps(spec))
-        hooks.before_load_schema(None, raw_copy)
-        assert "additionalProperties" not in raw_copy["components"]["schemas"]["Base"]
+        # from_dict fires before_load_schema, which modifies the spec dict in-place
+        loaded = schemathesis.openapi.from_dict(spec)
+        # Assert the raw component was modified by the hook (not via x-bundled)
+        assert "additionalProperties" not in spec["components"]["schemas"]["Base"], \
+            "Composition target Base must remain unconstrained after from_dict loading"
+        # Loaded schema produces a usable operation
+        op = loaded["/resources"]["POST"]
+        assert op.body, "POST /resources must have a body definition"
 
 
 class TestBeforeLoadSchemaOnRealSpec:
@@ -743,3 +749,56 @@ class TestBeforeLoadSchemaOnRealSpec:
         meta = real_raw["components"]["schemas"].get("ObjectMeta", {})
         labels = meta.get("properties", {}).get("labels", {})
         assert "propertyNames" in labels, "ObjectMeta.labels should have propertyNames"
+
+
+class TestConftestHookRegistration:
+    """Verify conftest.py registers hooks before schema load (fresh-process)."""
+
+    def test_conftest_registers_hooks_before_from_path(self):
+        """In a fresh process, conftest's 'import common' must register
+        before_load_schema so that from_path applies constraints.
+
+        Without the import, the hook count is 0 and constraints are missing.
+        This test spawns a subprocess to simulate conftest collection.
+        """
+        import subprocess
+        import sys
+
+        spec_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "api", "core", "v1beta1", "openapi.yaml",
+        )
+        if not os.path.isfile(spec_path):
+            pytest.skip("openapi.yaml not found")
+
+        pythonpath = os.path.join(os.path.dirname(__file__), "..", "..")
+        api_path = os.path.join(os.path.dirname(__file__), "..")
+
+        script = (
+            "import sys, os\n"
+            f"sys.path.insert(0, {api_path!r})\n"
+            f"os.environ['SPEC_PATH'] = {spec_path!r}\n"
+            "os.environ['BASE_URL'] = 'http://localhost:3443'\n"
+            "\n"
+            "# Simulate conftest.py: import common, then load schema\n"
+            "import common  # noqa: F401 -- registers hooks\n"
+            "import schemathesis\n"
+            "hook_count = len(schemathesis.hooks.get_all_by_name('before_load_schema'))\n"
+            "assert hook_count > 0, 'before_load_schema not registered'\n"
+            "\n"
+            "schema = schemathesis.openapi.from_path(os.environ['SPEC_PATH'])\n"
+            "raw = schema.raw_schema\n"
+            "meta = raw['components']['schemas'].get('ObjectMeta', {})\n"
+            "labels = meta.get('properties', {}).get('labels', {})\n"
+            "assert 'propertyNames' in labels, (\n"
+            "    'ObjectMeta.labels missing propertyNames — '\n"
+            "    'before_load_schema did not fire during from_path'\n"
+            ")\n"
+            "print('PASS: hooks registered and constraints applied')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"Fresh-process conftest simulation failed:\n{result.stderr}"
+        )
