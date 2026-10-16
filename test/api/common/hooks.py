@@ -245,14 +245,19 @@ def _collect_schema_refs(schema):
 def _request_body_schemas(raw_schema):
     """Return inline request-body schema nodes and reachable component names.
 
-    Walks ``paths/*/requestBody`` and ``components/requestBodies`` using
-    schema-keyword-only traversal.  Returns ``(inline_schemas,
-    component_names)`` where *inline_schemas* is a list of dict schema
-    nodes that are NOT ``$ref``-only (they need direct patching) and
-    *component_names* is the set of ``components/schemas`` keys
-    transitively reachable from any request body.
+    Walks operation ``requestBody`` entries in ``paths`` and follows
+    ``$ref: #/components/requestBodies/…`` to reusable bodies that are
+    actually used by an operation.  Unused reusable requestBodies are
+    **not** scanned, so their referenced schemas stay unconstrained.
+
+    Returns ``(inline_schemas, component_names)`` where *inline_schemas*
+    is a list of dict schema nodes that are NOT ``$ref``-only (they need
+    direct patching) and *component_names* is the set of
+    ``components/schemas`` keys transitively reachable from any request
+    body.
     """
     schemas = raw_schema.get("components", {}).get("schemas", {})
+    reusable_bodies = raw_schema.get("components", {}).get("requestBodies", {})
     inline = []   # schema dicts that need direct patching
     pending = set()
 
@@ -277,6 +282,28 @@ def _request_body_schemas(raw_schema):
                 inline.append(s)
                 pending.update(_collect_schema_refs(s))
 
+    def _resolve_request_body(rb):
+        """Process a requestBody, following $ref to components/requestBodies."""
+        if not isinstance(rb, dict):
+            return
+        ref = rb.get("$ref")
+        if isinstance(ref, str):
+            prefix = "#/components/requestBodies/"
+            if ref.startswith(prefix):
+                name = ref[len(prefix):]
+                if name not in visited_bodies:
+                    visited_bodies.add(name)
+                    target = reusable_bodies.get(name)
+                    if isinstance(target, dict):
+                        # Reusable body may itself $ref another (alias chain).
+                        _resolve_request_body(target)
+                        _process_content(target.get("content"))
+            return
+        # Inline requestBody — process content directly.
+        _process_content(rb.get("content"))
+
+    visited_bodies = set()  # tracks visited components/requestBodies names
+
     # Walk requestBody in each path operation.
     for path_item in raw_schema.get("paths", {}).values():
         if not isinstance(path_item, dict):
@@ -285,12 +312,8 @@ def _request_body_schemas(raw_schema):
             if not isinstance(op, dict):
                 continue
             rb = op.get("requestBody")
-            if isinstance(rb, dict):
-                _process_content(rb.get("content"))
-    # Walk reusable requestBodies (components/requestBodies).
-    for rb in raw_schema.get("components", {}).get("requestBodies", {}).values():
-        if isinstance(rb, dict):
-            _process_content(rb.get("content"))
+            if rb is not None:
+                _resolve_request_body(rb)
 
     # Transitively follow $refs inside collected component schemas.
     visited = set()
