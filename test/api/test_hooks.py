@@ -708,14 +708,21 @@ class TestEndToEndLoaderBehaviour:
                 {"$ref": "#/components/schemas/Base"},
                 {"type": "object", "properties": {"extra": {"type": "string"}}},
             ]},
-            "Base": {"type": "object", "properties": {"core": {"type": "string"}}},
+            "Base": {"type": "object", "properties": {
+                "core": {"type": "string"},
+                "count": {"type": "integer"},
+            }},
         })
-        # from_dict fires before_load_schema, which modifies the spec dict in-place
+        # from_dict fires before_load_schema, which modifies the spec dict in-place.
         loaded = schemathesis.openapi.from_dict(spec)
-        # Assert the raw component was modified by the hook (not via x-bundled)
-        assert "additionalProperties" not in spec["components"]["schemas"]["Base"], \
+        base = spec["components"]["schemas"]["Base"]
+        # Composition target must NOT get additionalProperties: false.
+        assert "additionalProperties" not in base, \
             "Composition target Base must remain unconstrained after from_dict loading"
-        # Loaded schema produces a usable operation
+        # Positive proof that before_load_schema DID run: integer limits applied.
+        assert base["properties"]["count"]["minimum"] == hooks.INT64_MIN, \
+            "Integer limits must be applied even to composition targets"
+        # Loaded schema produces a usable operation with body.
         op = loaded["/resources"]["POST"]
         assert op.body, "POST /resources must have a body definition"
 
@@ -752,53 +759,79 @@ class TestBeforeLoadSchemaOnRealSpec:
 
 
 class TestConftestHookRegistration:
-    """Verify conftest.py registers hooks before schema load (fresh-process)."""
+    """Verify the actual conftest.py registers hooks before schema load."""
 
-    def test_conftest_registers_hooks_before_from_path(self):
-        """In a fresh process, conftest's 'import common' must register
-        before_load_schema so that from_path applies constraints.
+    @pytest.fixture
+    def _paths(self):
+        test_api_dir = os.path.abspath(os.path.dirname(__file__))
+        spec_path = os.path.abspath(
+            os.path.join(test_api_dir, "..", "..", "api", "core", "v1beta1", "openapi.yaml"),
+        )
+        if not os.path.isfile(spec_path):
+            pytest.skip("openapi.yaml not found")
+        return test_api_dir, spec_path
 
-        Without the import, the hook count is 0 and constraints are missing.
-        This test spawns a subprocess to simulate conftest collection.
+    def _run_conftest_check(self, test_api_dir, spec_path, *, conftest_dir=None):
+        """Import conftest.py in a clean subprocess and return (ok, output).
+
+        *conftest_dir* overrides where conftest.py is found; defaults to
+        *test_api_dir* (the real conftest).  When overridden, it is
+        placed before *test_api_dir* on sys.path so the modified
+        conftest.py is imported.
         """
         import subprocess
         import sys
 
-        spec_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "api", "core", "v1beta1", "openapi.yaml",
-        )
-        if not os.path.isfile(spec_path):
-            pytest.skip("openapi.yaml not found")
-
-        pythonpath = os.path.join(os.path.dirname(__file__), "..", "..")
-        api_path = os.path.join(os.path.dirname(__file__), "..")
-
+        if conftest_dir is None:
+            conftest_dir = test_api_dir
+        # Build sys.path: test_api_dir for common/schemathesis deps,
+        # conftest_dir on top (last insert(0) wins) for the conftest.py.
         script = (
-            "import sys, os\n"
-            f"sys.path.insert(0, {api_path!r})\n"
+            "import os, sys\n"
+            f"sys.path.insert(0, {test_api_dir!r})\n"
+            f"sys.path.insert(0, {conftest_dir!r})\n"
             f"os.environ['SPEC_PATH'] = {spec_path!r}\n"
             "os.environ['BASE_URL'] = 'http://localhost:3443'\n"
-            "\n"
-            "# Simulate conftest.py: import common, then load schema\n"
-            "import common  # noqa: F401 -- registers hooks\n"
-            "import schemathesis\n"
-            "hook_count = len(schemathesis.hooks.get_all_by_name('before_load_schema'))\n"
-            "assert hook_count > 0, 'before_load_schema not registered'\n"
-            "\n"
-            "schema = schemathesis.openapi.from_path(os.environ['SPEC_PATH'])\n"
-            "raw = schema.raw_schema\n"
-            "meta = raw['components']['schemas'].get('ObjectMeta', {})\n"
-            "labels = meta.get('properties', {}).get('labels', {})\n"
-            "assert 'propertyNames' in labels, (\n"
-            "    'ObjectMeta.labels missing propertyNames — '\n"
-            "    'before_load_schema did not fire during from_path'\n"
-            ")\n"
-            "print('PASS: hooks registered and constraints applied')\n"
+            "os.environ['SCHEMATHESIS_HOOKS'] = ''\n"
+            "import conftest\n"
+            "raw = conftest.schema.raw_schema\n"
+            "labels = raw['components']['schemas']['ObjectMeta']"
+            "['properties']['labels']\n"
+            "has_pn = 'propertyNames' in labels\n"
+            "print(f'propertyNames={has_pn}')\n"
+            "sys.exit(0 if has_pn else 1)\n"
         )
         result = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True, text=True, timeout=30,
         )
-        assert result.returncode == 0, (
-            f"Fresh-process conftest simulation failed:\n{result.stderr}"
+        return result.returncode == 0, result.stdout + result.stderr
+
+    def test_conftest_applies_constraints_via_from_path(self, _paths):
+        """Real conftest.py (with 'import common') applies before_load_schema."""
+        ok, output = self._run_conftest_check(*_paths)
+        assert ok, f"Conftest schema missing constraints:\n{output}"
+
+    def test_conftest_without_import_common_lacks_constraints(self, _paths, tmp_path):
+        """Without 'import common', conftest loads the schema without hooks.
+
+        This is the regression baseline: removing the import line must
+        cause constraints to be absent, proving the import is required.
+        """
+        test_api_dir, spec_path = _paths
+        # Write a conftest.py without the 'import common' line
+        real_conftest = os.path.join(test_api_dir, "conftest.py")
+        with open(real_conftest) as f:
+            lines = f.read().splitlines(keepends=True)
+        with open(tmp_path / "conftest.py", "w") as f:
+            for line in lines:
+                if line.startswith("import common"):
+                    continue
+                f.write(line)
+        ok, output = self._run_conftest_check(
+            test_api_dir, spec_path, conftest_dir=str(tmp_path),
+        )
+        assert not ok, (
+            "Without 'import common', conftest schema should lack constraints. "
+            f"Got: {output}"
         )
