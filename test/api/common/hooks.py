@@ -248,7 +248,10 @@ def _request_body_schemas(raw_schema):
     Walks operation ``requestBody`` entries in ``paths`` and follows
     ``$ref: #/components/requestBodies/…`` to reusable bodies that are
     actually used by an operation.  Unused reusable requestBodies are
-    **not** scanned, so their referenced schemas stay unconstrained.
+    **not** scanned, so their referenced schemas are not marked
+    request-reachable and do not receive ``additionalProperties``
+    tightening.  (Integer limits, label patterns, and name patterns
+    still apply to all component schemas regardless.)
 
     Returns ``(inline_schemas, component_names)`` where *inline_schemas*
     is a list of dict schema nodes that are NOT ``$ref``-only (they need
@@ -295,11 +298,11 @@ def _request_body_schemas(raw_schema):
                     visited_bodies.add(name)
                     target = reusable_bodies.get(name)
                     if isinstance(target, dict):
-                        # Reusable body may itself $ref another (alias chain).
+                        # Recurse: target may be another $ref (alias chain)
+                        # or a concrete body with content (handled below).
                         _resolve_request_body(target)
-                        _process_content(target.get("content"))
             return
-        # Inline requestBody — process content directly.
+        # Concrete requestBody (inline or resolved reusable) — process content.
         _process_content(rb.get("content"))
 
     visited_bodies = set()  # tracks visited components/requestBodies names
