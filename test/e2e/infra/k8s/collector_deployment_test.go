@@ -278,6 +278,51 @@ func TestCollectorDeployerAvailable(t *testing.T) {
 			runtime: func() *fakeCollectorRuntime { return &fakeCollectorRuntime{} },
 			wantErr: true,
 		},
+		{
+			name:    "When the required setting is not a boolean it should fail rather than guess",
+			envType: infra.EnvironmentKind,
+			env:     map[string]string{infra.EnvCollectorRequired: "maybe"},
+			runtime: func() *fakeCollectorRuntime { return &fakeCollectorRuntime{} },
+			wantErr: true,
+		},
+		{
+			name: "When the required setting is not a boolean on an unsupported deployment type it should still fail",
+			// The tempting shortcut is to answer "unsupported, so skip" without
+			// reading the setting at all. That would silently ignore a typo in
+			// the one variable that decides between skipping and failing.
+			envType: infra.EnvironmentOCP,
+			env:     map[string]string{infra.EnvCollectorRequired: "maybe"},
+			runtime: func() *fakeCollectorRuntime { return &fakeCollectorRuntime{} },
+			wantErr: true,
+		},
+		{
+			name: "When an image is named without saying whether it is required it should treat the run as required",
+			// Naming an exact image is itself a statement that the suite was
+			// meant to run against it, so an unsupported deployment type fails
+			// rather than skipping. This is the default the suite README
+			// documents; the generic unsupported deployer does not share it,
+			// which TestUnsupportedCollectorDeployer pins separately.
+			envType:            infra.EnvironmentOCP,
+			env:                map[string]string{infra.EnvCollectorImage: ciImage},
+			runtime:            func() *fakeCollectorRuntime { return &fakeCollectorRuntime{} },
+			wantAvailable:      false,
+			wantRequired:       true,
+			wantReasonContains: "only implemented for kind",
+			wantLookups:        nil,
+		},
+		{
+			name:    "When an image is named but required is explicitly false it should treat the run as optional",
+			envType: infra.EnvironmentOCP,
+			env: map[string]string{
+				infra.EnvCollectorImage:    ciImage,
+				infra.EnvCollectorRequired: "false",
+			},
+			runtime:            func() *fakeCollectorRuntime { return &fakeCollectorRuntime{} },
+			wantAvailable:      false,
+			wantRequired:       false,
+			wantReasonContains: "only implemented for kind",
+			wantLookups:        nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -752,6 +797,9 @@ func TestUnsupportedCollectorDeployer(t *testing.T) {
 		name         string
 		env          map[string]string
 		wantRequired bool
+		// wantErr is for a setting that could not be read at all, which is
+		// never a skip: the question of whether to skip was not answered.
+		wantErr bool
 	}{
 		{
 			name:         "When nothing required a collector it should be unavailable without requiring one",
@@ -761,6 +809,20 @@ func TestUnsupportedCollectorDeployer(t *testing.T) {
 			name:         "When the run required a collector it should be unavailable and required",
 			env:          map[string]string{infra.EnvCollectorRequired: "true"},
 			wantRequired: true,
+		},
+		{
+			name:    "When the required setting is not a boolean it should fail rather than skip",
+			env:     map[string]string{infra.EnvCollectorRequired: "maybe"},
+			wantErr: true,
+		},
+		{
+			name: "When only an image is named it should stay optional",
+			// A deployment type that cannot host a collector at all cannot be
+			// made to by naming an image, so the "an explicit image means the
+			// run was meant to happen" default does not apply here: only an
+			// explicit setting makes this run required.
+			env:          map[string]string{infra.EnvCollectorImage: "quay.io/flightctl/flightctl-catalog-collector-el9:v0.9.0-123"},
+			wantRequired: false,
 		},
 	}
 
@@ -774,6 +836,11 @@ func TestUnsupportedCollectorDeployer(t *testing.T) {
 			deployer := infra.NewUnsupportedCollectorDeployer(infra.EnvironmentQuadlet)
 
 			got, err := deployer.Available(context.Background())
+			if tt.wantErr {
+				require.Error(t, err)
+				require.False(t, got.Available)
+				return
+			}
 			require.NoError(t, err)
 			require.False(t, got.Available)
 			require.Equal(t, tt.wantRequired, got.Required)
