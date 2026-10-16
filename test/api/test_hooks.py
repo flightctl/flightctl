@@ -1043,32 +1043,54 @@ class TestBeforeLoadSchemaOnRealSpec:
 
 
 class TestConftestHookRegistration:
-    """Verify the actual conftest.py registers hooks before schema load."""
+    """Verify the actual conftest.py registers hooks before schema load.
+
+    Subprocesses run in a private temporary CWD with a neutral empty
+    ``schemathesis.toml`` so that ambient project TOML files (which may
+    reference hooks that trigger network fixtures at import time) are
+    never discovered by ``SchemathesisConfig.discover()``.  A minimal
+    spec with a ``labels`` property is used so the test is self-contained
+    and independent of any real spec's schema inventory.
+    """
+
+    _MINI_SPEC = json.dumps({
+        "openapi": "3.0.3",
+        "info": {"title": "conftest-test", "version": "1"},
+        "paths": {"/x": {"get": {"responses": {"200": {"description": "OK"}}}}},
+        "components": {"schemas": {"Obj": {
+            "type": "object",
+            "properties": {"labels": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+            }},
+        }}},
+    })
 
     @pytest.fixture
-    def _paths(self):
+    def _env(self, tmp_path):
         test_api_dir = os.path.abspath(os.path.dirname(__file__))
-        spec_path = _find_spec_path()
-        if spec_path is None:
-            pytest.skip("openapi.yaml not found")
-        return test_api_dir, spec_path
+        # Write a self-contained spec so labels are always available.
+        spec_file = tmp_path / "mini_spec.json"
+        spec_file.write_text(self._MINI_SPEC)
+        return test_api_dir, str(spec_file)
 
-    def _run_conftest_check(self, test_api_dir, spec_path, *, conftest_dir=None):
+    def _run_conftest_check(self, test_api_dir, spec_path, tmp_path,
+                            *, conftest_dir=None):
         """Import conftest.py in a clean subprocess and return (ok, output).
 
-        *conftest_dir* overrides where conftest.py is found; defaults to
-        *test_api_dir* (the real conftest).  When overridden, it is
-        placed before *test_api_dir* on sys.path so the modified
-        conftest.py is imported.
+        The child runs in *tmp_path* which contains a neutral empty
+        ``schemathesis.toml`` — preventing ambient TOML discovery and
+        side-effect-laden hook imports.
         """
         import subprocess
         import sys
 
         if conftest_dir is None:
             conftest_dir = test_api_dir
-        # Build sys.path: test_api_dir for common/schemathesis deps,
-        # conftest_dir on top (last insert(0) wins) for the conftest.py.
-        # Check any schema with a labels property (spec-agnostic).
+        # Neutral TOML prevents ambient hook discovery.
+        neutral_toml = tmp_path / "schemathesis.toml"
+        if not neutral_toml.exists():
+            neutral_toml.write_text("")
         script = (
             "import os, sys\n"
             f"sys.path.insert(0, {test_api_dir!r})\n"
@@ -1078,36 +1100,25 @@ class TestConftestHookRegistration:
             "os.environ['SCHEMATHESIS_HOOKS'] = ''\n"
             "import conftest\n"
             "raw = conftest.schema.raw_schema\n"
-            "schemas = raw.get('components', {}).get('schemas', {})\n"
-            "found_labels = False\n"
-            "has_pn = False\n"
-            "for s in schemas.values():\n"
-            "    if not isinstance(s, dict): continue\n"
-            "    labels = s.get('properties', {}).get('labels', {})\n"
-            "    if isinstance(labels, dict) and labels.get('type') == 'object':\n"
-            "        found_labels = True\n"
-            "        has_pn = 'propertyNames' in labels\n"
-            "        break\n"
-            "if not found_labels:\n"
-            "    print('no_labels_property')\n"
-            "    sys.exit(2)\n"
+            "labels = raw['components']['schemas']['Obj']"
+            "['properties']['labels']\n"
+            "has_pn = 'propertyNames' in labels\n"
             "print(f'propertyNames={has_pn}')\n"
             "sys.exit(0 if has_pn else 1)\n"
         )
         result = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True, text=True, timeout=30,
+            cwd=str(tmp_path),
         )
         return result.returncode == 0, result.stdout + result.stderr
 
-    def test_conftest_applies_constraints_via_from_path(self, _paths):
+    def test_conftest_applies_constraints_via_from_path(self, _env, tmp_path):
         """Real conftest.py (with 'import common') applies before_load_schema."""
-        ok, output = self._run_conftest_check(*_paths)
-        if "no_labels_property" in output:
-            pytest.skip("Spec has no labels property to test")
+        ok, output = self._run_conftest_check(*_env, tmp_path)
         assert ok, f"Conftest schema missing constraints:\n{output}"
 
-    def test_conftest_without_import_common_lacks_constraints(self, _paths, tmp_path):
+    def test_conftest_without_import_common_lacks_constraints(self, _env, tmp_path):
         """Without 'import common', conftest loads the schema without hooks.
 
         This is the regression baseline: removing the import line must
@@ -1115,21 +1126,21 @@ class TestConftestHookRegistration:
         Asserts the specific expected output (propertyNames=False) so
         that an unrelated subprocess failure cannot satisfy the baseline.
         """
-        test_api_dir, spec_path = _paths
+        test_api_dir, spec_path = _env
         # Write a conftest.py without the 'import common' line
         real_conftest = os.path.join(test_api_dir, "conftest.py")
         with open(real_conftest) as f:
             lines = f.read().splitlines(keepends=True)
-        with open(tmp_path / "conftest.py", "w") as f:
+        child_dir = tmp_path / "neg"
+        child_dir.mkdir()
+        with open(child_dir / "conftest.py", "w") as f:
             for line in lines:
                 if line.startswith("import common"):
                     continue
                 f.write(line)
         ok, output = self._run_conftest_check(
-            test_api_dir, spec_path, conftest_dir=str(tmp_path),
+            test_api_dir, spec_path, tmp_path, conftest_dir=str(child_dir),
         )
-        if "no_labels_property" in output:
-            pytest.skip("Spec has no labels property to test")
         assert not ok, (
             "Without 'import common', conftest schema should lack constraints. "
             f"Got: {output}"
@@ -1138,3 +1149,77 @@ class TestConftestHookRegistration:
             "Expected 'propertyNames=False' in output to confirm constraints "
             f"are absent (not an unrelated error). Got: {output}"
         )
+
+    @pytest.mark.parametrize("with_import_common", [True, False],
+                             ids=["positive", "negative"])
+    def test_ambient_toml_hooks_not_loaded_in_child(
+        self, _env, tmp_path, monkeypatch, with_import_common,
+    ):
+        """The helper's neutral-CWD isolation must prevent ambient TOML
+        hooks from being imported in the child subprocess.
+
+        Sets the PARENT process CWD to an ambient directory containing a
+        ``schemathesis.toml`` with ``hooks = "sentinel_pkg"`` (a module
+        that writes a marker file when imported).  Then invokes the real
+        ``_run_conftest_check`` helper.  Asserts:
+        - positive: propertyNames=True (real conftest applies hooks)
+        - negative: propertyNames=False (stripped conftest lacks hooks)
+        - both: sentinel marker absent (ambient hooks never loaded)
+        """
+        test_api_dir, spec_path = _env
+
+        # Sentinel module that writes a marker file on import.
+        marker = tmp_path / "SENTINEL_IMPORTED"
+        sentinel_dir = tmp_path / "sentinel_pkg"
+        sentinel_dir.mkdir()
+        (sentinel_dir / "__init__.py").write_text(
+            f"import pathlib; pathlib.Path({str(marker)!r}).write_text('yes')\n"
+        )
+        # Ambient TOML in a directory we'll chdir to.
+        ambient_dir = tmp_path / "ambient"
+        ambient_dir.mkdir()
+        (ambient_dir / "schemathesis.toml").write_text('hooks = "sentinel_pkg"\n')
+        # Put sentinel on PYTHONPATH so it would be importable from CWD.
+        monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+        # Set parent CWD to ambient dir (simulates /app with symlinked TOML).
+        monkeypatch.chdir(ambient_dir)
+
+        # Build conftest_dir for positive vs negative.
+        conftest_dir = None  # positive: use real conftest
+        if not with_import_common:
+            neg_dir = tmp_path / "neg"
+            neg_dir.mkdir(exist_ok=True)
+            real_conftest = os.path.join(test_api_dir, "conftest.py")
+            with open(real_conftest) as f:
+                lines = f.read().splitlines(keepends=True)
+            with open(neg_dir / "conftest.py", "w") as f:
+                for line in lines:
+                    if line.startswith("import common"):
+                        continue
+                    f.write(line)
+            conftest_dir = str(neg_dir)
+
+        # Use a SEPARATE child_tmp so the helper creates its own neutral CWD.
+        child_tmp = tmp_path / "child_env"
+        child_tmp.mkdir(exist_ok=True)
+        ok, output = self._run_conftest_check(
+            test_api_dir, spec_path, child_tmp, conftest_dir=conftest_dir,
+        )
+
+        # Sentinel must NOT have been imported (ambient TOML isolated).
+        assert not marker.exists(), (
+            "Sentinel module was imported — helper's CWD isolation failed"
+        )
+        # Conftest assertions.
+        if with_import_common:
+            assert ok, f"Positive conftest should apply constraints:\n{output}"
+            assert "propertyNames=True" in output
+        else:
+            assert not ok, (
+                "Negative conftest should lack constraints. "
+                f"Got: {output}"
+            )
+            assert "propertyNames=False" in output, (
+                "Expected 'propertyNames=False', not an unrelated error. "
+                f"Got: {output}"
+            )
