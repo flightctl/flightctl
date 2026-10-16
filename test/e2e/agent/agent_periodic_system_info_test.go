@@ -2,6 +2,8 @@ package agent_test
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -35,18 +37,34 @@ var _ = Describe("Agent System Info periodic values", Label("sanity"), func() {
 
 		By("Recollecting a changed backing value without reloading the agent")
 		Expect(harness.WriteAgentFile(statusFixtureValue, "B")).To(Succeed())
-		Eventually(readCustomInfoSnapshot, TIMEOUT, POLLING).WithArguments(harness, deviceID).Should(SatisfyAll(
+		var lastHealthyB customInfoSnapshot
+		Eventually(func() (*customInfoSnapshot, error) {
+			snapshot, err := readCustomInfoSnapshot(harness, deviceID)
+			if snapshot != nil {
+				lastHealthyB = *snapshot
+			}
+			return snapshot, err
+		}, TIMEOUT, POLLING).Should(SatisfyAll(
 			HaveField("Value", "B"),
 			HaveField("Status", v1beta1.SystemInfoSourceStatusHealthy),
 			HaveField("Message", BeEmpty()),
+			HaveField("LastTransitionTime", Not(BeZero())),
 		))
 
 		By("Reporting an input error while retaining the last successful value")
+		Eventually(func() (time.Time, error) {
+			output, err := harness.RunScriptOnVM("date -u +%FT%TZ")
+			if err != nil {
+				return time.Time{}, err
+			}
+			return time.Parse(time.RFC3339, strings.TrimSpace(output.String()))
+		}, "5s", POLLING).Should(BeTemporally(">", lastHealthyB.LastTransitionTime))
 		Expect(harness.RemoveAgentFile(statusFixtureValue)).To(Succeed())
 		Eventually(readCustomInfoSnapshot, TIMEOUT, POLLING).WithArguments(harness, deviceID).Should(SatisfyAll(
-			HaveField("Value", "B"),
+			HaveField("Value", lastHealthyB.Value),
 			HaveField("Status", v1beta1.SystemInfoSourceStatusError),
 			HaveField("Message", Not(BeEmpty())),
+			HaveField("LastTransitionTime", SatisfyAll(Not(BeZero()), Not(BeTemporally("==", lastHealthyB.LastTransitionTime)))),
 		))
 
 		By("Recovering when the input is restored")
@@ -87,9 +105,10 @@ var _ = Describe("Agent System Info periodic values", Label("sanity"), func() {
 })
 
 type customInfoSnapshot struct {
-	Value   string
-	Status  v1beta1.SystemInfoSourceStatusType
-	Message string
+	Value              string
+	Status             v1beta1.SystemInfoSourceStatusType
+	Message            string
+	LastTransitionTime time.Time
 }
 
 // readCustomInfoSnapshot returns a value and its per-source health from the same device response.
@@ -110,7 +129,7 @@ func readCustomInfoSnapshot(harness *e2e.Harness, deviceID string) (*customInfoS
 	if !found {
 		return nil, nil
 	}
-	snapshot := &customInfoSnapshot{Value: value, Status: source.Status}
+	snapshot := &customInfoSnapshot{Value: value, Status: source.Status, LastTransitionTime: source.LastTransitionTime}
 	if source.Message != nil {
 		snapshot.Message = *source.Message
 	}
