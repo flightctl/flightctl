@@ -8,6 +8,8 @@ import schemathesis
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+import common  # noqa: F401 -- register before_load_schema hooks before schema load
+
 schema = schemathesis.openapi.from_path(os.environ["SPEC_PATH"])
 schema.config.base_url = os.environ["BASE_URL"]
 
