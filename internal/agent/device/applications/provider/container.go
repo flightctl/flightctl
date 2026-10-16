@@ -162,7 +162,7 @@ func (p *containerProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("binding Quadlet image volumes: %w", err)
 	}
 
-	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID); err != nil {
+	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID, p.spec.User); err != nil {
 		return fmt.Errorf("installing container: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -16,6 +17,30 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestWhenAContainerIsInstalledItShouldUseSharedEventConfiguration(t *testing.T) {
+	require := require.New(t)
+	logger, podman, rw, _ := setupTestEnv(t)
+	app := v1beta1.ContainerApplication{AppType: v1beta1.AppTypeContainer, Name: lo.ToPtr("container")}
+	require.NoError(app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/flightctl-tests/alpine:v1"}))
+	var spec v1beta1.ApplicationProviderSpec
+	require.NoError(spec.FromContainerApplication(app))
+	p, err := newContainerProvider(t.Context(), logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, &spec,
+		func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil })
+	require.NoError(err)
+	require.NoError(p.Install(t.Context()))
+	config, err := rw.ReadFile("/etc/containers/systemd/.flightctl-podman-events.conf")
+	require.NoError(err)
+	require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(config))
+	dropIn, err := rw.ReadFile(filepath.Join(p.Spec().Path, p.ID()+"-.container.d", quadletDropInFile))
+	require.NoError(err)
+	require.Contains(string(dropIn), "CONTAINERS_CONF_OVERRIDE=/etc/containers/systemd/.flightctl-podman-events.conf")
+	require.NoError(p.Remove(t.Context()))
+	config, err = rw.ReadFile("/etc/containers/systemd/.flightctl-podman-events.conf")
+	require.NoError(err)
+	require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(config))
+}
 
 func TestContainerEnsureDependencies(t *testing.T) {
 	tests := []struct {
