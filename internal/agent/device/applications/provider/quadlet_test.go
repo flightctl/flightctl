@@ -2304,7 +2304,7 @@ func TestQuadletInlineProvider(t *testing.T) {
 			}
 			require.NoError(err)
 			require.NoError(quadletProvider.Install(ctx))
-			config, err := rw.ReadFile(filepath.Join(quadletProvider.Spec().Path, ".flightctl-podman-events.conf"))
+			config, err := rw.ReadFile(filepath.Join(filepath.Dir(quadletProvider.Spec().Path), ".flightctl-podman-events.conf"))
 			require.NoError(err)
 			require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(config))
 			dropIn, err := rw.ReadFile(filepath.Join(quadletProvider.Spec().Path, quadletProvider.ID()+"-.container.d", "99-flightctl.conf"))
@@ -2313,7 +2313,65 @@ func TestQuadletInlineProvider(t *testing.T) {
 			require.NoError(err)
 			environment, err := unit.Lookup("Service", "Environment")
 			require.NoError(err)
-			require.Equal(`"CONTAINERS_CONF_OVERRIDE=`+filepath.Join(quadletProvider.Spec().Path, ".flightctl-podman-events.conf")+`"`, environment)
+			require.Equal(`"CONTAINERS_CONF_OVERRIDE=`+filepath.Join(filepath.Dir(quadletProvider.Spec().Path), ".flightctl-podman-events.conf")+`"`, environment)
+		})
+	}
+}
+
+func TestQuadletEventConfigurationSurvivesApplicationRemoval(t *testing.T) {
+	currentUser, err := user.Current()
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		runAs v1beta1.Username
+	}{
+		{name: "When a rootful application is removed it should retain configuration needed by stop commands"},
+		{name: "When a rootless application is removed it should retain configuration needed by stop commands", runAs: v1beta1.Username(currentUser.Username)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, executer.NewMockExecuter(ctrl), rw, testutil.NewPollConfig())
+			app := v1beta1.QuadletApplication{
+				AppType: v1beta1.AppTypeQuadlet,
+				Name:    lo.ToPtr("sleep-app"),
+				RunAs:   tc.runAs,
+			}
+			require.NoError(app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/alpine:v1\nExec=sleep infinity\n")}},
+			}))
+			var appSpec v1beta1.ApplicationProviderSpec
+			require.NoError(appSpec.FromQuadletApplication(app))
+			ctx := context.Background()
+			provider, err := newQuadletProvider(ctx, logger,
+				func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+				&appSpec,
+				func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }, nil)
+			require.NoError(err)
+			require.NoError(provider.Install(ctx))
+			dropIn, err := rw.ReadFile(filepath.Join(provider.Spec().Path, provider.ID()+"-.container.d", quadletDropInFile))
+			require.NoError(err)
+			unit, err := quadlet.NewUnit(dropIn)
+			require.NoError(err)
+			environment, err := unit.Lookup("Service", "Environment")
+			require.NoError(err)
+			configPath, found := strings.CutPrefix(strings.Trim(environment, `"`), "CONTAINERS_CONF_OVERRIDE=")
+			require.True(found)
+			require.NoError(provider.Remove(ctx))
+			exists, err := rw.PathExists(provider.Spec().Path)
+			require.NoError(err)
+			require.False(exists)
+			config, err := rw.ReadFile(configPath)
+			require.NoError(err, "systemd stop commands still use the installed Podman configuration after application files are removed")
+			require.Equal(client.PodmanEventsConfigContents, string(config))
 		})
 	}
 }

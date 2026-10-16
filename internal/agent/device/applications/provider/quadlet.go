@@ -576,7 +576,8 @@ func (q *quadletInstaller) install() error {
 		}
 	}
 
-	if err := q.readWriter.WriteFile(filepath.Join(q.appUnitPath, client.PodmanEventsConfigFilename), []byte(client.PodmanEventsConfigContents), fileio.DefaultFilePermissions); err != nil {
+	// Stop commands still need this file after the application's directory is removed.
+	if err := q.readWriter.WriteFile(filepath.Join(filepath.Dir(q.appUnitPath), client.PodmanEventsConfigFilename), []byte(client.PodmanEventsConfigContents), fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("writing Podman event configuration: %w", err)
 	}
 
@@ -770,7 +771,7 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 	unit.Add("Unit", "PartOf", quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
 	// [Service] sets the host Podman environment, including generated VM helpers.
 	// [Container] Environment would only configure the application inside it.
-	configPath := filepath.Join(q.appUnitPath, client.PodmanEventsConfigFilename)
+	configPath := filepath.Join(filepath.Dir(q.appUnitPath), client.PodmanEventsConfigFilename)
 	unit.Add("Service", "Environment", fmt.Sprintf("%q", "CONTAINERS_CONF_OVERRIDE="+strings.ReplaceAll(configPath, "%", "%%")))
 
 	// add label for tracking quadlet events by app id
