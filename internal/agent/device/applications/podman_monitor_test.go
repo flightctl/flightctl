@@ -2549,3 +2549,30 @@ func TestWhenAnEventComesFromAnotherUserStoreItShouldNotChangeApplicationStatus(
 	require.Len(results, 1)
 	require.Empty(results[0].Images.Images)
 }
+
+func TestWhenPodmanEventsExceedTheSizeLimitItShouldSkipThemAndKeepReading(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	oversized := `{"Type":"container","Status":"create","ID":"oversized","padding":"` + strings.Repeat("x", 4*1024*1024) + `"}`
+	valid := `{"Type":"container","Status":"start","ID":"healthy","timeNano":20}`
+	stream := oversized + "\n" + valid
+	logger := log.NewPrefixLogger("test")
+	executor := executer.NewMockExecuter(ctrl)
+	podmanEventsCommandMock(executor).DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return streamDataToStdout(t, strings.NewReader(stream))
+	})
+	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	var watcher podmanEventWatcher
+	watcher.Init(logger, "bob", podman, time.Unix(0, 0))
+	events := make(chan client.PodmanEvent, 2)
+	require.NoError(watcher.Watch(t.Context(), events))
+	defer func() { require.NoError(watcher.Stop()) }()
+	select {
+	case event := <-events:
+		require.Equal("healthy", event.ID, "oversized events must be discarded without losing the next event")
+		require.Equal("start", event.Status)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event delivered after the oversized event")
+	}
+}

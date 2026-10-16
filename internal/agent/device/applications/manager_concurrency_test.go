@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -73,26 +75,72 @@ func TestWhenStatusRunsDuringApplicationUpdatesItShouldPreserveVolumeObservation
 		},
 	})
 	require.NoError(err)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(string(inspection), "", 0).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").Return(string(inspection), "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(digest, "", 0).AnyTimes()
 	require.NoError(m.Status(t.Context(), &v1beta1.DeviceStatus{}))
 
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	statusInspecting := make(chan struct{})
+	firstUpdateDone := make(chan struct{})
+	var firstObservation sync.Once
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", volumeID, "--format", "{{json .}}").
+		DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
+			firstObservation.Do(func() {
+				close(statusInspecting)
+				select {
+				case <-firstUpdateDone:
+				case <-ctx.Done():
+				}
+			})
+			return string(inspection), "", 0
+		}).AnyTimes()
+
+	statusDone := make(chan struct{})
 	updatesDone := make(chan error, 1)
 	go func() {
-		for range 100 {
-			if err := m.Update(context.Background(), appProvider); err != nil {
+		// Start an update while Status is inspecting the volume, then continue
+		// exercising cache invalidation alongside the remaining status reads.
+		select {
+		case <-statusInspecting:
+		case <-ctx.Done():
+			updatesDone <- ctx.Err()
+			return
+		}
+		err := m.Update(ctx, appProvider)
+		close(firstUpdateDone)
+		if err != nil {
+			updatesDone <- err
+			return
+		}
+		for {
+			select {
+			case <-statusDone:
+				updatesDone <- nil
+				return
+			case <-ctx.Done():
+				updatesDone <- ctx.Err()
+				return
+			default:
+			}
+			if err := m.Update(ctx, appProvider); err != nil {
 				updatesDone <- err
 				return
 			}
 		}
-		updatesDone <- nil
 	}()
 	for range 100 {
 		reported := &v1beta1.DeviceStatus{}
-		require.NoError(m.Status(t.Context(), reported))
+		require.NoError(m.Status(ctx, reported))
 		require.Len(reported.Applications, 1)
 		require.NotNil(reported.Applications[0].ImageDigests)
 		require.Contains(*reported.Applications[0].ImageDigests, v1beta1.ApplicationImageDigest{Image: imageRef, Digest: digest})
 	}
-	require.NoError(<-updatesDone)
+	close(statusDone)
+	select {
+	case err := <-updatesDone:
+		require.NoError(err)
+	case <-ctx.Done():
+		t.Fatal("application updates did not finish before the deadline")
+	}
 }

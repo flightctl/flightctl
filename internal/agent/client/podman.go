@@ -358,11 +358,10 @@ func (p *Podman) Tag(ctx context.Context, source, target string) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "tag", source, target)
+	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "tag", source, target)
 	if exitCode != 0 {
 		return fmt.Errorf("tag image %s as %s: %w", source, target, deviceerrors.FromStderr(stderr, exitCode))
 	}
-	_ = stdout
 	return nil
 }
 

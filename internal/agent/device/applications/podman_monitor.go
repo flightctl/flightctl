@@ -34,6 +34,7 @@ const (
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
 	podmanHealthStatusEvent       = "health_status"
 	composeServiceLabel           = "com.docker.compose.service"
+	maxPodmanEventBytes           = 4 * 1024 * 1024
 )
 
 type PodmanMonitor struct {
@@ -1259,15 +1260,32 @@ func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.
 	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
 
 	reader := bufio.NewReader(stdoutPipe)
+	var data []byte
+	oversized := false
 	for {
-		// Inspect snapshots can exceed Scanner's default 64 KiB token limit.
-		data, err := reader.ReadBytes('\n')
-		if len(data) > 0 {
-			if ctx.Err() != nil {
-				return
+		// Inspect snapshots can exceed Scanner's default limit. Read bounded
+		// fragments so oversized events can be discarded without stopping the stream.
+		fragment, err := reader.ReadSlice('\n')
+		if ctx.Err() != nil {
+			return
+		}
+		if !oversized {
+			if len(data)+len(fragment) > maxPodmanEventBytes {
+				oversized = true
+				data = nil
+				e.log.Warnf("Discarding Podman event larger than %d bytes", maxPodmanEventBytes)
+			} else {
+				data = append(data, fragment...)
 			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if !oversized && len(data) > 0 {
 			e.handleEvent(ctx, data, events)
 		}
+		data = data[:0]
+		oversized = false
 		if err != nil {
 			if err != io.EOF {
 				e.log.Errorf("Error reading podman events: %v", err)

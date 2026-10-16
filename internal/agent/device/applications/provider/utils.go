@@ -228,7 +228,12 @@ func installOCIParentContents(
 ) (string, dependency.OCIType, error) {
 	if appData != nil && appData.TmpPath != "" && appData.ParentReference == imageRef && appData.ParentOCIType != "" {
 		if _, err := digest.Parse(appData.ParentDigest); appData.ParentDigest == "" || err == nil {
-			if err := rw.CopyDir(appData.TmpPath, path); err != nil {
+			// The retained extraction is a private temporary directory. Create the
+			// installed directory with its normal permissions and application owner.
+			if err := rw.MkdirAll(path, fileio.DefaultDirectoryPermissions); err != nil {
+				return "", "", fmt.Errorf("creating application directory %w: %w", errors.WithElement(path), err)
+			}
+			if err := rw.CopyDir(appData.TmpPath, path, fileio.WithDirectoryOwnership()); err != nil {
 				if rmErr := rw.RemoveAll(path); rmErr != nil {
 					logger.Warnf("Failed to cleanup incomplete parent copy at %q: %v", path, rmErr)
 				}
