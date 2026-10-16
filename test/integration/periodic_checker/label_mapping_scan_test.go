@@ -356,6 +356,149 @@ var _ = Describe("Label mapping scan integration", func() {
 		Expect(checkpointRowCount()).To(Equal(int64(1)))
 	})
 
+	It("When an unowned competing mapping is deleted it should reconcile devices before finalizing and recover the surviving mapping", func() {
+		createMapping("collision-map", nil, `{"shared": "map-value", "extra": "map-extra"}`)
+		createMapping("collision-scalar", lo.ToPtr("shared"), `"scalar-value"`)
+		deviceName := "collision-recovery-device"
+		deviceStatus := domain.NewDeviceStatus()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "os"}},
+			Status:   &deviceStatus,
+		}
+		_, err := deviceStore.Create(ctx, orgID, &device, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		scanTask.Poll(ctx, orgID)
+
+		Expect(getReadyCondition("collision-map").Reason).To(Equal("Degraded"))
+		failedDevice, err := deviceStore.Get(ctx, orgID, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		failedCondition := domain.FindStatusCondition(failedDevice.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+		Expect(failedCondition).NotTo(BeNil())
+		Expect(failedCondition.Status).To(Equal(domain.ConditionStatusFalse))
+		Expect(failedCondition.Reason).To(Equal("ReconciliationFailed"))
+		Expect(failedCondition.Message).NotTo(BeEmpty())
+
+		var ownedLabels int64
+		Expect(db.Model(&model.DeviceLabel{}).
+			Where("org_id = ? AND label_sync_mapping_id = ?", orgID, mappingID(ctx, db, orgID, "collision-scalar")).
+			Count(&ownedLabels).Error).To(Succeed())
+		Expect(ownedLabels).To(BeZero())
+
+		scanTask.Poll(ctx, orgID)
+		stillFailed, err := deviceStore.Get(ctx, orgID, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stillFailed.Metadata.ResourceVersion).To(Equal(failedDevice.Metadata.ResourceVersion))
+
+		deleteStatus := mappingService.DeleteLabelSyncMapping(ctx, orgID, "collision-scalar")
+		Expect(deleteStatus.Code).To(Equal(domain.StatusOK().Code), deleteStatus.Message)
+		terminating, status := mappingService.GetLabelSyncMapping(ctx, orgID, "collision-scalar")
+		Expect(status.Code).To(Equal(domain.StatusOK().Code))
+		Expect(terminating.Metadata.DeletionTimestamp).NotTo(BeNil())
+
+		scanTask.Poll(ctx, orgID)
+
+		Expect(getReadyCondition("collision-map").Reason).To(Equal("Success"))
+		_, status = mappingService.GetLabelSyncMapping(ctx, orgID, "collision-scalar")
+		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+		recoveredDevice, err := deviceStore.Get(ctx, orgID, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(recoveredDevice.Metadata.Labels)).To(HaveKeyWithValue("shared", "map-value"))
+		Expect(lo.FromPtr(recoveredDevice.Metadata.Labels)).To(HaveKeyWithValue("extra", "map-extra"))
+		recoveredCondition := domain.FindStatusCondition(recoveredDevice.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+		Expect(recoveredCondition).NotTo(BeNil())
+		Expect(recoveredCondition.Status).To(Equal(domain.ConditionStatusTrue))
+	})
+
+	It("When the last failing mapping is deleted it should clear device failures and finish every page before finalizing", func() {
+		const mappingName = "last-failing-mapping"
+		createMapping(mappingName, lo.ToPtr("architecture"), `status.systemInfo.architecture == "broken" ? string(int(status.systemInfo.architecture)) : dyn(null)`)
+		for _, name := range []string{"a", "b"} {
+			status := domain.NewDeviceStatus()
+			status.SystemInfo.Architecture = "x86_64"
+			if name == "a" {
+				status.SystemInfo.Architecture = "broken"
+			}
+			_, err := deviceStore.Create(ctx, orgID, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: &name},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "os"}},
+				Status:   &status,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		var err error
+		scanTask, err = tasks.NewLabelMappingScanTask(mappingService, deviceSvc, checkpointSvc, tasks.LabelMappingScanConfig{
+			PageSize: 1, TimeBudget: time.Nanosecond,
+		}, flightlog.InitLogs())
+		Expect(err).NotTo(HaveOccurred())
+		scanTask.Poll(ctx, orgID)
+		scanTask.Poll(ctx, orgID)
+		Expect(getReadyCondition(mappingName).Reason).To(Equal("Degraded"))
+		failed, err := deviceStore.Get(ctx, orgID, "a")
+		Expect(err).NotTo(HaveOccurred())
+		failedCondition := domain.FindStatusCondition(failed.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+		Expect(failedCondition).NotTo(BeNil())
+		Expect(failedCondition.Status).To(Equal(domain.ConditionStatusFalse))
+		healthy, err := deviceStore.Get(ctx, orgID, "b")
+		Expect(err).NotTo(HaveOccurred())
+		var ownedLabels int64
+		Expect(db.Model(&model.DeviceLabel{}).
+			Where("org_id = ? AND label_sync_mapping_id = ?", orgID, mappingID(ctx, db, orgID, mappingName)).
+			Count(&ownedLabels).Error).To(Succeed())
+		Expect(ownedLabels).To(BeZero())
+
+		deleteStatus := mappingService.DeleteLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(deleteStatus.Code).To(Equal(domain.StatusOK().Code), deleteStatus.Message)
+		terminating, status := mappingService.GetLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(status.Code).To(Equal(domain.StatusOK().Code))
+		Expect(terminating.Metadata.DeletionTimestamp).NotTo(BeNil())
+
+		scanTask.Poll(ctx, orgID)
+
+		_, status = mappingService.GetLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(status.Code).To(Equal(domain.StatusOK().Code))
+		Expect(getCheckpoint().Cursor).NotTo(BeNil())
+		recovered, err := deviceStore.Get(ctx, orgID, "a")
+		Expect(err).NotTo(HaveOccurred())
+		recoveredCondition := domain.FindStatusCondition(recovered.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+		Expect(recoveredCondition).NotTo(BeNil())
+		Expect(recoveredCondition.Status).To(Equal(domain.ConditionStatusTrue))
+
+		scanTask.Poll(ctx, orgID)
+
+		_, status = mappingService.GetLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+		Expect(getCheckpoint().Cursor).To(BeNil())
+		targets, err := mappingService.ListMappingScanTargets(ctx, orgID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(targets).To(BeEmpty())
+
+		scanTask.Poll(ctx, orgID)
+
+		stillRecovered, err := deviceStore.Get(ctx, orgID, "a")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stillRecovered.Metadata.ResourceVersion).To(Equal(recovered.Metadata.ResourceVersion))
+		stillHealthy, err := deviceStore.Get(ctx, orgID, "b")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stillHealthy.Metadata.ResourceVersion).To(Equal(healthy.Metadata.ResourceVersion))
+	})
+
+	It("When an unowned mapping is deleted with no devices it should be finalized by the periodic scan", func() {
+		const mappingName = "unused-mapping"
+		createMapping(mappingName, lo.ToPtr("architecture"), "status.systemInfo.architecture")
+		deleteStatus := mappingService.DeleteLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(deleteStatus.Code).To(Equal(domain.StatusOK().Code), deleteStatus.Message)
+		terminating, status := mappingService.GetLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(status.Code).To(Equal(domain.StatusOK().Code))
+		Expect(terminating.Metadata.DeletionTimestamp).NotTo(BeNil())
+
+		scanTask.Poll(ctx, orgID)
+
+		_, status = mappingService.GetLabelSyncMapping(ctx, orgID, mappingName)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+	})
+
 	It("When two map mappings each emit 50 labels it should persist the 100-label device limit", func() {
 		createMapping("first-map", nil, mapExpression("a", "x"))
 		createMapping("second-map", nil, mapExpression("b", "y"))

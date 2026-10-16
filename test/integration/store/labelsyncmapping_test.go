@@ -453,6 +453,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		ready := domain.FindStatusCondition(lo.FromPtr(current.Status.Conditions), domain.ConditionTypeLabelSyncMappingReady)
 		Expect(ready).NotTo(BeNil())
+		Expect(ready.Status).To(Equal(domain.ConditionStatusTrue))
 		Expect(ready.Reason).To(Equal("Success"))
 	})
 

@@ -95,6 +95,7 @@ func (t *LabelMappingScanTask) Poll(ctx context.Context, orgID uuid.UUID) {
 }
 
 func (t *LabelMappingScanTask) poll(ctx context.Context, orgID uuid.UUID) error {
+	pollStartedAt := time.Now()
 	targets, err := t.reconciler.ListMappingScanTargets(ctx, orgID)
 	if err != nil {
 		return err
@@ -105,6 +106,7 @@ func (t *LabelMappingScanTask) poll(ctx context.Context, orgID uuid.UUID) error 
 	}
 	checkpoint = mappingScanCampaignCheckpoint(targets, checkpoint, found && valid)
 	startedAt := time.Now()
+	var pagesProcessed, devicesProcessed int
 	for checkpoint.Active {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -122,6 +124,8 @@ func (t *LabelMappingScanTask) poll(ctx context.Context, orgID uuid.UUID) error 
 		if err := t.processDevicePage(ctx, orgID, &checkpoint, devices); err != nil {
 			return err
 		}
+		pagesProcessed++
+		devicesProcessed += len(devices.Items)
 		if devices.Metadata.Continue != nil && checkpoint.Cursor != nil && *devices.Metadata.Continue == *checkpoint.Cursor {
 			return errors.New("device listing did not advance its cursor")
 		}
@@ -140,7 +144,21 @@ func (t *LabelMappingScanTask) poll(ctx context.Context, orgID uuid.UUID) error 
 			break
 		}
 	}
-	return t.completeRecovery(ctx, orgID, &checkpoint)
+	if err := t.completeRecovery(ctx, orgID, &checkpoint); err != nil {
+		return err
+	}
+	t.log.WithFields(logrus.Fields{
+		"org_id":             orgID.String(),
+		"mapping_count":      len(targets),
+		"pages_processed":    pagesProcessed,
+		"devices_processed":  devicesProcessed,
+		"scan_active":        checkpoint.Active,
+		"mappings_remaining": len(checkpoint.Mappings),
+		"recovery_mappings":  len(checkpoint.Recovery),
+		"has_cursor":         checkpoint.Cursor != nil,
+		"duration":           time.Since(pollStartedAt).String(),
+	}).Debug("Mapping scan poll completed")
+	return nil
 }
 
 func (t *LabelMappingScanTask) processDevicePage(ctx context.Context, orgID uuid.UUID, checkpoint *mappingScanCheckpoint, devices *domain.DeviceList) error {
