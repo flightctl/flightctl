@@ -845,6 +845,7 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	inspectData []client.PodmanInspect,
 ) {
 	image, hasImage := m.resolveWorkloadImage(ctx, app, event, podmanClient, inspectData)
+	imageNotRequired := event.Image == "" && m.isRootfsInfraContainer(ctx, app, event, podmanClient, inspectData)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -858,6 +859,12 @@ func (m *PodmanMonitor) updateApplicationStatus(
 		container.Status = status
 		if hasImage {
 			container.Images = []WorkloadImage{image}
+		}
+		if imageNotRequired {
+			container.Images = nil
+		}
+		if event.ID != "" || hasImage {
+			container.ImageNotRequired = imageNotRequired
 		}
 		if event.ID != "" {
 			if event.ID != container.ID && !hasImage {
@@ -887,13 +894,56 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:          event.ID,
-		Images:      images,
-		Name:        event.Name,
-		ServiceName: event.Attributes[composeServiceLabel],
-		Status:      status,
-		Restarts:    restarts,
+		ID:               event.ID,
+		Images:           images,
+		ImageNotRequired: imageNotRequired,
+		Name:             event.Name,
+		ServiceName:      event.Attributes[composeServiceLabel],
+		Status:           status,
+		Restarts:         restarts,
 	})
+}
+
+// isRootfsInfraContainer distinguishes Podman's image-less pod infrastructure
+// from a workload whose image identity has not been collected yet.
+func (m *PodmanMonitor) isRootfsInfraContainer(
+	ctx context.Context,
+	app Application,
+	event *client.PodmanEvent,
+	podmanClient *client.Podman,
+	inspectData []client.PodmanInspect,
+) bool {
+	if event.ID == "" {
+		return false
+	}
+	if snapshot := event.ContainerInspectData; snapshot != nil && snapshot.ID == event.ID {
+		return snapshot.IsInfra && snapshot.Image == ""
+	}
+	m.mu.Lock()
+	workload, exists := app.Workload(event.Name)
+	known := exists && workload.ID == event.ID && workload.ImageNotRequired
+	m.mu.Unlock()
+	if known {
+		return true
+	}
+	if inspectData == nil {
+		if podmanClient == nil {
+			if m.clientFactory == nil {
+				return false
+			}
+			var err error
+			podmanClient, err = m.clientFactory(app.User())
+			if err != nil {
+				return false
+			}
+		}
+		var err error
+		inspectData, err = m.inspectContainer(ctx, event.ID, podmanClient)
+		if err != nil {
+			return false
+		}
+	}
+	return len(inspectData) == 1 && inspectData[0].IsInfra && inspectData[0].Image == ""
 }
 
 func (m *PodmanMonitor) resolveWorkloadImage(

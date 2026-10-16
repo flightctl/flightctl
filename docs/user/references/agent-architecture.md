@@ -153,6 +153,10 @@ Application outcomes retain per-image associations with a verified registry dige
 
 Unknown workload identities, missing expected images, unmatched results, or incomplete collection omit application `lastDelta`. A known digest from another replica cannot cover an unknown image. Desired prefetch results alone do not establish an observed association. Applications requiring parent or volume evidence also omit the outcome until all required image associations can be verified.
 
+Podman infrastructure containers that use a root filesystem without an image remain part of application health reporting. They do not require an image observation for `lastDelta` when a matching create-event snapshot or container inspection verifies their infrastructure role and absence of an image. This evidence is retained only for the same container ID. An unidentified container still makes the image snapshot incomplete.
+
+Helm snapshots include images declared by observed Pods, including init containers. An image referenced only by a rendered controller with no Pods, such as a suspended CronJob or a deployment scaled to zero, does not block `lastDelta`. A container declared by an existing Pod still requires a verified runtime image identity; preparation alone cannot supply it.
+
 ## Ansible Collection
 
 Flight Control provides an Ansible Collection for automating device and fleet management. This enables operators to integrate Flight Control into existing Ansible-based workflows for provisioning, configuration, and orchestration. Enables SSH-less and jumphost-less operation through its remote console connection.

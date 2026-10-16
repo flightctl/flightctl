@@ -123,8 +123,14 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 	if m.ociTargetCache != nil {
 		if entry, found := m.ociTargetCache.Get(p.ID()); found {
 			app.imageCollectionComplete = true
-			for _, target := range entry.Children {
-				app.requiredImages = append(app.requiredImages, target.Reference)
+			// Rendered Helm targets can belong to suspended or scaled-to-zero
+			// controllers. Pod events supply the expected container images for
+			// workloads that exist; preparation alone does not make an image
+			// part of the observed runtime snapshot.
+			if spec.AppType != v1beta1.AppTypeHelm {
+				for _, target := range entry.Children {
+					app.requiredImages = append(app.requiredImages, target.Reference)
+				}
 			}
 		}
 	}

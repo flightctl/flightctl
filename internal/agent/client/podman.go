@@ -54,6 +54,7 @@ const (
 
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
+	IsInfra     bool                  `json:"IsInfra"`
 	Image       string                `json:"Image"`
 	ImageDigest string                `json:"ImageDigest"`
 	Restarts    int                   `json:"RestartCount"`
@@ -112,6 +113,7 @@ type PodmanVolumeInspect struct {
 // Podman encodes ContainerInspectData as a JSON string containing inspect JSON.
 type PodmanContainerIdentity struct {
 	ID          string `json:"Id"`
+	IsInfra     bool   `json:"IsInfra"`
 	Image       string `json:"Image"`
 	ImageDigest string `json:"ImageDigest"`
 }
