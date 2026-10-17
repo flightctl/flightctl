@@ -28,8 +28,8 @@ import (
 // needs a WiFi radio, which the guest does not physically have, so we synthesize
 // two virtual radios with mac80211_hwsim: one drives the AP (hostapd), the other
 // acts as an over-the-air client (associate, DHCP, reach the portal). All WiFi
-// activity is confined to those hwsim radios; the guest's single SLIRP NIC
-// (10.0.2.15) remains the untouched SSH/Cockpit control channel.
+// activity is confined to those hwsim radios; the guest's wired NIC remains
+// the untouched SSH/Cockpit control channel.
 //
 // The specs are SSH/curl-driven verification against the deployed onboarding
 // scripts (setup-wifi-ap.sh, cleanup-onboarding.sh) and units
