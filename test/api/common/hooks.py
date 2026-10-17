@@ -62,7 +62,13 @@ INT64_MAX = 2 ** 63 - 1
 
 
 def _walk_schema(schema, visitor):
-    """Walk a JSON schema tree, calling visitor(schema) at each node."""
+    """Walk a JSON schema tree, calling visitor(schema) at each node.
+
+    Traverses standard JSON Schema keywords only.  Does not follow $ref
+    strings or Schemathesis-internal storage — callers that need every
+    reachable definition should iterate the raw ``components/schemas``
+    section instead (see ``before_load_schema``).
+    """
     if not isinstance(schema, dict):
         return
     visitor(schema)
@@ -77,9 +83,6 @@ def _walk_schema(schema, visitor):
         if key in schema and isinstance(schema[key], list):
             for subschema in schema[key]:
                 _walk_schema(subschema, visitor)
-    if "x-bundled" in schema and isinstance(schema["x-bundled"], dict):
-        for bundled_schema in schema["x-bundled"].values():
-            _walk_schema(bundled_schema, visitor)
 
 
 def _integer_limits_visitor(schema):
@@ -106,17 +109,36 @@ _LABEL_VALUE_PATTERN = r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$"
 
 
 def _find_composition_refs(schemas, prefix):
-    """Find schema keys referenced by allOf/anyOf/oneOf via $ref."""
+    """Find schema keys referenced by allOf/anyOf/oneOf via $ref.
+
+    Walks nested properties, items, and composition branches so that
+    schemas referenced from *any* depth are detected — not only those
+    composed at the top level of another schema definition.
+    """
     refs = set()
-    for s in schemas.values():
-        if not isinstance(s, dict):
-            continue
+
+    def _collect(node):
+        if not isinstance(node, dict):
+            return
         for key in ("allOf", "anyOf", "oneOf"):
-            for branch in s.get(key, []):
-                if isinstance(branch, dict) and "$ref" in branch:
-                    ref = branch["$ref"]
-                    if ref.startswith(prefix + "/"):
-                        refs.add(ref[len(prefix) + 1:])
+            for branch in node.get(key, []):
+                if isinstance(branch, dict):
+                    if "$ref" in branch:
+                        ref = branch["$ref"]
+                        if ref.startswith(prefix + "/"):
+                            refs.add(ref[len(prefix) + 1:])
+                    _collect(branch)
+        for key in ("properties", "patternProperties"):
+            if key in node and isinstance(node[key], dict):
+                for prop_schema in node[key].values():
+                    _collect(prop_schema)
+        for key in ("items", "additionalProperties", "not"):
+            if key in node and isinstance(node[key], dict):
+                _collect(node[key])
+
+    for s in schemas.values():
+        if isinstance(s, dict):
+            _collect(s)
     return refs
 
 
@@ -154,12 +176,6 @@ def disallow_extra_properties(schema, _inside_composition=False):
         if key in schema and isinstance(schema[key], list):
             for subschema in schema[key]:
                 disallow_extra_properties(subschema, _inside_composition=True)
-
-    if "x-bundled" in schema and isinstance(schema["x-bundled"], dict):
-        bundled = schema["x-bundled"]
-        skip = _find_composition_refs(bundled, "#/x-bundled")
-        for key, bundled_schema in bundled.items():
-            disallow_extra_properties(bundled_schema, _inside_composition=key in skip)
 
 
 def _label_constraints_visitor(schema):
@@ -207,8 +223,170 @@ def _require_status_for_status_endpoints(operation):
 _RESOURCE_NAME_PATH_PARAMS = {"name", "catalog", "fleet", "providername"}
 
 
+def _collect_schema_refs(schema):
+    """Return component schema names referenced by ``$ref`` inside *schema*.
+
+    Uses ``_walk_schema`` so only standard JSON Schema keywords are
+    traversed — ``example``, ``default``, and extension fields are
+    never entered.
+    """
+    prefix = "#/components/schemas/"
+    found = set()
+
+    def _visitor(node):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith(prefix):
+            found.add(ref[len(prefix):])
+
+    _walk_schema(schema, _visitor)
+    return found
+
+
+def _request_body_schemas(raw_schema):
+    """Return inline request-body schema nodes and reachable component names.
+
+    Walks operation ``requestBody`` entries in ``paths`` and follows
+    ``$ref: #/components/requestBodies/…`` to reusable bodies that are
+    actually used by an operation.  Unused reusable requestBodies are
+    **not** scanned, so their referenced schemas are not marked
+    request-reachable and do not receive ``additionalProperties``
+    tightening.  (Integer limits, label patterns, and name patterns
+    still apply to all component schemas regardless.)
+
+    Returns ``(inline_schemas, component_names)`` where *inline_schemas*
+    is a list of dict schema nodes that are NOT ``$ref``-only (they need
+    direct patching) and *component_names* is the set of
+    ``components/schemas`` keys transitively reachable from any request
+    body.
+    """
+    schemas = raw_schema.get("components", {}).get("schemas", {})
+    reusable_bodies = raw_schema.get("components", {}).get("requestBodies", {})
+    inline = []   # schema dicts that need direct patching
+    pending = set()
+
+    def _process_content(content):
+        """Walk media-type entries inside a requestBody ``content`` map."""
+        if not isinstance(content, dict):
+            return
+        for media_schema_wrapper in content.values():
+            if not isinstance(media_schema_wrapper, dict):
+                continue
+            s = media_schema_wrapper.get("schema")
+            if not isinstance(s, dict):
+                continue
+            if "$ref" in s and len(s) == 1:
+                # Pure ref — handled via component patching.
+                ref = s["$ref"]
+                prefix = "#/components/schemas/"
+                if ref.startswith(prefix):
+                    pending.add(ref[len(prefix):])
+            else:
+                # Inline schema — needs direct constraint application.
+                inline.append(s)
+                pending.update(_collect_schema_refs(s))
+
+    def _resolve_request_body(rb):
+        """Process a requestBody, following $ref to components/requestBodies."""
+        if not isinstance(rb, dict):
+            return
+        ref = rb.get("$ref")
+        if isinstance(ref, str):
+            prefix = "#/components/requestBodies/"
+            if ref.startswith(prefix):
+                name = ref[len(prefix):]
+                if name not in visited_bodies:
+                    visited_bodies.add(name)
+                    target = reusable_bodies.get(name)
+                    if isinstance(target, dict):
+                        # Recurse: target may be another $ref (alias chain)
+                        # or a concrete body with content (handled below).
+                        _resolve_request_body(target)
+            return
+        # Concrete requestBody (inline or resolved reusable) — process content.
+        _process_content(rb.get("content"))
+
+    visited_bodies = set()  # tracks visited components/requestBodies names
+
+    # Walk requestBody in each path operation.
+    for path_item in raw_schema.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for op in path_item.values():
+            if not isinstance(op, dict):
+                continue
+            rb = op.get("requestBody")
+            if rb is not None:
+                _resolve_request_body(rb)
+
+    # Transitively follow $refs inside collected component schemas.
+    visited = set()
+    while pending - visited:
+        name = (pending - visited).pop()
+        visited.add(name)           # always mark — even absent names
+        target = schemas.get(name)
+        if isinstance(target, dict):
+            pending.update(_collect_schema_refs(target))
+
+    return inline, visited
+
+
+def _apply_all_constraints(schema, *, inside_composition=False):
+    """Apply all four schema constraints to a single schema node."""
+    apply_integer_limits(schema)
+    apply_label_constraints(schema)
+    apply_name_pattern(schema)
+    disallow_extra_properties(schema, _inside_composition=inside_composition)
+
+
+@schemathesis.hook
+def before_load_schema(context, raw_schema):
+    """Apply schema-wide constraints to the raw OpenAPI document.
+
+    Uses the public ``before_load_schema`` hook so that constraints are
+    applied *before* Schemathesis bundles ``$ref`` targets into its
+    private ``x-bundled`` storage.  Modifications to ``components/schemas``
+    propagate through bundling to every operation that references them.
+
+    Integer limits, label patterns, and name patterns apply to **all**
+    component schemas — these constraints are semantically valid in both
+    request and response contexts.
+
+    ``disallow_extra_properties`` is scoped to component schemas
+    transitively reachable from request bodies **and** to inline
+    request-body schemas, matching the previous per-operation
+    body-patching scope.  Response-only schemas are not constrained,
+    avoiding unintended response-validation strictness.
+    """
+    schemas = raw_schema.get("components", {}).get("schemas", {})
+    inline_bodies, request_names = _request_body_schemas(raw_schema)
+
+    # --- Inline request-body schemas (not $ref to components). ---
+    # Collect composition targets from both component and inline roots.
+    all_schema_roots = dict(schemas)
+    for i, s in enumerate(inline_bodies):
+        all_schema_roots[f"__inline_{i}"] = s
+    composition_targets = _find_composition_refs(
+        all_schema_roots, "#/components/schemas",
+    )
+    for body_schema in inline_bodies:
+        _apply_all_constraints(body_schema)
+
+    # --- Component schemas. ---
+    for name, schema_def in schemas.items():
+        if not isinstance(schema_def, dict):
+            continue
+        apply_integer_limits(schema_def)
+        apply_label_constraints(schema_def)
+        apply_name_pattern(schema_def)
+        if name in request_names:
+            disallow_extra_properties(
+                schema_def, _inside_composition=name in composition_targets,
+            )
+
+
 @schemathesis.hook
 def before_init_operation(context, operation):
+    # Parameter-level constraints (simple schemas, no bundled refs).
     for parameter in operation.iter_parameters():
         schema = parameter.definition.get("schema")
         if schema is not None:
@@ -218,13 +396,9 @@ def before_init_operation(context, operation):
                 and isinstance(schema, dict)
                 and schema.get("type") == "string"):
             schema.setdefault("pattern", _RFC1123_RE.pattern)
-    for body in operation.body:
-        schema = body.definition.get("schema")
-        if schema is not None:
-            apply_integer_limits(schema)
-            apply_label_constraints(schema)
-            apply_name_pattern(schema)
-            disallow_extra_properties(schema)
+    # Body-schema constraints (integer limits, label patterns, name patterns,
+    # additionalProperties) are applied in before_load_schema on the raw
+    # OpenAPI components and propagate through bundling automatically.
     _require_status_for_status_endpoints(operation)
 
 
