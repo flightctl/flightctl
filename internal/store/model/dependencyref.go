@@ -56,17 +56,39 @@ type DependencyRef struct {
 	FleetName   *string   `gorm:"primaryKey;default:''"`
 	DeviceName  *string   `gorm:"primaryKey;default:''"`
 
-	RefType            string // "git", "http", "secret"
-	RepositoryName     *string
-	Revision           *string
-	HTTPSuffix         *string
-	SecretName         *string
-	SecretNamespace    *string
-	ConfigProviderName string
+	RefType             string // "git", "http", "secret"
+	RepositoryName      *string
+	Revision            *string
+	HTTPSuffix          *string
+	SecretName          *string
+	SecretNamespace     *string
+	ConfigProviderName  string
+	ConfigProviderNames StringArray `gorm:"type:text[]"`
 }
 
 func (DependencyRef) TableName() string {
 	return "dependency_refs"
+}
+
+// AddConfigProviderName records a provider while retaining the legacy single
+// provider field used by older dependency-ref rows.
+func (r *DependencyRef) AddConfigProviderName(name string) {
+	if name == "" {
+		return
+	}
+	if r.ConfigProviderName == "" {
+		r.ConfigProviderName = name
+	}
+	add := func(providerName string) {
+		for _, existing := range r.ConfigProviderNames {
+			if existing == providerName {
+				return
+			}
+		}
+		r.ConfigProviderNames = append(r.ConfigProviderNames, providerName)
+	}
+	add(r.ConfigProviderName)
+	add(name)
 }
 
 // SecretDependencyRef is a flat row returned by ListSecretDependencyTargets.
@@ -80,18 +102,31 @@ type SecretDependencyRef struct {
 	Fingerprint *string
 }
 
+// GitDependencyRenderedTarget associates a rendered fingerprint with the
+// device that produced it. DeviceLevel distinguishes a direct device ref from
+// a fleet ref expanded to its owned devices for first-probe comparisons.
+type GitDependencyRenderedTarget struct {
+	FleetName   string `json:"fleetName"`
+	DeviceName  string `json:"deviceName"`
+	Fingerprint string `json:"fingerprint"`
+	DeviceLevel bool   `json:"deviceLevel"`
+}
+
 // GitDependencyProbe is the result of ListDueGitDependencies — one row per
 // unique (repository_name, revision) pair that is due for polling. FleetNames
-// and DeviceNames carry the fan-out targets collected via array_agg.
+// and DeviceNames carry the fan-out targets collected via array_agg, while
+// RenderedTargets preserve the device/fingerprint association used for a
+// first-probe comparison.
 // RepoSpec carries the repository's JSONB spec so callers can extract the
 // URL and auth without a separate GetRepository round-trip.
 type GitDependencyProbe struct {
-	RepositoryName string
-	Revision       string
-	Fingerprint    *string
-	FleetNames     StringArray
-	DeviceNames    StringArray
-	RepoSpec       *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
+	RepositoryName  string
+	Revision        string
+	Fingerprint     *string
+	FleetNames      StringArray
+	DeviceNames     StringArray
+	RenderedTargets *JSONField[[]GitDependencyRenderedTarget] `gorm:"type:jsonb"`
+	RepoSpec        *JSONField[domain.RepositorySpec]         `gorm:"type:jsonb"`
 }
 
 // HttpDependencyProbe is the result of ListDueHttpDependencies — one row per
