@@ -70,10 +70,12 @@ jobs:
 
       - name: Build
         id: build
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@v3
         with:
           image: ${{ matrix.image.name }}
           tags: cache
+          # v3 defaults squash to true; keep intermediate layers.
+          squash: false
           labels: |
             io.flightctl.flightctl-${{ matrix.image.name }}.github.repository=${{ github.repository }}
             io.flightctl.flightctl-${{ matrix.image.name }}.github.actor=${{ github.actor }}
@@ -175,10 +177,12 @@ jobs:
 
       - name: Build
         id: build
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@v3
         with:
           image: ${{ matrix.image.name }}
           tags: cache
+          # v3 defaults squash to true; keep intermediate layers.
+          squash: false
           labels: |
             io.flightctl.flightctl-${{ matrix.image.name }}.github.repository=${{ github.repository }}
             io.flightctl.flightctl-${{ matrix.image.name }}.github.actor=${{ github.actor }}
