@@ -300,7 +300,7 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 			snapshot.Volumes = append(snapshot.Volumes, ImageVolumeSnapshot{
 				ID:        volume.ID,
 				Reference: volume.Reference,
-				OCIType:   volume.OCIType,
+				OCIType:   string(volume.OCIType),
 				Available: volume.Available,
 			})
 			// The manager verifies these volume identities before selecting status.

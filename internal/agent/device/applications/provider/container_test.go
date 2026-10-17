@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -210,5 +211,12 @@ func TestWhenAnImageMountContainsAnArtifactItShouldUseArtifactVolumePreparation(
 	require.NoError(providers[0].Install(t.Context()))
 	volumes := providers[0].Spec().Volume.List()
 	require.Len(volumes, 1)
-	require.Equal(string(dependency.OCITypePodmanArtifact), volumes[0].OCIType)
+	require.Equal(dependency.OCITypePodmanArtifact, volumes[0].OCIType)
+
+	appID := lifecycle.GenerateAppID("app", v1beta1.RootUsername)
+	expectedVolumeID := appID + "-data"
+	require.Equal(expectedVolumeID, volumes[0].ID)
+	container, err := rw.ReadFile(filepath.Join(providers[0].Spec().Path, providers[0].ID()+"-app.container"))
+	require.NoError(err)
+	require.Contains(string(container), "Volume="+expectedVolumeID+":/data")
 }

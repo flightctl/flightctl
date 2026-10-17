@@ -2431,6 +2431,8 @@ func TestWhenRemovedVMHelperEventsAreReplayedItShouldReportCapturedImageIdentity
 	logger := log.NewPrefixLogger("test")
 	executor := executer.NewMockExecuter(ctrl)
 	executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", "removed-helper").Return("", "no such object", 125).AnyTimes()
+	executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "immutable-image-id").
+		Return(`{"Id":"immutable-image-id","Digest":"`+observed+`"}`, "", 0).AnyTimes()
 	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
 	manager := systemd.NewMockManager(ctrl)
 	manager.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
@@ -2470,6 +2472,91 @@ func TestWhenRemovedVMHelperEventsAreReplayedItShouldReportCapturedImageIdentity
 		require.Len(results, 1)
 		require.Equal(v1beta1.ApplicationStatusRunning, results[0].Status.Status)
 		require.Equal([]v1beta1.ApplicationImageDigest{{Image: image, Digest: observed}}, *results[0].Status.ImageDigests)
+	}
+}
+
+func TestWhenCreateEventSnapshotsHaveLocalImageMetadataItShouldPreferTheLocalDigest(t *testing.T) {
+	const snapshotDigest = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	const localDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	const immutableImageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	testCases := []struct {
+		name          string
+		snapshotImage string
+		metadata      string
+		metadataErr   string
+		metadataExit  int
+		expected      string
+	}{
+		{
+			name:          "When local image metadata is available it should take precedence over the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadata:      `{"Id":"` + immutableImageID + `","Digest":"` + localDigest + `"}`,
+			expected:      localDigest,
+		},
+		{
+			name:          "When local image metadata is unavailable it should retain the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadataErr:   "image missing",
+			metadataExit:  125,
+			expected:      snapshotDigest,
+		},
+		{
+			name:          "When local image metadata is invalid it should retain the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadata:      `{"Id":"` + immutableImageID + `","Digest":"not-a-digest"}`,
+			expected:      snapshotDigest,
+		},
+		{
+			name:          "When the snapshot image is not an immutable local ID it should retain the snapshot digest",
+			snapshotImage: "quay.io/acme/web:latest",
+			expected:      snapshotDigest,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			executor := executer.NewMockExecuter(ctrl)
+			if tc.snapshotImage == immutableImageID {
+				executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", immutableImageID).
+					Return(tc.metadata, tc.metadataErr, tc.metadataExit).AnyTimes()
+			}
+			podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+			manager := systemd.NewMockManager(ctrl)
+			manager.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
+
+			app := createTestApplicationWithType(require, "vm", v1beta1.ApplicationStatusRunning, "bob", v1beta1.AppTypeVm)
+			monitor := &PodmanMonitor{
+				apps: map[string]Application{app.ID(): app},
+				log:  logger,
+				clientFactory: func(user v1beta1.Username) (*client.Podman, error) {
+					require.Equal(v1beta1.Username("bob"), user)
+					return podman, nil
+				},
+				systemdFactory: func(user v1beta1.Username) (systemd.Manager, error) {
+					require.Equal(v1beta1.Username("bob"), user)
+					return manager, nil
+				},
+			}
+
+			event := mockPodmanEventSuccess("vm", "bob", "volumecontainerdisk", "create")
+			event.ID = "removed-helper"
+			event.ContainerInspectData = &client.PodmanContainerIdentity{
+				ID:          event.ID,
+				Image:       tc.snapshotImage,
+				ImageDigest: snapshotDigest,
+			}
+			monitor.handleEvent(t.Context(), event)
+
+			results, err := monitor.Status()
+			require.NoError(err)
+			require.Len(results, 1)
+			require.Equal([]v1beta1.ApplicationImageDigest{{Image: event.Image, Digest: tc.expected}}, *results[0].Status.ImageDigests)
+		})
 	}
 }
 

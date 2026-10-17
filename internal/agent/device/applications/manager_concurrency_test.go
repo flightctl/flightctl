@@ -53,7 +53,7 @@ func TestWhenStatusRunsDuringApplicationUpdatesItShouldPreserveVolumeObservation
 		digest   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
 	appProvider.Spec().Volume.Add(&provider.Volume{
-		Name: "data", ID: volumeID, Reference: imageRef, OCIType: string(dependency.OCITypePodmanImage), Available: true,
+		Name: "data", ID: volumeID, Reference: imageRef, OCIType: dependency.OCITypePodmanImage, Available: true,
 	})
 	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
 	m := &manager{

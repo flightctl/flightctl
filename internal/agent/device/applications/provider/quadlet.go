@@ -282,7 +282,7 @@ func (p *quadletProvider) writeInlineContent(appPath string) error {
 }
 
 func (p *quadletProvider) Install(ctx context.Context) error {
-	resolveImageMountVolumes(ctx, p.podman, p.spec.Volume, p.log)
+	p.spec.Volume.ResolveImageMountVolumes(ctx, p.podman)
 	if p.isImageBased() {
 		p.spec.ImageDigest = ""
 		p.spec.ImageOCIType = ""

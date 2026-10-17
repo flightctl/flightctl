@@ -142,7 +142,7 @@ func (p *containerProvider) Verify(ctx context.Context) error {
 }
 
 func (p *containerProvider) Install(ctx context.Context) error {
-	resolveImageMountVolumes(ctx, p.podman, p.spec.Volume, p.log)
+	p.spec.Volume.ResolveImageMountVolumes(ctx, p.podman)
 	if p.spec.ContainerApp == nil {
 		return fmt.Errorf("container application spec is nil")
 	}

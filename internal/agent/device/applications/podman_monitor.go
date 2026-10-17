@@ -959,16 +959,30 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 
 	image := WorkloadImage{Image: event.Image}
+	resolver := m.newLocalImageResolver(app.User(), podmanClient)
 
 	// Create events preserve the container's registry identity after --rm, without
 	// resolving the mutable image reference or requiring the container to survive.
-	if snapshot := event.ContainerInspectData; snapshot != nil && event.ID != "" && snapshot.ID == event.ID && snapshot.Image != "" {
+	if snapshot := event.ContainerInspectData; snapshot != nil && event.ID != "" && snapshot.ID == event.ID {
+		snapshotDigest := ""
 		if observed, err := digest.Parse(snapshot.ImageDigest); err == nil {
-			image.Digest = observed.String()
-			return image, true
+			snapshotDigest = observed.String()
 		}
-		if inspectData == nil {
-			inspectData = []client.PodmanInspect{{Image: snapshot.Image}}
+		if client.IsImmutablePodmanImageID(snapshot.Image) {
+			if localDigest, ok := resolver.resolve(ctx, snapshot.Image); ok {
+				image.Digest = localDigest.String()
+				return image, true
+			}
+			if snapshotDigest != "" {
+				image.Digest = snapshotDigest
+				return image, true
+			}
+			if inspectData == nil {
+				inspectData = []client.PodmanInspect{{Image: snapshot.Image}}
+			}
+		} else if snapshotDigest != "" {
+			image.Digest = snapshotDigest
+			return image, true
 		}
 	}
 
@@ -987,17 +1001,9 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 	m.mu.Unlock()
 
-	if podmanClient == nil {
-		if m.clientFactory == nil {
-			m.log.Warnf("Cannot resolve digest for workload image %q: podman client factory is not configured", event.Image)
-			return image, true
-		}
-		var err error
-		podmanClient, err = m.clientFactory(app.User())
-		if err != nil {
-			m.log.Warnf("Failed to create podman client to resolve workload image %q: %v", event.Image, err)
-			return image, true
-		}
+	podmanClient, ok := resolver.ensureClient(event.Image)
+	if !ok {
+		return image, true
 	}
 
 	if event.ID == "" {
@@ -1015,16 +1021,61 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 		// Use the same image-inspect digest as prefetch, scoped to the immutable
 		// image used by this container. The event tag may already have moved,
 		// and container ImageDigest may retain a different index digest.
-		metadata, err := podmanClient.ImageMetadata(ctx, inspectData[0].Image)
-		if err != nil {
-			m.log.Warnf("Failed to inspect workload image %q: %v", inspectData[0].Image, err)
-			return image, true
-		}
-		if observed, err := digest.Parse(metadata.Digest); err == nil {
-			image.Digest = observed.String()
+		if localDigest, ok := resolver.resolve(ctx, inspectData[0].Image); ok {
+			image.Digest = localDigest.String()
 		}
 	}
 	return image, true
+}
+
+type localImageResolver struct {
+	clientFactory client.PodmanFactory
+	logger        *log.PrefixLogger
+	user          v1beta1.Username
+	client        *client.Podman
+}
+
+func (m *PodmanMonitor) newLocalImageResolver(user v1beta1.Username, client *client.Podman) *localImageResolver {
+	return &localImageResolver{
+		clientFactory: m.clientFactory,
+		logger:        m.log,
+		user:          user,
+		client:        client,
+	}
+}
+
+func (r *localImageResolver) ensureClient(image string) (*client.Podman, bool) {
+	if r.client != nil {
+		return r.client, true
+	}
+	if r.clientFactory == nil {
+		r.logger.Warnf("Cannot resolve digest for workload image %q: podman client factory is not configured", image)
+		return nil, false
+	}
+	client, err := r.clientFactory(r.user)
+	if err != nil {
+		r.logger.Warnf("Failed to create podman client to resolve workload image %q: %v", image, err)
+		return nil, false
+	}
+	r.client = client
+	return r.client, true
+}
+
+func (r *localImageResolver) resolve(ctx context.Context, image string) (digest.Digest, bool) {
+	client, ok := r.ensureClient(image)
+	if !ok {
+		return "", false
+	}
+	metadata, err := client.ImageMetadata(ctx, image)
+	if err != nil {
+		r.logger.Warnf("Failed to inspect workload image %q: %v", image, err)
+		return "", false
+	}
+	observed, err := digest.Parse(metadata.Digest)
+	if err != nil {
+		return "", false
+	}
+	return observed, true
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {

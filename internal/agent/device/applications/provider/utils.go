@@ -246,25 +246,6 @@ func installOCIParentContents(
 	return extractOCIContentsToPathWithIdentity(ctx, podman, logger, rw, imageRef, path)
 }
 
-// resolveImageMountVolumes classifies auto-detected mount sources in their
-// owning local store before lifecycle preparation and status collection.
-func resolveImageMountVolumes(ctx context.Context, podman *client.Podman, volumes VolumeManager, logger *log.PrefixLogger) {
-	if volumes == nil {
-		return
-	}
-	for _, volume := range volumes.List() {
-		if volume.OCIType != string(dependency.OCITypeAuto) {
-			continue
-		}
-		ociType, err := detectOCIType(ctx, podman, volume.Reference)
-		if err != nil {
-			logger.Warnf("Cannot determine image-mount volume type for %s: %v", volume.Name, err)
-			continue
-		}
-		volume.OCIType = string(ociType)
-	}
-}
-
 // bindQuadletImageVolumes pins executable image volumes to the local immutable
 // Podman image ID and labels the same Quadlet resource with the digest observed
 // from that ID. If runtime identity cannot be verified, the unit remains usable
