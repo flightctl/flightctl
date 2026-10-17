@@ -184,7 +184,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 
 		var agentVersion any = "v2"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion}}
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusOK), status.Code)
 		require.Equal("v2", dev.Status.SystemInfo.AgentVersion)
 		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -200,7 +200,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 		var agentVersion any = "v2"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion}}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusOK), status.Code)
 		require.Equal("v2", dev.Status.SystemInfo.AgentVersion)
 		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -221,7 +221,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 			{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
 		}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusBadRequest), status.Code)
 		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
 		require.Nil(dev)
@@ -247,7 +247,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 			{Op: "replace", Path: conditionPath + "/message", Value: &message},
 		}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusOK), status.Code)
 		require.NotNil(dev)
 		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -270,7 +270,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 			{Op: "replace", Path: conditionPath + "/message", Value: &message},
 		}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusOK), status.Code)
 		require.NotNil(dev)
 		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -286,7 +286,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
 		patch := domain.PatchRequest{{Op: "remove", Path: conditionPath}}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusBadRequest), status.Code)
 		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
 		require.Nil(dev)
@@ -307,7 +307,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 			{Op: "replace", Path: conditionPath + "/reason", Value: &overriddenReason},
 		}
 
-		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch, false)
 		require.Equal(int32(http.StatusBadRequest), status.Code)
 		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
 		require.Nil(dev)
@@ -407,7 +407,7 @@ func TestPatchDeviceStatusEnrollmentHooksFleetReconciliation(t *testing.T) {
 				{Op: "replace", Path: conditionPath + "/reason", Value: &reasonValue},
 				{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion},
 			}
-			_, status := h.PatchDeviceStatus(context.Background(), orgID, name, patch)
+			_, status := h.PatchDeviceStatus(context.Background(), orgID, name, patch, false)
 			wantCode := tt.wantCode
 			if wantCode == 0 {
 				wantCode = http.StatusOK

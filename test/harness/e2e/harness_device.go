@@ -150,6 +150,26 @@ func SetDeviceConfig(configs ...v1beta1.ConfigProviderSpec) func(*v1beta1.Device
 	}
 }
 
+// SetDeviceResourceMonitors returns a device update callback that replaces the
+// device's resource monitors with the given set. Calling it with no monitors
+// clears them.
+func SetDeviceResourceMonitors(monitors ...v1beta1.ResourceMonitor) func(*v1beta1.Device) {
+	return func(device *v1beta1.Device) {
+		if len(monitors) == 0 {
+			// A device that carries no spec at all already has no monitors, and
+			// giving it an empty one would be a change for its own sake.
+			if device.Spec != nil {
+				device.Spec.Resources = nil
+			}
+			return
+		}
+		if device.Spec == nil {
+			device.Spec = &v1beta1.DeviceSpec{}
+		}
+		device.Spec.Resources = &monitors
+	}
+}
+
 // IsDeviceUpToDate returns true if the device status indicates it is up to date.
 func IsDeviceUpToDate(device *v1beta1.Device) bool {
 	return device != nil && device.Status != nil &&

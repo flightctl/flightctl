@@ -493,7 +493,7 @@ func (h *DeviceServiceHandler) ClearDeltaPreparingIfCurrent(ctx context.Context,
 	return matched, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, refreshLastSeen bool) (*domain.Device, domain.Status) {
 	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -501,8 +501,19 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 
 	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback
 	// reapplies the patch against the CAS-fresh current on every attempt.
-	if status := validateDeviceStatusPatch(ctx, currentObj, patch, name); status.Code != http.StatusOK {
+	if status := validateDeviceStatusPatch(ctx, currentObj, patch, name, refreshLastSeen); status.Code != http.StatusOK {
 		return nil, status
+	}
+
+	// An agent status patch is a liveness signal like a full status update:
+	// persist last_seen before the summary recompute inside Mutate reads it.
+	if refreshLastSeen {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+		if err := h.deviceStore.Healthcheck(ctx, orgId, []string{name}); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
 	}
 
 	var callbackStatus domain.Status
@@ -513,7 +524,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		if err := rejectDecommissionedDevice(m.Device); err != nil {
 			return err
 		}
-		patched, err := applyDeviceStatusPatch(ctx, m.Device, patch, name)
+		patched, err := applyDeviceStatusPatch(ctx, m.Device, patch, name, refreshLastSeen)
 		if err != nil {
 			callbackStatus = domain.StatusBadRequest(err.Error())
 			return err
@@ -529,18 +540,31 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) domain.Status {
-	_, err := applyDeviceStatusPatch(ctx, current, patch, name)
+func validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) domain.Status {
+	_, err := applyDeviceStatusPatch(ctx, current, patch, name, refreshLastSeen)
 	if err != nil {
 		return domain.StatusBadRequest(err.Error())
 	}
 	return domain.StatusOK()
 }
 
-func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
+func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) (*domain.Device, error) {
 	patched := &domain.Device{}
 	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
 		return nil, err
+	}
+	if current.Status != nil && patched.Status != nil {
+		// Status.LastSeen is tagged json:"-" and does not survive the JSON
+		// round-trip inside ApplyJSONPatch. Without restoring it, the caller's
+		// UpdateServiceSideStatus sees a nil LastSeen, treats the device as
+		// disconnected, and overwrites the summary with Unknown. Agent-originated
+		// patches stamp the current time like a full status update does;
+		// everything else keeps the stored value.
+		if refreshLastSeen {
+			patched.Status.LastSeen = lo.ToPtr(time.Now())
+		} else {
+			patched.Status.LastSeen = current.Status.LastSeen
+		}
 	}
 	if errs := validateDeviceStatus(patched); len(errs) > 0 {
 		return nil, errors.Join(errs...)
