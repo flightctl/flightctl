@@ -106,12 +106,17 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 		return nil, fmt.Errorf("k8s secrets: %w", err)
 	}
 	tpmP := k8s.NewTPMProvider(cluster, infraP, lifecycleP)
+	collectorP, err := k8s.NewCollectorDeployer(cluster, infraP, secretsP)
+	if err != nil {
+		return nil, fmt.Errorf("k8s collector deployer: %w", err)
+	}
 	return &infra.Providers{
-		Infra:     infraP,
-		Lifecycle: lifecycleP,
-		RBAC:      rbacP,
-		Secrets:   secretsP,
-		TPM:       tpmP,
+		Infra:               infraP,
+		Lifecycle:           lifecycleP,
+		RBAC:                rbacP,
+		Secrets:             secretsP,
+		TPM:                 tpmP,
+		CollectorDeployment: collectorP,
 	}, nil
 }
 
@@ -130,6 +135,11 @@ func newQuadletProviders(config *infra.EnvironmentConfig) (*infra.Providers, err
 		RBAC:      rbacP,
 		Secrets:   secretsP,
 		TPM:       tpmP,
+		// Quadlet ships the collector as a Podman unit rather than a chart, so
+		// deploying one is not implemented here. The slot is filled rather than
+		// left nil so a caller asks Available and gets a reason, instead of
+		// having to know which deployment types support what.
+		CollectorDeployment: infra.NewUnsupportedCollectorDeployer(infra.EnvironmentQuadlet),
 	}, nil
 }
 

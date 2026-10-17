@@ -23,7 +23,20 @@ const (
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
 	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
 	KeycloakE2EOAuth2ClientSecret = "e2e-flightctl-oauth2-client-secret" //nolint:gosec // G101: e2e test client secret only
+
+	// KeycloakE2ECatalogCollectorClientID is the confidential client with a
+	// service account (client-credentials grant) that the catalog collector
+	// e2e suite uses to authenticate against the Flight Control API.
+	KeycloakE2ECatalogCollectorClientID = "flightctl-catalog-collector"
+	// KeycloakE2ECatalogCollectorSecret is the client secret for
+	// KeycloakE2ECatalogCollectorClientID in the e2e realm.
+	KeycloakE2ECatalogCollectorSecret = "e2e-flightctl-catalog-collector-secret" //nolint:gosec // G101: e2e test client secret only
 )
+
+// TokenURL returns the OIDC token endpoint for the flightctl realm.
+func (k *Keycloak) TokenURL() string {
+	return k.IssuerURL() + "/protocol/openid-connect/token"
+}
 
 // Keycloak holds connection info and the container for the aux Keycloak.
 type Keycloak struct {
@@ -50,8 +63,10 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		Entrypoint:   []string{"/bin/bash", "-c"},
 		Cmd:          []string{"/opt/keycloak/bin/kc.sh build --health-enabled=true && /opt/keycloak/bin/kc.sh start-dev --import-realm"},
 		Env: map[string]string{
-			"KC_BOOTSTRAP_ADMIN_USERNAME": "admin",
-			"KC_BOOTSTRAP_ADMIN_PASSWORD": "admin",
+			// Same constants the Admin REST reconciliation authenticates
+			// with; they must not drift apart.
+			"KC_BOOTSTRAP_ADMIN_USERNAME": keycloakAdminUsername,
+			"KC_BOOTSTRAP_ADMIN_PASSWORD": keycloakAdminPassword,
 			"KC_HEALTH_ENABLED":           "true",
 		},
 		Files: []testcontainers.ContainerFile{
@@ -88,12 +103,14 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 	discoveryURL := k.IssuerURL() + "/.well-known/openid-configuration"
 	deadline := time.Now().Add(30 * time.Second)
 	client := &http.Client{Timeout: 5 * time.Second}
+	reachable := false
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(discoveryURL)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return nil
+				reachable = true
+				break
 			}
 		}
 		select {
@@ -102,7 +119,18 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	if !reachable {
+		return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	}
+
+	// The realm file is only imported into an empty database, so a reused
+	// container keeps whatever realm an earlier run created. Reconciling the
+	// suite-owned objects here is what makes reuse equivalent to a fresh
+	// start; see keycloak_admin.go.
+	if err := k.EnsureCatalogCollectorClient(ctx); err != nil {
+		return fmt.Errorf("failed to reconcile the catalog collector client in realm %s: %w", keycloakRealmName, err)
+	}
+	return nil
 }
 
 func getKeycloakRealmPath() (string, error) {
