@@ -2,16 +2,20 @@ package certificatesigningrequest
 
 import (
 	"context"
+	"errors"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Store interface {
@@ -29,15 +33,16 @@ type Store interface {
 }
 
 type CertificateSigningRequestStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *store.GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
+	dbHandler            *gorm.DB
+	log                  logrus.FieldLogger
+	enrollmentSignerName string
+	genericStore         *store.GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
 }
 
 // Make sure we conform to the Store interface
 var _ Store = (*CertificateSigningRequestStore)(nil)
 
-func NewCertificateSigningRequestStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewCertificateSigningRequestStore(db *gorm.DB, log logrus.FieldLogger, enrollmentSignerName string) Store {
 	genericStore := store.NewGenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList](
 		db,
 		log,
@@ -45,7 +50,7 @@ func NewCertificateSigningRequestStore(db *gorm.DB, log logrus.FieldLogger) Stor
 		(*model.CertificateSigningRequest).ToApiResource,
 		model.CertificateSigningRequestsToApiResource,
 	)
-	return &CertificateSigningRequestStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &CertificateSigningRequestStore{dbHandler: db, log: log, enrollmentSignerName: enrollmentSignerName, genericStore: genericStore}
 }
 
 func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
@@ -110,12 +115,93 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
+func (s *CertificateSigningRequestStore) isEnrollmentCredential(resource *model.CertificateSigningRequest) bool {
+	if s.enrollmentSignerName == "" {
+		return false
+	}
+	if resource.Spec != nil && resource.Spec.Data.SignerName == s.enrollmentSignerName {
+		return true
+	}
+	if resource.Status == nil || resource.Status.Data.Certificate == nil {
+		return false
+	}
+	leaf, err := fcrypto.ParseCertificatePEM(*resource.Status.Data.Certificate)
+	if err != nil {
+		return false
+	}
+	name, err := signer.GetSignerNameExtension(leaf)
+	return err == nil && name == s.enrollmentSignerName
+}
+
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
+	deleted := false
+	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.CertificateSigningRequest
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, name).Take(&existing).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		query := tx
+		if !s.isEnrollmentCredential(&existing) ||
+			existing.Status == nil || existing.Status.Data.Certificate == nil || len(*existing.Status.Data.Certificate) == 0 {
+			query = tx.Unscoped()
+		}
+		result := query.Delete(&existing)
+		deleted = result.RowsAffected > 0
+		return result.Error
+	})
+	return deleted, store.ErrorFromGormError(err)
 }
 
 func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	var updated *domain.CertificateSigningRequest
+	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.CertificateSigningRequest
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, *resource.Metadata.Name).Take(&existing).Error; err != nil {
+			return err
+		}
+		candidate, err := model.NewCertificateSigningRequestFromApiResource(resource)
+		if err != nil {
+			return err
+		}
+		enrollmentCredential := s.isEnrollmentCredential(&existing) || s.isEnrollmentCredential(candidate)
+		if enrollmentCredential && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
+			if !candidate.HasSameSpecAs(&existing) {
+				return flterrors.ErrResourceVersionConflict
+			}
+		}
+		status := *resource.Status
+		if enrollmentCredential && existing.Status != nil && existing.Status.Data.Certificate != nil && len(*existing.Status.Data.Certificate) > 0 {
+			status.Certificate = existing.Status.Data.Certificate
+			status.IssuedAt = existing.Status.Data.IssuedAt
+		}
+		if enrollmentCredential && (status.Certificate == nil || len(*status.Certificate) == 0) {
+			status.IssuedAt = nil
+		}
+		query := tx.Model(&existing)
+		if enrollmentCredential && resource.Metadata.CreationTimestamp != nil {
+			query = query.Where("created_at = ?", *resource.Metadata.CreationTimestamp)
+		} else if enrollmentCredential && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
+			return flterrors.ErrResourceVersionConflict
+		}
+		result := query.Clauses(clause.Returning{}).Updates(map[string]interface{}{
+			"status": model.MakeJSONField(status), "resource_version": gorm.Expr("resource_version + 1"),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return flterrors.ErrResourceVersionConflict
+		}
+		updated, err = existing.ToApiResource()
+		return err
+	})
+	return updated, store.ErrorFromGormError(err)
 }
 
 func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (bool, error) {

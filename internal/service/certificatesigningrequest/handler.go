@@ -17,6 +17,7 @@ import (
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -96,6 +97,9 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+		ctx = util.WithOrganizationID(ctx, orgId)
+	}
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
@@ -103,8 +107,16 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 
 	csr.Status.Certificate = &certPEM
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+		csr.Status.IssuedAt = lo.ToPtr(nowFunc().UTC())
+	}
+	if published, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
+		csr.Status.Certificate = nil
+		csr.Status.IssuedAt = nil
+		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", "Failed to publish signed certificate")
+	} else {
+		*csr = *published
 	}
 }
 
@@ -137,6 +149,11 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
 	if csr.Spec.SignerName == "enrollment" {
 		csr.Spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
+	}
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+		if contextOrg, present := util.GetOrgIdFromContext(ctx); present && contextOrg != orgId {
+			return nil, domain.StatusBadRequest("organization ID does not match the enrollment credential tenant")
+		}
 	}
 
 	if errs := csr.Validate(); len(errs) > 0 {
@@ -413,7 +430,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 	}
 
 	if csr.Metadata.Name != nil {
-		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name))
+		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name), signer.WithEnrollmentCSRName(*csr.Metadata.Name))
 	}
 
 	signReq, err := signer.NewSignRequestFromBytes(csr.Spec.SignerName, csrData, opts...)

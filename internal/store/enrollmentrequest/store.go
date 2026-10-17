@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Store interface {
@@ -108,6 +110,37 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 }
 
 func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	newEr, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
-	return newEr, resource, err
+	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	var updated, previous *domain.EnrollmentRequest
+	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.EnrollmentRequest
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, *resource.Metadata.Name).Take(&existing).Error; err != nil {
+			return err
+		}
+		var err error
+		previous, err = existing.ToApiResource()
+		if err != nil {
+			return err
+		}
+		status := *resource.Status
+		status.EnrollmentCertificateName = previous.Status.EnrollmentCertificateName
+		query := tx.Model(&existing)
+		if resource.Metadata.CreationTimestamp != nil {
+			query = query.Where("created_at = ?", *resource.Metadata.CreationTimestamp)
+		}
+		result := query.Clauses(clause.Returning{}).Updates(map[string]interface{}{
+			"status": model.MakeJSONField(status), "resource_version": gorm.Expr("resource_version + 1"),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return flterrors.ErrResourceVersionConflict
+		}
+		updated, err = existing.ToApiResource()
+		return err
+	})
+	return updated, previous, store.ErrorFromGormError(err)
 }

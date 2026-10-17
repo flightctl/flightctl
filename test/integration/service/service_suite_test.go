@@ -116,6 +116,7 @@ type ServiceTestSuite struct {
 	mockQueueProducer *queues.MockQueueProducer
 	workerClient      worker_client.WorkerClient
 	caClient          *icrypto.CAClient
+	kvStore           kvstore.KVStore
 }
 
 // Setup performs common initialization for service tests
@@ -132,7 +133,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.DeviceStore = devicestore.NewDeviceStore(s.DB, s.Log.WithField("pkg", "device-store"))
 	s.OrganizationStore = organizationstore.NewOrganizationStore(s.DB)
 	catalogStore := catalogstore.NewCatalogStore(s.DB, s.Log.WithField("pkg", "catalog-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.DB, s.Log.WithField("pkg", "repository-store"))
@@ -161,6 +162,7 @@ func (s *ServiceTestSuite) Setup() {
 
 	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, redisHost, redisPort, redisPassword)
 	Expect(err).ToNot(HaveOccurred())
+	s.kvStore = kvStore
 
 	// Setup CA for CSR tests
 	testDirPath := GinkgoT().TempDir()

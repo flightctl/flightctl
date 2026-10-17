@@ -110,7 +110,7 @@ func (s *RestoreTestSuite) Setup() {
 	s.EventStore = eventstore.NewEventStore(s.DB, s.Log.WithField("pkg", "event-store"))
 	s.EnrollmentRequestStore = enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 
 	// Add a default admin mapped identity to the context
 	testOrg := &model.Organization{

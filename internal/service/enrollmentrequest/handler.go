@@ -373,6 +373,11 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	credentialName, err := h.enrollmentCertificateName(ctx, orgId)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	er.Status.EnrollmentCertificateName = credentialName
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -442,6 +447,19 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	er.Status.EnrollmentCertificateName = nil
+	existing, lookupErr := h.store.Get(ctx, orgId, name)
+	if errors.Is(lookupErr, flterrors.ErrResourceNotFound) {
+		credentialName, err := h.enrollmentCertificateName(ctx, orgId)
+		if err != nil {
+			return nil, domain.StatusInternalServerError(err.Error())
+		}
+		er.Status.EnrollmentCertificateName = credentialName
+	} else if lookupErr != nil {
+		return nil, common.StoreErrorToApiStatus(lookupErr, false, domain.EnrollmentRequestKind, &name)
+	} else if existing.Status != nil {
+		er.Status.EnrollmentCertificateName = existing.Status.EnrollmentCertificateName
+	}
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -467,7 +485,13 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.CreateOrUpdate(ctx, orgId, &er)
+	var result, oldER *domain.EnrollmentRequest
+	var created bool
+	if existing != nil {
+		result, oldER, err = h.store.Update(ctx, orgId, &er)
+	} else {
+		result, oldER, created, err = h.store.CreateOrUpdate(ctx, orgId, &er)
+	}
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }

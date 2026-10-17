@@ -227,7 +227,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	deviceStore := devicestore.NewDeviceStore(db, serverLog.WithField("pkg", "device-store"))
 	fleetStore := fleetstore.NewFleetStore(db, serverLog.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, serverLog.WithField("pkg", "enrollmentrequest-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, serverLog.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, serverLog.WithField("pkg", "csr-store"), serverCfg.CA.DeviceEnrollmentSignerName)
 	eventStore := eventstore.NewEventStore(db, serverLog.WithField("pkg", "event-store"))
 	serverCfg.Database.Name = dbName
 

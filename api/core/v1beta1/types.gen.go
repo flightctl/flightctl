@@ -1105,6 +1105,9 @@ type CertificateSigningRequestStatus struct {
 
 	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
 	Conditions []Condition `json:"conditions"`
+
+	// IssuedAt Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
+	IssuedAt *time.Time `json:"issuedAt,omitempty"`
 }
 
 // CheckRepositoryOciImageRequest Request to check if a specific OCI image is accessible in a registry.
@@ -2189,6 +2192,9 @@ type EnrollmentRequestStatus struct {
 
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions []Condition `json:"conditions"`
+
+	// EnrollmentCertificateName Optional tenant-local issuing enrollment CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
+	EnrollmentCertificateName *string `json:"enrollmentCertificateName,omitempty"`
 }
 
 // EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
