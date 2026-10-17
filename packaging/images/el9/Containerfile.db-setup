@@ -11,8 +11,9 @@ USER 0
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
+COPY hack/retry.sh /usr/local/bin/retry.sh
 RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    go mod download
+    sh /usr/local/bin/retry.sh go mod download
 
 # Copy build tools and configs
 COPY Makefile .
