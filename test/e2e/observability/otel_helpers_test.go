@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -20,7 +21,7 @@ const (
 // ensureOTelDevice enrolls and updates a device to the OTEL image, then waits for
 // otelcol to be active. existingDeviceID must identify a device already prepared
 // by this helper; its collector readiness is checked again before reuse.
-func ensureOTelDevice(ctx context.Context, harness *e2e.Harness, organizationNamespace, existingDeviceID string) (string, error) {
+func ensureOTelDevice(ctx context.Context, harness *e2e.Harness, organizationNamespace, registryHost, registryPort, existingDeviceID string) (string, error) {
 	if harness == nil || harness.VM == nil {
 		return "", fmt.Errorf("OTEL device requires a harness with a VM")
 	}
@@ -59,12 +60,12 @@ func ensureOTelDevice(ctx context.Context, harness *e2e.Harness, organizationNam
 		if deviceID == "" {
 			return "", fmt.Errorf("enrolled device ID is empty")
 		}
-		logrus.Infof("Preparing device %s with OTEL image %s", deviceID, util.DeviceTags.V10)
+		logrus.Infof("Preparing device %s with OTEL image %s from registry %s:%s", deviceID, util.DeviceTags.V10, registryHost, registryPort)
 		nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceID)
 		if err != nil {
 			return "", fmt.Errorf("prepare next rendered version: %w", err)
 		}
-		if _, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V10); err != nil {
+		if err := updateOTelDeviceImage(harness, deviceID, registryHost, registryPort); err != nil {
 			return "", fmt.Errorf("update device %s to %s: %w", deviceID, util.DeviceTags.V10, err)
 		}
 		if err := harness.WaitForDeviceNewRenderedVersionWithReboot(deviceID, nextRenderedVersion); err != nil {
@@ -86,6 +87,36 @@ func ensureOTelDevice(ctx context.Context, harness *e2e.Harness, organizationNam
 	}
 	logrus.Infof("OTEL collector is active on device %s", deviceID)
 	return deviceID, nil
+}
+
+// updateOTelDeviceImage updates the device to the OTEL fixture in the auxiliary
+// registry. The VM's registry remap makes this reference reachable from the
+// device and avoids depending on a public quay.io fixture tag.
+func updateOTelDeviceImage(harness *e2e.Harness, deviceID, registryHost, registryPort string) error {
+	if harness == nil {
+		return fmt.Errorf("OTEL device image update harness is nil")
+	}
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("OTEL device image update device ID is empty")
+	}
+	if strings.TrimSpace(registryHost) == "" || strings.TrimSpace(registryPort) == "" {
+		return fmt.Errorf("OTEL device image update registry host and port are required")
+	}
+	image := harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.V10)
+	if strings.TrimSpace(image) == "" {
+		return fmt.Errorf("OTEL device image reference is empty")
+	}
+	harness.WaitForOnlineStatus(deviceID)
+	if err := harness.UpdateDeviceWithRetries(deviceID, func(device *v1beta1.Device) {
+		if device == nil {
+			return
+		}
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: image}
+	}); err != nil {
+		return fmt.Errorf("set OTEL device image %q: %w", image, err)
+	}
+	logrus.Infof("Updated device %s to OTEL image %s", deviceID, image)
+	return nil
 }
 
 // resetOTelCollectorIdentity removes the per-device OTEL client credentials so
