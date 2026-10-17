@@ -88,7 +88,27 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 	}
 	args = append(args, services...)
 
-	_, stderr, exitCode := p.exec.ExecuteWithContextFromDir(ctx, workDir, podmanCmd, args)
+	// Embedded manifests may be read-only. Keep this invocation's override in
+	// a temporary directory owned by the same user as the creator process.
+	configDir, err := p.readWriter.MkdirTemp("flightctl-podman-events-")
+	if err != nil {
+		return fmt.Errorf("creating Podman event configuration directory: %w", err)
+	}
+	defer func() {
+		if err := p.readWriter.RemoveAll(configDir); err != nil {
+			p.log.Warnf("Failed to remove Podman event configuration: %v", err)
+		}
+	}()
+	configPath := filepath.Join(configDir, PodmanEventsConfigFilename)
+	if err := p.readWriter.WriteFile(configPath, []byte(PodmanEventsConfigContents), fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing Podman event configuration: %w", err)
+	}
+	// Explicit env replaces the executer's environment. Derive it from a
+	// command scoped to the owning user so HOME and XDG_RUNTIME_DIR survive.
+	command := p.exec.CommandContext(ctx, podmanCmd, args...)
+	command.Dir = workDir
+	env := append(command.Environ(), "CONTAINERS_CONF_OVERRIDE="+p.readWriter.PathFor(configPath))
+	_, stderr, exitCode := p.exec.ExecuteWithContextFromDir(ctx, workDir, podmanCmd, args, env...)
 	if exitCode != 0 {
 		return fmt.Errorf("podman compose up: %w", errors.FromStderr(stderr, exitCode))
 	}

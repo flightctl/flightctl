@@ -4,15 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -853,7 +858,7 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 			require.NoError(t, err)
 			volumeManager.Add(&provider.Volume{
 				Name: "data", ID: volumeID, Reference: volumeRef,
-				OCIType: string(dependency.OCITypePodmanImage), Available: true,
+				OCIType: dependency.OCITypePodmanImage, Available: true,
 			})
 			observedApp := &application{
 				id:                      applicationID,
@@ -926,6 +931,133 @@ func TestManagerAggregatesWorkloadVolumeAndParentWithinCapturedLifetime(t *testi
 			}
 		})
 	}
+}
+
+func TestWhenInstalledImageMountVolumesAreObservedItShouldReportDigestAndLastDelta(t *testing.T) {
+	const (
+		appName       = "container-app"
+		workloadRef   = "quay.io/acme/web:latest"
+		volumeRef     = "quay.io/acme/data:latest"
+		volumeName    = "data"
+		volumeImageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	)
+
+	applicationID := lifecycle.GenerateAppID(appName, v1beta1.RootUsername)
+	expectedVolumeID := "systemd-" + applicationID + "-" + volumeName
+	workloadDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	volumeDigest := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	require := require.New(t)
+	binDir := t.TempDir()
+	for _, name := range []string{"podman", "skopeo"} {
+		path := filepath.Join(binDir, name)
+		require.NoError(os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600))
+		require.NoError(os.Chmod(path, 0o700))
+	}
+	t.Setenv("PATH", binDir)
+
+	store, rw, logger := newApplicationOutcomeStore(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	podman := client.NewPodman(logger, mockExec, rw, poll.Config{})
+	podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
+	rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+
+	var apiVolume v1beta1.ApplicationVolume
+	apiVolume.Name = volumeName
+	require.NoError(apiVolume.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{Reference: volumeRef},
+		Mount: v1beta1.VolumeMount{Path: "/data"},
+	}))
+	appNameValue := appName
+	containerApp := v1beta1.ContainerApplication{
+		AppType: v1beta1.AppTypeContainer,
+		Name:    &appNameValue,
+		Volumes: &[]v1beta1.ApplicationVolume{apiVolume},
+	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+		Image: workloadRef,
+	}))
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromContainerApplication(containerApp))
+	desired := &v1beta1.DeviceSpec{
+		Applications: &[]v1beta1.ApplicationProviderSpec{appSpec},
+	}
+	providers, err := provider.FromDeviceSpec(t.Context(), logger, podmanFactory, nil, rwFactory, desired)
+	require.NoError(err)
+	require.Len(providers, 1)
+	appProvider := providers[0]
+
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").
+		Return("podman version 5.5.0", "", 0).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", volumeRef).
+		Return("", "", 0).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", volumeRef).
+		Return(volumeImageID, "", 0).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", volumeImageID).
+		Return(volumeDigest, "", 0).AnyTimes()
+
+	systemInfo := systeminfo.NewMockManager(ctrl)
+	systemInfo.EXPECT().BootTime().Return(time.Now().Format(time.RFC3339)).AnyTimes()
+	manager := NewManager(
+		logger,
+		rwFactory,
+		podmanFactory,
+		client.NewCLIClients(),
+		systemInfo,
+		nil,
+		nil,
+		WithDeltaStatusStore(store),
+	)
+	t.Cleanup(func() { require.NoError(manager.podmanMonitor.Stop()) })
+	require.NoError(manager.Ensure(t.Context(), appProvider))
+
+	volumes := appProvider.Spec().Volume.List()
+	require.Len(volumes, 1)
+	require.Equal(expectedVolumeID, volumes[0].ID)
+	require.Equal(dependency.OCITypePodmanImage, volumes[0].OCIType)
+
+	lifetime := store.ApplicationLifetime(appName)
+	images := []deltastatus.ApplicationImage{
+		applicationOutcomeImage(workloadRef, workloadDigest),
+		applicationOutcomeImage(volumeRef, volumeDigest),
+	}
+	recordApplicationImageOutcomes(t, store, appName, "spec", images)
+
+	observedApp, ok := manager.podmanMonitor.apps[applicationID]
+	require.True(ok)
+	observedApp.AddWorkload(&Workload{
+		Name: "web", Status: StatusRunning,
+		Images: []WorkloadImage{{Image: workloadRef, Digest: workloadDigest}},
+	})
+
+	inspection := client.PodmanVolumeInspect{
+		Name: expectedVolumeID, Driver: "image", CreatedAt: "2026-10-12T12:00:00Z",
+		Options: map[string]string{"image": volumeImageID},
+		Labels: map[string]string{
+			client.PodmanDeltaVolumeApplicationLabel: applicationID,
+			client.PodmanDeltaVolumeLifetimeLabel:    lifetime,
+			client.PodmanDeltaVolumeReferenceLabel:   volumeRef,
+			client.PodmanDeltaVolumeOwnerLabel:       "root",
+			client.PodmanDeltaVolumeOCITypeLabel:     string(dependency.OCITypePodmanImage),
+			client.PodmanDeltaVolumeDigestLabel:      volumeDigest,
+		},
+	}
+	inspectionJSON, err := json.Marshal(inspection)
+	require.NoError(err)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", expectedVolumeID, "--format", "{{json .}}").
+		Return(string(inspectionJSON), "", 0).AnyTimes()
+
+	reported := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(t.Context(), reported))
+	require.Len(reported.Applications, 1)
+	require.ElementsMatch([]v1beta1.ApplicationImageDigest{
+		{Image: workloadRef, Digest: workloadDigest},
+		{Image: volumeRef, Digest: volumeDigest},
+	}, *reported.Applications[0].ImageDigests)
+	require.NotNil(reported.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, reported.Applications[0].LastDelta.Outcome)
 }
 
 func TestManagerWithholdsArtifactVolumeDigestWhenBindingChangesDuringInspection(t *testing.T) {

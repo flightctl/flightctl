@@ -42,12 +42,20 @@ const (
 )
 
 type copyDirOptions struct {
-	symlinkBehavior symlinkBehavior
-	rootDir         string
+	symlinkBehavior    symlinkBehavior
+	rootDir            string
+	directoryOwnership bool
 }
 
 // CopyDirOption is a functional option for CopyDir
 type CopyDirOption func(*copyDirOptions)
+
+// WithDirectoryOwnership applies the writer's configured UID and GID to copied directories.
+func WithDirectoryOwnership() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.directoryOwnership = true
+	}
+}
 
 // WithSkipSymlink skips symlinks during directory copy
 func WithSkipSymlink() CopyDirOption {
@@ -393,6 +401,11 @@ func (w *writer) copyDirWithVisited(src, dst string, opts *copyDirOptions, visit
 
 	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+	if opts.directoryOwnership {
+		if err := os.Chown(dst, w.uid, w.gid); err != nil {
+			return fmt.Errorf("setting directory ownership %w: %w", errors.WithElement(dst), err)
+		}
 	}
 
 	entries, err := os.ReadDir(src)

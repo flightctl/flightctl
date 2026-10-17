@@ -284,9 +284,9 @@ The following outcomes describe the application as a whole. The agent reuses ima
 
 Top-level Compose bundles and Helm chart packages ignore image-delta hints and use regular preparation. Their `NotRequired` contribution is neutral: packages are excluded from workload outcome aggregation. Nested workload images remain eligible for deltas.
 
-With `IfNotPresent`, the agent reuses cached workload images without resolving mutable tags again. It records `NotRequired` only when the observed image digest matches a known desired digest. If that match cannot be verified, the agent withholds a new outcome and retains any previous matching history.
+With `IfNotPresent`, the agent reuses cached workload images without resolving mutable tags again. A verified local image digest is sufficient to record `NotRequired`. If a desired digest was supplied, it must also match. When the agent cannot verify the local identity or a supplied desired digest does not match, it withholds a new outcome and retains any previous matching history.
 
-Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
+Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the local image identity and any supplied desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
 
 ## Lifecycle status
 

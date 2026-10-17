@@ -484,6 +484,12 @@ func (c *CRI) ImportContainerdImage(ctx context.Context, endpoint, archivePath, 
 	return nil
 }
 
+// TagContainerdImage force-binds an existing containerd image reference in the
+// Kubernetes namespace to another reference.
+func (c *CRI) TagContainerdImage(ctx context.Context, endpoint, source, target string, opts ...ClientOption) error {
+	return c.executeContainerd(ctx, endpoint, []string{"images", "tag", "--force", source, target}, opts...)
+}
+
 // ContainerdImagePlatformDigest resolves a locally cached image index to the
 // manifest for this host without contacting its source registry.
 func (c *CRI) ContainerdImagePlatformDigest(ctx context.Context, endpoint, repositoryDigest string, opts ...ClientOption) (string, error) {
