@@ -414,11 +414,12 @@ func TestCheckExistingDelta(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		handler   http.HandlerFunc
-		wantFound bool
-		wantSize  int64
-		wantError bool
+		name            string
+		handler         http.HandlerFunc
+		wantFound       bool
+		wantSize        int64
+		wantError       bool
+		wantErrorSubstr string
 	}{
 		{
 			name: "When Referrers returns a matching delta it should be found with manifest size_bytes",
@@ -475,6 +476,60 @@ func TestCheckExistingDelta(t *testing.T) {
 			wantFound: false,
 		},
 		{
+			name: "When Referrers returns manifest invalid and Tag Schema is missing it should be not found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/referrers/") {
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+					return
+				}
+				http.NotFound(w, r)
+			},
+			wantFound: false,
+		},
+		{
+			name: "When Referrers returns manifest invalid and Tag Schema has a matching delta it should be found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/referrers/"):
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+				case strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)):
+					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
+					writeJSON(w, http.StatusOK, deltaManifest)
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			wantFound: true,
+			wantSize:  60,
+		},
+		{
+			name: "When Referrers returns another 400 it should return an error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)) {
+					t.Errorf("Tag Schema must not be queried after a non-manifest-invalid referrers error")
+				}
+				writeRegistryError(w, http.StatusBadRequest, "DENIED", "denied")
+			},
+			wantError:       true,
+			wantErrorSubstr: "400",
+		},
+		{
+			name: "When the delta manifest fetch returns manifest invalid it should return an error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/referrers/"):
+					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			wantError:       true,
+			wantErrorSubstr: "manifest invalid",
+		},
+		{
 			name: "When Referrers returns 401 it should return an error",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -514,6 +569,9 @@ func TestCheckExistingDelta(t *testing.T) {
 			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, spec)
 			if tt.wantError {
 				req.Error(err)
+				if tt.wantErrorSubstr != "" {
+					req.ErrorContains(err, tt.wantErrorSubstr)
+				}
 				return
 			}
 			req.NoError(err)
@@ -542,6 +600,22 @@ func TestCheckExistingDelta_WhenRegistryUnreachableItShouldReturnAnError(t *test
 	})
 	req.Error(err)
 	req.Nil(got)
+}
+
+func writeRegistryError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	body, err := json.Marshal(map[string]any{
+		"errors": []map[string]any{{
+			"code":    code,
+			"message": message,
+			"detail":  map[string]any{},
+		}},
+	})
+	if err != nil {
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
