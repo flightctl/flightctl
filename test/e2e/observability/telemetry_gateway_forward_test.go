@@ -78,6 +78,8 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		serviceLogs       infra.ServiceLogProvider
 		collector         *auxiliary.TelemetryHTTPCollector
 		grpcCollector     *auxiliary.TelemetryGRPCCollector
+		registryHost      string
+		registryPort      string
 		originalTGConfig  string
 		deviceID          string
 		staticAuthValue   string
@@ -93,6 +95,10 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		Expect(providers).ToNot(BeNil())
 		Expect(providers.Infra).ToNot(BeNil())
 		Expect(providers.Lifecycle).ToNot(BeNil())
+		Expect(auxSvcs).ToNot(BeNil())
+		Expect(auxSvcs.Registry).ToNot(BeNil())
+		registryHost = auxSvcs.Registry.Host
+		registryPort = auxSvcs.Registry.Port
 
 		var ok bool
 		serviceLogs, ok = providers.Infra.(infra.ServiceLogProvider)
@@ -128,7 +134,7 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		skipGitHubActionsTelemetryForwarding()
 		var err error
 		By("enrolling a device and enabling the OTEL collector image")
-		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), deviceID)
+		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), registryHost, registryPort, deviceID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(deviceID).ToNot(BeEmpty())
 
@@ -171,7 +177,7 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		skipGitHubActionsTelemetryForwarding()
 		var err error
 		By("enrolling a device and enabling the OTEL collector image")
-		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), deviceID)
+		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), registryHost, registryPort, deviceID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(deviceID).ToNot(BeEmpty())
 
@@ -199,7 +205,7 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 	It("should expand environment variables in OTLP/HTTP forward headers", Label("90534", "sanity", "agent"), func(ctx SpecContext) {
 		skipGitHubActionsTelemetryForwarding()
 		var err error
-		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), deviceID)
+		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), registryHost, registryPort, deviceID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(deviceID).ToNot(BeEmpty())
 

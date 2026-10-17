@@ -53,7 +53,9 @@ var _ = Describe("Device observability", func() {
 				Expect(cfg).To(ContainSubstring("keyFile"))
 			}
 			By("enrolling a device and updating to the v10 image with OTEL collector")
-			deviceId, err := ensureOTelDevice(ctx, harness, p.Infra.GetExternalNamespace(), "")
+			Expect(auxSvcs).ToNot(BeNil())
+			Expect(auxSvcs.Registry).ToNot(BeNil())
+			deviceId, err := ensureOTelDevice(ctx, harness, p.Infra.GetExternalNamespace(), auxSvcs.Registry.Host, auxSvcs.Registry.Port, "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deviceId).ToNot(BeEmpty())
 
