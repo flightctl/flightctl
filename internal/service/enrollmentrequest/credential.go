@@ -1,18 +1,17 @@
 package enrollmentrequest
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/asn1"
 
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/org"
-	"github.com/flightctl/flightctl/internal/store"
-	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 )
 
+// certificateIdentityExtension distinguishes absent identity from malformed identity,
+// so malformed issuer metadata cannot trigger legacy recovery.
 func certificateIdentityExtension(leaf *x509.Certificate, oid asn1.ObjectIdentifier) (string, bool, bool) {
 	var value string
 	present := false
@@ -32,6 +31,9 @@ func certificateIdentityExtension(leaf *x509.Certificate, oid asn1.ObjectIdentif
 	return value, present, true
 }
 
+// enrollmentCertificateName consumes an authenticated TLS peer, binds its signer
+// and tenant, and reads signed origin without a lookup. Only absent origin permits
+// unique exact-leaf recovery; this helper does not authenticate the TLS connection.
 func (h *ServiceHandler) enrollmentCertificateName(ctx context.Context, orgID uuid.UUID) (*string, error) {
 	leaf, err := signer.PeerCertificateFromCtx(ctx)
 	if err != nil {
@@ -62,23 +64,5 @@ func (h *ServiceHandler) enrollmentCertificateName(ctx context.Context, orgID uu
 	if present {
 		return &name, nil
 	}
-	retained, err := h.csrStore.List(ctx, orgID, store.ListParams{})
-	if err != nil {
-		return nil, err
-	}
-	var resolved *string
-	for _, request := range retained.Items {
-		if request.Spec.SignerName != h.ca.Cfg.DeviceEnrollmentSignerName || request.Status == nil || request.Status.Certificate == nil {
-			continue
-		}
-		issued, err := fcrypto.ParseCertificatePEM(*request.Status.Certificate)
-		if err != nil || !bytes.Equal(issued.Raw, leaf.Raw) {
-			continue
-		}
-		if resolved != nil {
-			return nil, nil
-		}
-		resolved = request.Metadata.Name
-	}
-	return resolved, nil
+	return h.csrStore.FindNameByCertificate(ctx, orgID, leaf.Raw)
 }

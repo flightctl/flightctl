@@ -86,38 +86,40 @@ func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *
 	}
 }
 
-func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
+func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) error {
 	if csr.Status.Certificate != nil && len(*csr.Status.Certificate) > 0 {
-		return
+		return nil
 	}
 
 	request, _, err := newSignRequestFromCertificateSigningRequest(csr)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
-		return
+		return nil
 	}
 
-	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
+	if enrollment {
 		ctx = util.WithOrganizationID(ctx, orgId)
 	}
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
-		return
+		return nil
 	}
 
 	csr.Status.Certificate = &certPEM
-	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	if enrollment {
 		csr.Status.IssuedAt = lo.ToPtr(nowFunc().UTC())
 	}
 	if published, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
 		csr.Status.Certificate = nil
 		csr.Status.IssuedAt = nil
-		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", "Failed to publish signed certificate")
+		return err
 	} else {
 		*csr = *published
 	}
+	return nil
 }
 
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
@@ -193,7 +195,9 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	}
 
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
+		}
 	}
 
 	return result, domain.StatusCreated()
@@ -272,7 +276,9 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
+		}
 	}
 
 	return result, domain.StatusOK()
@@ -340,7 +346,9 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
+		}
 	}
 
 	return result, common.StoreErrorToApiStatus(nil, created, domain.CertificateSigningRequestKind, &name)
@@ -408,7 +416,9 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
+		}
 	}
 
 	return result, domain.StatusOK()

@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -37,6 +38,7 @@ const (
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
+	csrstore.Store
 	items map[string]*domain.CertificateSigningRequest
 }
 

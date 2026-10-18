@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/device"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
@@ -448,18 +450,6 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 	er.Status.EnrollmentCertificateName = nil
-	existing, lookupErr := h.store.Get(ctx, orgId, name)
-	if errors.Is(lookupErr, flterrors.ErrResourceNotFound) {
-		credentialName, err := h.enrollmentCertificateName(ctx, orgId)
-		if err != nil {
-			return nil, domain.StatusInternalServerError(err.Error())
-		}
-		er.Status.EnrollmentCertificateName = credentialName
-	} else if lookupErr != nil {
-		return nil, common.StoreErrorToApiStatus(lookupErr, false, domain.EnrollmentRequestKind, &name)
-	} else if existing.Status != nil {
-		er.Status.EnrollmentCertificateName = existing.Status.EnrollmentCertificateName
-	}
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -485,13 +475,39 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	var result, oldER *domain.EnrollmentRequest
-	var created bool
-	if existing != nil {
-		result, oldER, err = h.store.Update(ctx, orgId, &er)
-	} else {
-		result, oldER, created, err = h.store.CreateOrUpdate(ctx, orgId, &er)
-	}
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+		current := mutation.Resource()
+		if current == nil {
+			candidate, err := store.CloneJSON(&er)
+			if err != nil {
+				return err
+			}
+			credentialName, err := h.enrollmentCertificateName(ctx, orgId)
+			if err != nil {
+				return err
+			}
+			candidate.Status.EnrollmentCertificateName = credentialName
+			mutation.SetResource(candidate)
+			return nil
+		}
+		if er.Metadata.ResourceVersion != nil {
+			version, err := strconv.ParseInt(*er.Metadata.ResourceVersion, 10, 64)
+			if err != nil {
+				return flterrors.ErrIllegalResourceVersionFormat
+			}
+			if strconv.FormatInt(version, 10) != lo.FromPtrOr(current.Metadata.ResourceVersion, "0") {
+				return flterrors.ErrResourceVersionConflict
+			}
+		}
+		current.Spec = er.Spec
+		if er.Metadata.Labels != nil {
+			current.Metadata.Labels = er.Metadata.Labels
+		}
+		if er.Metadata.Annotations != nil {
+			current.Metadata.Annotations = er.Metadata.Annotations
+		}
+		return nil
+	})
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }

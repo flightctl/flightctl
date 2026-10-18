@@ -36,21 +36,27 @@ func (persistence *unavailableCSRReads) List(context.Context, uuid.UUID, store.L
 	return nil, errors.New("credential storage unavailable")
 }
 
+func (persistence *unavailableCSRReads) FindNameByCertificate(context.Context, uuid.UUID, []byte) (*string, error) {
+	return nil, errors.New("credential storage unavailable")
+}
+
 type concurrentEnrollmentPersistence struct {
 	erstore.Store
 	concurrentWrite func() error
 }
 
-func (persistence *concurrentEnrollmentPersistence) Get(ctx context.Context, orgID uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
-	snapshot, err := persistence.Store.Get(ctx, orgID, name)
-	write := persistence.concurrentWrite
-	persistence.concurrentWrite = nil
-	if write != nil {
-		if writeErr := write(); writeErr != nil {
-			return nil, writeErr
+func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	return persistence.Store.Mutate(ctx, orgID, name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+		if err := apply(mutation); err != nil {
+			return err
 		}
-	}
-	return snapshot, err
+		write := persistence.concurrentWrite
+		persistence.concurrentWrite = nil
+		if write != nil {
+			return write()
+		}
+		return nil
+	})
 }
 
 func (suite *ServiceTestSuite) enrollmentServiceWithPersistence(csrPersistence csrstore.Store, erPersistence erstore.Store) enrollmentrequestservice.Service {

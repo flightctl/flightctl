@@ -26,6 +26,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
+	FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (*string, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error)
 
@@ -58,7 +59,11 @@ func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
 }
 
 func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
-	db := s.getDB(ctx)
+	return InitialMigration(ctx, s.dbHandler)
+}
+
+func InitialMigration(ctx context.Context, db *gorm.DB) error {
+	db = db.WithContext(ctx)
 
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
@@ -159,49 +164,78 @@ func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId
 	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	var updated *domain.CertificateSigningRequest
-	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing model.CertificateSigningRequest
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, *resource.Metadata.Name).Take(&existing).Error; err != nil {
-			return err
-		}
-		candidate, err := model.NewCertificateSigningRequestFromApiResource(resource)
-		if err != nil {
-			return err
-		}
-		enrollmentCredential := s.isEnrollmentCredential(&existing) || s.isEnrollmentCredential(candidate)
-		if enrollmentCredential && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
-			if !candidate.HasSameSpecAs(&existing) {
-				return flterrors.ErrResourceVersionConflict
+	candidate, err := store.CloneJSON(resource)
+	if err != nil {
+		return nil, err
+	}
+	updated, _, _, err := s.genericStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil,
+		store.MutateHooks[domain.CertificateSigningRequest]{
+			Wrap: func(current *domain.CertificateSigningRequest) store.ResourceMutation[domain.CertificateSigningRequest] {
+				mutation := &store.Mutation[domain.CertificateSigningRequest]{}
+				mutation.SetResource(current)
+				return mutation
+			},
+			PersistUpdate: s.persistStatus,
+		}, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
+			current := mutation.Resource()
+			if current == nil {
+				return flterrors.ErrResourceNotFound
 			}
-		}
-		status := *resource.Status
-		if enrollmentCredential && existing.Status != nil && existing.Status.Data.Certificate != nil && len(*existing.Status.Data.Certificate) > 0 {
-			status.Certificate = existing.Status.Data.Certificate
-			status.IssuedAt = existing.Status.Data.IssuedAt
-		}
-		if enrollmentCredential && (status.Certificate == nil || len(*status.Certificate) == 0) {
-			status.IssuedAt = nil
-		}
-		query := tx.Model(&existing)
-		if enrollmentCredential && resource.Metadata.CreationTimestamp != nil {
-			query = query.Where("created_at = ?", *resource.Metadata.CreationTimestamp)
-		} else if enrollmentCredential && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
-			return flterrors.ErrResourceVersionConflict
-		}
-		result := query.Clauses(clause.Returning{}).Updates(map[string]interface{}{
-			"status": model.MakeJSONField(status), "resource_version": gorm.Expr("resource_version + 1"),
+			existing, err := model.NewCertificateSigningRequestFromApiResource(current)
+			if err != nil {
+				return err
+			}
+			proposed, err := model.NewCertificateSigningRequestFromApiResource(candidate)
+			if err != nil {
+				return err
+			}
+			enrollment := s.isEnrollmentCredential(existing) || s.isEnrollmentCredential(proposed)
+			issuing := candidate.Status.Certificate != nil && len(*candidate.Status.Certificate) > 0
+			if enrollment {
+				if issuing && (!proposed.HasSameSpecAs(existing) || candidate.Metadata.CreationTimestamp == nil) {
+					return flterrors.ErrResourceVersionConflict
+				}
+				if candidate.Metadata.CreationTimestamp != nil && (current.Metadata.CreationTimestamp == nil || !candidate.Metadata.CreationTimestamp.Equal(*current.Metadata.CreationTimestamp)) {
+					return flterrors.ErrResourceVersionConflict
+				}
+			}
+			status := *candidate.Status
+			if enrollment && current.Status != nil && current.Status.Certificate != nil && len(*current.Status.Certificate) > 0 {
+				status.Certificate = current.Status.Certificate
+				status.IssuedAt = current.Status.IssuedAt
+			}
+			if enrollment && (status.Certificate == nil || len(*status.Certificate) == 0) {
+				status.IssuedAt = nil
+			}
+			current.Status = &status
+			return nil
 		})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return flterrors.ErrResourceVersionConflict
-		}
-		updated, err = existing.ToApiResource()
-		return err
-	})
 	return updated, store.ErrorFromGormError(err)
+}
+
+func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgId uuid.UUID, name string, before *domain.CertificateSigningRequest, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (bool, error) {
+	if before.Metadata.CreationTimestamp == nil {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	record, err := model.NewCertificateSigningRequestFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	record.OrgID = orgId
+	result := s.getDB(ctx).Model(record).
+		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
+		Clauses(clause.Returning{}).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(*mutation.Resource().Status), "resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+	})
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	updated, err := record.ToApiResource()
+	mutation.SetResource(updated)
+	return false, err
 }
 
 func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (bool, error) {

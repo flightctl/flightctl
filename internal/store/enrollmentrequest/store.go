@@ -2,12 +2,15 @@ package enrollmentrequest
 
 import (
 	"context"
+	"reflect"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -19,6 +22,7 @@ type Store interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -113,34 +117,92 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
-	var updated, previous *domain.EnrollmentRequest
-	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing model.EnrollmentRequest
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, *resource.Metadata.Name).Take(&existing).Error; err != nil {
+	candidate, err := store.CloneJSON(resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	updated, previous, _, err := s.Mutate(ctx, orgId, *resource.Metadata.Name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
-		var err error
-		previous, err = existing.ToApiResource()
-		if err != nil {
-			return err
-		}
-		status := *resource.Status
-		status.EnrollmentCertificateName = previous.Status.EnrollmentCertificateName
-		query := tx.Model(&existing)
-		if resource.Metadata.CreationTimestamp != nil {
-			query = query.Where("created_at = ?", *resource.Metadata.CreationTimestamp)
-		}
-		result := query.Clauses(clause.Returning{}).Updates(map[string]interface{}{
-			"status": model.MakeJSONField(status), "resource_version": gorm.Expr("resource_version + 1"),
-		})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
+		current := mutation.Resource()
+		if candidate.Metadata.CreationTimestamp != nil && (current.Metadata.CreationTimestamp == nil || !candidate.Metadata.CreationTimestamp.Equal(*current.Metadata.CreationTimestamp)) {
 			return flterrors.ErrResourceVersionConflict
 		}
-		updated, err = existing.ToApiResource()
-		return err
+		status := *candidate.Status
+		status.EnrollmentCertificateName = current.Status.EnrollmentCertificateName
+		current.Status = &status
+		return nil
 	})
 	return updated, previous, store.ErrorFromGormError(err)
+}
+
+func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	var incarnation *time.Time
+	return s.genericStore.Mutate(ctx, orgId, name, nil, store.MutateHooks[domain.EnrollmentRequest]{
+		Wrap: func(current *domain.EnrollmentRequest) store.ResourceMutation[domain.EnrollmentRequest] {
+			mutation := &store.Mutation[domain.EnrollmentRequest]{}
+			mutation.SetResource(current)
+			return mutation
+		},
+		PersistUpdate: s.persistMutation,
+	}, func(mutation store.ResourceMutation[domain.EnrollmentRequest]) error {
+		current := mutation.Resource()
+		if incarnation != nil {
+			if current == nil {
+				return flterrors.ErrResourceNotFound
+			}
+			if current.Metadata.CreationTimestamp == nil || !incarnation.Equal(*current.Metadata.CreationTimestamp) {
+				return flterrors.ErrResourceVersionConflict
+			}
+		} else if current != nil {
+			if current.Metadata.CreationTimestamp == nil {
+				return flterrors.ErrResourceVersionConflict
+			}
+			incarnation = lo.ToPtr(*current.Metadata.CreationTimestamp)
+		}
+		return apply(mutation.(*store.Mutation[domain.EnrollmentRequest]))
+	})
+}
+
+func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid.UUID, name string, before *domain.EnrollmentRequest, mutation store.ResourceMutation[domain.EnrollmentRequest]) (bool, error) {
+	if before.Metadata.CreationTimestamp == nil {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	record, err := model.NewEnrollmentRequestFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	record.OrgID = orgId
+	proposed, err := model.NewEnrollmentRequestFromApiResource(mutation.Resource())
+	if err != nil {
+		return false, err
+	}
+	proposed.Status.Data.EnrollmentCertificateName = record.Status.Data.EnrollmentCertificateName
+	updates := map[string]interface{}{
+		"status":           proposed.Status,
+		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+	}
+	if !proposed.HasSameSpecAs(record) {
+		updates["spec"] = proposed.Spec
+		updates["generation"] = gorm.Expr("COALESCE(generation, 0) + 1")
+	}
+	if !reflect.DeepEqual(proposed.Labels, record.Labels) {
+		updates["labels"] = proposed.Labels
+	}
+	if !reflect.DeepEqual(proposed.Annotations, record.Annotations) {
+		updates["annotations"] = proposed.Annotations
+	}
+	result := s.getDB(ctx).Model(record).
+		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
+		Clauses(clause.Returning{}).Updates(updates)
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	updated, err := record.ToApiResource()
+	mutation.SetResource(updated)
+	return false, err
 }

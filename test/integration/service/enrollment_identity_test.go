@@ -178,7 +178,7 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(stored.Status.Certificate).To(Equal(created.Status.Certificate))
 	})
 
-	It("When credential publication fails it should return no unretained certificate and record the failure", func() {
+	It("When credential publication fails it should return the persistence error without a new signing failure", func() {
 		persistence := &unavailableIssuancePersistence{
 			Store: csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.caClient.Cfg.DeviceEnrollmentSignerName),
 		}
@@ -187,15 +187,13 @@ var _ = Describe("Enrollment credential identity", func() {
 			suite.caClient, eventService, suite.Log, "", "")
 		request := CreateTestCSR()
 		created, status := service.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
-		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
-		Expect(created.Status.Certificate).To(BeNil())
-		Expect(created.Status.IssuedAt).To(BeNil())
-		Expect(domain.IsStatusConditionTrue(created.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)).To(BeTrue())
+		Expect(status.Code).To(BeEquivalentTo(http.StatusInternalServerError))
+		Expect(created).To(BeNil())
 		stored, status := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(stored.Status.Certificate).To(BeNil())
 		Expect(stored.Status.IssuedAt).To(BeNil())
-		Expect(domain.IsStatusConditionTrue(stored.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)).To(BeTrue())
+		Expect(domain.IsStatusConditionTrue(stored.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)).To(BeFalse())
 	})
 
 	It("When untrusted CSR documents forge issuance status it should publish and preserve only server-owned evidence", func() {
@@ -594,6 +592,8 @@ var _ = Describe("Enrollment credential identity", func() {
 			retainedPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: other.Raw})
 		case "unreadable":
 			retainedPEM = []byte("not-a-PEM-certificate")
+		case "alternate-pem":
+			retainedPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Comment": "historical encoding"}, Bytes: leaf.Raw})
 		}
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.caClient.Cfg.DeviceEnrollmentSignerName)
 		for index := 0; index < localCopies; index++ {
@@ -627,11 +627,13 @@ var _ = Describe("Enrollment credential identity", func() {
 	},
 		Entry("no retained match", 0, false, "exact", (*string)(nil)),
 		Entry("ambiguous retained matches", 2, false, "exact", (*string)(nil)),
+		Entry("ambiguous retained leaves after signer-spec changes", 2, false, "different-signer", (*string)(nil)),
 		Entry("only a foreign-tenant match", 0, true, "exact", (*string)(nil)),
 		Entry("unique local match despite a foreign duplicate", 1, true, "exact", lo.ToPtr("retained-0")),
 		Entry("matching common name with a different leaf", 1, false, "same-cn-different-leaf", (*string)(nil)),
 		Entry("malformed retained certificate", 1, false, "unreadable", (*string)(nil)),
-		Entry("a different CSR signer", 1, false, "different-signer", (*string)(nil)),
+		Entry("an alternate valid PEM encoding", 1, false, "alternate-pem", lo.ToPtr("retained-0")),
+		Entry("a retained enrollment leaf with a changed CSR signer", 1, false, "different-signer", lo.ToPtr("retained-0")),
 	)
 
 	DescribeTable("When signed identity is malformed it should create an unbound request without legacy recovery", func(encoded []byte) {
@@ -793,7 +795,7 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
 	})
 
-	It("When another credential creates an ER during replacement it should retain the actual creator origin", func() {
+	DescribeTable("When another credential creates an ER during replacement it should retain the actual creator status", func(bound bool) {
 		firstRequest := CreateTestCSR()
 		firstCredential, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, firstRequest)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -807,14 +809,27 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(err).NotTo(HaveOccurred())
 		secondContext := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, secondLeaf)
 		request := CreateTestER()
+		var creatorStatus *domain.EnrollmentRequestStatus
 		persistence := &concurrentEnrollmentPersistence{
 			Store: erstore.NewEnrollmentRequestStore(suite.DB, suite.Log),
 			concurrentWrite: func() error {
-				_, created := suite.EnrollmentRequest.CreateEnrollmentRequest(secondContext, suite.OrgID, request)
+				creatorContext := suite.Ctx
+				if bound {
+					creatorContext = secondContext
+				}
+				creator, created := suite.EnrollmentRequest.CreateEnrollmentRequest(creatorContext, suite.OrgID, request)
 				if created.Code != http.StatusCreated {
 					return fmt.Errorf("concurrent creation returned %d", created.Code)
 				}
-				return nil
+				domain.SetStatusCondition(&creator.Status.Conditions, domain.Condition{
+					Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusFalse,
+					Reason: "PendingApproval", Message: "awaiting approval",
+				})
+				stored, _, err := erstore.NewEnrollmentRequestStore(suite.DB, suite.Log).UpdateStatus(suite.Ctx, suite.OrgID, creator)
+				if err == nil {
+					creatorStatus = stored.Status
+				}
+				return err
 			},
 		}
 		service := suite.enrollmentServiceWithPersistence(
@@ -822,12 +837,17 @@ var _ = Describe("Enrollment credential identity", func() {
 		replaced, status := service.ReplaceEnrollmentRequest(firstContext, suite.OrgID, *request.Metadata.Name, request)
 		Expect(status.Code).To(Or(BeEquivalentTo(http.StatusOK), BeEquivalentTo(http.StatusConflict)))
 		if status.Code == http.StatusOK {
-			Expect(replaced.Status.EnrollmentCertificateName).To(Equal(secondRequest.Metadata.Name))
+			Expect(replaced.Status).To(Equal(creatorStatus))
 		}
 		stored, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
-		Expect(stored.Status.EnrollmentCertificateName).To(Equal(secondRequest.Metadata.Name))
-	})
+		Expect(stored.Status).To(Equal(creatorStatus))
+		if bound {
+			Expect(stored.Status.EnrollmentCertificateName).To(Equal(secondRequest.Metadata.Name))
+		} else {
+			Expect(stored.Status.EnrollmentCertificateName).To(BeNil())
+		}
+	}, Entry("known origin and pending condition", true), Entry("absent origin and pending condition", false))
 
 	It("When replacement creates a new enrollment request it should bind the authenticated issuing CSR", func() {
 		request := CreateTestCSR()
@@ -841,6 +861,18 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		Expect(created.Status.EnrollmentCertificateName).To(Equal(request.Metadata.Name))
 	})
+
+	DescribeTable("When replacing an ER it should retain numeric resource-version validation", func(version string, expectedCode int) {
+		request := CreateTestER()
+		created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, request)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(created.Metadata.ResourceVersion).To(Equal(lo.ToPtr("1")))
+		request.Metadata.ResourceVersion = &version
+		_, status = suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, request)
+		Expect(status.Code).To(BeEquivalentTo(expectedCode))
+	}, Entry("equivalent numeric value", "01", http.StatusOK),
+		Entry("malformed version", "invalid", http.StatusBadRequest),
+		Entry("stale version", "2", http.StatusConflict))
 
 	It("When filtering enrollment requests by origin it should select references without asserting target availability", func() {
 		request := CreateTestCSR()
