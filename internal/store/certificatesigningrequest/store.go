@@ -2,7 +2,6 @@ package certificatesigningrequest
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/crypto/signer"
@@ -139,25 +138,7 @@ func (s *CertificateSigningRequestStore) isEnrollmentCredential(resource *model.
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	deleted := false
-	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing model.CertificateSigningRequest
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgId, name).Take(&existing).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil
-			}
-			return err
-		}
-		query := tx
-		if !s.isEnrollmentCredential(&existing) ||
-			existing.Status == nil || existing.Status.Data.Certificate == nil || len(*existing.Status.Data.Certificate) == 0 {
-			query = tx.Unscoped()
-		}
-		result := query.Delete(&existing)
-		deleted = result.RowsAffected > 0
-		return result.Error
-	})
-	return deleted, store.ErrorFromGormError(err)
+	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
 func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {

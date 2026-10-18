@@ -30,6 +30,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 func enrollmentIdentityFromCertificate(certificate *x509.Certificate) string {
@@ -51,6 +52,7 @@ var _ = Describe("Enrollment credential identity", func() {
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
+		suite.Ctx = util.WithOrganizationID(suite.Ctx, suite.OrgID)
 	})
 
 	AfterEach(func() {
@@ -133,22 +135,14 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(enrollmentIdentityFromCertificate(issued)).To(Equal(*request.Metadata.Name))
 	})
 
-	It("When the enrollment issuer context differs from the persisted tenant it should reject credential creation", func() {
-		ctx := util.WithOrganizationID(suite.Ctx, uuid.MustParse("11111111-1111-4111-8111-111111111111"))
-		created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(ctx, suite.OrgID, CreateTestCSR())
-		Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
-		Expect(created).To(BeNil())
-	})
-
-	It("When no context tenant is supplied it should attest the persisted enrollment CSR tenant", func() {
+	It("When a trusted caller supplies its tenant context it should attest that enrollment CSR tenant", func() {
 		tenant := uuid.MustParse("22222222-2222-4222-8222-222222222222")
 		_, err := suite.OrganizationStore.Create(suite.Ctx, &model.Organization{
 			ID: tenant, ExternalID: "enrollment-issuer-tenant", DisplayName: "Enrollment issuer tenant",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		_, present := util.GetOrgIdFromContext(suite.Ctx)
-		Expect(present).To(BeFalse())
-		created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, tenant, CreateTestCSR())
+		ctx := util.WithOrganizationID(suite.Ctx, tenant)
+		created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(ctx, tenant, CreateTestCSR())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		Expect(created.Status.Certificate).NotTo(BeNil())
 		leaf, err := fcrypto.ParseCertificatePEM(*created.Status.Certificate)
@@ -259,8 +253,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(updated.Status.IssuedAt.Equal(issuedAt)).To(BeTrue())
 	})
 
-	DescribeTable("When deleting issued CSR names it should reserve only the configured enrollment identity",
-		func(signerName string, reserved, changeSigner bool) {
+	DescribeTable("When deleting issued CSR names it should allow name reuse for every signer",
+		func(signerName string, changeSigner bool) {
 			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, "example.org/bootstrap")
 			request := CreateTestCSR()
 			request.Spec.SignerName = signerName
@@ -283,17 +277,15 @@ var _ = Describe("Enrollment credential identity", func() {
 			deleted, err := provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(deleted).To(BeTrue())
-			_, err = provider.Create(suite.Ctx, suite.OrgID, &request)
-			if reserved {
-				Expect(err).To(MatchError(flterrors.ErrDuplicateName))
-			} else {
-				Expect(err).NotTo(HaveOccurred())
-			}
+			recreated, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(recreated.Status.Certificate).To(BeNil())
+			Expect(recreated.Status.IssuedAt).To(BeNil())
 		},
-		Entry("configured enrollment signer, historical leaf without identity metadata", "example.org/bootstrap", true, false),
-		Entry("issued enrollment identity remains reserved after a signer-spec change", "example.org/bootstrap", true, true),
-		Entry("default name is not enrollment when configured differently", "flightctl.io/enrollment", false, false),
-		Entry("management signer", "flightctl.io/device-enrollment", false, false),
+		Entry("configured enrollment signer, historical leaf without identity metadata", "example.org/bootstrap", false),
+		Entry("issued enrollment credential after a signer-spec change", "example.org/bootstrap", true),
+		Entry("default name when enrollment is configured differently", "flightctl.io/enrollment", false),
+		Entry("management signer", "flightctl.io/device-enrollment", false),
 	)
 
 	DescribeTable("When replacing published CSR status it should retain only configured enrollment issuance",
@@ -435,7 +427,7 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(retried.Status.IssuedAt).To(Equal(stored.Status.IssuedAt))
 	})
 
-	It("When deleting an issued credential it should reserve its name without exposing the deleted resource", func() {
+	It("When deleting an issued credential it should remove it and allow fresh issuance under the same name", func() {
 		request := CreateTestCSR()
 		_, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -445,8 +437,45 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(deleted).To(BeTrue())
 		_, status = suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
-		_, status = suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
-		Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+		recreated, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(recreated.Status.Certificate).NotTo(BeNil())
+		Expect(recreated.Status.IssuedAt).NotTo(BeNil())
+	})
+
+	It("When an issued CSR is deleted and recreated it should reject stale publication despite a reset resource version", func() {
+		creationTime := time.Date(2026, 10, 18, 12, 0, 0, 123456000, time.UTC)
+		database := suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return creationTime }})
+		provider := csrstore.NewCertificateSigningRequestStore(database, suite.Log, suite.caClient.Cfg.DeviceEnrollmentSignerName)
+		request := CreateTestCSR()
+		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+		stale, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		created.Status.Certificate = lo.ToPtr([]byte("issued-before-delete"))
+		created.Status.IssuedAt = lo.ToPtr(time.Date(2026, 10, 18, 12, 1, 0, 0, time.UTC))
+		_, err = provider.UpdateStatus(suite.Ctx, suite.OrgID, created)
+		Expect(err).NotTo(HaveOccurred())
+		deleted, err := provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deleted).To(BeTrue())
+		deleted, err = provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deleted).To(BeFalse())
+		creationTime = time.Date(2026, 10, 18, 12, 0, 0, 123457000, time.UTC)
+		recreated, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(recreated.Metadata.ResourceVersion).To(Equal(stale.Metadata.ResourceVersion))
+		Expect(recreated.Metadata.CreationTimestamp).To(Equal(lo.ToPtr(time.Date(2026, 10, 18, 12, 0, 0, 123457000, time.UTC))))
+		Expect(stale.Metadata.CreationTimestamp).To(Equal(lo.ToPtr(time.Date(2026, 10, 18, 12, 0, 0, 123456000, time.UTC))))
+		stale.Status.Certificate = lo.ToPtr([]byte("stale-publication"))
+		stale.Status.IssuedAt = lo.ToPtr(time.Date(2026, 10, 18, 12, 2, 0, 0, time.UTC))
+		_, err = provider.UpdateStatus(suite.Ctx, suite.OrgID, stale)
+		Expect(err).To(MatchError(flterrors.ErrResourceVersionConflict))
+		current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(current.Status.Certificate).To(BeNil())
+		Expect(current.Status.IssuedAt).To(BeNil())
 	})
 
 	It("When issuing a management credential from an Enrollment Request it should omit enrollment origin metadata", func() {

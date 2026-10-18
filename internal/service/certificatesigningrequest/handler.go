@@ -17,7 +17,6 @@ import (
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -98,9 +97,6 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 
 	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
-	if enrollment {
-		ctx = util.WithOrganizationID(ctx, orgId)
-	}
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
@@ -151,11 +147,6 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
 	if csr.Spec.SignerName == "enrollment" {
 		csr.Spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
-	}
-	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
-		if contextOrg, present := util.GetOrgIdFromContext(ctx); present && contextOrg != orgId {
-			return nil, domain.StatusBadRequest("organization ID does not match the enrollment credential tenant")
-		}
 	}
 
 	if errs := csr.Validate(); len(errs) > 0 {
