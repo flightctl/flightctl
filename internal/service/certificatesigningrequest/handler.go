@@ -100,7 +100,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
 		ctx = util.WithOrganizationID(ctx, orgId)
 	}
-	certPEM, err := h.ca.SignCSRResourceAsPEM(ctx, request)
+	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return

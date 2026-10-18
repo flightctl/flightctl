@@ -71,7 +71,8 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 		expiry = *request.ExpirationSeconds()
 	}
 
-	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry))
+	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry),
+		WithExtension(OIDEnrollmentCSRName, *request.ResourceName()))
 }
 
 func rejectEnrollmentIdentityExtension(request SignRequest) error {
