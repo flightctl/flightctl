@@ -436,7 +436,10 @@ func writeTempConfig(t *testing.T, contents string) string {
 	return path
 }
 
-func TestLoadDeltaGenerationDefaultRepository(t *testing.T) {
+func TestLoadOrGenerateDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "")
+	t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "")
+
 	t.Run("When YAML has registry and repository it should load them and ignore username and password", func(t *testing.T) {
 		path := writeTempConfig(t, `
 deltaGeneration:
@@ -448,7 +451,7 @@ deltaGeneration:
     username: from-yaml
     password: from-yaml-secret
 `)
-		cfg, err := Load(path)
+		cfg, err := LoadOrGenerate(path)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.DeltaGeneration)
 		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
@@ -468,7 +471,7 @@ deltaGeneration:
     registry: my-registry.com
     namespace: my-org
 `)
-		cfg, err := Load(path)
+		cfg, err := LoadOrGenerate(path)
 		require.NoError(t, err)
 		require.Equal(t, "my-org", lo.FromPtr(cfg.DeltaGeneration.DefaultRepository.Namespace))
 	})
@@ -482,24 +485,47 @@ deltaGeneration:
     registry: my-registry.com
     repository: my-org/diffs
 `)
-		cfg, err := Load(path)
+		cfg, err := LoadOrGenerate(path)
 		require.NoError(t, err)
 		dr := cfg.DeltaGeneration.DefaultRepository
 		require.Equal(t, "delta-user", dr.Username)
 		require.Equal(t, "delta-pass", string(dr.Password))
 	})
 
-	t.Run("When env vars are set without YAML deltaGeneration it should still populate credentials", func(t *testing.T) {
+	t.Run("When env vars are set without YAML deltaGeneration it should leave delta generation unconfigured", func(t *testing.T) {
 		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
 		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
 		path := writeTempConfig(t, "{}\n")
-		cfg, err := Load(path)
+		cfg, err := LoadOrGenerate(path)
 		require.NoError(t, err)
-		require.NotNil(t, cfg.DeltaGeneration)
-		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
-		require.Equal(t, "delta-user", cfg.DeltaGeneration.DefaultRepository.Username)
-		require.Equal(t, "delta-pass", string(cfg.DeltaGeneration.DefaultRepository.Password))
+		require.Nil(t, cfg.DeltaGeneration)
 	})
+
+	t.Run("When an explicit repository lacks a registry it should fail even with credentials", func(t *testing.T) {
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    repository: my-org/diffs
+`)
+		_, err := LoadOrGenerate(path)
+		require.ErrorContains(t, err, "deltaGeneration.defaultRepository.registry")
+	})
+}
+
+func TestLoadOrGenerateDeltaGenerationWithoutDefaultRepository(t *testing.T) {
+	t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+	t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+	path := writeTempConfig(t, `
+deltaGeneration:
+  maxConcurrentDeltaGenerations: 4
+`)
+	cfg, err := LoadOrGenerate(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.DeltaGeneration)
+	require.Nil(t, cfg.DeltaGeneration.DefaultRepository)
+	require.Equal(t, 4, cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations())
 }
 
 func TestEffectiveMaxConcurrentDeltaGenerations(t *testing.T) {
