@@ -130,9 +130,9 @@ Aux services are shared testcontainers used by e2e: **registry** (TLS on port 50
 - **Stop all:** `make stop-aux`.
 - **Clean for fresh run:** `make clean-aux` (removes containers and volumes).
 
-> **Keycloak reuse:** `flightctl-realm.json` is only imported when Keycloak starts with an empty database, so editing it does not change a container an earlier run left behind. A realm object a suite depends on therefore has to be reconciled through the Keycloak Admin REST API by the suite that owns it, after the aux services have started (see `test/e2e/infra/auxiliary/keycloak_admin.go`; the catalog collector suite does this for its own client). Starting Keycloak itself does no such reconciliation, so suites that only need what the realm file already provides are unaffected. Add new realm objects in both places, or `make clean-aux` becomes a prerequisite for every developer.
+> **Keycloak reuse:** `flightctl-realm.json` is only imported when Keycloak starts with an empty database, so editing it does not change a container an earlier run left behind, and `make clean-aux` does not remove that container. After changing the realm file, run `make stop-keycloak` once; the next run imports it afresh. A Keycloak that was already provisioned with the objects a suite needs keeps working untouched.
 
-The **catalog collector** suite (`test/e2e/catalogcollector`) starts Keycloak and the Model Registry on demand, seeds a model, and installs the collector Helm chart; see [catalogcollector/README.md](catalogcollector/README.md).
+The **catalog collector** suite (`test/e2e/catalogcollector`) starts Keycloak and the Model Registry on demand, seeds a model, and installs the collector Helm chart. It is opt-in: it is not part of `sanity` and needs an image the default build does not produce; see [catalogcollector/README.md](catalogcollector/README.md).
 
 The **auth-provider** suite (`test/e2e/authprovider`) uses Keycloak to test the OAuth authorization-code flow: it starts Keycloak in BeforeSuite, applies a dynamic OIDC AuthProvider, then runs `flightctl login --web --no-browser` and automates the Keycloak login page with chromedp. You can run that suite with `GO_E2E_DIRS=test/e2e/authprovider`; the suite starts Keycloak on its own, or run `make start-keycloak` first if you prefer.
 

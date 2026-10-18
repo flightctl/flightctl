@@ -19,6 +19,10 @@ const (
 	keycloakPort           = "8080/tcp"
 	keycloakManagementPort = "9000/tcp" // health endpoints (Keycloak 25+)
 	keycloakRealmName      = "flightctl"
+	// keycloakAdminUsername and keycloakAdminPassword are the bootstrap
+	// credentials Start passes to the container.
+	keycloakAdminUsername = "admin"
+	keycloakAdminPassword = "admin" //nolint:gosec // G101: e2e bootstrap admin password only
 	// KeycloakE2EClientSecret is the client secret for flightctl-client in the e2e realm.
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
 	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
@@ -47,6 +51,14 @@ type Keycloak struct {
 }
 
 // Start starts the Keycloak container and sets URL, Host, Port.
+//
+// flightctl-realm.json is the single declarative source for the realm, but
+// Keycloak only imports it when it starts with an empty database. The
+// container is shared across runs under a fixed name, so an instance an
+// earlier run left behind keeps the realm it was created with: editing the
+// realm file has no effect on it. After changing the realm file, run
+// "make stop-keycloak" once and let the next run import it afresh.
+// "make clean-aux" does not remove this container.
 func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error {
 	logrus.Info("Starting Keycloak container (reuse=true)")
 	realmPath, err := getKeycloakRealmPath()
@@ -63,8 +75,6 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		Entrypoint:   []string{"/bin/bash", "-c"},
 		Cmd:          []string{"/opt/keycloak/bin/kc.sh build --health-enabled=true && /opt/keycloak/bin/kc.sh start-dev --import-realm"},
 		Env: map[string]string{
-			// Same constants the Admin REST reconciliation authenticates
-			// with; they must not drift apart.
 			"KC_BOOTSTRAP_ADMIN_USERNAME": keycloakAdminUsername,
 			"KC_BOOTSTRAP_ADMIN_PASSWORD": keycloakAdminPassword,
 			"KC_HEALTH_ENABLED":           "true",

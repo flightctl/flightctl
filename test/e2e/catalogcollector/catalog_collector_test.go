@@ -20,7 +20,11 @@ import (
 // Nothing is shared except the deployment itself, so the specs can run in any
 // order, and the deliberately unusable fixture the last one introduces cannot
 // reach any other scenario's collection cycle.
-var _ = Describe("Catalog collector", Label("catalogcollector", "sanity"), func() {
+//
+// The suite is opt-in rather than part of sanity: it deploys a collector of
+// its own and needs the collector image, which the default backend build does
+// not produce. CI selects it by the labels below.
+var _ = Describe("Catalog collector", Label("catalogcollector"), func() {
 	Context("initial synchronization from a Kubeflow Model Registry", func() {
 		It("imports a LIVE model into a Flight Control catalog and catalog item", Label("catalogcollector-smoke"), func() {
 			sc := resources.scenario(scenarioSmoke)

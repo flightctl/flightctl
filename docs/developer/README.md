@@ -64,7 +64,7 @@ This naming scheme prevents conflicts when building and deploying containers acr
 
 **Available Make Targets:**
 
-- `make build-containers` - Build all service containers (defaults to `OS=el9`)
+- `make build-containers` - Build the service containers a deployment installs (defaults to `OS=el9`). The optional catalog collector is not among them; build it with `make flightctl-catalog-collector-container`.
 - `make clean-containers` - Remove containers for the current OS
 - `make bundle-containers` - Bundle containers for distribution
 

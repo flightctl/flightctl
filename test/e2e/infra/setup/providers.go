@@ -84,14 +84,29 @@ func NewProvidersForEnvironment(config *infra.EnvironmentConfig) (*infra.Provide
 }
 
 func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) {
-	cluster, err := k8s.NewClient()
+	// Resolve the kubeconfig and context once, and give the same answer to
+	// the client and to the providers that shell out to kubectl and helm.
+	// Resolving them separately lets the client read one file's current
+	// context while the command lines read another - or get an empty
+	// --kubeconfig and fall back to their own resolution - so the two end up
+	// inspecting different clusters.
+	kubeConfigPath, kubeContext, err := k8s.ResolveKubeConfig(config.KubeConfig, config.KubeContext)
+	if err != nil {
+		return nil, fmt.Errorf("k8s kubeconfig: %w", err)
+	}
+	cluster, _, err := k8s.NewClientForKubeConfig(kubeConfigPath, kubeContext)
 	if err != nil {
 		return nil, fmt.Errorf("k8s client: %w", err)
 	}
+	// A copy, so resolution never writes back into the caller's config.
+	resolved := *config
+	resolved.KubeConfig = kubeConfigPath
+	resolved.KubeContext = kubeContext
+
 	// Use config.Namespace only when explicitly set (e.g. E2E_NAMESPACE); otherwise
 	// NewInfraProviderWithConfig detects external/internal from cluster (flightctl-api / flightctl-worker pods).
-	namespace := config.Namespace
-	infraP, err := k8s.NewInfraProviderWithConfig(namespace, config, cluster)
+	namespace := resolved.Namespace
+	infraP, err := k8s.NewInfraProviderWithConfig(namespace, &resolved, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("k8s infra provider: %w", err)
 	}

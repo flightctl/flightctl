@@ -23,10 +23,12 @@ const (
 	collectorChartName = "flightctl-catalog-collector"
 
 	// collectorImageEL9 and collectorImageGeneric are the tags "make
-	// build-containers" produces for the branch under test, in the same
-	// preference order as choose_image in test/scripts/deploy_with_helm.sh.
-	// They are the local development path: built on the host, then loaded into
-	// the cluster by this package.
+	// flightctl-catalog-collector-container" produces for the branch under
+	// test, in the same preference order as choose_image in
+	// test/scripts/deploy_with_helm.sh. They are the local development path:
+	// built on the host, then loaded into the cluster by this package. The
+	// collector is not part of "make build-containers", so that target has to
+	// be run on its own.
 	collectorImageEL9     = "localhost/flightctl-catalog-collector-el9:latest"
 	collectorImageGeneric = "localhost/flightctl-catalog-collector:latest"
 
@@ -302,8 +304,9 @@ func (d *CollectorDeployer) Start(ctx context.Context, config infra.CollectorDep
 //     into the cluster; nothing is looked up in, or loaded from, the host
 //     runtime.
 //   - Otherwise the image is the local development build, left in the host
-//     runtime under one of the well-known tags by "make build-containers",
-//     which is found here and loaded into the cluster.
+//     runtime under one of the well-known tags by "make
+//     flightctl-catalog-collector-container", which is found here and loaded
+//     into the cluster.
 //
 // A lookup failure is returned rather than treated as "image absent": a broken
 // container runtime must not quietly turn a required deployment into a skip.

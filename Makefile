@@ -372,8 +372,13 @@ login:
 	@echo "Piping password to podman login for user $(REGISTRY_USER)..."
 	@cat /dev/stdin | podman login -u "$(REGISTRY_USER)" --password-stdin $(REGISTRY)
 
-# Push all containers to registry
-push-containers: login
+# Push all containers to registry.
+#
+# The collector is listed as a prerequisite rather than left to a sibling
+# target: it is not part of build-containers, so without this edge "make -j
+# ci-build" is free to run this recipe before anything has built the image it
+# pushes. Every other image here is produced by build-containers.
+push-containers: login flightctl-catalog-collector-container
 	@echo "--- Pushing all containers to registry ---"
 	podman push flightctl-api:latest
 	podman push flightctl-pam-issuer:latest
@@ -402,7 +407,12 @@ rebuild-containers: clean-containers build-containers
 clean-containers:
 	- podman images --filter "reference=flightctl-*-$(OS):latest" --format "{{.Repository}}:{{.Tag}}" | xargs -r podman rmi || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-catalog-collector-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+# The catalog collector is deliberately absent: it is an optional component
+# that no default deployment installs, and building it costs every "make all",
+# "make deploy" and "make redeploy" a container build they do not use. Build
+# it with "make flightctl-catalog-collector-container" when you need it; the
+# targets that publish or push it depend on it explicitly.
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \

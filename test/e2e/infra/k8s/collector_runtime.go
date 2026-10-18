@@ -171,48 +171,79 @@ func (d *clusterRuntime) deleteNamespace(ctx context.Context, namespace string, 
 	}, fmt.Sprintf("namespace %s was not removed", namespace))
 }
 
-// applySecret creates or replaces an Opaque Secret from string data.
+// applySecret creates an Opaque Secret from string data, or replaces the
+// payload of one that already exists.
+//
+// The update path re-reads the object rather than sending the same value the
+// create used. A freshly built object carries none of the metadata the server
+// put on the live one - no resourceVersion, and none of the labels,
+// annotations or owner references anything else attached - so sending it
+// either loses them or is rejected, depending on the resource's update
+// strategy. Reading first and replacing only the payload keeps the server's
+// metadata intact and makes the write conflict-checked.
 func (d *clusterRuntime) applySecret(ctx context.Context, namespace, name string, data map[string]string) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(name) == "" {
 		return fmt.Errorf("applySecret: namespace and name are required")
 	}
-	secret := &corev1.Secret{
+	secrets := d.client.CoreV1().Secrets(namespace)
+	_, err := secrets.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Type:       corev1.SecretTypeOpaque,
 		StringData: data,
-	}
-	_, err := d.client.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	}, metav1.CreateOptions{})
 	if err == nil {
 		return nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create secret %s/%s: %w", namespace, name, err)
 	}
+
+	existing, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get secret %s/%s: %w", namespace, name, err)
+	}
+	updated := existing.DeepCopy()
 	// Replace rather than merge: a stale key from an earlier run would
 	// otherwise stay mounted and could be read instead of the current value.
-	if _, err := d.client.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+	// StringData is merged into Data by the server, so the decoded keys left
+	// over from the previous object have to be dropped explicitly - setting
+	// StringData alone would keep them.
+	updated.Data = nil
+	updated.StringData = data
+	if _, err := secrets.Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update secret %s/%s: %w", namespace, name, err)
 	}
 	return nil
 }
 
-// applyConfigMap creates or replaces a ConfigMap.
+// applyConfigMap creates a ConfigMap, or replaces the payload of one that
+// already exists. See applySecret for why the update path re-reads the object.
 func (d *clusterRuntime) applyConfigMap(ctx context.Context, namespace, name string, data map[string]string) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(name) == "" {
 		return fmt.Errorf("applyConfigMap: namespace and name are required")
 	}
-	configMap := &corev1.ConfigMap{
+	configMaps := d.client.CoreV1().ConfigMaps(namespace)
+	_, err := configMaps.Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Data:       data,
-	}
-	_, err := d.client.CoreV1().ConfigMaps(namespace).Create(ctx, configMap, metav1.CreateOptions{})
+	}, metav1.CreateOptions{})
 	if err == nil {
 		return nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create configmap %s/%s: %w", namespace, name, err)
 	}
-	if _, err := d.client.CoreV1().ConfigMaps(namespace).Update(ctx, configMap, metav1.UpdateOptions{}); err != nil {
+
+	existing, err := configMaps.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get configmap %s/%s: %w", namespace, name, err)
+	}
+	updated := existing.DeepCopy()
+	updated.Data = data
+	// BinaryData holds keys Data cannot express; leaving it behind would mount
+	// a key this call did not ask for.
+	updated.BinaryData = nil
+	if _, err := configMaps.Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update configmap %s/%s: %w", namespace, name, err)
 	}
 	return nil
