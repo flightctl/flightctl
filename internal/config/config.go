@@ -1531,11 +1531,8 @@ func applyDeltaGenerationEnvVarOverrides(c *Config) {
 	if username == "" && password == "" {
 		return
 	}
-	if c.DeltaGeneration == nil {
-		c.DeltaGeneration = &deltaconfig.DeltaGenerationConfig{}
-	}
-	if c.DeltaGeneration.DefaultRepository == nil {
-		c.DeltaGeneration.DefaultRepository = &deltaconfig.DefaultRepositoryConfig{}
+	if c.DeltaGeneration == nil || c.DeltaGeneration.DefaultRepository == nil {
+		return
 	}
 	if username != "" {
 		c.DeltaGeneration.DefaultRepository.Username = username

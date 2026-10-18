@@ -71,6 +71,32 @@ func TestDeltaGenerationConfigValidate(t *testing.T) {
 	}
 }
 
+func TestDefaultRepositoryConfigOciRepoSpecWithoutRegistry(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *DefaultRepositoryConfig
+	}{
+		{
+			name: "When no default repository is configured it should not create a target",
+		},
+		{
+			name: "When only credentials are present it should not create a target",
+			config: &DefaultRepositoryConfig{
+				Username: "robot",
+				Password: api.SecureString("secret"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec, err := tt.config.OciRepoSpec()
+			require.NoError(t, err)
+			require.Nil(t, spec)
+		})
+	}
+}
+
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -106,9 +132,15 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.config.OciRepoSpec()
+			spec, err := tt.config.OciRepoSpec()
 			if tt.wantErr == "" {
 				require.NoError(t, err)
+				require.NotNil(t, spec)
+				require.Equal(t, "registry.example.com", spec.Registry)
+				require.NotNil(t, spec.OciAuth)
+				auth, err := spec.OciAuth.AsDockerAuth()
+				require.NoError(t, err)
+				require.Equal(t, api.DockerAuth{AuthType: "docker", Username: "robot", Password: "secret"}, auth)
 				return
 			}
 			require.ErrorContains(t, err, tt.wantErr)
