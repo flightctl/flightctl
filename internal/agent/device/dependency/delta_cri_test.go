@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -91,7 +92,8 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				).Return("Image pulled", "", 0)
 				gomock.InOrder(runtimeInfo, copyDelta, importDelta, imageExists, refreshRegistryReference, fullPull)
 			} else {
-				gomock.InOrder(runtimeInfo, copyDelta, importDelta, imageExists, refreshRegistryReference)
+				activation := expectCRIDeltaActivation(exec, image, refreshImage)
+				gomock.InOrder(append([]any{runtimeInfo, copyDelta, importDelta, imageExists, refreshRegistryReference}, activation...)...)
 			}
 
 			root := t.TempDir()
@@ -142,6 +144,31 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 			}
 		})
+	}
+}
+
+func expectCRIDeltaActivation(exec *executer.MockExecuter, image, refreshImage string) []any {
+	repository, _, _, err := normalizedCRIImageReferences(image)
+	if err != nil {
+		panic(err)
+	}
+	metadata := fmt.Sprintf(
+		`{"status":{"id":%q,"repoDigests":[%q]}}`,
+		podmanDeltaImageID, repository+"@"+podmanDeltaTargetDigest,
+	)
+	return []any{
+		exec.EXPECT().ExecuteWithContext(
+			gomock.Any(), "crictl", "inspecti", "--output", "json", refreshImage,
+		).Return(metadata, "", 0),
+		exec.EXPECT().ExecuteWithContext(
+			gomock.Any(), "crictl", "rmi", image,
+		).Return("", "", 0),
+		exec.EXPECT().ExecuteWithContext(
+			gomock.Any(), "skopeo", "copy", "--preserve-digests", "docker://"+refreshImage, "containers-storage:"+image,
+		).Return("", "", 0),
+		exec.EXPECT().ExecuteWithContext(
+			gomock.Any(), "crictl", "inspecti", "--output", "json", image,
+		).Return(metadata, "", 0),
 	}
 }
 

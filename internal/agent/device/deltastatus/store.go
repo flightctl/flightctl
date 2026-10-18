@@ -600,9 +600,14 @@ func (s *Store) RecordApplicationImageResultForAttempt(attempt ApplicationAttemp
 			superseded = true
 		}
 	}
-	// An already-recorded identity keeps the outcome describing its original use.
+	// Preserve how an image was obtained, except that verified cache reuse can
+	// upgrade NotUsed to the neutral NotRequired outcome.
 	if existing, exists := current.History[key]; exists {
-		if superseded || !existing.Pending || existing.TargetKey != attempt.TargetKey {
+		upgrade := existing.Status.Outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed && result.Outcome == v1beta1.DeviceDeltaApplyOutcomeNotRequired
+		if upgrade || superseded || !existing.Pending || existing.TargetKey != attempt.TargetKey {
+			if upgrade {
+				existing.Status = cloneStatus(result)
+			}
 			existing.Pending = true
 			existing.TargetKey = attempt.TargetKey
 			current.History[key] = existing

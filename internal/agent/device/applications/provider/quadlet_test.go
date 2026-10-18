@@ -2,9 +2,12 @@ package provider
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -14,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -629,6 +633,11 @@ Image=nginx:latest
 					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
 					require.Contains(t, contentStr, "[Container]")
 					require.Contains(t, contentStr, "io.flightctl.quadlet.project=myapp")
+					unit, err := quadlet.NewUnit(content)
+					require.NoError(t, err)
+					environment, err := unit.Lookup("Service", "Environment")
+					require.NoError(t, err)
+					require.Equal(t, `"CONTAINERS_CONF_OVERRIDE=/.flightctl-podman-events.conf"`, environment)
 				},
 			},
 		},
@@ -1467,7 +1476,7 @@ spec:
 			}
 
 			logger := log.NewPrefixLogger("test")
-			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID)
+			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID, v1beta1.CurrentProcessUsername)
 			require.NoError(t, err)
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -1480,7 +1489,11 @@ spec:
 				}
 			}
 
-			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID)
+			config, err := rw.ReadFile("/.flightctl-podman-events.conf")
+			require.NoError(t, err)
+			require.Equal(t, "[engine]\nevents_container_create_inspect_data = true\n", string(config))
+
+			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID, v1beta1.CurrentProcessUsername)
 			require.NoError(t, err, "second call to installQuadlet should succeed (idempotency)")
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -2205,6 +2218,10 @@ func TestQuadletInlineProvider(t *testing.T) {
 					Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/nginx:latest\n"),
 					Path:    "web.container",
 				},
+				{
+					Content: lo.ToPtr("[Container]\nImage=quay.io/containerdisks/fedora:40\n[Service]\nType=oneshot\nRemainAfterExit=yes\n"),
+					Path:    "volumecontainerdisk.container",
+				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().
@@ -2289,6 +2306,293 @@ func TestQuadletInlineProvider(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+			require.NoError(quadletProvider.Install(ctx))
+			config, err := rw.ReadFile(filepath.Join(filepath.Dir(quadletProvider.Spec().Path), ".flightctl-podman-events.conf"))
+			require.NoError(err)
+			require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(config))
+			dropIn, err := rw.ReadFile(filepath.Join(quadletProvider.Spec().Path, quadletProvider.ID()+"-.container.d", "99-flightctl.conf"))
+			require.NoError(err)
+			unit, err := quadlet.NewUnit(dropIn)
+			require.NoError(err)
+			environment, err := unit.Lookup("Service", "Environment")
+			require.NoError(err)
+			require.Equal(`"CONTAINERS_CONF_OVERRIDE=`+filepath.Join(filepath.Dir(quadletProvider.Spec().Path), ".flightctl-podman-events.conf")+`"`, environment)
+		})
+	}
+}
+
+func newEventConfigTestProvider(t *testing.T, rw fileio.ReadWriter, name string, runAs v1beta1.Username) Provider {
+	t.Helper()
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+	podman := client.NewPodman(logger, executer.NewMockExecuter(gomock.NewController(t)), rw, testutil.NewPollConfig())
+	app := v1beta1.QuadletApplication{AppType: v1beta1.AppTypeQuadlet, Name: lo.ToPtr(name), RunAs: runAs}
+	require.NoError(app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/alpine:v1\nExec=sleep infinity\n")}},
+	}))
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromQuadletApplication(app))
+	p, err := newQuadletProvider(context.Background(), logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil }, &appSpec,
+		func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }, nil)
+	require.NoError(err)
+	return p
+}
+
+func TestQuadletEventConfigurationReuse(t *testing.T) {
+	require := require.New(t)
+	rw, err := fileio.NewReadWriterFactory(t.TempDir())(v1beta1.CurrentProcessUsername)
+	require.NoError(err)
+	first := newEventConfigTestProvider(t, rw, "first", v1beta1.CurrentProcessUsername)
+	second := newEventConfigTestProvider(t, rw, "second", v1beta1.CurrentProcessUsername)
+	ctx := context.Background()
+	require.NoError(first.Install(ctx))
+	configPath := "/etc/containers/systemd/.flightctl-podman-events.conf"
+	contents, err := rw.ReadFile(configPath)
+	require.NoError(err)
+	require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(contents))
+	before, err := os.Stat(rw.PathFor(configPath))
+	require.NoError(err)
+	require.NoError(second.Install(ctx))
+	after, err := os.Stat(rw.PathFor(configPath))
+	require.NoError(err)
+	require.True(os.SameFile(before, after), "installing a second application should reuse the existing configuration file")
+	for _, p := range []Provider{first, second} {
+		dropIn, err := rw.ReadFile(filepath.Join(p.Spec().Path, p.ID()+"-.container.d", quadletDropInFile))
+		require.NoError(err)
+		require.Contains(string(dropIn), "CONTAINERS_CONF_OVERRIDE="+configPath)
+		require.NoError(p.Remove(ctx))
+		contents, err := rw.ReadFile(configPath)
+		require.NoError(err)
+		require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(contents))
+	}
+}
+
+func TestQuadletEventConfigurationUserIsolation(t *testing.T) {
+	currentUser, err := user.Current()
+	require.NoError(t, err)
+	if currentUser.Username == "root" {
+		t.Skip("requires a non-root user to exercise the explicit rootless path")
+	}
+	require := require.New(t)
+	rwFactory := fileio.NewReadWriterFactory(t.TempDir())
+	rw, err := rwFactory(v1beta1.CurrentProcessUsername)
+	require.NoError(err)
+	rootlessUser := v1beta1.Username(currentUser.Username)
+	rootlessRW, err := rwFactory(rootlessUser)
+	require.NoError(err)
+	rootful := newEventConfigTestProvider(t, rw, "app", v1beta1.CurrentProcessUsername)
+	rootless := newEventConfigTestProvider(t, rootlessRW, "app", rootlessUser)
+	rootfulPath := "/etc/containers/systemd/.flightctl-podman-events.conf"
+	rootlessPath := filepath.Join(currentUser.HomeDir, ".config/containers/systemd/.flightctl-podman-events.conf")
+	ctx := context.Background()
+	require.NoError(rootless.Install(ctx))
+	info, err := os.Stat(rw.PathFor(rootlessPath))
+	require.NoError(err)
+	stat := info.Sys().(*syscall.Stat_t)
+	require.Equal(currentUser.Uid, strconv.FormatUint(uint64(stat.Uid), 10))
+	require.Equal(currentUser.Gid, strconv.FormatUint(uint64(stat.Gid), 10))
+	require.NoError(rw.WriteFile(rootlessPath, []byte("other user's configuration\n"), 0o644))
+	require.NoError(rootful.Install(ctx))
+	contents, err := rw.ReadFile(rootlessPath)
+	require.NoError(err)
+	require.Equal("other user's configuration\n", string(contents), "installing in the rootful root must not reconcile another user's configuration")
+	require.NoError(rootless.Install(ctx))
+	for _, tc := range []struct {
+		p    Provider
+		path string
+	}{{rootful, rootfulPath}, {rootless, rootlessPath}} {
+		dropIn, err := rw.ReadFile(filepath.Join(tc.p.Spec().Path, tc.p.ID()+"-.container.d", quadletDropInFile))
+		require.NoError(err)
+		require.Contains(string(dropIn), "CONTAINERS_CONF_OVERRIDE="+tc.path)
+		require.NoError(tc.p.Remove(ctx))
+		contents, err := rw.ReadFile(tc.path)
+		require.NoError(err)
+		require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(contents))
+	}
+}
+
+func TestQuadletEventConfigurationRepair(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		damage func(*testing.T, fileio.ReadWriter, string)
+	}{
+		{
+			name: "When configuration is missing it should recreate it",
+			damage: func(t *testing.T, rw fileio.ReadWriter, path string) {
+				require.NoError(t, rw.RemoveFile(path))
+			},
+		},
+		{
+			name: "When configuration is stale it should replace its contents",
+			damage: func(t *testing.T, rw fileio.ReadWriter, path string) {
+				require.NoError(t, rw.WriteFile(path, []byte("[engine]\nevents_container_create_inspect_data = false\n"), 0o644))
+			},
+		},
+		{
+			name: "When configuration permissions differ it should restore them",
+			damage: func(t *testing.T, rw fileio.ReadWriter, path string) {
+				require.NoError(t, os.Chmod(rw.PathFor(path), 0o600))
+			},
+		},
+		{
+			name: "When configuration group differs it should restore it",
+			damage: func(t *testing.T, rw fileio.ReadWriter, path string) {
+				groups, err := os.Getgroups()
+				require.NoError(t, err)
+				for _, gid := range groups {
+					if gid != os.Getegid() {
+						require.NoError(t, os.Chown(rw.PathFor(path), -1, gid))
+						return
+					}
+				}
+				if os.Geteuid() == 0 {
+					require.NoError(t, os.Chown(rw.PathFor(path), -1, 65534))
+					return
+				}
+				t.Skip("requires another supplementary group or root to change file group")
+			},
+		},
+		{
+			name: "When configuration owner differs it should restore it",
+			damage: func(t *testing.T, rw fileio.ReadWriter, path string) {
+				if os.Geteuid() != 0 {
+					t.Skip("requires root to change file owner")
+				}
+				require.NoError(t, os.Chown(rw.PathFor(path), 65534, -1))
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			rw, err := fileio.NewReadWriterFactory(t.TempDir())(v1beta1.CurrentProcessUsername)
+			require.NoError(err)
+			first := newEventConfigTestProvider(t, rw, "first", v1beta1.CurrentProcessUsername)
+			ctx := context.Background()
+			require.NoError(first.Install(ctx))
+			configPath := "/etc/containers/systemd/.flightctl-podman-events.conf"
+			tc.damage(t, rw, configPath)
+			second := newEventConfigTestProvider(t, rw, "second", v1beta1.CurrentProcessUsername)
+			require.NoError(second.Install(ctx))
+			contents, err := rw.ReadFile(configPath)
+			require.NoError(err)
+			require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(contents))
+			info, err := os.Stat(rw.PathFor(configPath))
+			require.NoError(err)
+			require.Equal(os.FileMode(0o644), info.Mode().Perm())
+			stat := info.Sys().(*syscall.Stat_t)
+			require.EqualValues(os.Geteuid(), stat.Uid)
+			require.EqualValues(os.Getegid(), stat.Gid)
+		})
+	}
+}
+
+func TestWhenRootlessEventConfigurationIsUnreadableItShouldRepairIt(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires an unprivileged process to enforce file read permissions")
+	}
+	require := require.New(t)
+	currentUser, err := user.Current()
+	require.NoError(err)
+	runAs := v1beta1.Username(currentUser.Username)
+	rw, err := fileio.NewReadWriterFactory(t.TempDir())(runAs)
+	require.NoError(err)
+	p := newEventConfigTestProvider(t, rw, "app", runAs)
+	require.NoError(p.Install(t.Context()))
+	configPath := filepath.Join(currentUser.HomeDir, ".config/containers/systemd/.flightctl-podman-events.conf")
+	require.NoError(os.Chmod(rw.PathFor(configPath), 0o000))
+	require.NoError(p.Install(t.Context()))
+	contents, err := rw.ReadFile(configPath)
+	require.NoError(err)
+	require.Equal("[engine]\nevents_container_create_inspect_data = true\n", string(contents))
+	info, err := os.Stat(rw.PathFor(configPath))
+	require.NoError(err)
+	require.Equal(os.FileMode(0o644), info.Mode().Perm())
+}
+
+func TestQuadletEventConfigurationReplacementFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires an unprivileged process to enforce directory write permissions")
+	}
+	require := require.New(t)
+	rw, err := fileio.NewReadWriterFactory(t.TempDir())(v1beta1.CurrentProcessUsername)
+	require.NoError(err)
+	p := newEventConfigTestProvider(t, rw, "app", v1beta1.CurrentProcessUsername)
+	configPath := "/etc/containers/systemd/.flightctl-podman-events.conf"
+	require.NoError(rw.WriteFile(configPath, []byte("previous configuration\n"), 0o644))
+	require.NoError(rw.MkdirAll(p.Spec().Path, 0o755))
+	root := rw.PathFor("/etc/containers/systemd")
+	require.NoError(os.Chmod(root, 0o555))
+	t.Cleanup(func() { require.NoError(os.Chmod(root, 0o755)) })
+	require.ErrorContains(p.Install(context.Background()), "ensuring Podman event configuration")
+	contents, err := rw.ReadFile(configPath)
+	require.NoError(err)
+	require.Equal("previous configuration\n", string(contents))
+	for _, path := range []string{
+		filepath.Join(p.Spec().Path, p.ID()+"-.container.d", quadletDropInFile),
+		filepath.Join(p.Spec().Path, quadlet.NamespaceResource(p.ID(), lifecycle.QuadletTargetName)),
+		quadletSystemdTargetPath(p.Spec().User, p.ID()),
+	} {
+		exists, err := rw.PathExists(path)
+		require.NoError(err)
+		require.False(exists, "dependent configuration must not be published when its prerequisite fails: %s", path)
+	}
+}
+
+func TestQuadletEventConfigurationSurvivesApplicationRemoval(t *testing.T) {
+	currentUser, err := user.Current()
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		runAs v1beta1.Username
+	}{
+		{name: "When a rootful application is removed it should retain configuration needed by stop commands"},
+		{name: "When a rootless application is removed it should retain configuration needed by stop commands", runAs: v1beta1.Username(currentUser.Username)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, executer.NewMockExecuter(ctrl), rw, testutil.NewPollConfig())
+			app := v1beta1.QuadletApplication{
+				AppType: v1beta1.AppTypeQuadlet,
+				Name:    lo.ToPtr("sleep-app"),
+				RunAs:   tc.runAs,
+			}
+			require.NoError(app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/alpine:v1\nExec=sleep infinity\n")}},
+			}))
+			var appSpec v1beta1.ApplicationProviderSpec
+			require.NoError(appSpec.FromQuadletApplication(app))
+			ctx := context.Background()
+			provider, err := newQuadletProvider(ctx, logger,
+				func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+				&appSpec,
+				func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }, nil)
+			require.NoError(err)
+			require.NoError(provider.Install(ctx))
+			dropIn, err := rw.ReadFile(filepath.Join(provider.Spec().Path, provider.ID()+"-.container.d", quadletDropInFile))
+			require.NoError(err)
+			unit, err := quadlet.NewUnit(dropIn)
+			require.NoError(err)
+			environment, err := unit.Lookup("Service", "Environment")
+			require.NoError(err)
+			configPath, found := strings.CutPrefix(strings.Trim(environment, `"`), "CONTAINERS_CONF_OVERRIDE=")
+			require.True(found)
+			require.NoError(provider.Remove(ctx))
+			exists, err := rw.PathExists(provider.Spec().Path)
+			require.NoError(err)
+			require.False(exists)
+			config, err := rw.ReadFile(configPath)
+			require.NoError(err, "systemd stop commands still use the installed Podman configuration after application files are removed")
+			require.Equal(client.PodmanEventsConfigContents, string(config))
 		})
 	}
 }

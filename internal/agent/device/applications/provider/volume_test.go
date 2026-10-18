@@ -106,6 +106,47 @@ func newTestImageApplicationVolumes(require *require.Assertions, names []string)
 	return &volumes
 }
 
+func TestWhenQuadletRuntimesManageImageVolumesItShouldUseRuntimeVolumeNames(t *testing.T) {
+	const (
+		appName    = "container-app"
+		volumeName = "data"
+	)
+
+	testCases := []struct {
+		name    string
+		appType v1beta1.AppType
+	}{
+		{
+			name:    "When a container application manages an image volume it should use the Quadlet runtime name",
+			appType: v1beta1.AppTypeContainer,
+		},
+		{
+			name:    "When a Quadlet application manages an image volume it should use the Quadlet runtime name",
+			appType: v1beta1.AppTypeQuadlet,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			logger := log.NewPrefixLogger("test")
+			var apiVolume v1beta1.ApplicationVolume
+			apiVolume.Name = volumeName
+			require.NoError(apiVolume.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
+				Image: v1beta1.ImageVolumeSource{Reference: "quay.io/test/data:latest"},
+				Mount: v1beta1.VolumeMount{Path: "/data"},
+			}))
+
+			volumeManager, err := NewVolumeManager(logger, appName, tc.appType, v1beta1.RootUsername, &[]v1beta1.ApplicationVolume{apiVolume})
+			require.NoError(err)
+
+			volumes := volumeManager.List()
+			require.Len(volumes, 1)
+			require.Equal("systemd-container-app-422592-data", volumes[0].ID)
+		})
+	}
+}
+
 func Test_extractQuadletVolumesFromSpec(t *testing.T) {
 	require := require.New(t)
 

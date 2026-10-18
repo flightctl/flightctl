@@ -29,7 +29,7 @@ type Volume struct {
 	Reference string
 	// OCIType identifies the storage representation required to observe the
 	// image-backed volume without treating artifact manifests as executable images.
-	OCIType string
+	OCIType dependency.OCIType
 	// Available is true if the volume has been created
 	Available bool
 	// ReclaimPolicy controls how the volume is handled when the application is removed
@@ -53,6 +53,8 @@ type VolumeManager interface {
 	UpdateStatus(event *client.PodmanEvent)
 	// AddVolumes adds all specified volumes to the manager. An ID will be added if one does not exist
 	AddVolumes([]*Volume)
+	// ResolveImageMountVolumes detects image-mount volume types and updates their runtime identities.
+	ResolveImageMountVolumes(ctx context.Context, podman *client.Podman)
 }
 
 // NewVolumeManager returns a new VolumeManager.
@@ -96,12 +98,12 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 		default:
 			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
-		volID := m.volumeID(v.Name, user)
+		volID := m.volumeID(v.Name, ociType)
 		policy := v.GetReclaimPolicy()
 		m.volumes[volID] = &Volume{
 			Name:          v.Name,
 			Reference:     image.Reference,
-			OCIType:       string(ociType),
+			OCIType:       ociType,
 			ID:            volID,
 			Available:     true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 			ReclaimPolicy: policy,
@@ -119,12 +121,36 @@ type volumeManager struct {
 	user    v1beta1.Username
 }
 
-func (m *volumeManager) volumeID(volName string, user v1beta1.Username) string {
+func (m *volumeManager) volumeID(volName string, ociType dependency.OCIType) string {
 	switch m.appType {
 	case v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		return quadlet.NamespaceResource(lifecycle.GenerateAppID(m.appName, user), volName)
+		namespacedName := quadlet.NamespaceResource(lifecycle.GenerateAppID(m.appName, m.user), volName)
+		if ociType == dependency.OCITypePodmanArtifact {
+			return namespacedName
+		}
+		return quadlet.VolumeName(nil, namespacedName)
 	default:
-		return lifecycle.ComposeVolumeName(m.appName, volName, user)
+		return lifecycle.ComposeVolumeName(m.appName, volName, m.user)
+	}
+}
+
+func (m *volumeManager) ResolveImageMountVolumes(ctx context.Context, podman *client.Podman) {
+	for _, volume := range m.List() {
+		if volume.OCIType != dependency.OCITypeAuto {
+			continue
+		}
+		ociType, err := detectOCIType(ctx, podman, volume.Reference)
+		if err != nil {
+			m.log.Warnf("Cannot determine image-mount volume type for %s: %v", volume.Name, err)
+			continue
+		}
+		oldID := volume.ID
+		volume.OCIType = ociType
+		volume.ID = m.volumeID(volume.Name, ociType)
+		if volume.ID != oldID {
+			delete(m.volumes, oldID)
+			m.volumes[volume.ID] = volume
+		}
 	}
 }
 
@@ -227,7 +253,7 @@ func (m *volumeManager) AddVolumes(volumes []*Volume) {
 	for _, volume := range volumes {
 		vol := volume
 		if vol.ID == "" {
-			vol.ID = m.volumeID(volume.Name, m.user)
+			vol.ID = m.volumeID(volume.Name, dependency.OCITypeAuto)
 		}
 		if vol.ReclaimPolicy == "" {
 			vol.ReclaimPolicy = v1beta1.Retain
@@ -315,7 +341,7 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 		out[i] = lifecycle.Volume{
 			ID:            vol.ID,
 			Reference:     vol.Reference,
-			OCIType:       vol.OCIType,
+			OCIType:       string(vol.OCIType),
 			ReclaimPolicy: vol.ReclaimPolicy,
 		}
 	}
@@ -334,7 +360,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 			Name:          name,
 			ID:            quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
 			Reference:     *quad.Image,
-			OCIType:       string(dependency.OCITypePodmanImage),
+			OCIType:       dependency.OCITypePodmanImage,
 			ReclaimPolicy: v1beta1.Retain,
 		})
 	}
