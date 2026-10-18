@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -280,25 +281,35 @@ func TestWhenProvidersInstallCollectedParentsItShouldPreserveTheExtractedIdentit
 	for _, tc := range []struct {
 		name, digest string
 		appType      v1beta1.AppType
+		blockedPath  bool
 	}{
 		{name: "When Compose parent contents have a verified digest it should keep that identity", digest: artifactDigest, appType: v1beta1.AppTypeCompose},
 		{name: "When Compose parent contents have no digest it should install without identity evidence", appType: v1beta1.AppTypeCompose},
 		{name: "When Quadlet parent contents have a verified digest it should keep that identity", digest: artifactDigest, appType: v1beta1.AppTypeQuadlet},
 		{name: "When Quadlet parent contents have no digest it should install without identity evidence", appType: v1beta1.AppTypeQuadlet},
+		{name: "When the Compose installation directory is blocked it should identify its path", appType: v1beta1.AppTypeCompose, blockedPath: true},
+		{name: "When the Quadlet installation directory is blocked it should identify its path", appType: v1beta1.AppTypeQuadlet, blockedPath: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
+			owner := uint32(os.Geteuid())
+			group := uint32(os.Getegid())
+			if owner == 0 {
+				// A privileged agent must assign the directory to the application's user.
+				owner = 1
+				group = 1
+			}
 			rw := fileio.NewReadWriter(
 				fileio.NewReader(fileio.WithReaderRootDir(root)),
-				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root), fileio.WithUID(owner), fileio.WithGID(group)),
 			)
-			const (
-				extractedPath = "/extracted-parent"
-				installedPath = "/installed-app"
-			)
-			require.NoError(t, rw.MkdirAll(extractedPath, fileio.DefaultDirectoryPermissions))
+			const installedPath = "/installed-app"
+			extractedPath, err := rw.MkdirTemp("app_temp")
+			require.NoError(t, err)
 			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "web.container"), []byte("[Container]\nImage=quay.io/acme/web:v1\n"), fileio.DefaultFilePermissions))
 			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
+			require.NoError(t, rw.MkdirAll(filepath.Join(extractedPath, "config"), 0o700))
+			require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "config", "env"), []byte("FOO=bar\n"), 0o600))
 			binDir := t.TempDir()
 			for _, name := range []string{"podman", "podman-compose", "skopeo"} {
 				require.NoError(t, os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o600))
@@ -334,12 +345,34 @@ func TestWhenProvidersInstallCollectedParentsItShouldPreserveTheExtractedIdentit
 			spec.Path = installedPath
 			spec.ImageDigest = "stale-digest"
 			spec.ImageOCIType = "stale-type"
+			if tc.blockedPath {
+				require.NoError(t, rw.WriteFile(installedPath, []byte("blocking file"), fileio.DefaultFilePermissions))
+				err := compose.Install(context.Background())
+				require.Error(t, err)
+				require.Equal(t, installedPath, errors.GetElement(err))
+				return
+			}
 			require.NoError(t, compose.Install(context.Background()))
 			require.Equal(t, tc.digest, spec.ImageDigest)
 			require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
 			installed, err := rw.ReadFile(filepath.Join(installedPath, "compose.yaml"))
 			require.NoError(t, err)
 			require.Equal(t, "services: {}\n", string(installed))
+			installedInfo, err := os.Stat(rw.PathFor(installedPath))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o755), installedInfo.Mode().Perm(), "installed manifests must be readable by their consumers")
+			require.Equal(t, owner, installedInfo.Sys().(*syscall.Stat_t).Uid, "installed manifests must belong to the application user")
+			nestedInfo, err := os.Stat(rw.PathFor(filepath.Join(installedPath, "config")))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o700), nestedInfo.Mode().Perm(), "private bundle directories must retain their permissions")
+			require.Equal(t, owner, nestedInfo.Sys().(*syscall.Stat_t).Uid, "nested bundle directories must belong to the application user")
+			require.Equal(t, group, nestedInfo.Sys().(*syscall.Stat_t).Gid, "nested bundle directories must belong to the application group")
+			contents, err := rw.ReadFile(filepath.Join(installedPath, "config", "env"))
+			require.NoError(t, err)
+			require.Equal(t, "FOO=bar\n", string(contents))
+			extractedInfo, err := os.Stat(rw.PathFor(extractedPath))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o700), extractedInfo.Mode().Perm(), "retained preparation must remain private")
 
 		})
 	}

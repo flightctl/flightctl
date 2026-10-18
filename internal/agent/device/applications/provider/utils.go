@@ -228,7 +228,12 @@ func installOCIParentContents(
 ) (string, dependency.OCIType, error) {
 	if appData != nil && appData.TmpPath != "" && appData.ParentReference == imageRef && appData.ParentOCIType != "" {
 		if _, err := digest.Parse(appData.ParentDigest); appData.ParentDigest == "" || err == nil {
-			if err := rw.CopyDir(appData.TmpPath, path); err != nil {
+			// The retained extraction is a private temporary directory. Create the
+			// installed directory with its normal permissions and application owner.
+			if err := rw.MkdirAll(path, fileio.DefaultDirectoryPermissions); err != nil {
+				return "", "", fmt.Errorf("creating application directory %w: %w", errors.WithElement(path), err)
+			}
+			if err := rw.CopyDir(appData.TmpPath, path, fileio.WithDirectoryOwnership()); err != nil {
 				if rmErr := rw.RemoveAll(path); rmErr != nil {
 					logger.Warnf("Failed to cleanup incomplete parent copy at %q: %v", path, rmErr)
 				}
@@ -239,25 +244,6 @@ func installOCIParentContents(
 		}
 	}
 	return extractOCIContentsToPathWithIdentity(ctx, podman, logger, rw, imageRef, path)
-}
-
-// resolveImageMountVolumes classifies auto-detected mount sources in their
-// owning local store before lifecycle preparation and status collection.
-func resolveImageMountVolumes(ctx context.Context, podman *client.Podman, volumes VolumeManager, logger *log.PrefixLogger) {
-	if volumes == nil {
-		return
-	}
-	for _, volume := range volumes.List() {
-		if volume.OCIType != string(dependency.OCITypeAuto) {
-			continue
-		}
-		ociType, err := detectOCIType(ctx, podman, volume.Reference)
-		if err != nil {
-			logger.Warnf("Cannot determine image-mount volume type for %s: %v", volume.Name, err)
-			continue
-		}
-		volume.OCIType = string(ociType)
-	}
 }
 
 // bindQuadletImageVolumes pins executable image volumes to the local immutable

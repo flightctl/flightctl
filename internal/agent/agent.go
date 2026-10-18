@@ -305,6 +305,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory)
 
 	// create application manager
+	appDataCache := applicationprovider.NewAppDataCache()
 	applicationsManager := applications.NewManager(
 		a.log,
 		rwFactory,
@@ -314,6 +315,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemdManagerFactory,
 		pullConfigResolver,
 		applications.WithDeltaStatusStore(deltaStatusStore),
+		applications.WithAppDataCache(appDataCache),
 	)
 
 	// register the application manager with the shutdown manager
@@ -468,6 +470,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		rwFactory,
 		a.log,
 		systemInfoManager.BootTime(),
+		applications.WithControllerAppDataCache(appDataCache),
 	)
 
 	// create image pruning manager

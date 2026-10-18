@@ -49,7 +49,6 @@ type criDeltaTestCase struct {
 
 func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 	const hint = "quay.io/deltas/workload:target"
-	const image = "quay.io/acme/workload@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	digestA := "sha256:" + strings.Repeat("a", 64)
 	digestB := "sha256:" + strings.Repeat("b", 64)
 	repositoryDigestA := "sha256:" + strings.Repeat("e", 64)
@@ -59,6 +58,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 		"docker://quay.io/local/base@" + repositoryDigestB: true,
 	}
 	platformTargetDigest := "sha256:" + strings.Repeat("9", 64)
+	image := "quay.io/acme/workload@" + platformTargetDigest
 	localIndexDigest := "sha256:" + strings.Repeat("1", 64)
 	targetIndex, targetIndexDigest := testApplicationTargetIndex(t, platformTargetDigest)
 	tests := []criDeltaTestCase{
@@ -214,11 +214,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
 			}
 
-			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, tc, outcome)
-			// These task-processing fixtures have no verified runtime observation.
-			exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "crictl", "--config", "/etc/workload-cri.yaml", "inspecti", "--output", "json", image,
-			).Return(`{"status":{"repoDigests":[]}}`, "", 0).AnyTimes()
+			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, targetIndex, tc, outcome)
 
 			if tc.containerd && tc.failStep == "" {
 				const chart = "oci://quay.io/acme/charts/workload:1.0.0"
@@ -301,7 +297,7 @@ func criDeltaLocalImages(t *testing.T, exec *executer.MockExecuter, tc criDeltaT
 	return localImages
 }
 
-func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage string, tc criDeltaTestCase, outcome v1beta1.DeviceDeltaApplyOutcomeType) {
+func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, targetIndex string, tc criDeltaTestCase, outcome v1beta1.DeviceDeltaApplyOutcomeType) {
 	criArgs := func(args ...string) []any {
 		result := []any{gomock.Any(), "crictl", "--config", "/etc/workload-cri.yaml"}
 		for _, arg := range args {
@@ -382,6 +378,9 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage s
 				}
 			}
 		}
+		if tc.selected != "" && tc.failStep == "" {
+			steps = append(steps, expectCRIDeltaCanonicalRefresh(exec, image, refreshImage, targetIndex, tc, criArgs)...)
+		}
 	}
 	if outcome != v1beta1.DeviceDeltaApplyOutcomeApplied {
 		exit, stderr := 0, ""
@@ -391,4 +390,50 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage s
 		steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", image}, gomock.Any()).Return("", stderr, exit))
 	}
 	gomock.InOrder(steps...)
+}
+
+func expectCRIDeltaCanonicalRefresh(
+	exec *executer.MockExecuter,
+	image, refreshImage, targetIndex string,
+	tc criDeltaTestCase,
+	criArgs func(args ...string) []any,
+) []any {
+	repository, _, _, err := normalizedCRIImageReferences(image)
+	if err != nil {
+		panic(err)
+	}
+	targetDigest := applicationImageDigest(refreshImage)
+	metadata := fmt.Sprintf(
+		`{"status":{"id":%q,"repoDigests":[%q]}}`,
+		podmanDeltaImageID, repository+"@"+targetDigest,
+	)
+	var steps []any
+	canonicalArgs := criArgs("inspecti", "--output", "json", refreshImage)
+	steps = append(steps, exec.EXPECT().ExecuteWithContext(canonicalArgs[0], canonicalArgs[1], canonicalArgs[2:]...).Return(metadata, "", 0))
+	digestPinned, err := imageReferenceIsDigestPinned(image)
+	if err != nil {
+		panic(err)
+	}
+	if !digestPinned {
+		if tc.containerd {
+			steps = append(steps, exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "ctr", "--address", "/run/workload/containerd.sock", "--namespace", "k8s.io",
+				"images", "tag", "--force", refreshImage, image,
+			).Return("", "", 0))
+		} else {
+			removeArgs := criArgs("rmi", image)
+			steps = append(steps, exec.EXPECT().ExecuteWithContext(removeArgs[0], removeArgs[1], removeArgs[2:]...).Return("", "", 0))
+			steps = append(steps, exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "skopeo", "copy", "--preserve-digests", "docker://"+refreshImage, "containers-storage:"+image,
+			).Return("", "", 0))
+		}
+	}
+	verifyArgs := criArgs("inspecti", "--output", "json", image)
+	steps = append(steps, exec.EXPECT().ExecuteWithContext(verifyArgs[0], verifyArgs[1], verifyArgs[2:]...).Return(metadata, "", 0))
+	observeArgs := criArgs("inspecti", "--output", "json", image)
+	steps = append(steps, exec.EXPECT().ExecuteWithContext(observeArgs[0], observeArgs[1], observeArgs[2:]...).Return(metadata, "", 0))
+	steps = append(steps, exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+repository+"@"+targetDigest, "--no-creds",
+	).Return(targetIndex, "", 0))
+	return steps
 }

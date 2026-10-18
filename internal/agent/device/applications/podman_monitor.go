@@ -34,6 +34,7 @@ const (
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
 	podmanHealthStatusEvent       = "health_status"
 	composeServiceLabel           = "com.docker.compose.service"
+	maxPodmanEventBytes           = 4 * 1024 * 1024
 )
 
 type PodmanMonitor struct {
@@ -753,6 +754,10 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, event client.PodmanEven
 		m.log.Debugf("Application not found: %s", appID)
 		return
 	}
+	if event.StoreOwner != nil && *event.StoreOwner != app.User() {
+		m.log.Debugf("Ignoring event from another Podman user store for app %s", appID)
+		return
+	}
 	m.updateAppStatus(ctx, app, &event)
 }
 
@@ -841,6 +846,7 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	inspectData []client.PodmanInspect,
 ) {
 	image, hasImage := m.resolveWorkloadImage(ctx, app, event, podmanClient, inspectData)
+	imageNotRequired := event.Image == "" && m.isRootfsInfraContainer(ctx, app, event, podmanClient, inspectData)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -854,6 +860,12 @@ func (m *PodmanMonitor) updateApplicationStatus(
 		container.Status = status
 		if hasImage {
 			container.Images = []WorkloadImage{image}
+		}
+		if imageNotRequired {
+			container.Images = nil
+		}
+		if event.ID != "" || hasImage {
+			container.ImageNotRequired = imageNotRequired
 		}
 		if event.ID != "" {
 			if event.ID != container.ID && !hasImage {
@@ -883,13 +895,56 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:          event.ID,
-		Images:      images,
-		Name:        event.Name,
-		ServiceName: event.Attributes[composeServiceLabel],
-		Status:      status,
-		Restarts:    restarts,
+		ID:               event.ID,
+		Images:           images,
+		ImageNotRequired: imageNotRequired,
+		Name:             event.Name,
+		ServiceName:      event.Attributes[composeServiceLabel],
+		Status:           status,
+		Restarts:         restarts,
 	})
+}
+
+// isRootfsInfraContainer distinguishes Podman's image-less pod infrastructure
+// from a workload whose image identity has not been collected yet.
+func (m *PodmanMonitor) isRootfsInfraContainer(
+	ctx context.Context,
+	app Application,
+	event *client.PodmanEvent,
+	podmanClient *client.Podman,
+	inspectData []client.PodmanInspect,
+) bool {
+	if event.ID == "" {
+		return false
+	}
+	if snapshot := event.ContainerInspectData; snapshot != nil && snapshot.ID == event.ID {
+		return snapshot.IsInfra && snapshot.Image == ""
+	}
+	m.mu.Lock()
+	workload, exists := app.Workload(event.Name)
+	known := exists && workload.ID == event.ID && workload.ImageNotRequired
+	m.mu.Unlock()
+	if known {
+		return true
+	}
+	if inspectData == nil {
+		if podmanClient == nil {
+			if m.clientFactory == nil {
+				return false
+			}
+			var err error
+			podmanClient, err = m.clientFactory(app.User())
+			if err != nil {
+				return false
+			}
+		}
+		var err error
+		inspectData, err = m.inspectContainer(ctx, event.ID, podmanClient)
+		if err != nil {
+			return false
+		}
+	}
+	return len(inspectData) == 1 && inspectData[0].IsInfra && inspectData[0].Image == ""
 }
 
 func (m *PodmanMonitor) resolveWorkloadImage(
@@ -904,6 +959,32 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 
 	image := WorkloadImage{Image: event.Image}
+	resolver := m.newLocalImageResolver(app.User(), podmanClient)
+
+	// Create events preserve the container's registry identity after --rm, without
+	// resolving the mutable image reference or requiring the container to survive.
+	if snapshot := event.ContainerInspectData; snapshot != nil && event.ID != "" && snapshot.ID == event.ID {
+		snapshotDigest := ""
+		if observed, err := digest.Parse(snapshot.ImageDigest); err == nil {
+			snapshotDigest = observed.String()
+		}
+		if client.IsImmutablePodmanImageID(snapshot.Image) {
+			if localDigest, ok := resolver.resolve(ctx, snapshot.Image); ok {
+				image.Digest = localDigest.String()
+				return image, true
+			}
+			if snapshotDigest != "" {
+				image.Digest = snapshotDigest
+				return image, true
+			}
+			if inspectData == nil {
+				inspectData = []client.PodmanInspect{{Image: snapshot.Image}}
+			}
+		} else if snapshotDigest != "" {
+			image.Digest = snapshotDigest
+			return image, true
+		}
+	}
 
 	// A container restart may resolve the same mutable tag to different content.
 	// Reuse a known digest only while both the container ID and image reference
@@ -920,17 +1001,9 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 	m.mu.Unlock()
 
-	if podmanClient == nil {
-		if m.clientFactory == nil {
-			m.log.Warnf("Cannot resolve digest for workload image %q: podman client factory is not configured", event.Image)
-			return image, true
-		}
-		var err error
-		podmanClient, err = m.clientFactory(app.User())
-		if err != nil {
-			m.log.Warnf("Failed to create podman client to resolve workload image %q: %v", event.Image, err)
-			return image, true
-		}
+	podmanClient, ok := resolver.ensureClient(event.Image)
+	if !ok {
+		return image, true
 	}
 
 	if event.ID == "" {
@@ -948,16 +1021,61 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 		// Use the same image-inspect digest as prefetch, scoped to the immutable
 		// image used by this container. The event tag may already have moved,
 		// and container ImageDigest may retain a different index digest.
-		metadata, err := podmanClient.ImageMetadata(ctx, inspectData[0].Image)
-		if err != nil {
-			m.log.Warnf("Failed to inspect workload image %q: %v", inspectData[0].Image, err)
-			return image, true
-		}
-		if observed, err := digest.Parse(metadata.Digest); err == nil {
-			image.Digest = observed.String()
+		if localDigest, ok := resolver.resolve(ctx, inspectData[0].Image); ok {
+			image.Digest = localDigest.String()
 		}
 	}
 	return image, true
+}
+
+type localImageResolver struct {
+	clientFactory client.PodmanFactory
+	logger        *log.PrefixLogger
+	user          v1beta1.Username
+	client        *client.Podman
+}
+
+func (m *PodmanMonitor) newLocalImageResolver(user v1beta1.Username, client *client.Podman) *localImageResolver {
+	return &localImageResolver{
+		clientFactory: m.clientFactory,
+		logger:        m.log,
+		user:          user,
+		client:        client,
+	}
+}
+
+func (r *localImageResolver) ensureClient(image string) (*client.Podman, bool) {
+	if r.client != nil {
+		return r.client, true
+	}
+	if r.clientFactory == nil {
+		r.logger.Warnf("Cannot resolve digest for workload image %q: podman client factory is not configured", image)
+		return nil, false
+	}
+	client, err := r.clientFactory(r.user)
+	if err != nil {
+		r.logger.Warnf("Failed to create podman client to resolve workload image %q: %v", image, err)
+		return nil, false
+	}
+	r.client = client
+	return r.client, true
+}
+
+func (r *localImageResolver) resolve(ctx context.Context, image string) (digest.Digest, bool) {
+	client, ok := r.ensureClient(image)
+	if !ok {
+		return "", false
+	}
+	metadata, err := client.ImageMetadata(ctx, image)
+	if err != nil {
+		r.logger.Warnf("Failed to inspect workload image %q: %v", image, err)
+		return "", false
+	}
+	observed, err := digest.Parse(metadata.Digest)
+	if err != nil {
+		return "", false
+	}
+	return observed, true
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -1192,28 +1310,49 @@ func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.
 	// the pipe will be closed by calling cmd.Wait
 	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
 
-	scanner := bufio.NewScanner(stdoutPipe)
-	for scanner.Scan() {
-		e.log.Debugf("Received podman event for user %s: %s", e.username, scanner.Text())
-		select {
-		case <-ctx.Done():
+	reader := bufio.NewReader(stdoutPipe)
+	var data []byte
+	oversized := false
+	for {
+		// Inspect snapshots can exceed Scanner's default limit. Read bounded
+		// fragments so oversized events can be discarded without stopping the stream.
+		fragment, err := reader.ReadSlice('\n')
+		if ctx.Err() != nil {
 			return
-		default:
-			e.handleEvent(ctx, scanner.Bytes(), events)
 		}
-	}
-	// scanner won't emit an io.EOF error if it encounters one
-	if err := scanner.Err(); err != nil {
-		e.log.Errorf("Error reading podman events: %v", err)
+		if !oversized {
+			if len(data)+len(fragment) > maxPodmanEventBytes {
+				oversized = true
+				data = nil
+				e.log.Warnf("Discarding Podman event larger than %d bytes", maxPodmanEventBytes)
+			} else {
+				data = append(data, fragment...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if !oversized && len(data) > 0 {
+			e.handleEvent(ctx, data, events)
+		}
+		data = data[:0]
+		oversized = false
+		if err != nil {
+			if err != io.EOF {
+				e.log.Errorf("Error reading podman events: %v", err)
+			}
+			return
+		}
 	}
 }
 
 func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, events chan<- client.PodmanEvent) {
 	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
-		e.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
+		e.log.Errorf("Failed to decode podman event: %v", err)
 		return
 	}
+	event.StoreOwner = lo.ToPtr(e.username)
 	eventTime := time.Unix(0, event.TimeNano)
 	e.lastEventTime.Store(&eventTime)
 	e.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)

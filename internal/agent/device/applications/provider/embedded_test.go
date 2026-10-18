@@ -119,6 +119,12 @@ Image=nginx:latest
 
 				// Verify drop-in file contains appID label
 				verifyFileNamespaced(t, rw, dropInFile, appID)
+				config, err := rw.ReadFile("/etc/containers/systemd/.flightctl-podman-events.conf")
+				require.NoError(t, err)
+				require.Equal(t, "[engine]\nevents_container_create_inspect_data = true\n", string(config))
+				dropIn, err := rw.ReadFile(dropInFile)
+				require.NoError(t, err)
+				require.Contains(t, string(dropIn), "CONTAINERS_CONF_OVERRIDE=/etc/containers/systemd/.flightctl-podman-events.conf")
 			},
 		},
 		{

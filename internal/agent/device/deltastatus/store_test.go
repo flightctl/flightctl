@@ -401,6 +401,48 @@ func TestWhenARecordedImageIdentityReceivesAnotherOutcomeItShouldKeepItsOriginal
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, current.Outcome)
 }
 
+func TestWhenCachedApplicationHistoryIsUpdatedItShouldOnlyUpgradeNotUsed(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		previous v1beta1.DeviceDeltaApplyOutcomeType
+		next     v1beta1.DeviceDeltaApplyOutcomeType
+		want     v1beta1.DeviceDeltaApplyOutcomeType
+	}{
+		{name: "When NotUsed becomes NotRequired it should persist the upgrade", previous: v1beta1.DeviceDeltaApplyOutcomeNotUsed, next: v1beta1.DeviceDeltaApplyOutcomeNotRequired, want: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+		{name: "When Applied receives NotRequired it should preserve Applied", previous: v1beta1.DeviceDeltaApplyOutcomeApplied, next: v1beta1.DeviceDeltaApplyOutcomeNotRequired, want: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		{name: "When Fallback receives NotRequired it should preserve Fallback", previous: v1beta1.DeviceDeltaApplyOutcomeFallback, next: v1beta1.DeviceDeltaApplyOutcomeNotRequired, want: v1beta1.DeviceDeltaApplyOutcomeFallback},
+		{name: "When NotRequired receives NotUsed it should preserve NotRequired", previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, next: v1beta1.DeviceDeltaApplyOutcomeNotUsed, want: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/state", logger)
+			image := ApplicationImage{Image: "quay.io/acme/launcher:v1", Owner: "root", OCIType: "PodmanImage", Digest: "sha256:launcher"}
+			targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+			targets := map[string]map[string]string{"app": {targetID: "target"}}
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "v1"}))
+			require.NoError(store.ReconcileApplicationTargets(targets, true))
+			previous := v1beta1.DeviceDeltaApplyStatus{Outcome: tc.previous}
+			if tc.previous == v1beta1.DeviceDeltaApplyOutcomeFallback {
+				reason := "delta import failed"
+				previous.FallbackReason = &reason
+			}
+			require.NoError(store.RecordApplicationImageResult("app", "v1", targetID, "target", image, previous))
+			require.NotNil(store.ObservedApplicationResult("app", []ApplicationImage{image}, true))
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "v2"}))
+			require.NoError(store.ReconcileApplicationTargets(targets, true))
+			require.NoError(store.RecordApplicationImageResult("app", "v2", targetID, "target", image, v1beta1.DeviceDeltaApplyStatus{Outcome: tc.next}))
+			restarted := New(rw, "/state", logger)
+			result := restarted.ObservedApplicationResult("app", []ApplicationImage{image}, true)
+			require.NotNil(result)
+			require.Equal(tc.want, result.Outcome)
+			require.Equal(previous.FallbackReason, result.FallbackReason)
+		})
+	}
+}
+
 func TestWhenAnAggregatedFallbackReasonIsMutatedItShouldNotChangeStoredHistory(t *testing.T) {
 	require := require.New(t)
 	rw, logger, _, _, newer := newUpdatedApplicationHistory(t)

@@ -140,10 +140,16 @@ func (s *Skopeo) InspectManifest(ctx context.Context, image string, opts ...Clie
 }
 
 func (s *Skopeo) Copy(ctx context.Context, src, dest string, opts ...ClientOption) error {
-	return s.copy(ctx, src, dest, opts...)
+	return s.copy(ctx, src, dest, false, opts...)
 }
 
-func (s *Skopeo) copy(ctx context.Context, src, dest string, opts ...ClientOption) error {
+// CopyPreservingDigests copies an image while requiring its manifest digest to
+// remain unchanged. It is used for local activation of already pinned content.
+func (s *Skopeo) CopyPreservingDigests(ctx context.Context, src, dest string, opts ...ClientOption) error {
+	return s.copy(ctx, src, dest, true, opts...)
+}
+
+func (s *Skopeo) copy(ctx context.Context, src, dest string, preserveDigests bool, opts ...ClientOption) error {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -157,7 +163,13 @@ func (s *Skopeo) copy(ctx context.Context, src, dest string, opts ...ClientOptio
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := []string{"copy", src, dest}
+	args := []string{"copy"}
+	operation := "copy"
+	if preserveDigests {
+		args = append(args, "--preserve-digests")
+		operation = "copy preserving digests"
+	}
+	args = append(args, src, dest)
 	if options.pullSecretPath != "" {
 		exists, err := s.readWriter.PathExists(options.pullSecretPath)
 		if err != nil {
@@ -172,7 +184,7 @@ func (s *Skopeo) copy(ctx context.Context, src, dest string, opts ...ClientOptio
 	}
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, skopeoCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("copy: %w", errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("%s: %w", operation, errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }

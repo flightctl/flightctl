@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -139,6 +140,7 @@ func TestWhenComposeAddsArtifactVolumeWithoutLifetimeItShouldNotWarnAboutMissing
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).Return(exec.Command("podman")).AnyTimes()
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "exists", "data").Return("", "", 1)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "create", "data", "--label", client.ComposeDockerProjectLabelKey+"=app-id").Return("data", "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "volume", "inspect", "data", "--format", "{{.Mountpoint}}").Return("/volume-data", "", 0)
@@ -147,6 +149,7 @@ func TestWhenComposeAddsArtifactVolumeWithoutLifetimeItShouldNotWarnAboutMissing
 	mockExec.EXPECT().ExecuteWithContextFromDir(
 		gomock.Any(), appPath, "podman",
 		[]string{"compose", "-p", "app-id", "-f", "docker-compose.yaml", "up", "-d", "--no-recreate"},
+		gomock.Any(),
 	).Return("", "", 0)
 
 	compose := NewCompose(logger, func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }, func(v1beta1.Username) (*client.Podman, error) {
@@ -392,6 +395,7 @@ func TestCompose_LifecycleHandler(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContextFromDir(
 					gomock.Any(), testPath, "podman", gomock.Any(),
+					gomock.Any(),
 				).Return("", "", 0)
 			},
 		},
@@ -409,6 +413,7 @@ func TestCompose_LifecycleHandler(t *testing.T) {
 				// Start (UpFromWorkDir)
 				mockExec.EXPECT().ExecuteWithContextFromDir(
 					gomock.Any(), testPath, "podman", gomock.Any(),
+					gomock.Any(),
 				).Return("", "", 0)
 			},
 		},
@@ -434,6 +439,7 @@ func TestCompose_LifecycleHandler(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).Return(exec.Command("podman")).AnyTimes()
 			mockRW := fileio.NewMockReadWriter(ctrl)
 			tc.setupMocks(mockExec, mockRW)
 

@@ -149,6 +149,10 @@ type Workload struct {
 	// RequiresHealth is set when a VM workload has emitted health_status events.
 	// Gated workloads stay Degraded on start/starting until healthy.
 	RequiresHealth bool
+
+	// ImageNotRequired records runtime evidence of an infra container using
+	// a root filesystem without an image. Missing image evidence stays unknown.
+	ImageNotRequired bool
 }
 
 // WorkloadImage describes an image used by a workload and its content digest
@@ -269,7 +273,7 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 		ociType = dependency.OCITypeCRIImage
 	}
 	for _, workload := range a.workloads {
-		if len(workload.Images) == 0 {
+		if len(workload.Images) == 0 && !workload.ImageNotRequired {
 			snapshot.Complete = false
 		}
 		for _, image := range workload.Images {
@@ -296,7 +300,7 @@ func (a *application) ImageSnapshot() ImageSnapshot {
 			snapshot.Volumes = append(snapshot.Volumes, ImageVolumeSnapshot{
 				ID:        volume.ID,
 				Reference: volume.Reference,
-				OCIType:   volume.OCIType,
+				OCIType:   string(volume.OCIType),
 				Available: volume.Available,
 			})
 			// The manager verifies these volume identities before selecting status.
