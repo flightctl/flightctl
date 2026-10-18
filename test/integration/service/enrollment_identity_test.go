@@ -50,12 +50,12 @@ var _ = Describe("Enrollment credential identity", func() {
 		requestPEM, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), "edge-enrollment")
 		Expect(err).NotTo(HaveOccurred())
 		request := CreateTestCSR()
-		request.Metadata.Name = lo.ToPtr("edge-enrollment")
+		request.Metadata.Name = lo.ToPtr("client-enrollment-edge-enrollment")
 		request.Spec.Request = requestPEM
 		created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		Expect(created.Status.Certificate).NotTo(BeNil())
-		stored, status := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, "edge-enrollment")
+		stored, status := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, "client-enrollment-edge-enrollment")
 		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		leaf, err := fcrypto.ParseCertificatePEM(*stored.Status.Certificate)
 		Expect(err).NotTo(HaveOccurred())
@@ -67,7 +67,7 @@ var _ = Describe("Enrollment credential identity", func() {
 				Expect(rest).To(BeEmpty())
 			}
 		}
-		Expect(identity).To(Equal("edge-enrollment"))
+		Expect(identity).To(Equal("client-enrollment-edge-enrollment"))
 	})
 
 	It("When a CSR supplies the reserved identity extension it should reject even a matching value", func() {
@@ -125,6 +125,9 @@ var _ = Describe("Enrollment credential identity", func() {
 		issued, err := signer.Sign(ctx, suite.caClient, signRequest)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(issued).NotTo(BeNil())
+		for _, extension := range issued.Extensions {
+			Expect(extension.Id.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4})).To(BeFalse())
+		}
 	})
 
 	It("When the enrollment issuer context differs from the persisted tenant it should reject credential creation", func() {
@@ -443,6 +446,22 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
 		_, status = suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+	})
+
+	It("When issuing a management credential from an Enrollment Request it should omit enrollment origin metadata", func() {
+		request, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, CreateTestER())
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		_, status = suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name,
+			domain.EnrollmentRequestApproval{Approved: true, Labels: lo.ToPtr(map[string]string{})})
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		approved, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		Expect(approved.Status.Certificate).NotTo(BeNil())
+		leaf, err := fcrypto.ParseCertificatePEM([]byte(*approved.Status.Certificate))
+		Expect(err).NotTo(HaveOccurred())
+		for _, extension := range leaf.Extensions {
+			Expect(extension.Id.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4})).To(BeFalse())
+		}
 	})
 
 	It("When a standalone credential has no issuing CSR it should create an unbound enrollment request", func() {

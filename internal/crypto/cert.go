@@ -67,6 +67,14 @@ func (caClient *CAClient) GetSigner(name string) signer.Signer {
 	return caClient.signers.GetSigner(name)
 }
 
+func (caClient *CAClient) SignCSRResourceAsPEM(ctx context.Context, request signer.SignRequest) ([]byte, error) {
+	cert, err := caClient.signers.SignCSRResource(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return fccrypto.EncodeCertificatePEM(cert)
+}
+
 func (caClient *CAClient) PeerCertificateFromCtx(ctx context.Context) (*x509.Certificate, error) {
 	return signer.PeerCertificateFromCtx(ctx)
 }

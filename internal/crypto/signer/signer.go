@@ -44,14 +44,7 @@ func NewCASigners(ca CA) *CASigners {
 	ret := &CASigners{
 		ca: ca,
 		signers: map[string]Signer{
-			cfg.DeviceEnrollmentSignerName: WithSignerNameValidation(
-				WithCertificateReuse(
-					WithCSRValidation(
-						WithSignerNameExtension(
-							WithOrgIDExtension(NewDeviceEnrollment))(ca),
-					),
-				),
-			),
+			cfg.DeviceEnrollmentSignerName: newEnrollmentSigner(ca),
 			cfg.DeviceManagementSignerName: WithSignerNameValidation(
 				WithCertificateReuse(
 					WithCSRValidation(
@@ -112,6 +105,34 @@ func NewCASigners(ca CA) *CASigners {
 
 func (s *CASigners) GetSigner(name string) Signer {
 	return s.signers[name]
+}
+
+func newEnrollmentSigner(ca CA) Signer {
+	return WithSignerNameValidation(
+		WithCertificateReuse(
+			WithCSRValidation(
+				WithSignerNameExtension(WithOrgIDExtension(NewDeviceEnrollment))(ca),
+			),
+		),
+	)
+}
+
+func (s *CASigners) SignCSRResource(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+	requestedSigner := s.GetSigner(request.SignerName())
+	if requestedSigner == nil {
+		return nil, fmt.Errorf("signer %q not found", request.SignerName())
+	}
+	if request.SignerName() == s.ca.Config().DeviceEnrollmentSignerName {
+		issuer := &chainSignerCA{
+			next: s.ca,
+			issueRequestedClientCertificate: func(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error) {
+				return s.ca.IssueRequestedClientCertificate(ctx, csr, expirySeconds,
+					append(opts, WithExtension(OIDEnrollmentCSRName, *request.ResourceName()))...)
+			},
+		}
+		requestedSigner = WithSignerRestrictedPrefixes(s.restrictedPrefixes, newEnrollmentSigner(issuer))
+	}
+	return requestedSigner.Sign(ctx, request)
 }
 
 type chainSignerCA struct {

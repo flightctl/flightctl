@@ -100,7 +100,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
 		ctx = util.WithOrganizationID(ctx, orgId)
 	}
-	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
+	certPEM, err := h.ca.SignCSRResourceAsPEM(ctx, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
@@ -430,7 +430,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 	}
 
 	if csr.Metadata.Name != nil {
-		opts = append(opts, signer.WithCSRResourceName(*csr.Metadata.Name))
+		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name))
 	}
 
 	signReq, err := signer.NewSignRequestFromBytes(csr.Spec.SignerName, csrData, opts...)
