@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -387,9 +388,16 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(err).NotTo(HaveOccurred())
 		second, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
-		first.Status.Certificate = lo.ToPtr([]byte("first-candidate"))
+		parsed, err := fcrypto.ParseCSR(request.Spec.Request)
+		Expect(err).NotTo(HaveOccurred())
+		firstLeaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600)
+		Expect(err).NotTo(HaveOccurred())
+		secondLeaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(firstLeaf.Raw).NotTo(Equal(secondLeaf.Raw))
+		first.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: firstLeaf.Raw}))
 		first.Status.IssuedAt = lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-		second.Status.Certificate = lo.ToPtr([]byte("second-candidate"))
+		second.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: secondLeaf.Raw}))
 		second.Status.IssuedAt = lo.ToPtr(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC))
 		type publication struct {
 			resource *domain.CertificateSigningRequest
@@ -397,21 +405,32 @@ var _ = Describe("Enrollment credential identity", func() {
 		}
 		start := make(chan struct{})
 		results := make(chan publication, 2)
+		publicationCtx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
+		DeferCleanup(cancel)
 		for _, candidate := range []*domain.CertificateSigningRequest{first, second} {
 			go func() {
 				<-start
-				published, err := provider.UpdateStatus(suite.Ctx, suite.OrgID, candidate)
+				published, err := provider.UpdateStatus(publicationCtx, suite.OrgID, candidate)
 				results <- publication{resource: published, err: err}
 			}()
 		}
 		close(start)
-		outcomes := []publication{<-results, <-results}
+		outcomes := make([]publication, 0, 2)
+		for range 2 {
+			select {
+			case outcome := <-results:
+				outcomes = append(outcomes, outcome)
+			case <-publicationCtx.Done():
+				Fail("concurrent certificate publication exceeded its deadline")
+			}
+		}
+		cancel()
 		stored, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
-		switch string(*stored.Status.Certificate) {
-		case "first-candidate":
+		switch {
+		case bytes.Equal(*stored.Status.Certificate, *first.Status.Certificate):
 			Expect(*stored.Status.IssuedAt).To(Equal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
-		case "second-candidate":
+		case bytes.Equal(*stored.Status.Certificate, *second.Status.Certificate):
 			Expect(*stored.Status.IssuedAt).To(Equal(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)))
 		default:
 			Fail("publication did not retain either candidate")
@@ -425,6 +444,17 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(retried.Status.Certificate).To(Equal(stored.Status.Certificate))
 		Expect(retried.Status.IssuedAt).To(Equal(stored.Status.IssuedAt))
+		for _, leaf := range []*x509.Certificate{firstLeaf, secondLeaf} {
+			resolved, err := provider.FindNameByCertificate(suite.Ctx, suite.OrgID, leaf.Raw)
+			Expect(err).NotTo(HaveOccurred())
+			retained, err := fcrypto.ParseCertificatePEM(*stored.Status.Certificate)
+			Expect(err).NotTo(HaveOccurred())
+			if bytes.Equal(leaf.Raw, retained.Raw) {
+				Expect(resolved).To(Equal(stored.Metadata.Name))
+			} else {
+				Expect(resolved).To(BeNil())
+			}
+		}
 	})
 
 	It("When deleting an issued credential it should remove it and allow fresh issuance under the same name", func() {

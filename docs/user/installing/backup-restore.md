@@ -181,10 +181,11 @@ The restore process performs the following steps:
 5. Restores PKI materials
 6. Restores encryption keys (if `encryption/` is present in the archive)
 7. Restores service configuration
-8. Prepares devices (clears KV store, updates device annotations)
-9. Starts Flight Control services
+8. Migrates the restored database using deployment migration credentials
+9. Prepares devices (clears KV store, updates device annotations)
+10. Starts Flight Control services
 
-**Note**: Services are automatically started even if the restore fails, ensuring the system is not left in a stopped state.
+**Note**: If the restored database cannot be migrated, restore skips its final service restart. Resolve the migration error before restarting consumers. Other failures retain the existing restart behavior once the schema is ready. Restore requires the deployment's migration credentials as well as its application credentials. Kubernetes restore reads the credential secret name from the deployment's persistent `flightctl-db-migration-access` Role, including custom secret names. Migration Jobs do not need to be retained.
 
 ### External database restore
 

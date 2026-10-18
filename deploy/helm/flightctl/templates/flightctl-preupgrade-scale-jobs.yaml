@@ -22,6 +22,10 @@
   {{- end -}}
 {{- end -}}
 
+{{- $deploymentsToScale = concat $deploymentsToScale (list "flightctl-api" "flightctl-imagebuilder-worker") | uniq -}}
+{{- $internalNamespace := default .Release.Namespace .Values.global.internalNamespace -}}
+{{- $externalNamespace := .Release.Namespace -}}
+
 {{- if gt (len $deploymentsToScale) 0 }}
 ---
 # ServiceAccount and RBAC for pre-upgrade scaling
@@ -37,14 +41,15 @@ metadata:
     "helm.sh/hook-weight": "-25"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 
+{{ range $namespace := (list $internalNamespace $externalNamespace | uniq) }}
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: flightctl-upgrade
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    {{- include "flightctl.standardLabels" $ | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-upgrade
     "helm.sh/hook-weight": "-24"
@@ -53,15 +58,18 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/scale"]
     verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: flightctl-upgrade
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    {{- include "flightctl.standardLabels" $ | nindent 4 }}
   annotations:
     "helm.sh/hook": pre-upgrade
     "helm.sh/hook-weight": "-23"
@@ -69,11 +77,12 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: flightctl-upgrade
-    namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+    namespace: {{ $internalNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: flightctl-upgrade
+{{ end }}
 
 ---
 apiVersion: batch/v1
@@ -109,23 +118,21 @@ spec:
           args:
             - |
               set -euo pipefail
-              NAMESPACE={{ default .Release.Namespace .Values.global.internalNamespace }}
               TIMEOUT={{ default 120 .Values.upgradeHooks.scaleDown.timeoutSeconds }}
-              echo "Pre-upgrade scale to zero started in namespace: ${NAMESPACE} (timeout=${TIMEOUT}s)"
-              DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
-              for dep in ${DEPLOYMENTS}; do
+              echo "Pre-upgrade scale to zero started (timeout=${TIMEOUT}s)"
+              DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ if has $d (list "flightctl-api" "flightctl-imagebuilder-api" "flightctl-alertmanager-proxy") }}{{ $externalNamespace }}{{ else }}{{ $internalNamespace }}{{ end }}/{{ $d }}{{- end }}"
+              for target in ${DEPLOYMENTS}; do
+                NAMESPACE=${target%/*}
+                dep=${target#*/}
+                existing=$(oc get deployment/${dep} -n "${NAMESPACE}" --ignore-not-found -o name)
+                if [ -z "${existing}" ]; then
+                  continue
+                fi
                 echo "Scaling ${dep} to 0 replicas..."
-                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0 || true
+                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0
                 echo "Waiting for ${dep} to scale down..."
-                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || true
-                status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
-                set -- $(printf "%s" "$status" | tr ',' ' ')
-                replicas=${1:-0}
-                ready=${2:-0}
-                updated=${3:-0}
-                echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s"
+                oc wait --for=delete pod -l "flightctl.service=${dep}" -n "${NAMESPACE}" --timeout="${TIMEOUT}s"
               done
               echo "Scale-to-zero steps finished."
 {{- end }}
-
-

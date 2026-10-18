@@ -12,7 +12,17 @@ Flight Control uses a three-user database access model for production deployment
 
 This separation follows the principle of least privilege, ensuring that production services cannot accidentally modify database schema or structure, while maintaining clear separation between administrative, migration, and runtime operations.
 
-**Security Note**: The migration user has been designed with minimal privileges required for database schema operations. It does **not** have SUPERUSER, CREATEROLE, or CREATEDB privileges, which would grant excessive permissions like bypassing row-level security, creating/dropping roles, creating databases, or altering any database object. It also does **not** have data-plane permissions (SELECT, INSERT, UPDATE, DELETE) on tables, ensuring it cannot access or modify production data. Instead, it has only the specific privileges needed for schema migrations: CREATE privileges on schemas and databases, sequence usage for auto-increment fields, and function execution for migration operations.
+**Security Note**: The migration user does **not** have SUPERUSER, CREATEROLE, or CREATEDB privileges. It owns migrated tables and can convert existing data as part of a migration. Runtime services continue to use the separate application user.
+
+### Retained certificate lookup migration
+
+The certificate lookup migration adds a tenant-and-digest index that allows duplicates and derives lookup keys from existing retained certificates in the same transaction. The key represents the decoded certificate, not its PEM text. Duplicate certificates remain ambiguous. Runtime lookups use the normal internal field selector and still compare the exact certificate bytes among matching candidates.
+
+Stop older application writers before applying this migration and keep them stopped until the upgraded services start. Older binaries do not maintain the new lookup keys. The migration scans existing certificate records and holds a write lock until it commits; allow time for this work during the maintenance window. It does not run a separate background conversion or repair missing keys at runtime.
+
+The Helm upgrade hook always stops the API and image builder worker before migration, even when optional service shutdown is disabled or the chart version is unchanged. It waits for their Pods to terminate and aborts the upgrade if shutdown fails. Manual and Podman upgrades must also keep older writers stopped until upgraded binaries start.
+
+Invalid stored certificate encoding aborts the transaction. Correct the affected stored record using an approved recovery procedure before retrying. Missing certificates and malformed PEM have no matching lookup key. The migration does not issue certificates, infer issuance times, or change enrollment references.
 
 ## Database Users
 
@@ -36,7 +46,7 @@ Flight Control uses exactly **3 database users** for secure operation:
   - CREATE on schema and database (for creating tables, indexes, sequences, functions, triggers)
   - USAGE, SELECT on sequences in the public schema (needed for sequence operations during schema creation)
   - EXECUTE on all functions in the public schema (needed for migration functions)
-  - **Note**: Migration user does NOT have data-plane permissions (SELECT, INSERT, UPDATE, DELETE) for security reasons - migrations only modify schema structure, not data
+  - Owns migrated tables and can convert existing data during migrations
 - **When used**: Only during database migrations and initial setup
 - **Password**: `migrationPassword` secret key
 

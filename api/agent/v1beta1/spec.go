@@ -18,6 +18,12 @@ var spec = openapi.NewDocument(specYAML, map[string][]byte{
 	"../../core/v1beta1/openapi.yaml": corev1beta1.SpecYAML(),
 })
 
+// SpecYAML returns the embedded agent document for isolated request validation.
+// Callers must not modify the returned bytes.
+func SpecYAML() []byte {
+	return spec.Raw()
+}
+
 // GetSpec returns the OpenAPI specification for the agent v1beta1 API.
 //
 // The document is parsed on first use and the result is cached, so every

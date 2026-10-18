@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentv1beta1 "github.com/flightctl/flightctl/api/agent/v1beta1"
+	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
 	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
@@ -352,7 +353,9 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(s.deviceSvc, s.enrollmentRequestSvc, s.csrSvc, convertv1beta1.NewConverter(), s.ca, s.log)
 
 	// Create version-specific router with OpenAPI validation
-	agentV1Beta1Swagger, err := agentv1beta1.GetSpec()
+	agentV1Beta1Swagger, err := fcmiddleware.EnrollmentStatusRequestSpec(agentv1beta1.SpecYAML(), map[string][]byte{
+		"../../core/v1beta1/openapi.yaml": corev1beta1.SpecYAML(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed loading agent v1beta1 swagger spec: %w", err)
 	}

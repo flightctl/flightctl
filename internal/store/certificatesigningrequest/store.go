@@ -67,6 +67,11 @@ func InitialMigration(ctx context.Context, db *gorm.DB) error {
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
 	}
+	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest") {
+		if err := db.Exec("CREATE INDEX idx_csr_org_certificate_digest ON certificate_signing_requests (org_id, certificate_digest)").Error; err != nil {
+			return err
+		}
+	}
 
 	// Create GIN index for CertificateSigningRequest labels
 	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_labels") {
@@ -185,7 +190,7 @@ func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId
 				status.Certificate = current.Status.Certificate
 				status.IssuedAt = current.Status.IssuedAt
 			}
-			if enrollment && (status.Certificate == nil || len(*status.Certificate) == 0) {
+			if !enrollment || status.Certificate == nil || len(*status.Certificate) == 0 {
 				status.IssuedAt = nil
 			}
 			current.Status = &status
@@ -207,6 +212,7 @@ func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgI
 		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
 		Clauses(clause.Returning{}).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(*mutation.Resource().Status), "resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+		"certificate_digest": model.CertificateSigningRequestCertificateDigest(mutation.Resource().Status.Certificate),
 	})
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)
@@ -234,15 +240,21 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 	}
 	changed := false
 	for _, condition := range conditions {
-		changed = domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
+		if domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition) {
+			changed = true
+		}
 	}
 	if !changed {
 		return false, nil
 	}
+	if !s.isEnrollmentCredential(&existingRecord) {
+		existingRecord.Status.Data.IssuedAt = nil
+	}
 
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"status":           existingRecord.Status,
-		"resource_version": gorm.Expr("resource_version + 1"),
+	result = s.getDB(ctx).Model(existingRecord).Where("created_at = ? AND resource_version = ?", existingRecord.CreatedAt, lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"status":             existingRecord.Status,
+		"certificate_digest": model.CertificateSigningRequestCertificateDigest(existingRecord.Status.Data.Certificate),
+		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
 	err := store.ErrorFromGormError(result.Error)
 	if err != nil {

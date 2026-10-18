@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -938,6 +939,14 @@ func TestKubernetesRestoreDeployer_RestoreConfig(t *testing.T) {
 // TestKubernetesRestoreDeployer_GetConfig_Success validates credential extraction
 // from Kubernetes Secrets.
 func TestKubernetesRestoreDeployer_GetConfig_Success(t *testing.T) {
+	migrationSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "custom-migration", Namespace: "flightctl"},
+		Data:       map[string][]byte{"migrationUser": []byte("migration-user"), "migrationPassword": []byte("migration-test-password")},
+	}
+	migrationRole := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "flightctl-db-migration-access", Namespace: "flightctl"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"custom-migration"}, Verbs: []string{"get"}}},
+	}
 	dbSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "flightctl-db-app-secret",
@@ -980,7 +989,7 @@ kv:
 	log, _ := test.NewNullLogger()
 	d := NewKubernetesRestoreDeployer(log,
 		WithRestoreNamespace("flightctl"),
-		WithRestoreClientset(fake.NewSimpleClientset(dbSecret, kvSecret, apiConfigMap)),
+		WithRestoreClientset(fake.NewSimpleClientset(dbSecret, kvSecret, apiConfigMap, migrationSecret, migrationRole)),
 		WithRestoreRestConfig(&rest.Config{}),
 	)
 
@@ -988,6 +997,8 @@ kv:
 	require.NoError(t, err)
 	require.Equal(t, "flightctl_app", cfg.Database.User)
 	require.Equal(t, "dbsecret", string(cfg.Database.Password))
+	require.Equal(t, "migration-user", cfg.Database.MigrationUser)
+	require.Equal(t, "migration-test-password", string(cfg.Database.MigrationPassword))
 	require.Equal(t, "kvsecret", string(cfg.KV.Password))
 	require.Equal(t, "flightctl-db", cfg.Database.Hostname)
 	require.Equal(t, "flightctl", cfg.Database.Name)

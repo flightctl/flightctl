@@ -333,7 +333,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create v1beta1 router with OpenAPI validation
-	v1beta1Swagger, err := corev1beta1.GetSpec()
+	v1beta1Swagger, err := fcmiddleware.EnrollmentStatusRequestSpec(corev1beta1.SpecYAML(), nil)
 	if err != nil {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}

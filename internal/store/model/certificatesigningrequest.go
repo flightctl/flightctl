@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -9,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/samber/lo"
 )
 
@@ -20,6 +23,8 @@ type CertificateSigningRequest struct {
 
 	// The last reported state of the certificate signing request, stored as opaque JSON object.
 	Status *JSONField[domain.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
+
+	CertificateDigest *string `selector:"internal.certificateDigest,hidden,private"`
 }
 
 func (csr CertificateSigningRequest) String() string {
@@ -52,9 +57,24 @@ func NewCertificateSigningRequestFromApiResource(resource *domain.CertificateSig
 			Owner:           clonePtr(resource.Metadata.Owner),
 			ResourceVersion: resourceVersion,
 		},
-		Spec:   MakeJSONField(resource.Spec),
-		Status: MakeJSONField(status),
+		Spec:              MakeJSONField(resource.Spec),
+		Status:            MakeJSONField(status),
+		CertificateDigest: CertificateSigningRequestCertificateDigest(status.Certificate),
 	}, nil
+}
+
+// CertificateSigningRequestCertificateDigest derives the private retained-leaf selector key.
+// Invalid PEM is not a match; encoded storage errors are handled before this boundary.
+func CertificateSigningRequestCertificateDigest(certificate *[]byte) *string {
+	if certificate == nil {
+		return nil
+	}
+	leaf, err := fcrypto.ParseCertificatePEM(*certificate)
+	if err != nil {
+		return nil
+	}
+	digest := sha256.Sum256(leaf.Raw)
+	return lo.ToPtr(hex.EncodeToString(digest[:]))
 }
 
 func CertificateSigningRequestAPIVersion() string {

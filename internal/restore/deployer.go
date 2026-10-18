@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -154,7 +155,7 @@ type Deployer interface {
 	// and other restored state. Must be called before any restore steps.
 	StopServices(ctx context.Context) error
 	// StartServices starts the FlightCtl services previously stopped by StopServices.
-	// Must be called after all restore steps complete, whether they succeed or fail.
+	// Called after restore steps unless the restored database schema is not ready.
 	StartServices(ctx context.Context) error
 	// RestoreDatabase imports the database dump from the extracted archive.
 	// If db/dump.sql is absent in extractDir the database is external — the
@@ -413,6 +414,9 @@ func (p *PodmanRestoreDeployer) GetConfig(ctx context.Context) (*config.Config, 
 		} else {
 			p.log.Debugf("Could not read KV password from Podman secret %q; using config value", p.kvSecretName)
 		}
+	}
+	if migrationPass, ok := readPodmanSecret(ctx, p.containerCLI, "flightctl-postgresql-migrator-password"); ok {
+		cfg.Database.MigrationPassword = api.SecureString(migrationPass)
 	}
 	p.cachedCfg = cfg
 	return cfg, nil
@@ -1255,9 +1259,47 @@ func (k *KubernetesRestoreDeployer) GetConfig(ctx context.Context) (*config.Conf
 	cfg.Database.User = dbUser
 	cfg.Database.Password = api.SecureString(dbPassword)
 	cfg.KV.Password = api.SecureString(kvPassword)
+	credentials, err := k.migrationCredentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Database.MigrationUser = credentials["DB_MIGRATION_USER"]
+	cfg.Database.MigrationPassword = api.SecureString(credentials["DB_MIGRATION_PASSWORD"])
 
 	k.cachedCfg = cfg
 	return cfg, nil
+}
+
+func (k *KubernetesRestoreDeployer) migrationCredentials(ctx context.Context) (map[string]string, error) {
+	role, err := k.clientset.RbacV1().Roles(k.internalNamespace).Get(ctx, "flightctl-db-migration-access", metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read migration credential references: %w", err)
+	}
+	var secretName string
+	for _, rule := range role.Rules {
+		if !slices.Contains(rule.APIGroups, "") || !slices.Contains(rule.Resources, "secrets") || !slices.Contains(rule.Verbs, "get") {
+			continue
+		}
+		if len(rule.ResourceNames) != 1 || (secretName != "" && secretName != rule.ResourceNames[0]) {
+			return nil, fmt.Errorf("migration credential reference is not a single named secret")
+		}
+		secretName = rule.ResourceNames[0]
+	}
+	if secretName == "" {
+		return nil, fmt.Errorf("migration credential secret reference not found")
+	}
+	credentials := make(map[string]string, 2)
+	for envName, key := range map[string]string{"DB_MIGRATION_USER": "migrationUser", "DB_MIGRATION_PASSWORD": "migrationPassword"} {
+		value, err := k.getSecretStringValue(ctx, k.internalNamespace, secretName, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read migration credential %s: %w", envName, err)
+		}
+		if value == "" {
+			return nil, fmt.Errorf("migration credential %s is empty", envName)
+		}
+		credentials[envName] = value
+	}
+	return credentials, nil
 }
 
 const (
