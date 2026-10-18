@@ -1,6 +1,7 @@
 package applications
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -2419,4 +2420,246 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 		err := monitor.StopApp(context.Background(), "nonexistent-id")
 		require.ErrorIs(err, errors.ErrAppNotFound)
 	})
+}
+
+func TestWhenRemovedVMHelperEventsAreReplayedItShouldReportCapturedImageIdentity(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const image = "quay.io/containerdisks/fedora:40"
+	const observed = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	logger := log.NewPrefixLogger("test")
+	executor := executer.NewMockExecuter(ctrl)
+	executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", "removed-helper").Return("", "no such object", 125).AnyTimes()
+	executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "immutable-image-id").
+		Return(`{"Id":"immutable-image-id","Digest":"`+observed+`"}`, "", 0).AnyTimes()
+	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	manager := systemd.NewMockManager(ctrl)
+	manager.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
+	// Rebuilding the monitor models an agent restart: only persisted Podman events survive.
+	for replay := 0; replay < 2; replay++ {
+		app := createTestApplicationWithType(require, "vm", v1beta1.ApplicationStatusRunning, "bob", v1beta1.AppTypeVm)
+		app.AddWorkload(&Workload{Name: "compute", Status: StatusRunning})
+		monitor := &PodmanMonitor{apps: map[string]Application{app.ID(): app}, log: logger,
+			clientFactory: func(user v1beta1.Username) (*client.Podman, error) {
+				require.Equal(v1beta1.Username("bob"), user)
+				return podman, nil
+			},
+			systemdFactory: func(user v1beta1.Username) (systemd.Manager, error) {
+				require.Equal(v1beta1.Username("bob"), user)
+				return manager, nil
+			},
+		}
+		event := mockPodmanEventSuccess("vm", "bob", "volumecontainerdisk", "create")
+		event.ID, event.Image = "removed-helper", image
+		encoded, err := json.Marshal(event)
+		require.NoError(err)
+		var raw map[string]interface{}
+		require.NoError(json.Unmarshal(encoded, &raw))
+		raw["ContainerInspectData"] = `{"Id":"removed-helper","Image":"immutable-image-id","ImageDigest":"` + observed + `"}`
+		encoded, err = json.Marshal(raw)
+		require.NoError(err)
+		require.NoError(json.Unmarshal(encoded, &event))
+		monitor.handleEvent(t.Context(), event)
+		for _, status := range []string{"start", "died", "remove"} {
+			// Later events have no inspect snapshot; a moved tag cannot change the captured identity.
+			later := mockPodmanEventSuccess("vm", "bob", "volumecontainerdisk", status)
+			later.ID, later.Image = event.ID, image
+			monitor.handleEvent(t.Context(), later)
+		}
+		results, err := monitor.Status()
+		require.NoError(err)
+		require.Len(results, 1)
+		require.Equal(v1beta1.ApplicationStatusRunning, results[0].Status.Status)
+		require.Equal([]v1beta1.ApplicationImageDigest{{Image: image, Digest: observed}}, *results[0].Status.ImageDigests)
+	}
+}
+
+func TestWhenCreateEventSnapshotsHaveLocalImageMetadataItShouldPreferTheLocalDigest(t *testing.T) {
+	const snapshotDigest = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	const localDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	const immutableImageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	testCases := []struct {
+		name          string
+		snapshotImage string
+		metadata      string
+		metadataErr   string
+		metadataExit  int
+		expected      string
+	}{
+		{
+			name:          "When local image metadata is available it should take precedence over the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadata:      `{"Id":"` + immutableImageID + `","Digest":"` + localDigest + `"}`,
+			expected:      localDigest,
+		},
+		{
+			name:          "When local image metadata is unavailable it should retain the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadataErr:   "image missing",
+			metadataExit:  125,
+			expected:      snapshotDigest,
+		},
+		{
+			name:          "When local image metadata is invalid it should retain the snapshot digest",
+			snapshotImage: immutableImageID,
+			metadata:      `{"Id":"` + immutableImageID + `","Digest":"not-a-digest"}`,
+			expected:      snapshotDigest,
+		},
+		{
+			name:          "When the snapshot image is not an immutable local ID it should retain the snapshot digest",
+			snapshotImage: "quay.io/acme/web:latest",
+			expected:      snapshotDigest,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			executor := executer.NewMockExecuter(ctrl)
+			if tc.snapshotImage == immutableImageID {
+				executor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", immutableImageID).
+					Return(tc.metadata, tc.metadataErr, tc.metadataExit).AnyTimes()
+			}
+			podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+			manager := systemd.NewMockManager(ctrl)
+			manager.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
+
+			app := createTestApplicationWithType(require, "vm", v1beta1.ApplicationStatusRunning, "bob", v1beta1.AppTypeVm)
+			monitor := &PodmanMonitor{
+				apps: map[string]Application{app.ID(): app},
+				log:  logger,
+				clientFactory: func(user v1beta1.Username) (*client.Podman, error) {
+					require.Equal(v1beta1.Username("bob"), user)
+					return podman, nil
+				},
+				systemdFactory: func(user v1beta1.Username) (systemd.Manager, error) {
+					require.Equal(v1beta1.Username("bob"), user)
+					return manager, nil
+				},
+			}
+
+			event := mockPodmanEventSuccess("vm", "bob", "volumecontainerdisk", "create")
+			event.ID = "removed-helper"
+			event.ContainerInspectData = &client.PodmanContainerIdentity{
+				ID:          event.ID,
+				Image:       tc.snapshotImage,
+				ImageDigest: snapshotDigest,
+			}
+			monitor.handleEvent(t.Context(), event)
+
+			results, err := monitor.Status()
+			require.NoError(err)
+			require.Len(results, 1)
+			require.Equal([]v1beta1.ApplicationImageDigest{{Image: event.Image, Digest: tc.expected}}, *results[0].Status.ImageDigests)
+		})
+	}
+}
+
+func TestWhenInspectEventsAreLargeItShouldDecodeIdentityWithoutLoggingThePayload(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	const observed = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	snapshot := `{"Id":"removed-helper","Image":"immutable-image-id","ImageDigest":"` + observed + `","Config":{"Env":["SECRET=do-not-log", "` + strings.Repeat("x", 128*1024) + `"]}}`
+	raw, err := json.Marshal(map[string]interface{}{
+		"Type": "container", "Status": "create", "ID": "removed-helper", "timeNano": 10,
+		"ContainerInspectData": snapshot,
+	})
+	require.NoError(err)
+	// Include malformed input to verify the reader can continue, without logging its content.
+	stream := string(raw) + "\n" + `{"Type":"container","Status":"start","ID":"removed-helper","timeNano":20}` + "\n" + `invalid SECRET=do-not-log` + "\n"
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.TraceLevel)
+	var logs bytes.Buffer
+	logger.SetOutput(&logs)
+	executor := executer.NewMockExecuter(ctrl)
+	podmanEventsCommandMock(executor).DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return streamDataToStdout(t, strings.NewReader(stream))
+	})
+	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	var watcher podmanEventWatcher
+	watcher.Init(logger, "bob", podman, time.Unix(0, 0))
+	events := make(chan client.PodmanEvent, 2)
+	require.NoError(watcher.Watch(t.Context(), events))
+	defer func() { require.NoError(watcher.Stop()) }()
+	select {
+	case <-watcher.listenerCloseChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("event stream did not finish")
+	}
+	require.Len(events, 2)
+	event := <-events
+	require.NotNil(event.ContainerInspectData)
+	require.Equal(observed, event.ContainerInspectData.ImageDigest)
+	require.Equal("start", (<-events).Status)
+	require.NotContains(logs.String(), "SECRET=do-not-log")
+	require.NotContains(logs.String(), strings.Repeat("x", 100))
+}
+
+func TestWhenAnEventComesFromAnotherUserStoreItShouldNotChangeApplicationStatus(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	app := createTestApplicationWithType(require, "app", v1beta1.ApplicationStatusRunning, "alice", v1beta1.AppTypeQuadlet)
+	app.AddWorkload(&Workload{Name: "compute", Status: StatusRunning})
+	executor := executer.NewMockExecuter(ctrl)
+	// Even matching application labels and container IDs do not cross user stores.
+	raw := fmt.Sprintf(`{"Type":"container","Status":"create","ID":"helper","Name":"helper","Image":"fedora:40","Attributes":{"io.flightctl.quadlet.project":%q,"PODMAN_SYSTEMD_UNIT":"helper.service"},"ContainerInspectData":"{\"Id\":\"helper\",\"Image\":\"config-id\",\"ImageDigest\":\"sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8\"}"}`, app.ID())
+	podmanEventsCommandMock(executor).DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return streamDataToStdout(t, strings.NewReader(raw))
+	})
+	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	var watcher podmanEventWatcher
+	watcher.Init(logger, "bob", podman, time.Unix(0, 0))
+	events := make(chan client.PodmanEvent, 1)
+	require.NoError(watcher.Watch(t.Context(), events))
+	defer func() { require.NoError(watcher.Stop()) }()
+	manager := systemd.NewMockManager(ctrl)
+	manager.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
+	monitor := &PodmanMonitor{apps: map[string]Application{app.ID(): app}, log: logger,
+		systemdFactory: func(v1beta1.Username) (systemd.Manager, error) { return manager, nil },
+	}
+	select {
+	case event := <-events:
+		monitor.handleEvent(t.Context(), event)
+	case <-time.After(5 * time.Second):
+		t.Fatal("event was not decoded")
+	}
+	results, err := monitor.Status()
+	require.NoError(err)
+	require.Len(results, 1)
+	require.Empty(results[0].Images.Images)
+}
+
+func TestWhenPodmanEventsExceedTheSizeLimitItShouldSkipThemAndKeepReading(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	oversized := `{"Type":"container","Status":"create","ID":"oversized","padding":"` + strings.Repeat("x", 4*1024*1024) + `"}`
+	valid := `{"Type":"container","Status":"start","ID":"healthy","timeNano":20}`
+	stream := oversized + "\n" + valid
+	logger := log.NewPrefixLogger("test")
+	executor := executer.NewMockExecuter(ctrl)
+	podmanEventsCommandMock(executor).DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return streamDataToStdout(t, strings.NewReader(stream))
+	})
+	podman := client.NewPodman(logger, executor, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+	var watcher podmanEventWatcher
+	watcher.Init(logger, "bob", podman, time.Unix(0, 0))
+	events := make(chan client.PodmanEvent, 2)
+	require.NoError(watcher.Watch(t.Context(), events))
+	defer func() { require.NoError(watcher.Stop()) }()
+	select {
+	case event := <-events:
+		require.Equal("healthy", event.ID, "oversized events must be discarded without losing the next event")
+		require.Equal("start", event.Status)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event delivered after the oversized event")
+	}
 }

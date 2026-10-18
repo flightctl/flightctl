@@ -67,7 +67,7 @@ func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
 		return fmt.Errorf("copying embedded directory to real path: %w", err)
 	}
 
-	if err := installQuadlet(e.rw, e.log, e.AppPath(), quadletSystemdTargetPath(v1beta1.RootUsername, e.ID()), e.ID()); err != nil {
+	if err := installQuadlet(e.rw, e.log, e.AppPath(), quadletSystemdTargetPath(v1beta1.RootUsername, e.ID()), e.ID(), v1beta1.CurrentProcessUsername); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
 

@@ -238,6 +238,7 @@ func TestManager(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockPodmanEventConfigFiles(mockReadWriter)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
 			mockSystemdMgr := systemd.NewMockManager(ctrl)
@@ -334,6 +335,7 @@ func TestManagerUpdateAfterRestart(t *testing.T) {
 			bootTime := time.Now()
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockPodmanEventConfigFiles(mockReadWriter)
 			podman := client.NewPodman(logger, mockExec, mockReadWriter, testutil.NewPollConfig())
 			podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
 			tempDir := t.TempDir()
@@ -398,6 +400,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockPodmanEventConfigFiles(mockReadWriter)
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
 	mockSystemdMgr := systemd.NewMockManager(ctrl)
@@ -528,6 +531,15 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) 
 	).Return(exec.CommandContext(context.Background(), "echo", `{}`))
 }
 
+func mockPodmanEventConfigFiles(mockReadWriter *fileio.MockReadWriter) {
+	const configDir = "/tmp/podman-events"
+	configPath := filepath.Join(configDir, client.PodmanEventsConfigFilename)
+	mockReadWriter.EXPECT().WriteFile(gomock.Any(), []byte(client.PodmanEventsConfigContents), fileio.DefaultFilePermissions).Return(nil).AnyTimes()
+	mockReadWriter.EXPECT().MkdirTemp("flightctl-podman-events-").Return(configDir, nil).AnyTimes()
+	mockReadWriter.EXPECT().PathFor(configPath).Return(configPath).AnyTimes()
+	mockReadWriter.EXPECT().RemoveAll(configDir).Return(nil).AnyTimes()
+}
+
 func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOverride, hasAgentOverride bool) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
 	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
@@ -539,7 +551,8 @@ func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOv
 		args = append(args, "-f", "99-compose-flightctl-agent.override.yaml")
 	}
 	args = append(args, "up", "-d", "--no-recreate")
-	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args).Return("", "", 0)
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", args).Return(exec.Command("podman")).AnyTimes()
+	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args, gomock.Any()).Return("", "", 0)
 }
 
 func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *gomock.Call {
@@ -1391,7 +1404,8 @@ func mockExecPodmanComposeStartService(mockExec *executer.MockExecuter, name, se
 		"-f", "99-compose-flightctl-agent.override.yaml",
 		"up", "-d", "--no-recreate", service,
 	}
-	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args).Return("", "", 0)
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", args).Return(exec.Command("podman")).AnyTimes()
+	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args, gomock.Any()).Return("", "", 0)
 }
 
 func TestQueueLifecycle(t *testing.T) {
@@ -1518,6 +1532,7 @@ func TestQueueLifecycle(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockPodmanEventConfigFiles(mockReadWriter)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockPodmanClient := client.NewPodman(testLog, mockExec, mockReadWriter, testutil.NewPollConfig())
 			mockSystemdMgr := systemd.NewMockManager(ctrl)

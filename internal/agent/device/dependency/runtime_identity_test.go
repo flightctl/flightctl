@@ -52,7 +52,11 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/workload@"+podmanDeltaTargetDigest).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/workload@"+podmanDeltaTargetDigest).Return(podmanDeltaImageID, "", 0)
+			expectPodmanDeltaActivation(exec, image)
+			exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", podmanDeltaImageID,
+			).Return(podmanDeltaTargetDigest, "", 0)
 			// The source exists in Podman only. CRI must recover with its own pull.
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", "--output", "json").Return(`{"images":[]}`, "", 0)
 			exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", image}, gomock.Any()).Return("", "", 0)
@@ -166,4 +170,80 @@ func TestWhenCachedPodmanImageMatchesItShouldInspectIdentityAndDigestOnce(t *tes
 	}}, true)
 	require.NotNil(result)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, result.Outcome)
+}
+
+func TestWhenAnApplicationReusesItsLauncherItShouldUpgradeObservedHistoryAcrossRestart(t *testing.T) {
+	require := require.New(t)
+	const (
+		appName         = "vm"
+		image           = "quay.io/kubevirt/virt-launcher:v1.9.0"
+		digest          = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		platformDigest  = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		unrelatedDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	)
+	makeSpec := func(disk string) *v1beta1.DeviceSpec {
+		name := appName
+		content := "[Container]\nImage=" + image + "\n"
+		diskContent := "[Image]\nImage=" + disk + "\n"
+		quadlet := v1beta1.QuadletApplication{Name: &name, AppType: v1beta1.AppTypeQuadlet}
+		require.NoError(quadlet.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: []v1beta1.ApplicationContent{
+			{Path: "launcher.container", Content: &content}, {Path: "disk.image", Content: &diskContent},
+		}}))
+		var app v1beta1.ApplicationProviderSpec
+		require.NoError(app.FromQuadletApplication(quadlet))
+		return &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{app}}
+	}
+	current := makeSpec("quay.io/containerdisks/fedora:40")
+	desired := makeSpec("quay.io/containerdisks/fedora:41")
+	logger := log.NewPrefixLogger("test")
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := deltastatus.New(rw, "/state", logger)
+	keys, err := applicationDeltaSpecKeys(current, nil)
+	require.NoError(err)
+	ref := imageRef{image: image, owner: v1beta1.RootUsername, ociType: OCITypePodmanImage}
+	targetKey := applicationImageTargetKeyFor(ref, "", ref.ociType)
+	require.NoError(store.ReconcileApplicationSpecs(keys))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{appName: {ref.targetID(): targetKey}}, true))
+	observed := deltastatus.ApplicationImage{Image: image, Owner: "root", OCIType: string(ref.ociType), Digest: digest}
+	require.NoError(store.RecordApplicationImageResult(appName, keys[appName], ref.targetID(), targetKey, observed,
+		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed}))
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, store.ObservedApplicationResult(appName, []deltastatus.ApplicationImage{observed}, true).Outcome)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	exec := executer.NewMockExecuter(ctrl)
+	// Only local cache inspection is allowed; registry inspection or a pull fails the mock.
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(3)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).
+		Return(fmt.Sprintf(`{"Id":"immutable-launcher","Digest":%q,"RepoDigests":[%q,%q]}`, platformDigest, "quay.io/kubevirt/virt-launcher@"+digest, "quay.io/other/image@"+unrelatedDigest), "", 0).Times(2)
+	podman := client.NewPodman(logger, exec, rw, poll.Config{})
+	skopeo := client.NewSkopeo(logger, exec, rw)
+	resources := resource.NewMockManager(ctrl)
+	resources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(2)
+	manager := NewPrefetchManager(logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+		func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+		client.NewCLIClients(), rw, util.Duration(time.Second), resources, poll.Config{}, WithDeltaStatusStore(store))
+	defer manager.Cleanup()
+	manager.RegisterOCICollector(newTestOCICollector(func(context.Context, *v1beta1.DeviceSpec, *v1beta1.DeviceSpec, ...OCICollectOpt) (*OCICollection, error) {
+		return &OCICollection{Targets: OCIPullTargetsByUser{v1beta1.RootUsername: {{
+			Reference: image, Type: OCITypePodmanImage, PullPolicy: v1beta1.PullIfNotPresent,
+			Delta: &OCIDeltaTarget{Application: appName},
+		}}}}, nil
+	}))
+	require.NoError(manager.BeforeUpdate(t.Context(), current, desired))
+	require.NoError(manager.BeforeUpdate(t.Context(), desired, desired))
+	// Application publication reads observed history, rather than prefetch's result map.
+	for _, selected := range []*deltastatus.Store{store, deltastatus.New(rw, "/state", logger)} {
+		result := selected.ObservedApplicationResult(appName, []deltastatus.ApplicationImage{observed}, true)
+		require.NotNil(result)
+		require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, result.Outcome)
+		platform := observed
+		platform.Digest = platformDigest
+		require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, selected.ObservedApplicationResult(appName, []deltastatus.ApplicationImage{platform}, true).Outcome)
+		unrelated := observed
+		unrelated.Digest = unrelatedDigest
+		require.Nil(selected.ObservedApplicationResult(appName, []deltastatus.ApplicationImage{unrelated}, true))
+	}
 }
