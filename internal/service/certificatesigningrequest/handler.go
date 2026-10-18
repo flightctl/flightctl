@@ -430,7 +430,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 	}
 
 	if csr.Metadata.Name != nil {
-		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name), signer.WithEnrollmentCSRName(*csr.Metadata.Name))
+		opts = append(opts, signer.WithCSRResourceName(*csr.Metadata.Name))
 	}
 
 	signReq, err := signer.NewSignRequestFromBytes(csr.Spec.SignerName, csrData, opts...)

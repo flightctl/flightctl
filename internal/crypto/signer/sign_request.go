@@ -11,26 +11,26 @@ import (
 type SignRequest interface {
 	SignerName() string
 	ResourceName() *string
-	EnrollmentCSRName() *string
+	IsCSRResource() bool
 	X509() x509.CertificateRequest
 	ExpirationSeconds() *int32
 	IssuedCertificate() (*x509.Certificate, bool)
 }
 
 type basicSignRequest struct {
-	signerName        string
-	x509csr           x509.CertificateRequest
-	expiry            *int32
-	resourceName      *string
-	issuedCert        *x509.Certificate
-	enrollmentCSRName *string
+	signerName    string
+	x509csr       x509.CertificateRequest
+	expiry        *int32
+	resourceName  *string
+	isCSRResource bool
+	issuedCert    *x509.Certificate
 }
 
 var _ SignRequest = (*basicSignRequest)(nil)
 
 func (r *basicSignRequest) SignerName() string            { return r.signerName }
 func (r *basicSignRequest) ResourceName() *string         { return r.resourceName }
-func (r *basicSignRequest) EnrollmentCSRName() *string    { return r.enrollmentCSRName }
+func (r *basicSignRequest) IsCSRResource() bool           { return r.isCSRResource }
 func (r *basicSignRequest) X509() x509.CertificateRequest { return r.x509csr }
 func (r *basicSignRequest) ExpirationSeconds() *int32     { return r.expiry }
 func (r *basicSignRequest) IssuedCertificate() (*x509.Certificate, bool) {
@@ -82,13 +82,15 @@ func WithExpirationSeconds(expiry int32) SignRequestOption {
 func WithResourceName(name string) SignRequestOption {
 	return func(r *basicSignRequest) error {
 		r.resourceName = &name
+		r.isCSRResource = false
 		return nil
 	}
 }
 
-func WithEnrollmentCSRName(name string) SignRequestOption {
+func WithCSRResourceName(name string) SignRequestOption {
 	return func(r *basicSignRequest) error {
-		r.enrollmentCSRName = &name
+		r.resourceName = &name
+		r.isCSRResource = true
 		return nil
 	}
 }

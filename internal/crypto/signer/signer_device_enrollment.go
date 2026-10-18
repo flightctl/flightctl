@@ -72,8 +72,8 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 	}
 
 	var opts []certOption
-	if name := request.EnrollmentCSRName(); name != nil {
-		opts = append(opts, WithExtension(OIDEnrollmentCSRName, *name))
+	if request.IsCSRResource() {
+		opts = append(opts, WithExtension(OIDEnrollmentCSRName, *request.ResourceName()))
 	}
 	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry), opts...)
 }

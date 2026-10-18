@@ -454,6 +454,25 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(created.Status.EnrollmentCertificateName).To(BeNil())
 	})
 
+	It("When a standalone credential shares a retained CSR name it should not claim that CSR identity", func() {
+		request := CreateTestCSR()
+		retained, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		issued, err := fcrypto.ParseCertificatePEM(*retained.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+		credential, err := suite.caClient.MakeClientCertificate(suite.Ctx, "", "", *request.Metadata.Name, 1)
+		Expect(err).NotTo(HaveOccurred())
+		leaf := credential.Certs[0]
+		Expect(leaf.Raw).NotTo(Equal(issued.Raw))
+		for _, extension := range leaf.Extensions {
+			Expect(extension.Id.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4})).To(BeFalse())
+		}
+		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
+		created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(created.Status.EnrollmentCertificateName).To(BeNil())
+	})
+
 	It("When an authenticated credential attests its CSR it should retain that reference even after CSR deletion", func() {
 		request := CreateTestCSR()
 		created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
