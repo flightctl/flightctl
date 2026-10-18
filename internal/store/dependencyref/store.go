@@ -190,7 +190,7 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 			"FROM devices d "+
 			"CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref "+
 			"WHERE d.deleted_at IS NULL"+
-			") AS rendered_ref ON rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))").
+			") AS rendered_ref ON (ss.fingerprint IS NULL OR ss.fingerprint = '') AND rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))").
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").

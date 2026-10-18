@@ -26,13 +26,11 @@ func (a *StringArray) Scan(src interface{}) error {
 	default:
 		return fmt.Errorf("StringArray.Scan: unsupported type %T", src)
 	}
-	s = strings.TrimPrefix(s, "{")
-	s = strings.TrimSuffix(s, "}")
-	if s == "" {
-		*a = nil
-		return nil
+	parsed, err := parseStringArray(s)
+	if err != nil {
+		return fmt.Errorf("StringArray.Scan: %w", err)
 	}
-	*a = strings.Split(s, ",")
+	*a = parsed
 	return nil
 }
 
@@ -40,7 +38,120 @@ func (a StringArray) Value() (driver.Value, error) {
 	if a == nil {
 		return nil, nil
 	}
-	return "{" + strings.Join(a, ",") + "}", nil
+
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, value := range a {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('"')
+		for _, char := range value {
+			if char == '\\' || char == '"' {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(char)
+		}
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String(), nil
+}
+
+func parseStringArray(value string) (StringArray, error) {
+	if len(value) < 2 || value[0] != '{' || value[len(value)-1] != '}' {
+		return nil, fmt.Errorf("invalid array syntax %q", value)
+	}
+	if value == "{}" {
+		return StringArray{}, nil
+	}
+
+	const end = byte('}')
+	last := len(value) - 1
+	result := make(StringArray, 0)
+	for i := 1; i < last; {
+		for i < last && isPostgresArraySpace(value[i]) {
+			i++
+		}
+		if i == last {
+			return nil, fmt.Errorf("missing array element")
+		}
+
+		var element string
+		if value[i] == '"' {
+			var err error
+			element, i, err = parseQuotedArrayElement(value, i, last)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			start := i
+			for i < last && value[i] != ',' && value[i] != end {
+				i++
+			}
+			raw := strings.TrimSpace(value[start:i])
+			var err error
+			element, err = unescapeArrayElement(raw)
+			if err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, element)
+
+		for i < last && isPostgresArraySpace(value[i]) {
+			i++
+		}
+		if i == last {
+			break
+		}
+		if value[i] != ',' {
+			return nil, fmt.Errorf("expected comma at position %d", i)
+		}
+		i++
+		if i == last {
+			return nil, fmt.Errorf("missing array element")
+		}
+	}
+	return result, nil
+}
+
+func parseQuotedArrayElement(value string, start, last int) (string, int, error) {
+	var b strings.Builder
+	for i := start + 1; i < last; i++ {
+		switch value[i] {
+		case '\\':
+			if i+1 >= last {
+				return "", last, fmt.Errorf("unterminated escape in quoted array element")
+			}
+			i++
+			b.WriteByte(value[i])
+		case '"':
+			return b.String(), i + 1, nil
+		default:
+			b.WriteByte(value[i])
+		}
+	}
+	return "", last, fmt.Errorf("unterminated quoted array element")
+}
+
+func unescapeArrayElement(value string) (string, error) {
+	var b strings.Builder
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\\' {
+			b.WriteByte(value[i])
+			continue
+		}
+		if i+1 == len(value) {
+			return "", fmt.Errorf("unterminated escape in array element")
+		}
+		i++
+		b.WriteByte(value[i])
+	}
+	return b.String(), nil
+}
+
+func isPostgresArraySpace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\n' || value == '\r'
 }
 
 func (StringArray) GormDataType() string {

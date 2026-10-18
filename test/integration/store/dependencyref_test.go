@@ -567,10 +567,12 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			oldFingerprint := "old-commit"
+			oldCommaFingerprint := "old-comma-commit"
 			otherFingerprint := "unrelated-fingerprint"
 			deviceStatus := domain.DeviceStatus{
 				DependencySync: &domain.DependencySyncStatus{ConfigRefs: &[]domain.DependencySyncConfigRefStatus{
 					{ConfigProviderName: "git-config", Fingerprint: &oldFingerprint},
+					{ConfigProviderName: "team,blue", Fingerprint: &oldCommaFingerprint},
 					{ConfigProviderName: "other-config", Fingerprint: &otherFingerprint},
 				}},
 			}
@@ -581,10 +583,12 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			currentFingerprint := "current-commit"
+			currentCommaFingerprint := "current-comma-commit"
 			_, err = deviceStore.Create(ctx, orgId, &domain.Device{
 				Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-y"), Owner: lo.ToPtr("Fleet/fleet-a")},
 				Status: &domain.DeviceStatus{DependencySync: &domain.DependencySyncStatus{ConfigRefs: &[]domain.DependencySyncConfigRefStatus{
 					{ConfigProviderName: "git-config", Fingerprint: &currentFingerprint},
+					{ConfigProviderName: "team,blue", Fingerprint: &currentCommaFingerprint},
 				}}},
 			}, nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -598,7 +602,7 @@ var _ = Describe("DependencyRefStore", func() {
 				RepositoryName:      lo.ToPtr(repoName),
 				Revision:            lo.ToPtr("main"),
 				ConfigProviderName:  "git-config",
-				ConfigProviderNames: model.StringArray{"git-config"},
+				ConfigProviderNames: model.StringArray{"git-config", "team,blue"},
 			})).To(Succeed())
 
 			probes, err := dependencyRefStore.ListDueGitDependencies(ctx, orgId, 15*time.Minute)
@@ -611,7 +615,9 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(probes[0].RenderedTargets).NotTo(BeNil())
 			Expect(probes[0].RenderedTargets.Data).To(ConsistOf(
 				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-x", Fingerprint: "old-commit", DeviceLevel: false},
+				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-x", Fingerprint: "old-comma-commit", DeviceLevel: false},
 				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-y", Fingerprint: "current-commit", DeviceLevel: false},
+				model.GitDependencyRenderedTarget{FleetName: "fleet-a", DeviceName: "device-y", Fingerprint: "current-comma-commit", DeviceLevel: false},
 			))
 		})
 
@@ -658,6 +664,55 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(probes[0].RenderedTargets.Data).To(ConsistOf(model.GitDependencyRenderedTarget{
 				DeviceName: "standalone-device", Fingerprint: "direct-old-commit", DeviceLevel: true,
 			}))
+		})
+
+		It("should skip rendered targets after a fingerprint has been stored", func() {
+			repoName := "stored-fingerprint-repo"
+			spec := domain.RepositorySpec{}
+			Expect(spec.FromGitRepoSpec(domain.GitRepoSpec{
+				Url:  "https://example.com/stored-fingerprint-repository.git",
+				Type: domain.GitRepoSpecTypeGit,
+			})).To(Succeed())
+			_, err := repositoryStore.Create(ctx, orgId, &domain.Repository{
+				ApiVersion: "v1beta1",
+				Kind:       domain.RepositoryKind,
+				Metadata:   domain.ObjectMeta{Name: lo.ToPtr(repoName)},
+				Spec:       spec,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fingerprint := "stored-commit"
+			_, err = deviceStore.Create(ctx, orgId, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("stored-fingerprint-device")},
+				Status: &domain.DeviceStatus{DependencySync: &domain.DependencySyncStatus{ConfigRefs: &[]domain.DependencySyncConfigRefStatus{
+					{ConfigProviderName: "stored-config", Fingerprint: &fingerprint},
+				}}},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			resourceKey := "git:" + repoName + "/main"
+			Expect(dependencyRefStore.Upsert(ctx, orgId, &model.DependencyRef{
+				OrgID:               orgId,
+				ResourceKey:         resourceKey,
+				FleetName:           lo.ToPtr(""),
+				DeviceName:          lo.ToPtr("stored-fingerprint-device"),
+				RefType:             "git",
+				RepositoryName:      lo.ToPtr(repoName),
+				Revision:            lo.ToPtr("main"),
+				ConfigProviderName:  "stored-config",
+				ConfigProviderNames: model.StringArray{"stored-config"},
+			})).To(Succeed())
+			Expect(syncStateStore.Set(ctx, orgId, &model.SyncState{
+				ResourceKey:   resourceKey,
+				Fingerprint:   fingerprint,
+				LastCheckedAt: time.Now().Add(-time.Hour),
+			})).To(Succeed())
+
+			probes, err := dependencyRefStore.ListDueGitDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].RenderedTargets).NotTo(BeNil())
+			Expect(probes[0].RenderedTargets.Data).To(BeEmpty())
 		})
 	})
 
