@@ -537,6 +537,16 @@ ssh-keyscan gitlab.com >> known_hosts
 ssh-keyscan private-git-server.com >> known_hosts
 ```
 
+For an SSH repository that uses a non-default port, scan that port explicitly:
+
+```console
+ssh-keyscan -p 443 ssh.github.com >> known_hosts
+```
+
+The resulting entry uses the bracketed `[host]:port` form. Flight Control
+requires that exact entry when the repository URL specifies a custom port; it
+does not reuse a host-key entry for a different port.
+
 Example `known_hosts` file content:
 
 ```text
@@ -585,6 +595,17 @@ spec:
     sshPrivateKey: <base64-encoded-private-key>
     # Optional: privateKeyPassphrase: your-passphrase
     # Optional: skipServerVerification: true
+```
+
+Standard URI-form SSH URLs are also supported. This form is useful when SSH
+must use a non-default port, for example:
+
+```yaml
+spec:
+  type: git
+  url: ssh://git@ssh.github.com:443/myorg/private-repo.git
+  sshConfig:
+    sshPrivateKey: <base64-encoded-private-key>
 ```
 
 ##### HTTPS Authentication
