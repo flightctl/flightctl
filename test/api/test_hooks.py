@@ -2,9 +2,10 @@
 
 import json
 import os
+import re
 from copy import deepcopy
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import pytest
 import requests
@@ -1039,7 +1040,14 @@ class TestBeforeLoadSchemaOnRealSpec:
                 assert "propertyNames" in labels, "labels property should have propertyNames"
                 found = True
         if not found:
-            pytest.skip("No labels property found in spec")
+            # Not every spec defines ``labels`` locally — core/v1alpha1
+            # imports ObjectMeta from another document.  Skipping here would
+            # make this case silently vacuous on exactly the specs the
+            # imported-definition handling exists for, so the check is
+            # instead made against the resolved request bodies.
+            spec_path = _find_spec_path()
+            assert spec_path is not None
+            _assert_resolved_labels_constrained(spec_path)
 
 
 class TestConftestHookRegistration:
@@ -1223,3 +1231,803 @@ class TestConftestHookRegistration:
                 "Expected 'propertyNames=False', not an unrelated error. "
                 f"Got: {output}"
             )
+
+
+# ===========================================================================
+# Cross-document ($ref into another file) regression coverage
+#
+# Definitions imported from another document are absent from the root
+# document's ``components/schemas``, so a pass that only walks that section
+# never sees them.  The real specs do exactly this, e.g.
+# ``api/core/v1alpha1/openapi.yaml`` refers to
+# ``../v1beta1/openapi.yaml#/components/schemas/ObjectMeta``.
+#
+# These tests go through the public ``from_path`` loader and prove the
+# constraints from publicly generated request bodies, so they assert
+# observable behaviour rather than any loader-internal layout.
+# ===========================================================================
+
+# Independent restatements of the contracts under test.  They are written
+# from the RFC 1123 / Kubernetes label / int64 definitions on purpose and must
+# NOT be derived from the production helpers: otherwise a regression in those
+# helpers would silently redefine what the tests expect.
+_EXPECTED_RFC1123 = re.compile(
+    r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")
+_EXPECTED_LABEL_KEY = re.compile(r"^[a-zA-Z]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
+_EXPECTED_LABEL_VALUE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
+_EXPECTED_INT64_MIN = -9223372036854775808
+_EXPECTED_INT64_MAX = 9223372036854775807
+
+_EXTERNAL_DOC = """\
+openapi: 3.0.3
+info:
+  title: Shared definitions
+  version: '1'
+paths: {}
+components:
+  schemas:
+    ObjectMeta:
+      type: object
+      required: [name, labels, generation]
+      properties:
+        name:
+          type: string
+          maxLength: 253
+        labels:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: string
+        generation:
+          type: integer
+          format: int64
+"""
+
+_ROOT_DOC = """\
+openapi: 3.0.3
+info:
+  title: Importing document
+  version: '1'
+paths:
+  /resources:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resource'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Resource:
+      type: object
+      required: [metadata, localCount]
+      properties:
+        metadata:
+          $ref: '../external/openapi.yaml#/components/schemas/ObjectMeta'
+        localCount:
+          type: integer
+          format: int64
+"""
+
+
+def _write_cross_file_specs(tmp_path, root_doc=_ROOT_DOC, external_doc=_EXTERNAL_DOC):
+    """Write a root document that imports from a sibling directory.
+
+    The relative ``../external/openapi.yaml`` hop mirrors the real repository
+    layout.  Returns the path of the root document — the file the public
+    loader is pointed at.
+    """
+    root_dir = tmp_path / "root"
+    external_dir = tmp_path / "external"
+    root_dir.mkdir()
+    external_dir.mkdir()
+    (external_dir / "openapi.yaml").write_text(external_doc)
+    root_path = root_dir / "openapi.yaml"
+    root_path.write_text(root_doc)
+    return root_path
+
+
+def _generate_bodies(spec_path, path="/resources", method="POST", count=15):
+    """Return request bodies generated through the public loader + strategy.
+
+    ``Unsatisfiable`` is turned into an explicit failure: the directory-wide
+    conftest hook would otherwise convert it into an xfail and hide a real
+    regression.
+    """
+    from hypothesis import given as h_given, settings as h_settings
+    from hypothesis.errors import Unsatisfiable
+
+    loaded = schemathesis.openapi.from_path(str(spec_path))
+    operation = loaded[path][method]
+    bodies = []
+
+    @h_settings(max_examples=count, derandomize=True, deadline=None)
+    @h_given(case=operation.as_strategy())
+    def _collect(case):
+        bodies.append(case.body)
+
+    try:
+        _collect()
+    except Unsatisfiable as exc:  # pragma: no cover - regression guard
+        pytest.fail(f"Body generation became unsatisfiable: {exc}")
+    assert bodies, "no request bodies were generated"
+    return bodies
+
+
+def _assert_responses_match_document(spec_path, path="/resources",
+                                     method="POST"):
+    """Assert the loaded ``responses`` are identical to the document's own.
+
+    The hooks must not touch responses.  Comparing the loaded operation's
+    ``responses`` with the same subtree parsed straight from the file makes
+    that a single equality rather than a list of "this keyword is absent"
+    checks, so a constraint from any family — or any future one — shows up.
+    """
+    import yaml
+
+    with open(spec_path) as handle:
+        on_disk = yaml.safe_load(handle)
+    expected = on_disk["paths"][path][method.lower()]["responses"]
+
+    loaded = schemathesis.openapi.from_path(str(spec_path))
+    actual = loaded[path][method].definition.raw["responses"]
+
+    assert actual == expected, (
+        "the loaded responses differ from the document:\n"
+        f"  document: {expected!r}\n  loaded:   {actual!r}")
+    return expected
+
+
+def _resolved_body_schema(spec_path, path="/resources", method="POST"):
+    """Return the request-body schema of an operation, as the loader resolved it.
+
+    Reached through the public loader and the public ``operation.body``
+    accessor, so no assumption is made about how the loader stores what it
+    pulled in from another document.
+    """
+    loaded = schemathesis.openapi.from_path(str(spec_path))
+    for body in loaded[path][method].body:
+        schema = body.definition.get("schema")
+        if isinstance(schema, dict):
+            return schema
+    raise AssertionError("operation has no request-body schema")
+
+
+def _iter_schema_nodes(root):
+    """Yield every schema node reachable from *root* by JSON Schema keywords.
+
+    Deliberately written independently of the production walker so the two
+    cannot drift into agreeing by construction.  It enters only standard
+    keywords and document-local ``$ref`` targets, so ``example``, ``default``
+    and vendor extensions are never mistaken for schemas — a generic walk
+    over every dict value would report data that merely looks like a schema
+    and make the assertions below quietly wrong in both directions.
+    """
+    nodes = []
+    seen = set()
+
+    def resolve(ref):
+        if not isinstance(ref, str) or not ref.startswith("#/"):
+            return None
+        node = root
+        for raw in unquote(ref[2:]).split("/"):
+            token = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(node, list):
+                if not re.fullmatch(r"0|[1-9][0-9]*", token) \
+                        or int(token) >= len(node):
+                    return None
+                node = node[int(token)]
+            elif isinstance(node, dict) and token in node:
+                node = node[token]
+            else:
+                return None
+        return node
+
+    def walk(schema):
+        if not isinstance(schema, dict) or id(schema) in seen:
+            return
+        seen.add(id(schema))
+        nodes.append(schema)
+        target = resolve(schema.get("$ref"))
+        if isinstance(target, dict):
+            walk(target)
+        for key in ("items", "additionalProperties", "not"):
+            if key in schema:
+                walk(schema[key])
+        for key in ("properties", "patternProperties"):
+            if isinstance(schema.get(key), dict):
+                for sub in schema[key].values():
+                    walk(sub)
+        for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+            if isinstance(schema.get(key), list):
+                for sub in schema[key]:
+                    walk(sub)
+
+    walk(root)
+    return nodes
+
+
+def _find_label_maps(root):
+    """Collect every ``labels`` property map reachable from *root*.
+
+    Searches by JSON Schema structure rather than by container name, so it
+    does not depend on where the loader placed a resolved definition.
+    """
+    found = []
+    for node in _iter_schema_nodes(root):
+        props = node.get("properties")
+        if isinstance(props, dict):
+            labels = props.get("labels")
+            if isinstance(labels, dict) and labels.get("type") == "object":
+                found.append(labels)
+    return found
+
+
+def _find_integer_schemas(root):
+    """Collect every ``type: integer`` schema node reachable from *root*."""
+    return [n for n in _iter_schema_nodes(root) if n.get("type") == "integer"]
+
+
+def _find_name_schemas(root):
+    """Collect every ``properties.name`` the name-pattern rule applies to."""
+    found = []
+    for node in _iter_schema_nodes(root):
+        props = node.get("properties")
+        if isinstance(props, dict):
+            name = props.get("name")
+            if isinstance(name, dict) and name.get("maxLength") == 253:
+                found.append(name)
+    return found
+
+
+def _find_composition_branches(root):
+    """Collect every direct ``allOf``/``anyOf``/``oneOf`` branch under *root*."""
+    found = []
+    for node in _iter_schema_nodes(root):
+        for key in ("allOf", "anyOf", "oneOf"):
+            branches = node.get(key)
+            if isinstance(branches, list):
+                found.extend(b for b in branches if isinstance(b, dict))
+    return found
+
+
+class TestCrossFileImportedMetadataConstraints:
+    """Imported definitions receive the same constraints as local ones."""
+
+    def test_imported_name_gets_rfc1123_pattern(self, tmp_path):
+        """``ObjectMeta.name`` imported from another file is RFC 1123 valid.
+
+        The local ``localCount`` assertion is the positive control: it proves
+        the hooks ran at all, so a failure on ``name`` is specific to the
+        imported definition rather than a dead harness.
+        """
+        spec_path = _write_cross_file_specs(tmp_path)
+        bodies = _generate_bodies(spec_path)
+
+        for body in bodies:
+            count = body["localCount"]
+            assert _EXPECTED_INT64_MIN <= count <= _EXPECTED_INT64_MAX, (
+                f"positive control failed: local integer {count} outside int64"
+            )
+
+        offenders = [
+            body["metadata"]["name"] for body in bodies
+            if not _EXPECTED_RFC1123.fullmatch(body["metadata"]["name"])
+        ]
+        assert not offenders, (
+            f"{len(offenders)}/{len(bodies)} generated names violate RFC 1123 — "
+            f"the imported ObjectMeta.name lost its pattern. Sample: {offenders[:3]!r}"
+        )
+
+    def test_imported_label_values_are_generated_valid(self, tmp_path):
+        """Imported ``labels`` maps generate Kubernetes-valid values."""
+        spec_path = _write_cross_file_specs(tmp_path)
+        bodies = _generate_bodies(spec_path)
+
+        bad_values = []
+        for body in bodies:
+            labels = body["metadata"]["labels"]
+            assert labels, "minProperties: 1 should keep this map non-empty"
+            bad_values.extend(
+                value for value in labels.values()
+                if not _EXPECTED_LABEL_VALUE.fullmatch(value)
+            )
+        assert not bad_values, f"invalid generated label values: {bad_values[:3]!r}"
+
+    def test_imported_label_keys_are_constrained(self, tmp_path):
+        """Imported ``labels`` maps carry the label-key constraint.
+
+        Key validity is expressed with ``propertyNames``, which an OpenAPI
+        3.0 document cannot express to the generator — the generated keys
+        are therefore unconstrained no matter what the hooks do.  This case
+        consequently asserts on the resolved request body reached through
+        the public operation, which is the same thing the suite enforces at
+        run time; the generated-value cases above carry the behavioural
+        proof.
+        """
+        spec_path = _write_cross_file_specs(tmp_path)
+        label_maps = _find_label_maps(_resolved_body_schema(spec_path))
+
+        assert label_maps, "no imported labels map found in the resolved body"
+        for labels in label_maps:
+            property_names = labels.get("propertyNames", {})
+            assert property_names.get("pattern") == _EXPECTED_LABEL_KEY.pattern, (
+                "imported labels map lost its key constraint: "
+                f"{property_names!r}"
+            )
+
+    def test_imported_integer_gets_int64_limits(self, tmp_path):
+        """Every integer in the resolved body carries its Go range.
+
+        An unconstrained integer usually still generates a small value, so
+        generation alone cannot tell a missing range from a present one.
+        The range is therefore asserted on the resolved request body, and
+        the generated values are checked as a secondary guard.  The local
+        ``localCount`` field is included, so this also keeps the existing
+        local-integer behaviour under test.
+        """
+        spec_path = _write_cross_file_specs(tmp_path)
+        integers = _find_integer_schemas(_resolved_body_schema(spec_path))
+
+        assert len(integers) >= 2, (
+            "expected the imported integer and the local control, "
+            f"found {len(integers)}")
+        for schema in integers:
+            assert schema.get("minimum") == _EXPECTED_INT64_MIN, \
+                f"integer missing int64 minimum: {schema!r}"
+            assert schema.get("maximum") == _EXPECTED_INT64_MAX, \
+                f"integer missing int64 maximum: {schema!r}"
+
+        for body in _generate_bodies(spec_path):
+            value = body["metadata"]["generation"]
+            assert _EXPECTED_INT64_MIN <= value <= _EXPECTED_INT64_MAX
+
+    def test_existing_imported_constraints_are_not_overwritten(self, tmp_path):
+        """Every family the pass applies defers to a stated constraint.
+
+        All three families use ``setdefault``, and each is checked here:
+        asserting only the name pattern would leave the label-value pattern
+        and the integer bounds free to overwrite a document's own narrower
+        choice without any test noticing.
+        """
+        external = _EXTERNAL_DOC.replace(
+            "          maxLength: 253\n",
+            "          maxLength: 253\n          pattern: '^fixed-[a-z]+$'\n",
+        ).replace(
+            """          additionalProperties:
+            type: string
+""",
+            """          additionalProperties:
+            type: string
+            pattern: '^v[0-9]+$'
+""",
+        ).replace(
+            """        generation:
+          type: integer
+          format: int64
+""",
+            """        generation:
+          type: integer
+          format: int64
+          minimum: 10
+          maximum: 20
+""",
+        )
+        spec_path = _write_cross_file_specs(tmp_path, external_doc=external)
+
+        # Stated values survive in the resolved body ...
+        name_schemas = _find_name_schemas(_resolved_body_schema(spec_path))
+        assert name_schemas, "imported name schema not found in resolved body"
+        for schema in name_schemas:
+            assert schema.get("pattern") == "^fixed-[a-z]+$", schema
+        for labels in _find_label_maps(_resolved_body_schema(spec_path)):
+            assert labels["additionalProperties"].get("pattern") == "^v[0-9]+$"
+        bounded = [s for s in _find_integer_schemas(_resolved_body_schema(spec_path))
+                   if s.get("maximum") == 20]
+        assert bounded, "the document's own integer bounds were replaced"
+        for schema in bounded:
+            assert schema.get("minimum") == 10, schema
+
+        # ... and in what is actually generated from it.
+        own_name = re.compile(r"^fixed-[a-z]+$")
+        own_value = re.compile(r"^v[0-9]+$")
+        for body in _generate_bodies(spec_path):
+            name = body["metadata"]["name"]
+            assert own_name.fullmatch(name), f"name pattern replaced: {name!r}"
+            for value in body["metadata"]["labels"].values():
+                assert own_value.fullmatch(value), \
+                    f"label-value pattern replaced: {value!r}"
+            assert 10 <= body["metadata"]["generation"] <= 20, \
+                f"integer bounds replaced: {body['metadata']['generation']}"
+
+    def test_responses_are_untouched_while_the_body_is_constrained(self, tmp_path):
+        """Constraining the body leaves the operation's responses alone."""
+        spec_path = _write_cross_file_specs(tmp_path)
+        assert _find_name_schemas(_resolved_body_schema(spec_path)), \
+            "precondition: the body must be the constrained one"
+        _assert_responses_match_document(spec_path)
+
+    def test_repeated_loads_stay_consistent(self, tmp_path):
+        """Loading the same document twice applies constraints identically."""
+        spec_path = _write_cross_file_specs(tmp_path)
+        first = _generate_bodies(spec_path)
+        second = _generate_bodies(spec_path)
+
+        for body in first + second:
+            assert _EXPECTED_RFC1123.fullmatch(body["metadata"]["name"])
+        first_names = [b["metadata"]["name"] for b in first]
+        second_names = [b["metadata"]["name"] for b in second]
+        assert first_names == second_names, \
+            "derandomised generation should be stable across loads"
+
+
+_ALLOF_EXTERNAL_DOC = """\
+openapi: 3.0.3
+info:
+  title: Shared base
+  version: '1'
+paths: {}
+components:
+  schemas:
+    Base:
+      type: object
+      required: [core, meta]
+      properties:
+        core:
+          type: string
+        meta:
+          $ref: '#/components/schemas/ObjectMeta'
+    ObjectMeta:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 253
+"""
+
+_ALLOF_ROOT_DOC = """\
+openapi: 3.0.3
+info:
+  title: Composing document
+  version: '1'
+paths:
+  /resources:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resource'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Resource:
+      allOf:
+        - $ref: '../external/openapi.yaml#/components/schemas/Base'
+        - type: object
+          required: [extra]
+          properties:
+            extra:
+              type: string
+"""
+
+
+class TestCrossFileRefWalkerSafety:
+    """The resolved-body walk stays within standard JSON Schema semantics."""
+
+    def test_escaped_pointer_tokens_resolve(self):
+        """``~1``/``~0`` and percent-encoding follow RFC 6901 / URI rules."""
+        target = {"type": "integer"}
+        root = {"a/b": {"~tilde": target}, "with space": {"type": "string"}}
+        assert hooks._resolve_local_pointer(root, "#/a~1b/~0tilde") is target
+        assert hooks._resolve_local_pointer(root, "#/with%20space") is \
+            root["with space"]
+
+    def test_percent_decoding_precedes_token_splitting(self):
+        """``%2F`` is a separator, as RFC 6901 section 6 defines it.
+
+        The fragment is decoded first and only then split, so ``%2F``
+        becomes a step in the path.  A literal ``/`` inside one token is
+        spelled ``~1``; reading ``%2F`` as part of a token would make the
+        two spellings mean the same thing, which they do not.
+        """
+        target = {"type": "integer"}
+        root = {"a": {"b": target}, "a/b": {"type": "string"}}
+        assert hooks._resolve_local_pointer(root, "#/a%2Fb") is target
+        assert hooks._resolve_local_pointer(root, "#/a~1b") is root["a/b"]
+
+    def test_escape_unescaping_order_is_not_reentrant(self):
+        """``~01`` means a literal ``~1``, not a separator."""
+        target = {"type": "integer"}
+        root = {"~1": target, "/": {"type": "string"}}
+        assert hooks._resolve_local_pointer(root, "#/~01") is target
+
+    def test_list_index_tokens_resolve(self):
+        target = {"type": "string"}
+        root = {"allOf": [{"type": "integer"}, target]}
+        assert hooks._resolve_local_pointer(root, "#/allOf/0") is root["allOf"][0]
+        assert hooks._resolve_local_pointer(root, "#/allOf/1") is target
+        assert hooks._resolve_local_pointer(root, "#/allOf/9") is None
+
+    @pytest.mark.parametrize("token", ["01", "+1", "1.0", "-1", "١", ""])
+    def test_malformed_list_indices_are_rejected(self, token):
+        """Only RFC 6901 array indices index a list.
+
+        ``str.isdigit`` would accept ``01`` and non-ASCII digits such as
+        ``١``, silently resolving a pointer the standard does not define.
+        """
+        root = {"allOf": [{"type": "integer"}, {"type": "string"}]}
+        assert hooks._resolve_local_pointer(root, f"#/allOf/{token}") is None
+
+    def test_unresolvable_references_are_left_alone(self):
+        """Missing and non-local references resolve to nothing, not to {}."""
+        root = {"components": {}}
+        for ref in ("#/components/schemas/Absent",
+                    "../other/openapi.yaml#/components/schemas/ObjectMeta",
+                    "http://example.test/schema.json#/x",
+                    "#", None, 17):
+            assert hooks._resolve_local_pointer(root, ref) is None, ref
+
+    def test_reference_cycle_terminates(self):
+        """A reference cycle is walked once per node and terminates."""
+        root = {
+            "defs": {
+                "A": {"type": "object",
+                      "properties": {"b": {"$ref": "#/defs/B"}}},
+                "B": {"type": "object",
+                      "properties": {"a": {"$ref": "#/defs/A"}}},
+            },
+        }
+        visited = []
+        hooks._walk_resolved_schema(root["defs"]["A"], root, visited.append)
+        assert sum(node is root["defs"]["A"] for node in visited) == 1
+        assert sum(node is root["defs"]["B"] for node in visited) == 1
+
+    def test_example_default_and_extension_data_untouched(self):
+        """Data that merely looks like a schema is never modified."""
+        lookalike = {"type": "integer", "format": "int64"}
+        root = {
+            "type": "object",
+            "properties": {"real": {"type": "integer", "format": "int64"}},
+            "example": {"type": "integer", "format": "int64"},
+            "default": {"type": "integer", "format": "int64"},
+            "x-vendor": {"schemas": {"fake": dict(lookalike)}},
+        }
+        hooks._walk_resolved_schema(root, root, hooks._value_constraints_visitor)
+
+        assert root["properties"]["real"]["minimum"] == hooks.INT64_MIN
+        for key in ("example", "default"):
+            assert root[key] == lookalike, f"{key} data was modified"
+        assert root["x-vendor"]["schemas"]["fake"] == lookalike, \
+            "vendor extension data was modified"
+
+    def test_cross_file_composition_generates_both_branches(self, tmp_path):
+        """An imported allOf branch stays satisfiable and gains constraints.
+
+        Guards the composition policy: if ``additionalProperties: false``
+        were applied to the imported branch, one branch would reject the
+        other's properties and generation would become unsatisfiable.
+        """
+        spec_path = _write_cross_file_specs(
+            tmp_path, root_doc=_ALLOF_ROOT_DOC,
+            external_doc=_ALLOF_EXTERNAL_DOC,
+        )
+        bodies = _generate_bodies(spec_path)
+
+        for body in bodies:
+            assert "core" in body, "imported branch's required field missing"
+            assert "extra" in body, "local branch's required field missing"
+            assert _EXPECTED_RFC1123.fullmatch(body["meta"]["name"]), (
+                "nested imported ObjectMeta.name lost its pattern: "
+                f"{body['meta']['name']!r}")
+
+        resolved = _resolved_body_schema(spec_path)
+        for branch in _find_composition_branches(resolved):
+            assert branch.get("additionalProperties") is not False, (
+                "a composition branch was closed, which can make the "
+                f"schema unsatisfiable: {branch!r}")
+
+    def test_response_only_import_is_not_pulled_into_request_body(self, tmp_path):
+        """A definition imported only for a response stays out of the body pass."""
+        root_doc = _ROOT_DOC.replace(
+            """        metadata:
+          $ref: '../external/openapi.yaml#/components/schemas/ObjectMeta'
+""",
+            "",
+        ).replace("      required: [metadata, localCount]",
+                  "      required: [localCount]").replace(
+            """        '201':
+          description: Created""",
+            """        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '../external/openapi.yaml#/components/schemas/ObjectMeta'""")
+        spec_path = _write_cross_file_specs(tmp_path, root_doc=root_doc)
+
+        resolved = _resolved_body_schema(spec_path)
+        assert not _find_label_maps(resolved), (
+            "a response-only import was pulled into the request body")
+        for body in _generate_bodies(spec_path):
+            assert set(body) == {"localCount"}, (
+                f"unexpected request-body fields: {sorted(body)}")
+
+        # The body staying clean is only half the claim: assert directly
+        # that the response definition was not modified either, which is
+        # what "response-only definitions keep today's behaviour" means.
+        # Equality against the document's own text is the strongest form —
+        # it fails on any added keyword anywhere under ``responses``, not
+        # only on the three families this pass happens to apply.
+        responses = _assert_responses_match_document(spec_path)
+        assert "ObjectMeta" in json.dumps(responses), (
+            "the response must still import ObjectMeta, otherwise this "
+            "case proves nothing about response-only definitions")
+
+
+def _sibling_spec_path(relative):
+    """Return a real spec path alongside the one ``_find_spec_path`` locates.
+
+    Works in both layouts the suite supports: ``<repo>/api/<relative>`` and
+    the container's ``/app/specs/<relative>``.  ``_find_spec_path`` resolves
+    in both — from ``SPEC_PATH`` in the container and from this file's
+    location in a checkout — so a missing base is a broken environment and
+    is reported as a failure rather than skipped away.
+    """
+    base = _find_spec_path()
+    assert base is not None, (
+        "no OpenAPI spec found: expected SPEC_PATH (container) or "
+        "<repo>/api/core/v1beta1/openapi.yaml (checkout)")
+    specs_root = os.path.dirname(os.path.dirname(os.path.dirname(base)))
+    return os.path.join(specs_root, *relative.split("/"))
+
+
+def _assert_resolved_labels_constrained(spec_path):
+    """Assert every labels map in every resolved request body is constrained.
+
+    Goes through the public loader and the public per-operation request-body
+    accessor, so imported definitions are covered exactly as the suite sees
+    them at run time.
+    """
+    loaded = schemathesis.openapi.from_path(str(spec_path))
+    label_maps = []
+    for result in loaded.get_all_operations():
+        operation = result.ok() if hasattr(result, "ok") else result
+        if operation is None:
+            continue
+        for body in operation.body:
+            schema = body.definition.get("schema")
+            if isinstance(schema, dict):
+                label_maps.extend(_find_label_maps(schema))
+
+    assert label_maps, f"no labels map found in any request body of {spec_path}"
+    for labels in label_maps:
+        assert labels.get("propertyNames", {}).get("pattern") == \
+            _EXPECTED_LABEL_KEY.pattern, \
+            f"labels map missing key constraint in {spec_path}: {labels!r}"
+        additional = labels.get("additionalProperties")
+        if isinstance(additional, dict) and additional.get("type") == "string":
+            assert additional.get("pattern") == _EXPECTED_LABEL_VALUE.pattern, \
+                f"labels map missing value constraint in {spec_path}"
+    return len(label_maps)
+
+
+_SELF_CONTAINED_DOC = """\
+openapi: 3.0.3
+info:
+  title: Self-contained document
+  version: '1'
+paths:
+  /resources:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resource'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Resource:
+      type: object
+      required: [metadata]
+      properties:
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+    ObjectMeta:
+      type: object
+      required: [name, labels, generation]
+      properties:
+        name:
+          type: string
+          maxLength: 253
+        labels:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: string
+        generation:
+          type: integer
+          format: int64
+"""
+
+
+class TestLocalDefinitionsAreAlsoConstrained:
+    """A document that imports nothing stays constrained.
+
+    This is a positive guard, not a regression test: it is not known to
+    have failed before the imported-definition pass was added.  It pins the
+    plainer half of the contract — a definition the document declares
+    itself, referenced through ``components/schemas`` — so that work on the
+    imported-definition path cannot quietly cost the local one its
+    constraints.
+    """
+
+    def test_local_definitions_are_constrained(self, tmp_path):
+        spec_path = tmp_path / "openapi.yaml"
+        spec_path.write_text(_SELF_CONTAINED_DOC)
+
+        resolved = _resolved_body_schema(spec_path)
+
+        names = _find_name_schemas(resolved)
+        assert names, "no name schema in the resolved body"
+        for schema in names:
+            assert schema.get("pattern") == _EXPECTED_RFC1123.pattern, schema
+
+        label_maps = _find_label_maps(resolved)
+        assert label_maps, "no labels map in the resolved body"
+        for labels in label_maps:
+            assert labels.get("propertyNames", {}).get("pattern") == \
+                _EXPECTED_LABEL_KEY.pattern, labels
+            assert labels["additionalProperties"].get("pattern") == \
+                _EXPECTED_LABEL_VALUE.pattern, labels
+
+        integers = _find_integer_schemas(resolved)
+        assert integers, "no integer schema in the resolved body"
+        for schema in integers:
+            assert schema.get("minimum") == _EXPECTED_INT64_MIN, schema
+            assert schema.get("maximum") == _EXPECTED_INT64_MAX, schema
+
+    def test_local_definitions_generate_valid_values(self, tmp_path):
+        spec_path = tmp_path / "openapi.yaml"
+        spec_path.write_text(_SELF_CONTAINED_DOC)
+
+        for body in _generate_bodies(spec_path):
+            metadata = body["metadata"]
+            assert _EXPECTED_RFC1123.fullmatch(metadata["name"]), metadata["name"]
+            for value in metadata["labels"].values():
+                assert _EXPECTED_LABEL_VALUE.fullmatch(value), value
+            assert _EXPECTED_INT64_MIN <= metadata["generation"] <= _EXPECTED_INT64_MAX
+
+
+class TestRealSpecImportedLabelCoverage:
+    """Real specs that import ObjectMeta are covered, not skipped.
+
+    ``core/v1alpha1`` and ``imagebuilder/v1alpha1`` take ``ObjectMeta`` from
+    another document, so a check that only reads the local
+    ``components/schemas`` section finds no ``labels`` at all and passes
+    without testing anything.  These cases assert through the resolved
+    request bodies instead.
+    """
+
+    @pytest.mark.parametrize("relative", [
+        "core/v1alpha1/openapi.yaml",
+        "imagebuilder/v1alpha1/openapi.yaml",
+    ])
+    def test_imported_labels_constrained_in_real_spec(self, relative):
+        spec_path = _sibling_spec_path(relative)
+        assert os.path.isfile(spec_path), (
+            f"expected a real spec at {spec_path}; the suite must not pass "
+            "by silently finding nothing")
+        assert _assert_resolved_labels_constrained(spec_path) > 0

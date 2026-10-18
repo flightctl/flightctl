@@ -85,6 +85,79 @@ def _walk_schema(schema, visitor):
                 _walk_schema(subschema, visitor)
 
 
+# RFC 6901 section 4: an array index is "0" or a decimal with no
+# leading zero, ASCII digits only.
+_ARRAY_INDEX_RE = re.compile(r"0|[1-9][0-9]*")
+
+
+def _resolve_local_pointer(root, ref):
+    """Resolve a document-local ``$ref`` against *root* using RFC 6901 rules.
+
+    Only same-document references (``#/...``) are followed.  The fragment is
+    percent-decoded as a whole first (RFC 6901 section 6), then split on
+    ``/``, then each token is unescaped ``~1`` -> ``/`` before ``~0`` -> ``~``
+    (section 4) — doing it in that order is what keeps ``~01`` meaning a
+    literal ``~1`` rather than ``/``.  Resolution is purely positional, so no
+    container name anywhere along the pointer is assumed or searched for.
+
+    Returns ``None`` when the pointer does not resolve — an unknown or
+    external target is left untouched rather than treated as an empty
+    schema, so a missing reference can never silently satisfy a constraint.
+    """
+    if not isinstance(ref, str) or not ref.startswith("#/"):
+        return None
+    node = root
+    for raw_token in unquote(ref[2:]).split("/"):
+        token = raw_token.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, list):
+            # RFC 6901 array indices are "0" or have no leading zero;
+            # str.isdigit() would also accept "01" and non-ASCII digits.
+            if not _ARRAY_INDEX_RE.fullmatch(token) or int(token) >= len(node):
+                return None
+            node = node[int(token)]
+        elif isinstance(node, dict):
+            if token not in node:
+                return None
+            node = node[token]
+        else:
+            return None
+    return node
+
+
+def _walk_resolved_schema(schema, root, visitor, seen=None):
+    """Walk a schema tree like :func:`_walk_schema`, but follow local ``$ref``.
+
+    Traverses the same standard JSON Schema keywords — so ``example``,
+    ``default`` and vendor extensions are still never entered — and
+    additionally follows document-local ``$ref`` pointers, which is how a
+    definition the document reaches only through a reference becomes
+    visible.  ``seen`` tracks node identity, so reference cycles and shared
+    targets terminate and are visited exactly once.
+    """
+    if not isinstance(schema, dict):
+        return
+    if seen is None:
+        seen = set()
+    if id(schema) in seen:
+        return
+    seen.add(id(schema))
+    visitor(schema)
+    target = _resolve_local_pointer(root, schema.get("$ref"))
+    if isinstance(target, dict):
+        _walk_resolved_schema(target, root, visitor, seen)
+    for key in ("items", "additionalProperties", "not"):
+        if key in schema:
+            _walk_resolved_schema(schema[key], root, visitor, seen)
+    for key in ("properties", "patternProperties"):
+        if key in schema and isinstance(schema[key], dict):
+            for prop_schema in schema[key].values():
+                _walk_resolved_schema(prop_schema, root, visitor, seen)
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        if key in schema and isinstance(schema[key], list):
+            for subschema in schema[key]:
+                _walk_resolved_schema(subschema, root, visitor, seen)
+
+
 def _integer_limits_visitor(schema):
     if schema.get("type") == "integer":
         fmt = schema.get("format")
@@ -204,6 +277,62 @@ def _name_pattern_visitor(schema):
 def apply_name_pattern(schema):
     """Add RFC 1123 pattern to ObjectMeta.name so schemathesis generates valid resource names."""
     _walk_schema(schema, _name_pattern_visitor)
+
+
+def _value_constraints_visitor(schema):
+    """Apply the three value-level constraint families to one schema node."""
+    _integer_limits_visitor(schema)
+    _label_constraints_visitor(schema)
+    _name_pattern_visitor(schema)
+
+
+def apply_imported_body_constraints(operation):
+    """Apply value constraints to request-body definitions after ref resolution.
+
+    ``before_load_schema`` sees the root document, and a definition the
+    document imports from *another file* is not in it: it never appears in
+    ``components/schemas``, so a pass over that section cannot reach it.
+    The real specs rely on such imports — ``api/core/v1alpha1`` and
+    ``api/imagebuilder/v1alpha1`` both take ``ObjectMeta`` from the core
+    v1beta1 specification, each by its own relative path — which left the
+    imported ``name``, ``labels`` and integer fields unconstrained in
+    generated request bodies.
+
+    By the time an operation is initialised the loader has resolved those
+    imports into the operation's own request-body definition, where they are
+    reachable through ordinary document-local ``$ref`` pointers.  Walking
+    from the body definition therefore reaches them using standard JSON
+    Schema and RFC 6901 semantics only, through the public ``operation.body``
+    accessor, naming no loader-internal storage.  This is the route that was
+    verified to work; it is not a claim that no other public wiring could
+    reach these definitions.
+
+    Scope is deliberately narrow:
+
+    * Only the three value-level families are applied (integer ranges, label
+      patterns, name pattern).  Each uses ``setdefault``, so re-application
+      is a no-op and anything already constrained in the root document keeps
+      its own value — repeated loads stay consistent.
+    * ``additionalProperties`` is NOT applied here.  Tightening it once
+      composition has been resolved can make ``allOf``/``oneOf`` branches
+      unsatisfiable, so the existing composition policy is left untouched.
+      ``disallow_extra_properties`` therefore keeps exactly the reach it has
+      today; changing that needs its own satisfiability work.
+    * Only resolved request bodies are traversed; response schemas are not,
+      and no change to response validation is introduced here.  Checked on
+      one fixture where a single external definition is referenced by both
+      a request body and a response: after the body is constrained, a
+      response that the added constraints would reject still passes
+      ``response_schema_conformance``, while a response that breaks the
+      original schema still fails.  That is a single case, not a general
+      guarantee about how the loader shares or copies resolved nodes.
+    """
+    for body in operation.body:
+        schema = body.definition.get("schema")
+        if isinstance(schema, dict):
+            # The body definition is its own reference root: the loader
+            # rewrites imports into pointers relative to this node.
+            _walk_resolved_schema(schema, schema, _value_constraints_visitor)
 
 
 # ---------------------------------------------------------------------------
@@ -343,9 +472,7 @@ def before_load_schema(context, raw_schema):
     """Apply schema-wide constraints to the raw OpenAPI document.
 
     Uses the public ``before_load_schema`` hook so that constraints are
-    applied *before* Schemathesis bundles ``$ref`` targets into its
-    private ``x-bundled`` storage.  Modifications to ``components/schemas``
-    propagate through bundling to every operation that references them.
+    applied to the raw OpenAPI document before the loader resolves it.
 
     Integer limits, label patterns, and name patterns apply to **all**
     component schemas — these constraints are semantically valid in both
@@ -356,6 +483,12 @@ def before_load_schema(context, raw_schema):
     request-body schemas, matching the previous per-operation
     body-patching scope.  Response-only schemas are not constrained,
     avoiding unintended response-validation strictness.
+
+    Only the root document is addressable here.  A definition the document
+    imports from another file is not in ``components/schemas``, so it is
+    out of reach of this pass; the three value-level families are applied
+    to those in :func:`apply_imported_body_constraints`, from the resolved
+    request body.
     """
     schemas = raw_schema.get("components", {}).get("schemas", {})
     inline_bodies, request_names = _request_body_schemas(raw_schema)
@@ -396,9 +529,11 @@ def before_init_operation(context, operation):
                 and isinstance(schema, dict)
                 and schema.get("type") == "string"):
             schema.setdefault("pattern", _RFC1123_RE.pattern)
-    # Body-schema constraints (integer limits, label patterns, name patterns,
-    # additionalProperties) are applied in before_load_schema on the raw
-    # OpenAPI components and propagate through bundling automatically.
+    # Body-schema constraints are applied in before_load_schema on the raw
+    # OpenAPI components.  Definitions imported from another file are not in
+    # that section, so the value-level families are applied here as well,
+    # where the loader has resolved those imports into the request body.
+    apply_imported_body_constraints(operation)
     _require_status_for_status_endpoints(operation)
 
 
