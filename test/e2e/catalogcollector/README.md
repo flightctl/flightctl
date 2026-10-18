@@ -222,13 +222,16 @@ it is deliberately not matched by that pattern.)
 2. **Identity** — the e2e Keycloak realm ships a dedicated
    `flightctl-catalog-collector` confidential client with a service account
    (client-credentials grant). The shared `e2e-keycloak` container is reused by
-   name and only imports the realm file into an empty database, so the Keycloak
-   fixture also reconciles that client, its audience mapper, and its service
-   account through the Admin REST API on every start. A Keycloak left behind by
-   an older run therefore converges instead of failing the grant with
-   `invalid_client`; clients owned by other suites are left untouched. The
-   suite registers an `AuthProvider` for the realm issuer so the Flight Control
-   API accepts the collector's tokens.
+   name and only imports the realm file into an empty database, so this suite
+   reconciles that client, its audience mapper, and its service account through
+   the Admin REST API itself, once the aux services are up and before the
+   credentials are used. A Keycloak left behind by an older run — including one
+   that predates this client — therefore converges instead of failing the grant
+   with `invalid_client`; clients owned by other suites are left untouched.
+   Because the client is this suite's alone, the reconciliation lives here and
+   not in the shared Keycloak startup: other suites start the same container
+   without it. The suite registers an `AuthProvider` for the realm issuer so
+   the Flight Control API accepts the collector's tokens.
 3. **Seed data** — the initial-synchronization model: one LIVE registered
    model, one LIVE SemVer version, and one LIVE ModelCar artifact whose URI is
    pinned to an immutable `sha256:` digest. Every other scenario seeds its own

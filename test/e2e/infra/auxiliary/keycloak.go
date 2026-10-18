@@ -122,14 +122,6 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 	if !reachable {
 		return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
 	}
-
-	// The realm file is only imported into an empty database, so a reused
-	// container keeps whatever realm an earlier run created. Reconciling the
-	// suite-owned objects here is what makes reuse equivalent to a fresh
-	// start; see keycloak_admin.go.
-	if err := k.EnsureCatalogCollectorClient(ctx); err != nil {
-		return fmt.Errorf("failed to reconcile the catalog collector client in realm %s: %w", keycloakRealmName, err)
-	}
 	return nil
 }
 

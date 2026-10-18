@@ -111,6 +111,14 @@ var _ = BeforeSuite(func() {
 	Expect(auxSvcs.ModelRegistry).ToNot(BeNil())
 	Expect(auxSvcs.ModelRegistry.URL).ToNot(BeEmpty())
 
+	By("provisioning the Keycloak client the collector authenticates with")
+	// A reused Keycloak keeps the realm an earlier run created, which may
+	// predate this client, so it is reconciled here rather than left to the
+	// realm file; see infra/auxiliary/keycloak_admin.go. It belongs to this
+	// suite, so starting Keycloak for anything else does not provision it.
+	Expect(auxSvcs.Keycloak.EnsureCatalogCollectorClient(ctx)).To(Succeed(),
+		"failed to reconcile the catalog collector client in the e2e realm")
+
 	By("logging in to the Flight Control API as an administrator")
 	_, err = login.LoginToAPIWithToken(suiteHarness)
 	Expect(err).ToNot(HaveOccurred(), "admin login failed")
