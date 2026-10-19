@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,4 +68,12 @@ func TestFromStderr(t *testing.T) {
 			require.Equal(tc.retryable, IsRetryable(err))
 		})
 	}
+}
+
+// TestIsRetryableNoRetryMarkerTakesPrecedence verifies that terminal errors
+// remain non-retryable when they wrap a retryable cause.
+func TestIsRetryableNoRetryMarkerTakesPrecedence(t *testing.T) {
+	err := fmt.Errorf("%w: %w", ErrNoRetry, poll.ErrMaxSteps)
+
+	require.False(t, IsRetryable(err))
 }

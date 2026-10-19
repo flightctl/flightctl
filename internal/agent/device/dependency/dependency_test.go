@@ -284,6 +284,8 @@ func TestEnsureScheduled(t *testing.T) {
 	}
 }
 
+// TestProcessTargetStopsAfterPullRetryLimit verifies that a client-side retry limit
+// is preserved as a non-retryable prefetch error.
 func TestProcessTargetStopsAfterPullRetryLimit(t *testing.T) {
 	const image = "quay.io/test/missing:latest"
 
@@ -328,18 +330,24 @@ func TestProcessTargetStopsAfterPullRetryLimit(t *testing.T) {
 	task := manager.tasks[target]
 	require.True(t, task.done)
 	require.ErrorIs(t, task.err, errors.ErrNoRetry)
+	require.ErrorIs(t, task.err, errors.ErrImageNotFound)
+	require.ErrorIs(t, task.err, poll.ErrMaxSteps)
 	require.Contains(t, task.err.Error(), "manifest unknown")
 	require.False(t, errors.IsRetryable(task.err))
 }
 
+// TestProcessTargetStopsAfterPrefetchRetryLimit verifies that the prefetch retry
+// limit allows the configured number of retries after the initial pull attempt.
 func TestProcessTargetStopsAfterPrefetchRetryLimit(t *testing.T) {
 	const image = "quay.io/test/missing:latest"
 
 	logger := log.NewPrefixLogger("test")
 	target := imageRef{image: image, ociType: OCITypePodmanImage}
+	factoryCalls := 0
 	manager := &prefetchManager{
 		log: logger,
 		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+			factoryCalls++
 			return nil, errors.ErrNetwork
 		},
 		pullTimeout: time.Second,
@@ -356,6 +364,8 @@ func TestProcessTargetStopsAfterPrefetchRetryLimit(t *testing.T) {
 	manager.processTarget(context.Background(), target)
 
 	task := manager.tasks[target]
+	// Each failed attempt invokes the factory once for the pull and once for cleanup.
+	require.Equal(t, 6, factoryCalls)
 	require.True(t, task.done)
 	require.ErrorIs(t, task.err, errors.ErrNoRetry)
 	require.False(t, errors.IsRetryable(task.err))

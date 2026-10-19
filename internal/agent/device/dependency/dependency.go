@@ -920,10 +920,10 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 				// Also enforce the prefetch retry budget for retryable errors that
 				// are returned without a client-side retry limit.
 				if errors.Is(err, poll.ErrMaxSteps) ||
-					(m.pollConfig != nil && m.pollConfig.MaxSteps > 0 && retries >= m.pollConfig.MaxSteps) {
+					(m.pollConfig != nil && m.pollConfig.MaxSteps > 0 && retries > m.pollConfig.MaxSteps) {
 					m.log.Warnf("Prefetch retry limit reached for %s after %d attempts: %v", target, retries, err)
 					m.setResult(target, fmt.Errorf(
-						"%w: pulling oci target %w after retry limit (%d): %v",
+						"%w: pulling oci target %w after retry limit (%d): %w",
 						errors.ErrNoRetry, errors.WithElement(target.image), retries, err,
 					), task)
 					return
