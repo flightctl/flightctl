@@ -390,18 +390,18 @@ func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch, enforceO
 }
 
 // PatchDeviceStatus mocks base method.
-func (m *MockService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+func (m *MockService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, refreshLastSeen bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchDeviceStatus", ctx, orgId, name, patch)
+	ret := m.ctrl.Call(m, "PatchDeviceStatus", ctx, orgId, name, patch, refreshLastSeen)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchDeviceStatus indicates an expected call of PatchDeviceStatus.
-func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch, refreshLastSeen any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockService)(nil).PatchDeviceStatus), ctx, orgId, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockService)(nil).PatchDeviceStatus), ctx, orgId, name, patch, refreshLastSeen)
 }
 
 // ReplaceDevice mocks base method.

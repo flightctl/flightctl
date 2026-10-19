@@ -247,7 +247,7 @@ var _ = Describe("FleetSelector", func() {
 			_, status = deviceSvc.PatchDeviceStatus(ctx, orgId, deviceName, domain.PatchRequest{
 				{Op: "replace", Path: conditionPath + "/status", Value: &succeededStatus},
 				{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
-			})
+			}, false)
 			Expect(status.Code).To(Equal(int32(200)), status.Message)
 
 			var gateClearedEvent *api.Event
