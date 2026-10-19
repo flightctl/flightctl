@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ const (
 	// VMGuestMemoryDefault is the guest RAM for e2e KubeVirt VM manifests.
 	VMGuestMemoryDefault = "1024M"
 
+	// VMFedoraGuestUser is the default login user on Fedora containerdisk images.
+	VMFedoraGuestUser = "fedora"
+
 	// virshOnComputeTimeout bounds one virsh SSH command. Gomega cannot cancel
 	// a blocked callback, so the command returns on its own deadline.
 	virshOnComputeTimeout = 30 * time.Second
@@ -33,7 +37,16 @@ const (
 // VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
 // is the cloudinitdisk volume entry (including list-item indentation under volumes)
 func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
-	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
+	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML, "", "")
+}
+
+// VMCloudInitWriteFile is an extra cloud-init write_files entry merged into
+// VMFedoraNoCloudUserDataWith alongside the default faillock.conf.
+type VMCloudInitWriteFile struct {
+	Path        string
+	Owner       string
+	Permissions string
+	Content     string
 }
 
 // VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
@@ -44,23 +57,108 @@ password: %s
 chpasswd: { expire: False }`, password)
 }
 
-// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
-func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
-	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData))
+// VMGuestDisableFaillockCommand returns a cloud-init runcmd that removes pam_faillock
+// from the PAM stack via authselect and clears any lockout already recorded for user.
+// write_files deny=0 in faillock.conf is the persistent setting; this runcmd still
+// resets a lock taken in the first-boot window before that file exists. Failures are
+// ignored so non-authselect images still boot.
+func VMGuestDisableFaillockCommand(user string) string {
+	return fmt.Sprintf(`bash -lc "authselect disable-feature with-faillock >/dev/null 2>&1 || true; faillock --user %s --reset >/dev/null 2>&1 || true"`, user)
 }
 
-func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML string) string {
+// VMFedoraNoCloudUserDataWith is VMFedoraNoCloudUserData plus faillock reset, extra write_files, and runcmd entries.
+func VMFedoraNoCloudUserDataWith(password string, extraWriteFiles []VMCloudInitWriteFile, extraRuncmds []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `#cloud-config
+ssh_pwauth: true
+password: %s
+chpasswd: { expire: False }
+write_files:
+  - path: /etc/security/faillock.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      deny = 0
+`, strconv.Quote(password))
+	for _, file := range extraWriteFiles {
+		fmt.Fprintf(&b, `  - path: %s
+    owner: %s
+    permissions: '%s'
+    content: |
+%s
+`, file.Path, file.Owner, file.Permissions, vmIndentCloudInitUserData(file.Content, 6))
+	}
+	fmt.Fprintf(&b, "runcmd:\n  - %s\n", VMGuestDisableFaillockCommand(VMFedoraGuestUser))
+	for _, cmd := range extraRuncmds {
+		fmt.Fprintf(&b, "  - %s\n", cmd)
+	}
+	return b.String()
+}
+
+// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
+func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
+	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData), "", "")
+}
+
+// VMYAMLWithHostVolumes builds a VM manifest with optional hostDisk and blank dataVolume disks.
+// An empty hostDiskPath omits host-data. An empty extraDataSize omits extradata.
+func VMYAMLWithHostVolumes(name, guestMemory, image, cloudInitUserData, hostDiskPath, extraDataSize string) string {
+	return vmYAMLManifest(name, guestMemory, image, 0, VMCloudInitNoCloudVolume(cloudInitUserData), hostDiskPath, extraDataSize)
+}
+
+func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML, hostDiskPath, extraDataSize string) string {
 	cpuBlock := ""
 	if cpuCores > 0 {
 		cpuBlock = fmt.Sprintf("        cpu:\n          cores: %d\n", cpuCores)
 	}
-	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
+	dataVolumeTemplates := ""
+	if extraDataSize != "" {
+		dataVolumeTemplates = fmt.Sprintf(`  dataVolumeTemplates:
+  - metadata:
+      name: extradata
+    spec:
+      source:
+        blank: {}
+      storage:
+        resources:
+          requests:
+            storage: %s
+`, extraDataSize)
+	}
+	extraDisks := ""
+	if hostDiskPath != "" {
+		extraDisks += `          - disk:
+              bus: virtio
+            name: host-data
+`
+	}
+	if extraDataSize != "" {
+		extraDisks += `          - disk:
+              bus: virtio
+            name: extradata
+`
+	}
+	extraVolumes := ""
+	if hostDiskPath != "" {
+		extraVolumes += fmt.Sprintf(`      - hostDisk:
+          path: %s
+          type: DiskOrFail
+        name: host-data
+`, hostDiskPath)
+	}
+	if extraDataSize != "" {
+		extraVolumes += `      - dataVolume:
+          name: extradata
+        name: extradata
+`
+	}
+	manifest := fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: %s
 spec:
   running: true
-  template:
+%s  template:
     spec:
       domain:
 %s        devices:
@@ -71,7 +169,7 @@ spec:
           - disk:
               bus: virtio
             name: cloudinitdisk
-          interfaces:
+%s          interfaces:
           - masquerade: {}
             name: default
           rng: {}
@@ -85,7 +183,11 @@ spec:
       - containerdisk:
           image: %s
         name: containerdisk
-%s`, name, cpuBlock, guestMemory, image, cloudInitVolumeYAML)
+%s`, name, dataVolumeTemplates, cpuBlock, extraDisks, guestMemory, image, cloudInitVolumeYAML)
+	if extraVolumes != "" {
+		manifest += "\n" + extraVolumes
+	}
+	return manifest
 }
 
 // VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
@@ -1230,7 +1332,18 @@ func (h *Harness) VirshOnCompute(container string, virshArgs ...string) (string,
 
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
+// Nested SSH can mix device profile noise onto stdout, so only the last non-empty
+// line is returned. Use RunSSHOnDeviceLocalPortRaw for multi-line guest commands.
 func (h *Harness) RunSSHOnDeviceLocalPort(port int, user, password string, remoteArgs ...string) (string, error) {
+	return h.runSSHOnDeviceLocalPort(port, user, password, true, remoteArgs...)
+}
+
+// RunSSHOnDeviceLocalPortRaw is like RunSSHOnDeviceLocalPort but returns the full guest stdout.
+func (h *Harness) RunSSHOnDeviceLocalPortRaw(port int, user, password string, remoteArgs ...string) (string, error) {
+	return h.runSSHOnDeviceLocalPort(port, user, password, false, remoteArgs...)
+}
+
+func (h *Harness) runSSHOnDeviceLocalPort(port int, user, password string, lastLineOnly bool, remoteArgs ...string) (string, error) {
 	if h.VM == nil {
 		return "", fmt.Errorf("device VM is not configured")
 	}
@@ -1289,7 +1402,11 @@ fi`,
 			port, user, strings.Join(remoteArgs, " "), err,
 		))
 	}
-	return trimSSHCommandOutput(out.String()), nil
+	stdout := out.String()
+	if lastLineOnly {
+		return trimSSHCommandOutput(stdout), nil
+	}
+	return strings.TrimSpace(stdout), nil
 }
 
 var (
