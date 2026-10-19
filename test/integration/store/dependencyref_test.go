@@ -714,6 +714,40 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(probes[0].RenderedTargets).NotTo(BeNil())
 			Expect(probes[0].RenderedTargets.Data).To(BeEmpty())
 		})
+
+		It("should not expand recently checked first-seen refs", func() {
+			repoName := "recently-checked-repo"
+			resourceKey := "git:" + repoName + "/main"
+			fingerprint := ""
+			_, err := deviceStore.Create(ctx, orgId, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("recently-checked-device")},
+				Status: &domain.DeviceStatus{DependencySync: &domain.DependencySyncStatus{ConfigRefs: &[]domain.DependencySyncConfigRefStatus{
+					{ConfigProviderName: "recent-config", Fingerprint: &fingerprint},
+				}}},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(dependencyRefStore.Upsert(ctx, orgId, &model.DependencyRef{
+				OrgID:               orgId,
+				ResourceKey:         resourceKey,
+				FleetName:           lo.ToPtr(""),
+				DeviceName:          lo.ToPtr("recently-checked-device"),
+				RefType:             "git",
+				RepositoryName:      lo.ToPtr(repoName),
+				Revision:            lo.ToPtr("main"),
+				ConfigProviderName:  "recent-config",
+				ConfigProviderNames: model.StringArray{"recent-config"},
+			})).To(Succeed())
+			Expect(syncStateStore.Set(ctx, orgId, &model.SyncState{
+				ResourceKey:   resourceKey,
+				Fingerprint:   "",
+				LastCheckedAt: time.Now(),
+			})).To(Succeed())
+
+			probes, err := dependencyRefStore.ListDueGitDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(BeEmpty())
+		})
 	})
 
 	Context("When storing ConfigProviderName", func() {

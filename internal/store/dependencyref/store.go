@@ -192,11 +192,11 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 			"FROM dependency_refs dr0 "+
 			"LEFT JOIN sync_states ss0 ON ss0.org_id = dr0.org_id AND ss0.resource_key = dr0.resource_key "+
 			"JOIN devices d ON d.org_id = dr0.org_id AND d.deleted_at IS NULL AND ((dr0.device_name <> '' AND d.name = dr0.device_name) OR (dr0.device_name = '' AND dr0.fleet_name <> '' AND d.owner = CONCAT('Fleet/', dr0.fleet_name))) "+
-			"WHERE dr0.org_id = ? AND dr0.ref_type = 'git' AND dr0.revision NOT LIKE ? AND (ss0.fingerprint IS NULL OR ss0.fingerprint = '')"+
+			"WHERE dr0.org_id = ? AND dr0.ref_type = 'git' AND dr0.revision NOT LIKE ? AND (ss0.fingerprint IS NULL OR ss0.fingerprint = '') AND (ss0.last_checked_at IS NULL OR ss0.last_checked_at + ? * INTERVAL '1 second' < NOW())"+
 			") AS first_seen_device "+
 			"JOIN devices d ON d.org_id = first_seen_device.org_id AND d.name = first_seen_device.device_name AND d.deleted_at IS NULL "+
 			"CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref"+
-			") AS rendered_ref ON (ss.fingerprint IS NULL OR ss.fingerprint = '') AND rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))", orgID, "%{{%").
+			") AS rendered_ref ON (ss.fingerprint IS NULL OR ss.fingerprint = '') AND rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))", orgID, "%{{%", pollInterval.Seconds()).
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").
