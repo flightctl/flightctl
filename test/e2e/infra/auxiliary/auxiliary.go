@@ -25,7 +25,7 @@ var (
 // through InfraProvider and restarts the delta worker and render worker through Lifecycle.
 var ApplyDeltaWorkerRegistryRemap func(ctx context.Context, registryURL string) error
 
-// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, file server, telemetry HTTP collector).
+// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, model registry, file server, telemetry HTTP collector).
 // Same for all deployment types; created once and reused. Each service is nil until started.
 // reuse is kept so Cleanup can no-op when reuse=true (containers stay running for the next run).
 type Services struct {
@@ -35,6 +35,7 @@ type Services struct {
 	Jaeger                 *Jaeger
 	Keycloak               *Keycloak
 	Trustify               *Trustify
+	ModelRegistry          *ModelRegistry
 	FileServer             *FileServer
 	TelemetryHTTPCollector *TelemetryHTTPCollector
 
@@ -51,12 +52,14 @@ const (
 	ServiceTracing                Service = "tracing"
 	ServiceKeycloak               Service = "keycloak"
 	ServiceTrustify               Service = "trustify"
+	ServiceModelRegistry          Service = "model-registry"
 	ServiceFileServer             Service = "file-server"
 	ServiceTelemetryHTTPCollector Service = "telemetry-http-collector"
 )
 
 // AllServices is the default set of shared aux services (started by Get(ctx)).
-// Does not include ServiceTracing, ServiceFileServer, ServiceKeycloak, ServiceTrustify; start on-demand.
+// Does not include ServiceTracing, ServiceFileServer, ServiceKeycloak, ServiceTrustify,
+// ServiceModelRegistry; start on-demand.
 var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
 
 // Get returns the aux services, starting all of them if needed (singleton).
@@ -127,6 +130,11 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.Trustify.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start trustify: %w", err)
 			}
+		case ServiceModelRegistry:
+			s.ModelRegistry = &ModelRegistry{}
+			if err := s.ModelRegistry.Start(ctx, network, reuse); err != nil {
+				return nil, fmt.Errorf("failed to start model registry: %w", err)
+			}
 		case ServiceFileServer:
 			s.FileServer = &FileServer{}
 			if err := s.FileServer.Start(ctx, network, reuse); err != nil {
@@ -162,6 +170,7 @@ var serviceContainerNames = map[Service]string{
 	ServiceTracing:                jaegerContainerName,
 	ServiceKeycloak:               keycloakContainerName,
 	ServiceTrustify:               trustifyAPIContainer,
+	ServiceModelRegistry:          modelRegistryContainerName,
 	ServiceFileServer:             fileServerContainerName,
 	ServiceTelemetryHTTPCollector: telemetryHTTPCollectorContainerName,
 }
@@ -209,6 +218,9 @@ func StopServices(services []Service) error {
 		}
 		if svc == ServiceTrustify {
 			StopTrustifyContainers()
+		}
+		if svc == ServiceModelRegistry {
+			StopModelRegistryContainers()
 		}
 	}
 	return removeErr

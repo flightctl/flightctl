@@ -73,6 +73,7 @@ jobs:
       includes_sanity: ${{ steps.selection.outputs.includes_sanity }}
       label_filter: ${{ steps.selection.outputs.label_filter }}
       cs10_label_filter: ${{ steps.selection.outputs.cs10_label_filter }}
+      collector_selected: ${{ steps.selection.outputs.collector_selected }}
     steps:
       - name: Resolve E2E labels
         id: selection
@@ -134,6 +135,27 @@ jobs:
             fi
           done
 
+          # The catalog collector suite is opt-in: it is no longer part of
+          # sanity, and it is the only suite that needs the collector image
+          # built and a collector-specific environment. One flag drives both,
+          # so the image is built exactly when the suite can be selected.
+          # Matches the whole-suite label "catalogcollector" and every
+          # per-scenario label ("catalogcollector-smoke", "-update",
+          # "-removal", "-failure-safety"), including when they are combined
+          # with sanity in one run-e2e:<a>+<b> label. The prefix match is
+          # deliberate: a new scenario label keeps working, and selecting an
+          # image build the run does not use is harmless, whereas missing one
+          # breaks the run.
+          collector_selected=false
+          for label in "${selected_labels[@]}"; do
+            case "${label}" in
+              catalogcollector|catalogcollector-*)
+                collector_selected=true
+                break
+                ;;
+            esac
+          done
+
           label_filter=""
           cs10_label_filter="sanity && agent && !microshift"
           if [[ "${enabled}" == "true" ]]; then
@@ -155,6 +177,7 @@ jobs:
             echo "includes_sanity=${includes_sanity}"
             echo "label_filter=${label_filter}"
             echo "cs10_label_filter=${cs10_label_filter}"
+            echo "collector_selected=${collector_selected}"
           } >> "$GITHUB_OUTPUT"
 
   reuse-e2e:
@@ -297,6 +320,10 @@ jobs:
       needs.reuse-e2e.outputs.reused != 'true' &&
       needs.select-e2e.outputs.enabled == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      # The collector image is not in the default backend build; build it
+      # only for the runs whose label filter can select the collector suite.
+      build_catalog_collector: ${{ needs.select-e2e.outputs.collector_selected == 'true' }}
 
   build-flightctl-cli:
     needs: [build-images-and-charts, compute-tag, select-e2e]
@@ -468,6 +495,9 @@ jobs:
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
       ginkgo_label_filter: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
+      # Same flag that decided whether the collector image was built: the
+      # suite's environment is only exported for runs that can select it.
+      catalog_collector_selected: ${{ needs.select-e2e.outputs.collector_selected == 'true' }}
 
   api-tests:
     needs:
