@@ -60,6 +60,11 @@ data:
             schedule:
               interval: {{ default "1m" .Values.periodic.tasks.deltaPrepareDeadline.schedule.interval }}
           {{ end }}
+          {{ if .Values.periodic.tasks.deltaGenerationValidation }}
+          deltaGenerationValidation:
+            schedule:
+              interval: {{ default "15m" .Values.periodic.tasks.deltaGenerationValidation.schedule.interval }}
+          {{ end }}
           {{ if .Values.periodic.tasks.labelMappingScan }}
           labelMappingScan:
             schedule:
@@ -68,6 +73,10 @@ data:
             timeBudget: {{ default "30s" .Values.periodic.tasks.labelMappingScan.timeBudget | quote }}
           {{ end }}
         {{ end }}
+    {{- $delta := default dict .Values.deltaGeneration }}
+    deltaGeneration:
+        artifactValidationTimeout: {{ default "30s" $delta.artifactValidationTimeout | quote }}
+{{ include "flightctl.deltaGenerationDefaultRepository" . | nindent 8 }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true

@@ -987,6 +987,46 @@ Usage: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" 
 {{- end -}}
 
 {{- /*
+Render the optional default delta repository from .Values.deltaGeneration.
+Usage: {{ include "flightctl.deltaGenerationDefaultRepository" . | nindent 8 }}
+*/}}
+{{- define "flightctl.deltaGenerationDefaultRepository" -}}
+{{- $delta := default dict .Values.deltaGeneration -}}
+{{- $defaultRepo := default dict $delta.defaultRepository -}}
+{{- if $defaultRepo.registry -}}
+{{- $repository := dict "registry" $defaultRepo.registry -}}
+{{- if $defaultRepo.repository }}{{ $_ := set $repository "repository" $defaultRepo.repository }}{{ end }}
+{{- if $defaultRepo.namespace }}{{ $_ := set $repository "namespace" $defaultRepo.namespace }}{{ end }}
+{{- if $defaultRepo.scheme }}{{ $_ := set $repository "scheme" $defaultRepo.scheme }}{{ end }}
+{{- if $defaultRepo.skipServerVerification }}{{ $_ := set $repository "skipServerVerification" true }}{{ end }}
+{{- if $defaultRepo.caCrt }}{{ $_ := set $repository "ca.crt" $defaultRepo.caCrt }}{{ end }}
+defaultRepository:
+{{ toYaml $repository | indent 4 }}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+Render optional default delta repository credentials from .Values.deltaGeneration.
+Usage: {{ include "flightctl.deltaGenerationSecretEnv" . | nindent 12 }}
+*/}}
+{{- define "flightctl.deltaGenerationSecretEnv" -}}
+{{- $delta := default dict .Values.deltaGeneration -}}
+{{- $defaultRepo := default dict $delta.defaultRepository -}}
+{{- if $defaultRepo.secretName -}}
+- name: DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ $defaultRepo.secretName }}
+      key: username
+- name: DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $defaultRepo.secretName }}
+      key: password
+{{- end -}}
+{{- end -}}
+
+{{- /*
 Render optional profiling (pprof / pyroscope) from .Values.dev.profiling.
 Usage: {{ include "flightctl.profiling" . | nindent 4 }}
 */}}

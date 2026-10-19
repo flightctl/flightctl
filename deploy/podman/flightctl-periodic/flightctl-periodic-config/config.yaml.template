@@ -68,6 +68,13 @@ periodic:
         interval: {{.}}
 {{- end}}
 {{- end}}
+{{- with .deltaGenerationValidation }}
+{{- with .schedule.interval }}
+    deltaGenerationValidation:
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- end}}
 {{- with .labelMappingScan }}
     labelMappingScan:
 {{- with .schedule.interval }}
@@ -80,6 +87,31 @@ periodic:
 {{- with .timeBudget }}
       timeBudget: {{.}}
 {{- end}}
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if .deltaGeneration }}
+deltaGeneration:
+  artifactValidationTimeout: {{if .deltaGeneration.artifactValidationTimeout}}{{.deltaGeneration.artifactValidationTimeout}}{{else}}30s{{end}}
+{{- with .deltaGeneration.defaultRepository }}
+{{- if .registry }}
+  defaultRepository:
+    registry: {{ .registry }}
+    {{- if .repository }}
+    repository: {{ .repository }}
+    {{- end }}
+    {{- if .namespace }}
+    namespace: {{ .namespace }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .skipServerVerification }}
+    skipServerVerification: true
+    {{- end }}
+    {{- if .caCrt }}
+    ca.crt: {{ .caCrt }}
+    {{- end }}
 {{- end}}
 {{- end}}
 {{- end}}

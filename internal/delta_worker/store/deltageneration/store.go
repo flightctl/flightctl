@@ -3,6 +3,7 @@ package deltageneration
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -21,7 +22,7 @@ const generationListBatchSize = 500
 type Store interface {
 	InsertDeltaGenerations(ctx context.Context, generations []*model.DeltaGeneration) ([]model.DeltaGeneration, error)
 	GetDeltaGeneration(ctx context.Context, key GenerationKey, opts ...GenerationGetOption) (*model.DeltaGeneration, error)
-	ListDeltaGenerations(ctx context.Context, keys []GenerationKey) ([]model.DeltaGeneration, error)
+	ListDeltaGenerations(ctx context.Context, keys []GenerationKey, opts ...GenerationListOption) ([]model.DeltaGeneration, error)
 	UpdateDeltaGeneration(ctx context.Context, expectedResourceVersion int64, generation *model.DeltaGeneration) (*model.DeltaGeneration, error)
 }
 
@@ -44,6 +45,55 @@ func WithStatus(status string) GenerationGetOption {
 	return func(o *generationGet) {
 		o.status = &status
 	}
+}
+
+type generationList struct {
+	status             *string
+	lastVerifiedBefore *time.Time
+	limit              int
+	after              *GenerationKey
+}
+
+type GenerationListOption func(*generationList)
+
+func WithListStatus(status string) GenerationListOption {
+	return func(o *generationList) {
+		o.status = &status
+	}
+}
+
+func WithListLastVerifiedBefore(before time.Time) GenerationListOption {
+	return func(o *generationList) {
+		o.lastVerifiedBefore = &before
+	}
+}
+
+func WithListLimit(limit int) GenerationListOption {
+	return func(o *generationList) {
+		o.limit = limit
+	}
+}
+
+func WithListAfter(after GenerationKey) GenerationListOption {
+	return func(o *generationList) {
+		o.after = &after
+	}
+}
+
+func (o *generationList) filter(q *gorm.DB) *gorm.DB {
+	if o.status != nil {
+		q = q.Where("status = ?", *o.status)
+	}
+	if o.lastVerifiedBefore != nil {
+		q = q.Where("(last_verified_at IS NULL OR last_verified_at <= ?)", *o.lastVerifiedBefore)
+	}
+	if o.after != nil {
+		q = q.Where(
+			"(org_id, image_repository, source_digest, target_digest) > (?, ?, ?, ?)",
+			o.after.OrgID, o.after.ImageRepository, o.after.SourceDigest, o.after.TargetDigest,
+		)
+	}
+	return q
 }
 
 // GenerationStore persists delta generation resources.
@@ -104,7 +154,7 @@ func generationConflict() clause.OnConflict {
 			"updated_at": namedExpr(`
 				CASE
 					WHEN delta_generations.status = CAST(@failed AS text)
-						THEN NOW()
+						THEN CURRENT_TIMESTAMP
 					ELSE delta_generations.updated_at
 				END`),
 		}),
@@ -201,9 +251,26 @@ func (s *GenerationStore) GetDeltaGeneration(ctx context.Context, key Generation
 	return s.getGeneration(ctx, key, opts...)
 }
 
-func (s *GenerationStore) ListDeltaGenerations(ctx context.Context, keys []GenerationKey) ([]model.DeltaGeneration, error) {
+func (s *GenerationStore) ListDeltaGenerations(ctx context.Context, keys []GenerationKey, opts ...GenerationListOption) ([]model.DeltaGeneration, error) {
+	cfg := &generationList{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 	if len(keys) == 0 {
-		return nil, nil
+		if len(opts) == 0 {
+			return nil, nil
+		}
+		var generations []model.DeltaGeneration
+		query := cfg.filter(s.getDB(ctx).
+			Order("org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC"))
+		if cfg.limit > 0 {
+			query = query.Limit(cfg.limit)
+		}
+		err := query.Find(&generations).Error
+		if err != nil {
+			return nil, store.ErrorFromGormError(err)
+		}
+		return generations, nil
 	}
 	var generations []model.DeltaGeneration
 	keys = lo.Uniq(keys)
@@ -214,7 +281,16 @@ func (s *GenerationStore) ListDeltaGenerations(ctx context.Context, keys []Gener
 			values = append(values, []interface{}{key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest})
 		}
 		var batch []model.DeltaGeneration
-		if err := s.getDB(ctx).Where("(org_id, image_repository, source_digest, target_digest) IN ?", values).Find(&batch).Error; err != nil {
+		query := cfg.filter(s.getDB(ctx).
+			Where("(org_id, image_repository, source_digest, target_digest) IN ?", values))
+		if cfg.limit > 0 {
+			if len(generations) >= cfg.limit {
+				break
+			}
+			query = query.Limit(min(cfg.limit-len(generations), generationListBatchSize))
+		}
+		err := query.Find(&batch).Error
+		if err != nil {
 			return nil, store.ErrorFromGormError(err)
 		}
 		generations = append(generations, batch...)
@@ -236,7 +312,7 @@ func (s *GenerationStore) UpdateDeltaGeneration(ctx context.Context, expectedRes
 		"last_verified_at": generation.LastVerifiedAt,
 		"generated_at":     generation.GeneratedAt,
 		"resource_version": gorm.Expr("resource_version + 1"),
-		"updated_at":       gorm.Expr("NOW()"),
+		"updated_at":       gorm.Expr("CURRENT_TIMESTAMP"),
 	}
 	result := s.getDB(ctx).Model(&updated).Where(
 		"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ? AND resource_version = ?",

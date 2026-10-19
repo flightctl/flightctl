@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -189,10 +190,11 @@ func (s *Server) Run(ctx context.Context) error {
 	// Initialize the task executors.
 	deltaPrepareStore := deltapreparestore.NewStore(s.db, s.log.WithField("pkg", "delta-prepare-store"))
 	deltaPrepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(deltaPrepareStore, nil))
+	deltaGenerationStore := deltagenerationstore.NewStore(s.db, s.log.WithField("pkg", "delta-generation-store"))
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, deltaGenerationStore, kvStore, tvSvc)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

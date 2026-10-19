@@ -404,14 +404,14 @@ const (
 
 func TestCheckExistingDelta(t *testing.T) {
 	deltaManifest := ocispec.Manifest{
-		ArtifactType: ociDeltaArtifactType,
+		ArtifactType: OCIDeltaArtifactType,
 		Config:       ocispec.Descriptor{Digest: digest.FromString("config"), Size: 10},
 		Layers: []ocispec.Descriptor{
 			{Digest: digest.FromString("layer-1"), Size: 20},
 			{Digest: digest.FromString("layer-2"), Size: 30},
 		},
 		Subject:     &ocispec.Descriptor{Digest: digest.NewDigestFromEncoded(digest.SHA256, strings.TrimPrefix(testTargetDigest, "sha256:"))},
-		Annotations: map[string]string{ociDeltaSourceAnnotation: testSourceDigest},
+		Annotations: map[string]string{OCIDeltaSourceAnnotation: testSourceDigest},
 	}
 	deltaManifestBytes, err := json.Marshal(deltaManifest)
 	require.NoError(t, err)
@@ -420,9 +420,9 @@ func TestCheckExistingDelta(t *testing.T) {
 		MediaType:    ocispec.MediaTypeImageManifest,
 		Digest:       deltaDigest,
 		Size:         int64(len(deltaManifestBytes)),
-		ArtifactType: ociDeltaArtifactType,
+		ArtifactType: OCIDeltaArtifactType,
 		Annotations: map[string]string{
-			ociDeltaSourceAnnotation: testSourceDigest,
+			OCIDeltaSourceAnnotation: testSourceDigest,
 		},
 	}
 
@@ -577,7 +577,7 @@ func TestCheckExistingDelta(t *testing.T) {
 			name: "When Referrers lists a non-matching source digest it should be not found",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				other := referrer
-				other.Annotations = map[string]string{ociDeltaSourceAnnotation: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+				other.Annotations = map[string]string{OCIDeltaSourceAnnotation: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 				writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{other}})
 			},
 			wantFound: false,
@@ -621,7 +621,7 @@ func TestCheckExistingDelta(t *testing.T) {
 }
 
 func TestReferrersMissingSubjectClient_WhenResponseIsPassedThroughOrReplaced(t *testing.T) {
-	oversized := append(bytes.Repeat([]byte("x"), maxRegistryResponseBytes+1), []byte("-remainder")...)
+	oversized := append(bytes.Repeat([]byte("x"), MaxRegistryResponseBytes+1), []byte("-remainder")...)
 	invalid := []byte(`{"errors":[{"code":"MANIFEST_INVALID","message":"manifest invalid"}]}`)
 	denied := []byte(`{"errors":[{"code":"DENIED","message":"denied"}]}`)
 
@@ -962,11 +962,11 @@ func TestCopyDeltaGraph_WhenSubjectManifestIsAlsoLayerItShouldPublishLayerWithou
 		Size:      int64(len(deltaPayload)),
 	}
 	req.NoError(layout.Push(ctx, deltaLayer, bytes.NewReader(deltaPayload)))
-	layoutManifest, err := oras.PackManifest(ctx, layout, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
+	layoutManifest, err := oras.PackManifest(ctx, layout, oras.PackManifestVersion1_1, OCIDeltaArtifactType, oras.PackManifestOptions{
 		Subject: &subject,
 		Layers:  []ocispec.Descriptor{targetManifestLayer, deltaLayer},
 		ManifestAnnotations: map[string]string{
-			ociDeltaSourceAnnotation: sourceDigest,
+			OCIDeltaSourceAnnotation: sourceDigest,
 		},
 	})
 	req.NoError(err)
@@ -1008,7 +1008,7 @@ func TestDeltaLayout_WhenPairDoesNotMatchItShouldError(t *testing.T) {
 	layout := &deltaLayout{
 		subject: ocispec.Descriptor{Digest: digest.FromBytes([]byte("tgt"))},
 		annotations: map[string]string{
-			ociDeltaSourceAnnotation: "sha256:src",
+			OCIDeltaSourceAnnotation: "sha256:src",
 		},
 	}
 	req.Error(layout.matchesPair("sha256:other", layout.subject.Digest.String()))

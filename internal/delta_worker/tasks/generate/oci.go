@@ -268,7 +268,7 @@ func pushOCILayoutWithSize(ctx context.Context, spec *domain.OciRepoSpec, layout
 	if err := copyDeltaGraph(ctx, layout, dst, dst.Blobs()); err != nil {
 		return "", 0, fmt.Errorf("copy delta layout: %w", err)
 	}
-	return destRef + "@" + layout.root.Digest.String(), deltaPayloadSize(layout.manifest), nil
+	return destRef + "@" + layout.root.Digest.String(), DeltaPayloadSize(layout.manifest), nil
 }
 
 func copyDeltaGraph(ctx context.Context, layout *deltaLayout, dst content.Storage, dstBlobs content.Storage) error {
@@ -345,7 +345,7 @@ func loadDeltaLayout(ctx context.Context, layoutDir string) (*deltaLayout, error
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return nil, fmt.Errorf("parse delta manifest: %w", err)
 	}
-	if err := validateDeltaManifest(manifest); err != nil {
+	if err := ValidateDeltaManifest(manifest); err != nil {
 		return nil, fmt.Errorf("delta layout: %w", err)
 	}
 	return &deltaLayout{
@@ -361,7 +361,7 @@ func (l *deltaLayout) matchesPair(sourceDigest, targetDigest string) error {
 	if l.subject.Digest.String() != targetDigest {
 		return fmt.Errorf("delta subject %s does not match target %s", l.subject.Digest, targetDigest)
 	}
-	got := l.annotations[ociDeltaSourceAnnotation]
+	got := l.annotations[OCIDeltaSourceAnnotation]
 	if got != sourceDigest {
 		return fmt.Errorf("delta source annotation %s does not match source %s", got, sourceDigest)
 	}
@@ -430,5 +430,5 @@ func readLayoutPayloadSize(layoutDir string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return deltaPayloadSize(layout.manifest), nil
+	return DeltaPayloadSize(layout.manifest), nil
 }

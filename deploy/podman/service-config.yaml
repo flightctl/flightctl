@@ -112,6 +112,9 @@ service:
 #     deltaPrepareDeadline:
 #       schedule:
 #         interval: 1m
+#     deltaGenerationValidation:
+#       schedule:
+#         interval: 15m
 
 grafana:
   oauth:
@@ -228,6 +231,8 @@ prometheus:
 #     scheme: https
 #     skipServerVerification: false
 #     # ca.crt: <base64-encoded PEM>
+#   # Timeout for each delta artifact availability check. Defaults to 30s.
+#   artifactValidationTimeout: 30s
 
 # Automated dependency synchronization (optional).
 # Controls the global polling interval for git/HTTP dependency probes.

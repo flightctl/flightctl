@@ -17,6 +17,7 @@ type DeltaGenerationConfig struct {
 	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
 	Timeout                       util.Duration            `json:"timeout,omitempty"`
 	MaxWaitForDelta               *util.Duration           `json:"maxWaitForDelta,omitempty"`
+	ArtifactValidationTimeout     util.Duration            `json:"artifactValidationTimeout,omitempty"`
 }
 
 const maxConcurrentDeltaGenerationsLimit = 32
@@ -48,9 +49,22 @@ func (c *DeltaGenerationConfig) EffectiveMaxWaitForDelta() *time.Duration {
 	return &d
 }
 
+func (c *DeltaGenerationConfig) EffectiveArtifactValidationTimeout() time.Duration {
+	if c == nil || time.Duration(c.ArtifactValidationTimeout) <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.ArtifactValidationTimeout)
+}
+
 // Validate validates the default OCI repository settings.
 func (c *DeltaGenerationConfig) Validate() error {
-	if c == nil || c.DefaultRepository == nil {
+	if c == nil {
+		return nil
+	}
+	if time.Duration(c.ArtifactValidationTimeout) < 0 {
+		return fmt.Errorf("deltaGeneration.artifactValidationTimeout must be greater than or equal to zero")
+	}
+	if c.DefaultRepository == nil {
 		return nil
 	}
 	d := c.DefaultRepository
