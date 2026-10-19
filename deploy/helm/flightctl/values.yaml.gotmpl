@@ -459,6 +459,11 @@ periodic:
       schedule:
         # -- How often flightctl-periodic checks for expired delta prepares
         interval: 1m
+    # -- Delta generation artifact validation schedule
+    deltaGenerationValidation:
+      schedule:
+        # -- How often flightctl-periodic validates successful delta artifacts
+        interval: 15m
     labelMappingScan:
       schedule:
         # -- How often to scan devices after a label mapping changes
@@ -764,6 +769,8 @@ deltaGeneration:
     caCrt: ""
     # -- Name of the Kubernetes Secret containing 'username' and 'password' keys.
     secretName: ""
+  # -- Timeout for each delta artifact availability check. Defaults to 30s when omitted or zero; negative values are invalid.
+  artifactValidationTimeout: 30s
   # -- Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0.
   maxConcurrentDeltaGenerations: 2
   # -- Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0.

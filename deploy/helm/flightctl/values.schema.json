@@ -699,6 +699,20 @@
                 }
               }
             },
+            "deltaGenerationValidation": {
+              "type": "object",
+              "description": "Delta generation artifact validation schedule",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for validating successful delta artifacts" }
+                  }
+                }
+              }
+            },
             "labelMappingScan": {
               "type": "object",
               "description": "Periodic label mapping scan configuration",
@@ -1242,6 +1256,10 @@
         "maxWaitForDelta": {
           "type": "string",
           "description": "Optional prepare wait cap (Go duration, e.g. 10m). Omitted means no deadline. 0s generates then resumes immediately"
+        },
+        "artifactValidationTimeout": {
+          "type": "string",
+          "description": "Timeout for each delta artifact availability check (Go duration, e.g. 30s). Defaults to 30s when omitted or zero; negative values are invalid"
         }
       }
     },

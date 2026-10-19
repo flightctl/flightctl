@@ -48,7 +48,7 @@ func DeviceImagePlatform(device *domain.Device) *ocispec.Platform {
 }
 
 func SpecForRegistry(host string, spec *domain.OciRepoSpec) *domain.OciRepoSpec {
-	if spec != nil && spec.Registry == host {
+	if spec != nil && strings.EqualFold(spec.Registry, host) {
 		return spec
 	}
 

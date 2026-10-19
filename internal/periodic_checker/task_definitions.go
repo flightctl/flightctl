@@ -7,12 +7,15 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -46,18 +49,19 @@ const QueueMaintenanceInterval = 2 * tasks.EventProcessingTimeout
 type PeriodicTaskType string
 
 const (
-	PeriodicTaskTypeRepositoryTester       PeriodicTaskType = "repository-tester"
-	PeriodicTaskTypeResourceSync           PeriodicTaskType = "resource-sync"
-	PeriodicTaskTypeDeviceConnection       PeriodicTaskType = "device-connection"
-	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
-	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
-	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
-	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
-	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
-	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
-	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
-	PeriodicTaskTypeDeltaPrepareDeadline   PeriodicTaskType = "delta-prepare-deadline"
-	PeriodicTaskTypeLabelMappingScan       PeriodicTaskType = "label-sync-mapping-scan"
+	PeriodicTaskTypeRepositoryTester          PeriodicTaskType = "repository-tester"
+	PeriodicTaskTypeResourceSync              PeriodicTaskType = "resource-sync"
+	PeriodicTaskTypeDeviceConnection          PeriodicTaskType = "device-connection"
+	PeriodicTaskTypeRolloutDeviceSelection    PeriodicTaskType = "rollout-device-selection"
+	PeriodicTaskTypeDisruptionBudget          PeriodicTaskType = "disruption-budget"
+	PeriodicTaskTypeEventCleanup              PeriodicTaskType = "event-cleanup"
+	PeriodicTaskTypeQueueMaintenance          PeriodicTaskType = "queue-maintenance"
+	PeriodicTaskTypeVulnerabilitySync         PeriodicTaskType = "vulnerability-sync"
+	PeriodicTaskTypeDependencySyncGit         PeriodicTaskType = "dependency-sync-git"
+	PeriodicTaskTypeDependencySyncHttp        PeriodicTaskType = "dependency-sync-http"
+	PeriodicTaskTypeDeltaPrepareDeadline      PeriodicTaskType = "delta-prepare-deadline"
+	PeriodicTaskTypeDeltaGenerationValidation PeriodicTaskType = "delta-generation-validation"
+	PeriodicTaskTypeLabelMappingScan          PeriodicTaskType = "label-sync-mapping-scan"
 )
 
 type PeriodicTaskMetadata struct {
@@ -66,18 +70,19 @@ type PeriodicTaskMetadata struct {
 }
 
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
-	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeDeviceConnection:       {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
-	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
-	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
-	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
-	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
-	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
-	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
-	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
-	PeriodicTaskTypeDeltaPrepareDeadline:   {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
-	PeriodicTaskTypeLabelMappingScan:       {Interval: config.DefaultLabelMappingScanTaskInterval, SystemWide: false},
+	PeriodicTaskTypeRepositoryTester:          {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeResourceSync:              {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeDeviceConnection:          {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
+	PeriodicTaskTypeRolloutDeviceSelection:    {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
+	PeriodicTaskTypeDisruptionBudget:          {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
+	PeriodicTaskTypeEventCleanup:              {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
+	PeriodicTaskTypeQueueMaintenance:          {Interval: QueueMaintenanceInterval, SystemWide: true},
+	PeriodicTaskTypeVulnerabilitySync:         {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
+	PeriodicTaskTypeDependencySyncGit:         {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDependencySyncHttp:        {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDeltaPrepareDeadline:      {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
+	PeriodicTaskTypeDeltaGenerationValidation: {Interval: config.DefaultDeltaGenerationValidationTaskInterval, SystemWide: true},
+	PeriodicTaskTypeLabelMappingScan:          {Interval: config.DefaultLabelMappingScanTaskInterval, SystemWide: false},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -92,6 +97,11 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 	if !vulnEnabled {
 		delete(merged, PeriodicTaskTypeVulnerabilitySync)
 	}
+	setTaskInterval := func(taskType PeriodicTaskType, interval time.Duration) {
+		meta := merged[taskType]
+		meta.Interval = interval
+		merged[taskType] = meta
+	}
 
 	if cfg == nil {
 		return merged
@@ -100,39 +110,30 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 	if cfg.Periodic != nil {
 		periodicTasks := cfg.Periodic.Tasks
 		if periodicTasks.ResourceSync.Schedule.Interval > 0 {
-			meta := merged[PeriodicTaskTypeResourceSync]
-			meta.Interval = time.Duration(periodicTasks.ResourceSync.Schedule.Interval)
-			merged[PeriodicTaskTypeResourceSync] = meta
+			setTaskInterval(PeriodicTaskTypeResourceSync, time.Duration(periodicTasks.ResourceSync.Schedule.Interval))
 		}
 		if periodicTasks.DependencySync.Schedule.Interval > 0 {
 			interval := time.Duration(periodicTasks.DependencySync.Schedule.Interval)
 			for _, taskType := range []PeriodicTaskType{PeriodicTaskTypeDependencySyncGit, PeriodicTaskTypeDependencySyncHttp} {
-				meta := merged[taskType]
-				meta.Interval = interval
-				merged[taskType] = meta
+				setTaskInterval(taskType, interval)
 			}
 		}
 		if periodicTasks.RepositoryTester.Schedule.Interval > 0 {
-			meta := merged[PeriodicTaskTypeRepositoryTester]
-			meta.Interval = time.Duration(periodicTasks.RepositoryTester.Schedule.Interval)
-			merged[PeriodicTaskTypeRepositoryTester] = meta
+			setTaskInterval(PeriodicTaskTypeRepositoryTester, time.Duration(periodicTasks.RepositoryTester.Schedule.Interval))
 		}
 		if periodicTasks.DeltaPrepareDeadline.Schedule.Interval > 0 {
-			meta := merged[PeriodicTaskTypeDeltaPrepareDeadline]
-			meta.Interval = time.Duration(periodicTasks.DeltaPrepareDeadline.Schedule.Interval)
-			merged[PeriodicTaskTypeDeltaPrepareDeadline] = meta
+			setTaskInterval(PeriodicTaskTypeDeltaPrepareDeadline, time.Duration(periodicTasks.DeltaPrepareDeadline.Schedule.Interval))
+		}
+		if periodicTasks.DeltaGenerationValidation.Schedule.Interval > 0 {
+			setTaskInterval(PeriodicTaskTypeDeltaGenerationValidation, time.Duration(periodicTasks.DeltaGenerationValidation.Schedule.Interval))
 		}
 		if periodicTasks.LabelMappingScan.Schedule.Interval > 0 {
-			meta := merged[PeriodicTaskTypeLabelMappingScan]
-			meta.Interval = time.Duration(periodicTasks.LabelMappingScan.Schedule.Interval)
-			merged[PeriodicTaskTypeLabelMappingScan] = meta
+			setTaskInterval(PeriodicTaskTypeLabelMappingScan, time.Duration(periodicTasks.LabelMappingScan.Schedule.Interval))
 		}
 	}
 
 	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {
-		meta := merged[PeriodicTaskTypeVulnerabilitySync]
-		meta.Interval = time.Duration(cfg.VulnerabilityReporting.SyncInterval)
-		merged[PeriodicTaskTypeVulnerabilitySync] = meta
+		setTaskInterval(PeriodicTaskTypeVulnerabilitySync, time.Duration(cfg.VulnerabilityReporting.SyncInterval))
 	}
 
 	return merged
@@ -284,9 +285,32 @@ type DeltaPrepareDeadlineExecutor struct {
 	eventSvc   eventservice.Service
 }
 
+type DeltaGenerationValidationExecutor struct {
+	log           logrus.FieldLogger
+	generations   deltastore.Store
+	repositorySvc repositoryservice.Service
+	kv            kvstore.KVStore
+	cfg           *config.Config
+}
+
 func (e *DeltaPrepareDeadlineExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeltaPrepareDeadline)
 	tasks.NewDeltaPrepareDeadline(e.log, e.deltaStore, e.prepareSvc, e.fleetSvc, e.deviceSvc, e.tvSvc, e.eventSvc).Poll(taskCtx)
+}
+
+func (e *DeltaGenerationValidationExecutor) Execute(ctx context.Context, _ logrus.FieldLogger, _ uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeltaGenerationValidation)
+	var generationCfg *deltaconfig.DeltaGenerationConfig
+	if e.cfg != nil {
+		generationCfg = e.cfg.DeltaGeneration
+	}
+	interval := MergeTasksWithConfig(e.cfg)[PeriodicTaskTypeDeltaGenerationValidation].Interval
+	validator, err := tasks.NewDeltaGenerationValidator(e.log, e.generations, e.repositorySvc, e.kv, generationCfg, interval)
+	if err != nil {
+		e.log.WithError(err).Error("Failed creating delta generation validator")
+		return
+	}
+	validator.Poll(taskCtx)
 }
 
 type QueueMaintenanceExecutor struct {
@@ -414,6 +438,8 @@ func InitializeTaskExecutors(
 		ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error)
 	},
 	prepareSvc deltaprepare.Service,
+	deltaGenerationStore deltastore.Store,
+	kvStore kvstore.KVStore,
 	tvSvc templateversionservice.Service,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
@@ -465,6 +491,13 @@ func InitializeTaskExecutors(
 			deviceSvc:  deviceSvc,
 			tvSvc:      tvSvc,
 			eventSvc:   eventSvc,
+		},
+		PeriodicTaskTypeDeltaGenerationValidation: &DeltaGenerationValidationExecutor{
+			log:           log.WithField("pkg", "delta-generation-validation"),
+			generations:   deltaGenerationStore,
+			repositorySvc: repositorySvc,
+			kv:            kvStore,
+			cfg:           cfg,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
 			log:             log.WithField("pkg", "queue-maintenance"),

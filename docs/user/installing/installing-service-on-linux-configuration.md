@@ -72,6 +72,9 @@ Ensure both the control plane and the device agent can access the registry, as d
 | `maxConcurrentDeltaGenerations` | `integer` | | Maximum concurrent generation jobs per delta worker instance. Defaults to `2` when omitted or set to `0` or a negative value. Values greater than `32` are capped at `32`. Multiply this value by the delta-worker replica count for the deployment's maximum concurrent jobs. |
 | `timeout` | `duration` | | Deadline for each generation job, expressed as a Go duration such as `30m`. Defaults to `30m` when omitted or set to `0` or a negative duration. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.deltaGenerationTimeout`. |
 | `maxWaitForDelta` | `duration` | | Optional preparation wait cap, expressed as a Go duration such as `10m`. Omitted by default: the update waits until all generation pairs reach a terminal state. `timeout` bounds each running job; queued pairs can extend the total wait. `0s` starts generation and continues the update immediately. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.maxWaitForDelta`. |
+| `artifactValidationTimeout` | `duration` | | Timeout for each periodic delta artifact availability check. Defaults to `30s` when omitted or set to `0`; negative values are invalid. |
+
+`flightctl-periodic` validates successful delta-generation records against their exact stored artifact references every 15 minutes by default. Each invocation processes a bounded batch and resumes from a durable cursor on later invocations. Override the interval with `periodic.tasks.deltaGenerationValidation.schedule.interval`. Validation skips records verified within that interval, marks confirmed missing or unavailable artifacts failed, and leaves transient registry failures unchanged.
 
 Standalone devices use these deployment defaults. Fleet overrides apply to both OS and application generation. See [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation) for rollout options.
 
@@ -85,6 +88,7 @@ deltaGeneration:
     scheme: https
   maxConcurrentDeltaGenerations: 2 # Default
   timeout: 30m # Default
+  artifactValidationTimeout: 30s # Default
   maxWaitForDelta: 10m
 ```
 
@@ -117,13 +121,14 @@ For a private deployment default on Podman, supply registry credentials through 
    sudo podman secret create flightctl-delta-generation-default-repository-password <password_file>
    ```
 
-3. Create the drop-in directory:
+3. Create the drop-in directories:
 
    ```console
    sudo mkdir -p /etc/containers/systemd/flightctl-delta-worker.container.d
+   sudo mkdir -p /etc/containers/systemd/flightctl-periodic.container.d
    ```
 
-4. Create `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf` with the following content:
+4. Create `delta-generation-repository.conf` with the following content in both drop-in directories:
 
    ```ini
    [Container]
@@ -131,7 +136,7 @@ For a private deployment default on Podman, supply registry credentials through 
    Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
    ```
 
-5. Reload the units and restart the delta worker:
+5. Reload the units and restart the delta worker and periodic service:
 
    ```console
    sudo systemctl daemon-reload
@@ -139,6 +144,10 @@ For a private deployment default on Podman, supply registry credentials through 
 
    ```console
    sudo systemctl restart flightctl-delta-worker.service
+   ```
+
+   ```console
+   sudo systemctl restart flightctl-periodic.service
    ```
 
 With a registry-only target, generated deltas use the target image's repository path under the configured registry. See [Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target) for organization targets and destination examples.

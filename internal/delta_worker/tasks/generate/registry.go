@@ -15,16 +15,15 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
 const (
-	ociDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
-	ociDeltaSourceAnnotation = "io.github.containers.delta.source"
+	OCIDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
+	OCIDeltaSourceAnnotation = "io.github.containers.delta.source"
 	errCodeManifestInvalid   = "MANIFEST_INVALID"
 	errCodeManifestUnknown   = "MANIFEST_UNKNOWN"
-	maxRegistryResponseBytes = 10 << 20
+	MaxRegistryResponseBytes = 10 << 20
 	maxReferrerPages         = 100
 )
 
@@ -44,9 +43,7 @@ func checkExistingDelta(ctx context.Context, deltaRepository, sourceDigest, targ
 	if err != nil {
 		return nil, fmt.Errorf("existence check: configure repository: %w", err)
 	}
-	repo.MaxMetadataBytes = maxRegistryResponseBytes
-	repo.ReferrerListMaxPages = maxReferrerPages
-	repo.Client = referrersMissingSubjectClient{base: repo.Client}
+	ConfigureDeltaRepository(repo)
 	existence, err := checkDeltaExists(ctx, repo, deltaRepository, source, target)
 	if err != nil {
 		return nil, fmt.Errorf("existence check: %w", err)
@@ -54,9 +51,15 @@ func checkExistingDelta(ctx context.Context, deltaRepository, sourceDigest, targ
 	return existence, nil
 }
 
-func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaRepository string, sourceDigest, targetDigest digest.Digest) (*existingDelta, error) {
+func ConfigureDeltaRepository(repo *remote.Repository) {
+	repo.MaxMetadataBytes = MaxRegistryResponseBytes
+	repo.ReferrerListMaxPages = maxReferrerPages
+	repo.Client = referrersMissingSubjectClient{base: repo.Client}
+}
+
+func FindDeltaReferrer(ctx context.Context, repo *remote.Repository, sourceDigest, targetDigest digest.Digest) (*ocispec.Descriptor, error) {
 	var match *ocispec.Descriptor
-	err := repo.Referrers(ctx, ocispec.Descriptor{Digest: targetDigest}, ociDeltaArtifactType, func(referrers []ocispec.Descriptor) error {
+	err := repo.Referrers(ctx, ocispec.Descriptor{Digest: targetDigest}, OCIDeltaArtifactType, func(referrers []ocispec.Descriptor) error {
 		if match != nil {
 			return nil
 		}
@@ -68,11 +71,42 @@ func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaReposi
 	if err != nil {
 		return nil, fmt.Errorf("list referrers: %w", err)
 	}
+	return match, nil
+}
+
+func FindExactDeltaReferrer(ctx context.Context, repo *remote.Repository, sourceDigest, targetDigest, expectedDigest digest.Digest) (*ocispec.Descriptor, error) {
+	var match *ocispec.Descriptor
+	err := repo.Referrers(ctx, ocispec.Descriptor{Digest: targetDigest}, OCIDeltaArtifactType, func(referrers []ocispec.Descriptor) error {
+		if match != nil {
+			return nil
+		}
+		for _, referrer := range referrers {
+			if referrer.ArtifactType != OCIDeltaArtifactType || referrer.Digest != expectedDigest {
+				continue
+			}
+			if referrer.Annotations[OCIDeltaSourceAnnotation] == sourceDigest.String() {
+				match = &referrer
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list referrers: %w", err)
+	}
+	return match, nil
+}
+
+func checkDeltaExists(ctx context.Context, repo *remote.Repository, deltaRepository string, sourceDigest, targetDigest digest.Digest) (*existingDelta, error) {
+	match, err := FindDeltaReferrer(ctx, repo, sourceDigest, targetDigest)
+	if err != nil {
+		return nil, err
+	}
 	if match == nil {
 		return nil, nil
 	}
-	if match.Size < 0 || match.Size > maxRegistryResponseBytes {
-		return nil, fmt.Errorf("delta manifest size %d exceeds %d bytes", match.Size, maxRegistryResponseBytes)
+	if match.Size < 0 || match.Size > MaxRegistryResponseBytes {
+		return nil, fmt.Errorf("delta manifest size %d exceeds %d bytes", match.Size, MaxRegistryResponseBytes)
 	}
 	manifestBytes, err := content.FetchAll(ctx, repo, *match)
 	if err != nil {
@@ -82,22 +116,29 @@ func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaReposi
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return nil, fmt.Errorf("invalid delta manifest: %w", err)
 	}
-	if err := validateDeltaManifest(manifest); err != nil {
+	if err := ValidateDeltaManifestPair(manifest, sourceDigest, targetDigest); err != nil {
 		return nil, err
-	}
-	if manifest.Subject == nil || manifest.Subject.Digest != targetDigest {
-		return nil, fmt.Errorf("delta subject does not match target %s", targetDigest)
-	}
-	if manifest.Annotations[ociDeltaSourceAnnotation] != sourceDigest.String() {
-		return nil, fmt.Errorf("delta source does not match source %s", sourceDigest)
 	}
 	return &existingDelta{
 		Ref:       deltaRepository + "@" + match.Digest.String(),
-		SizeBytes: deltaPayloadSize(manifest),
+		SizeBytes: DeltaPayloadSize(manifest),
 	}, nil
 }
 
-func deltaPayloadSize(manifest ocispec.Manifest) int64 {
+func ValidateDeltaManifestPair(manifest ocispec.Manifest, sourceDigest, targetDigest digest.Digest) error {
+	if err := ValidateDeltaManifest(manifest); err != nil {
+		return err
+	}
+	if manifest.Subject == nil || manifest.Subject.Digest != targetDigest {
+		return fmt.Errorf("delta subject does not match target %s", targetDigest)
+	}
+	if manifest.Annotations[OCIDeltaSourceAnnotation] != sourceDigest.String() {
+		return fmt.Errorf("delta source does not match source %s", sourceDigest)
+	}
+	return nil
+}
+
+func DeltaPayloadSize(manifest ocispec.Manifest) int64 {
 	size := manifest.Config.Size
 	for _, layer := range manifest.Layers {
 		size += layer.Size
@@ -105,8 +146,8 @@ func deltaPayloadSize(manifest ocispec.Manifest) int64 {
 	return size
 }
 
-func validateDeltaManifest(manifest ocispec.Manifest) error {
-	if manifest.ArtifactType != ociDeltaArtifactType {
+func ValidateDeltaManifest(manifest ocispec.Manifest) error {
+	if manifest.ArtifactType != OCIDeltaArtifactType {
 		return fmt.Errorf("unexpected artifact type %q", manifest.ArtifactType)
 	}
 	if manifest.Subject == nil || manifest.Subject.Digest == "" {
@@ -120,18 +161,18 @@ func validateDeltaManifest(manifest ocispec.Manifest) error {
 			return fmt.Errorf("delta manifest has invalid layer descriptor %d", i)
 		}
 	}
-	if manifest.Annotations[ociDeltaSourceAnnotation] == "" {
-		return fmt.Errorf("delta manifest missing %s annotation", ociDeltaSourceAnnotation)
+	if manifest.Annotations[OCIDeltaSourceAnnotation] == "" {
+		return fmt.Errorf("delta manifest missing %s annotation", OCIDeltaSourceAnnotation)
 	}
 	return nil
 }
 
 func matchingDeltaDescriptor(referrers []ocispec.Descriptor, sourceDigest string) (ocispec.Descriptor, bool) {
 	for _, referrer := range referrers {
-		if referrer.ArtifactType != ociDeltaArtifactType {
+		if referrer.ArtifactType != OCIDeltaArtifactType {
 			continue
 		}
-		if referrer.Annotations[ociDeltaSourceAnnotation] != sourceDigest || referrer.Digest == "" {
+		if referrer.Annotations[OCIDeltaSourceAnnotation] != sourceDigest || referrer.Digest == "" {
 			continue
 		}
 		return referrer, true
@@ -153,8 +194,8 @@ func (c referrersMissingSubjectClient) Do(req *http.Request) (*http.Response, er
 	if err != nil || resp == nil || resp.Body == nil || !isReferrersGet(req) || resp.StatusCode != http.StatusBadRequest {
 		return resp, err
 	}
-	prefix, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRegistryResponseBytes+1))
-	if readErr != nil || len(prefix) > maxRegistryResponseBytes || !manifestInvalidOnly(prefix) {
+	prefix, readErr := io.ReadAll(io.LimitReader(resp.Body, MaxRegistryResponseBytes+1))
+	if readErr != nil || len(prefix) > MaxRegistryResponseBytes || !manifestInvalidOnly(prefix) {
 		original := resp.Body
 		resp.Body = prefixedBody{
 			Reader: io.MultiReader(bytes.NewReader(prefix), original),

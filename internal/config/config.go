@@ -830,8 +830,10 @@ type periodicTasksConfig struct {
 	// which probes Repository resources and sets their Accessible condition.
 	RepositoryTester periodicTaskConfig `json:"repositoryTester,omitempty"`
 	// DeltaPrepareDeadline overrides the interval for the delta prepare deadline sweep.
-	DeltaPrepareDeadline periodicTaskConfig                 `json:"deltaPrepareDeadline,omitempty"`
-	LabelMappingScan     periodicLabelMappingScanTaskConfig `json:"labelMappingScan,omitempty"`
+	DeltaPrepareDeadline periodicTaskConfig `json:"deltaPrepareDeadline,omitempty"`
+	// DeltaGenerationValidation overrides the interval for delta artifact validation.
+	DeltaGenerationValidation periodicTaskConfig                 `json:"deltaGenerationValidation,omitempty"`
+	LabelMappingScan          periodicLabelMappingScanTaskConfig `json:"labelMappingScan,omitempty"`
 }
 
 type periodicConfig struct {
@@ -864,6 +866,10 @@ const DefaultDependencySyncTaskInterval = 3 * time.Minute
 
 // DefaultLabelMappingScanTaskInterval controls how often mapping scans run.
 const DefaultLabelMappingScanTaskInterval = 2 * time.Minute
+
+// DefaultDeltaGenerationValidationTaskInterval controls how often successful
+// delta artifacts are checked against their stored references.
+const DefaultDeltaGenerationValidationTaskInterval = 15 * time.Minute
 
 const (
 	// DefaultLabelMappingScanPageSize is the device page size used when unset.

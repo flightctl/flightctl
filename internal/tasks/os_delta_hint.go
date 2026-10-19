@@ -210,6 +210,12 @@ func deltaGenerationLookupMemoKey(key deltastore.GenerationKey) string {
 	return fmt.Sprintf("deltaHintMemo/%s/%s/%s/%s/", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
 }
 
+func evictDeltaGenerationHints(ctx context.Context, kv kvstore.KVStore, key deltastore.GenerationKey) error {
+	hintErr := kv.Delete(ctx, deltaGenerationHintKey(key))
+	lookupErr := kv.Delete(ctx, deltaGenerationLookupMemoKey(key))
+	return errors.Join(hintErr, lookupErr)
+}
+
 func lookupOSDeltaGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*deltamodel.DeltaGeneration, error) {
 	// Check the delta-worker-owned success hint before the device-render memo,
 	// so a published success takes precedence over a stale cached database miss.

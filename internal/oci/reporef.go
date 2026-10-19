@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
@@ -24,7 +25,7 @@ func BuildOciRepoRef(ctx context.Context, ociSpec *domain.OciRepoSpec, ref strin
 		return nil, fmt.Errorf("create repository reference: %w", err)
 	}
 
-	authClient, err := newOCIAuthClient(ctx, ociSpec)
+	authClient, err := newOCIAuthClient(ctx, ociSpec, repoRef.Reference.Registry)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +36,14 @@ func BuildOciRepoRef(ctx context.Context, ociSpec *domain.OciRepoSpec, ref strin
 	}
 
 	return repoRef, nil
+}
+
+func SpecHasRegistryCredentials(ociSpec *domain.OciRepoSpec, registry string) bool {
+	if ociSpec == nil || !strings.EqualFold(ociSpec.Registry, registry) || ociSpec.OciAuth == nil {
+		return false
+	}
+	dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+	return err == nil && dockerAuth.Username != "" && dockerAuth.Password != ""
 }
 
 // BuildOciTLSConfig builds a *tls.Config from an OciRepoSpec, applying InsecureSkipVerify
@@ -67,7 +76,7 @@ func BuildOciTLSConfig(ociSpec *domain.OciRepoSpec) (*tls.Config, error) {
 // newOCIAuthClient builds an auth.Client from an OciRepoSpec.
 // A custom HTTP transport is only attached when TLS settings are non-default,
 // so callers that do not configure TLS options get the default transport.
-func newOCIAuthClient(ctx context.Context, ociSpec *domain.OciRepoSpec) (*auth.Client, error) {
+func newOCIAuthClient(ctx context.Context, ociSpec *domain.OciRepoSpec, registry string) (*auth.Client, error) {
 	authClient := &auth.Client{}
 
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
@@ -110,7 +119,7 @@ func newOCIAuthClient(ctx context.Context, ociSpec *domain.OciRepoSpec) (*auth.C
 			if err != nil {
 				return nil, fmt.Errorf("failed to decrypt OCI password: %w", err)
 			}
-			authClient.Credential = auth.StaticCredential(ociSpec.Registry, auth.Credential{
+			authClient.Credential = auth.StaticCredential(registry, auth.Credential{
 				Username: dockerAuth.Username,
 				Password: string(decryptedPassword),
 			})

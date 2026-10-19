@@ -36,7 +36,7 @@ func (f *fakeGenerationStore) GetDeltaGeneration(_ context.Context, _ deltastore
 	return cloneGeneration(f.generation), nil
 }
 
-func (f *fakeGenerationStore) ListDeltaGenerations(_ context.Context, _ []deltastore.GenerationKey) ([]model.DeltaGeneration, error) {
+func (f *fakeGenerationStore) ListDeltaGenerations(_ context.Context, _ []deltastore.GenerationKey, _ ...deltastore.GenerationListOption) ([]model.DeltaGeneration, error) {
 	if f.generation == nil {
 		return nil, nil
 	}
