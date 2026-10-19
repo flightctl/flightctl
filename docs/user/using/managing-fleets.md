@@ -329,6 +329,12 @@ While a rollout is waiting for preparation, `fleet.status.conditions[]` includes
 
 See [Deployment delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for defaults shared by fleets and standalone devices. For generated hints and results, see [OS deltas](managing-devices.md#using-control-plane-generated-os-deltas) and [Application image deltas](managing-devices.md#using-application-image-deltas).
 
+#### Known limitations
+
+Rollout preparation generates deltas for the devices that are members of the fleet at that time. When a device joins the fleet afterward, Flight Control does not generate a new delta for it. The device uses an existing delta if one matches its current and target image digests; otherwise, it fetches the full image.
+
+To generate a delta for a newly joined device, apply an update to the fleet's device template after the device joins the fleet. Rollout preparation then runs again and includes the device's image pair.
+
 ### Defining a Device Selection Strategy
 
 Currently, Flight Control only supports the `BatchSequence` strategy for device selection. This strategy defines a stepwise rollout process where devices are grouped into batches based on specific criteria.
