@@ -715,7 +715,7 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(probes[0].RenderedTargets.Data).To(BeEmpty())
 		})
 
-		It("should not expand recently checked first-seen refs", func() {
+		It("should exclude recently checked first-seen refs from due probes", func() {
 			repoName := "recently-checked-repo"
 			resourceKey := "git:" + repoName + "/main"
 			fingerprint := ""
