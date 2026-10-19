@@ -60,7 +60,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 		return nil, fmt.Errorf("failed to list organizations: %s", status.Message)
 	}
 
-	logger.WithField("org_count", len(orgs.Items)).Info("Processing events for organizations")
+	logger.WithField("org_count", len(orgs.Items)).Debug("Processing events for organizations")
 
 	checkpointCtx := CheckpointContext{
 		alerts:         oldCheckpoint.Alerts,
@@ -135,7 +135,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 		"final_alert_keys":  len(newCheckpoint.Alerts),
 		"total_alert_count": e.countTotalAlerts(newCheckpoint.Alerts),
 		"orgs_processed":    len(orgs.Items),
-	}).Info("Event processing completed")
+	}).Debug("Event processing completed")
 
 	if validationErrors > 0 {
 		logger.WithField("validation_errors", validationErrors).
