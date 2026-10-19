@@ -427,11 +427,13 @@ func TestCheckExistingDelta(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		handler   http.HandlerFunc
-		wantFound bool
-		wantSize  int64
-		wantError bool
+		name            string
+		repository      string
+		handler         http.HandlerFunc
+		wantFound       bool
+		wantSize        int64
+		wantError       bool
+		wantErrorSubstr string
 	}{
 		{
 			name: "When Referrers returns a matching delta it should be found with manifest size_bytes",
@@ -488,6 +490,76 @@ func TestCheckExistingDelta(t *testing.T) {
 			wantFound: false,
 		},
 		{
+			name: "When Referrers returns manifest invalid and Tag Schema is missing it should be not found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/referrers/") {
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+					return
+				}
+				http.NotFound(w, r)
+			},
+			wantFound: false,
+		},
+		{
+			name: "When Referrers returns manifest invalid and Tag Schema has a matching delta it should be found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/referrers/"):
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+				case strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)):
+					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
+					writeJSON(w, http.StatusOK, deltaManifest)
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			wantFound: true,
+			wantSize:  60,
+		},
+		{
+			name: "When Referrers returns another 400 it should return an error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)) {
+					t.Errorf("Tag Schema must not be queried after a non-manifest-invalid referrers error")
+				}
+				writeRegistryError(w, http.StatusBadRequest, "DENIED", "denied")
+			},
+			wantError:       true,
+			wantErrorSubstr: "400",
+		},
+		{
+			name: "When the delta manifest fetch returns manifest invalid it should return an error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/referrers/"):
+					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			wantError:       true,
+			wantErrorSubstr: "manifest invalid",
+		},
+		{
+			name:       "When the repository path contains referrers and the manifest fetch returns manifest invalid it should keep that error",
+			repository: "team-a/referrers/os",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/referrers/"+testTargetDigest):
+					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
+					writeRegistryError(w, http.StatusBadRequest, "MANIFEST_INVALID", "manifest invalid")
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			wantError:       true,
+			wantErrorSubstr: "response status code 400: manifest invalid",
+		},
+		{
 			name: "When Referrers returns 401 it should return an error",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -520,13 +592,20 @@ func TestCheckExistingDelta(t *testing.T) {
 
 			u, err := url.Parse(srv.URL)
 			req.NoError(err)
-			imageRepository := u.Host + "/team-a/os"
+			repository := "team-a/os"
+			if tt.repository != "" {
+				repository = tt.repository
+			}
+			imageRepository := u.Host + "/" + repository
 			scheme := domain.OciRepoSchemeHttp
 			spec := &domain.OciRepoSpec{Registry: u.Host, Scheme: &scheme}
 
 			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, spec)
 			if tt.wantError {
 				req.Error(err)
+				if tt.wantErrorSubstr != "" {
+					req.ErrorContains(err, tt.wantErrorSubstr)
+				}
 				return
 			}
 			req.NoError(err)
@@ -539,6 +618,104 @@ func TestCheckExistingDelta(t *testing.T) {
 			req.Nil(got)
 		})
 	}
+}
+
+func TestReferrersMissingSubjectClient_WhenResponseIsPassedThroughOrReplaced(t *testing.T) {
+	oversized := append(bytes.Repeat([]byte("x"), maxRegistryResponseBytes+1), []byte("-remainder")...)
+	invalid := []byte(`{"errors":[{"code":"MANIFEST_INVALID","message":"manifest invalid"}]}`)
+	denied := []byte(`{"errors":[{"code":"DENIED","message":"denied"}]}`)
+
+	referrersURL := "https://registry.example/v2/team-a/os/referrers/" + testTargetDigest
+	tests := []struct {
+		name           string
+		url            string
+		body           []byte
+		wantStatus     int
+		wantBody       []byte
+		wantContains   string
+		closedOnReturn bool
+	}{
+		{
+			name:           "When an oversized 400 is passed through it should retain the unread remainder",
+			body:           oversized,
+			wantStatus:     http.StatusBadRequest,
+			wantBody:       oversized,
+			closedOnReturn: false,
+		},
+		{
+			name:           "When a small non-invalid 400 is passed through it should retain the full body",
+			body:           denied,
+			wantStatus:     http.StatusBadRequest,
+			wantBody:       denied,
+			closedOnReturn: false,
+		},
+		{
+			name:           "When manifest invalid is rewritten it should close the original body",
+			body:           invalid,
+			wantStatus:     http.StatusNotFound,
+			wantContains:   errCodeManifestUnknown,
+			closedOnReturn: true,
+		},
+		{
+			name:           "When a manifest GET for a repository containing referrers returns manifest invalid it should not be rewritten",
+			url:            "https://registry.example/v2/team-a/referrers/os/manifests/" + testTargetDigest,
+			body:           invalid,
+			wantStatus:     http.StatusBadRequest,
+			wantBody:       invalid,
+			closedOnReturn: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := require.New(t)
+			original := &closeTrackingBody{Reader: bytes.NewReader(tt.body)}
+			client := referrersMissingSubjectClient{base: staticRegistryClient{resp: &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     make(http.Header),
+				Body:       original,
+			}}}
+			requestURL := tt.url
+			if requestURL == "" {
+				requestURL = referrersURL
+			}
+			httpReq := httptest.NewRequest(http.MethodGet, requestURL, nil)
+
+			resp, err := client.Do(httpReq)
+			req.NoError(err)
+			req.Equal(tt.closedOnReturn, original.closed)
+			req.Equal(tt.wantStatus, resp.StatusCode)
+
+			got, err := io.ReadAll(resp.Body)
+			req.NoError(err)
+			if tt.wantBody != nil {
+				req.Equal(tt.wantBody, got)
+			}
+			if tt.wantContains != "" {
+				req.Contains(string(got), tt.wantContains)
+			}
+			req.NoError(resp.Body.Close())
+			req.True(original.closed)
+		})
+	}
+}
+
+type staticRegistryClient struct {
+	resp *http.Response
+}
+
+func (c staticRegistryClient) Do(*http.Request) (*http.Response, error) {
+	return c.resp, nil
+}
+
+type closeTrackingBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *closeTrackingBody) Close() error {
+	b.closed = true
+	return nil
 }
 
 func TestCheckExistingDelta_WhenRegistryUnreachableItShouldReturnAnError(t *testing.T) {
@@ -555,6 +732,22 @@ func TestCheckExistingDelta_WhenRegistryUnreachableItShouldReturnAnError(t *test
 	})
 	req.Error(err)
 	req.Nil(got)
+}
+
+func writeRegistryError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	body, err := json.Marshal(map[string]any{
+		"errors": []map[string]any{{
+			"code":    code,
+			"message": message,
+			"detail":  map[string]any{},
+		}},
+	})
+	if err != nil {
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
