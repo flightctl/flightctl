@@ -24,7 +24,7 @@ Helm and quadlet deployments provide a starter set of mappings. The default mapp
 | `tpm-enabled` | `feature.flightctl.io/tpm.enabled` is `true` when `tpmVendorInfo` is present. |
 | `gpu-present` | `feature.flightctl.io/gpu.present` is `true` when one or more GPUs are reported and `false` when the reported list is empty. |
 | `kvm-enabled` | `feature.flightctl.io/kvm.enabled` uses the reported `status.systemInfo.kvm.enabled` value when available. |
-| `os-mode` | The reported OS mode as `feature.flightctl.io/os.mode`. |
+| `os-mode` | The reported OS mode as `feature.flightctl.io/os.mode`. The value comes from `status.systemInfo.osMode`, falling back to the deprecated `status.capabilities.osMode` for devices running older agents. |
 
 The field prefixes in this table are chosen by the bundled mapping expressions. Flight Control does not add a prefix to mapping outputs. A map expression must return complete label keys, and a scalar mapping must set its complete destination key.
 
