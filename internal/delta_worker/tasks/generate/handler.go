@@ -181,7 +181,7 @@ func (c *Handler) Handle(ctx context.Context, ev worker_client.EventWithOrgId, l
 
 	existing, err := c.existenceCheck(ctx, key.OrgID, pushPath, key.SourceDigest, key.TargetDigest, spec)
 	if err != nil {
-		return c.releaseGeneration(ctx, claimed, err)
+		return c.failGeneration(ctx, claimed, err)
 	}
 	if existing != nil {
 		log.Infof("delta already exists ref=%s sizeBytes=%d", existing.Ref, existing.SizeBytes)
