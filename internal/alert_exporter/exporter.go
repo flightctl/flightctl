@@ -247,7 +247,7 @@ func (a *AlertExporter) processingCycle(
 		"checkpoint_time_ms":  metrics.CheckpointTimeMs,
 		"total_cycle_time_ms": metrics.TotalCycleTimeMs,
 		"active_alert_keys":   len(newCheckpoint.Alerts),
-	}).Info("Processing cycle completed successfully")
+	}).Debug("Processing cycle completed successfully")
 
 	// Log performance warnings if needed
 	if metrics.TotalCycleTimeMs > 5000 { // More than 5 seconds
@@ -289,5 +289,5 @@ func (a *AlertExporter) calculateActiveAlerts(metrics *ProcessingMetrics, newChe
 		"alerts_resolved":  metrics.AlertsResolved,
 		"active_alerts":    metrics.ActiveAlerts,
 		"processing_time":  metrics.ProcessingTimeMs,
-	}).Info("Processing cycle completed successfully")
+	}).Debug("Processing cycle completed successfully")
 }
