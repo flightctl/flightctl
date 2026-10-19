@@ -157,6 +157,25 @@ func noOpEventEmitter(context.Context, uuid.UUID, *domain.Event) error {
 	return nil
 }
 
+type recordingEventEmitter struct {
+	events []*domain.Event
+}
+
+func (r *recordingEventEmitter) Emit(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+	r.events = append(r.events, event)
+	return nil
+}
+
+func assertGenerationCompleteEvent(t *testing.T, orgID uuid.UUID, event *domain.Event, key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus) {
+	t.Helper()
+	req := require.New(t)
+	req.Equal(domain.EventReasonDeltaGenerationComplete, event.Reason)
+	parsedKey, parsedStatus, err := deltageneration.ParseGenerationCompleteEvent(orgID, event.Message)
+	req.NoError(err)
+	req.Equal(key, parsedKey)
+	req.Equal(status, parsedStatus)
+}
+
 func TestHandleGenerateDelta(t *testing.T) {
 	org := uuid.New()
 	log := logrus.New()
@@ -202,20 +221,14 @@ func TestHandleGenerateDelta(t *testing.T) {
 	t.Run("When generation completes it should emit a terminal generation event", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationService{}
-		var emitted []*domain.Event
+		emitter := &recordingEventEmitter{}
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return &existingDelta{Ref: "write.example/os@sha256:existing", SizeBytes: 77}, nil
-		}, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
-			emitted = append(emitted, event)
-			return nil
-		})
+		}, nil, emitter.Emit)
 
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(emitted, 1)
-		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
-		key, _, err := deltageneration.ParseGenerationCompleteEvent(org, emitted[0].Message)
-		req.NoError(err)
-		req.Equal(deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}, key)
+		req.Len(emitter.events, 1)
+		assertGenerationCompleteEvent(t, org, emitter.events[0], deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}, domain.DeltaGenerationProgressSucceeded)
 	})
 
 	t.Run("When generation is already terminal it should re-emit the terminal event", func(t *testing.T) {
@@ -230,32 +243,32 @@ func TestHandleGenerateDelta(t *testing.T) {
 				Status:          model.DeltaGenerationSucceeded,
 			},
 		}}
-		var emitted []*domain.Event
-		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
-			emitted = append(emitted, event)
-			return nil
-		})
+		emitter := &recordingEventEmitter{}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, emitter.Emit)
 
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(emitted, 1)
-		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
+		req.Len(emitter.events, 1)
+		assertGenerationCompleteEvent(t, org, emitter.events[0], key, domain.DeltaGenerationProgressSucceeded)
 	})
 
-	t.Run("When existence check fails it should return retryable error", func(t *testing.T) {
+	t.Run("When existence check fails it should fail generation and emit terminal event", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationService{}
+		emitter := &recordingEventEmitter{}
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return nil, errors.New("registry unavailable")
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			t.Fatal("generate must not run")
 			return "", 0, nil
-		}, noOpEventEmitter)
+		}, emitter.Emit)
 		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
-		req.Error(err)
-		req.Contains(err.Error(), "registry unavailable")
+		req.NoError(err)
 		req.Zero(store.createCalls)
 		req.Len(store.updates, 2)
-		req.Equal(model.DeltaGenerationPending, store.updates[1].Status)
+		req.Equal(model.DeltaGenerationInProgress, store.updates[0].Status)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
+		req.Len(emitter.events, 1)
+		assertGenerationCompleteEvent(t, org, emitter.events[0], deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}, domain.DeltaGenerationProgressFailed)
 	})
 
 	t.Run("When miss it should claim generate and update succeeded", func(t *testing.T) {
