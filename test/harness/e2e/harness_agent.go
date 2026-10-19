@@ -324,6 +324,132 @@ func (h *Harness) RemoveAgentFile(path string) error {
 	return nil
 }
 
+// FillVMDisk writes a garbage file at fillPath so that the usage of the
+// filesystem holding fsPath reaches at least targetPercent, and returns the
+// number of mebibytes written. Any previous content of fillPath is removed
+// first so the amount to write is computed against the space currently free.
+//
+// The arithmetic mirrors the agent's disk monitor: it statfs(2)s the monitored
+// path and reports 100 * (1 - available/total) rounded to the nearest integer,
+// where available is the count of blocks available to unprivileged users.
+// Sizing the write off the same two numbers means the percentage this targets
+// is the one an alert rule on that filesystem is evaluated against. A returned
+// write of zero means the filesystem already sits at or above the target.
+func (h *Harness) FillVMDisk(fillPath, fsPath string, targetPercent int) (int, error) {
+	if h == nil {
+		return 0, fmt.Errorf("harness is nil")
+	}
+	if strings.TrimSpace(fillPath) == "" {
+		return 0, fmt.Errorf("fill file path must be non-empty")
+	}
+	if strings.TrimSpace(fsPath) == "" {
+		return 0, fmt.Errorf("filesystem path must be non-empty")
+	}
+	if targetPercent <= 0 || targetPercent >= 100 {
+		return 0, fmt.Errorf("fill target of %d%% for %s is not a usage percentage the device can reach", targetPercent, fillPath)
+	}
+
+	script := fmt.Sprintf(`
+set -eu
+rm -f %[1]s
+sync
+set -- $(stat -f -c '%%S %%b %%a' %[2]s)
+frag=$1
+blocks=$2
+avail=$3
+total_bytes=$((blocks * frag))
+avail_bytes=$((avail * frag))
+# Blocks still available once the filesystem is targetPercent full.
+target_avail=$((total_bytes / 100 * (100 - %[3]d)))
+needed=$((avail_bytes - target_avail))
+if [ "$needed" -le 0 ]; then
+  echo 0
+  exit 0
+fi
+count=$((needed / 1048576 + 1))
+dd if=/dev/zero of=%[1]s bs=1M count="$count" status=none
+sync
+echo "$count"
+`, strconv.Quote(fillPath), strconv.Quote(fsPath), targetPercent)
+
+	out, err := h.RunScriptOnVM(script)
+	if err != nil {
+		return 0, fmt.Errorf("filling %s to %d%%: %w", fillPath, targetPercent, err)
+	}
+	return parseTrailingInt(out.String(), fmt.Sprintf("disk fill of %s", fillPath))
+}
+
+// VMDiskUsagePercent reports the used share of the filesystem holding path as
+// a percentage rounded to the nearest integer, computed the way the agent's
+// disk monitor computes it.
+func (h *Harness) VMDiskUsagePercent(path string) (int, error) {
+	if h == nil {
+		return 0, fmt.Errorf("harness is nil")
+	}
+	if strings.TrimSpace(path) == "" {
+		return 0, fmt.Errorf("filesystem path must be non-empty")
+	}
+
+	script := fmt.Sprintf(`
+set -eu
+set -- $(stat -f -c '%%b %%a' %[1]s)
+blocks=$1
+avail=$2
+if [ "$blocks" -le 0 ]; then
+  echo 0
+  exit 0
+fi
+echo $(( ((blocks - avail) * 100 + blocks / 2) / blocks ))
+`, strconv.Quote(path))
+
+	out, err := h.RunScriptOnVM(script)
+	if err != nil {
+		return 0, fmt.Errorf("sampling disk usage on %s: %w", path, err)
+	}
+	return parseTrailingInt(out.String(), fmt.Sprintf("disk usage probe of %s", path))
+}
+
+// RemoveVMFiles deletes the named files from the VM and flushes the
+// filesystem, so the blocks they held are back in the available count a usage
+// probe or the agent's disk monitor reads. It is safe to call when nothing was
+// ever written: a file that is not there is not an error.
+func (h *Harness) RemoveVMFiles(paths ...string) error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	quoted := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			return fmt.Errorf("file path must be non-empty")
+		}
+		quoted = append(quoted, strconv.Quote(path))
+	}
+	script := fmt.Sprintf("set -eu\nrm -f %s\nsync\n", strings.Join(quoted, " "))
+	if _, err := h.RunScriptOnVM(script); err != nil {
+		return fmt.Errorf("removing files %s: %w", strings.Join(paths, " "), err)
+	}
+	GinkgoWriter.Printf("Removed VM files: %s\n", strings.Join(paths, " "))
+	return nil
+}
+
+// parseTrailingInt reads the integer a VM probe script prints as its last
+// word, tolerating any banner the SSH session prepends to it.
+func parseTrailingInt(output, what string) (int, error) {
+	fields := strings.Fields(output)
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("%s returned no output", what)
+	}
+	value := fields[len(fields)-1]
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("parsing %s result %q from the device: %w", what, value, err)
+	}
+	return parsed, nil
+}
+
 // InstallPreparedAgentFilesOnVM copies the host's prepared agent config and enrollment
 // certs (bin/agent/etc/flightctl) onto the VM. Call this after SetupVMFromPool and after
 // regenerating those files for the currently selected organization.

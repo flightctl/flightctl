@@ -322,7 +322,7 @@ var _ = Describe("Label mapping scan integration", func() {
 		var architecture interface{} = "x86_64"
 		_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, "a", domain.PatchRequest{{
 			Op: "replace", Path: "/status/systemInfo/architecture", Value: &architecture,
-		}})
+		}}, false)
 		Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
 		events, err := eventStore.List(ctx, orgID, store.ListParams{Limit: 100})
 		Expect(err).NotTo(HaveOccurred())

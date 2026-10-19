@@ -168,7 +168,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
-	body, status := s.device.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	body, status := s.device.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch, true)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
