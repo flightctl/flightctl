@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: true
+      build_catalog_collector:
+        description: "Also build the catalog collector image. It is not part of the default backend build; only runs that can select the collector e2e suite need it. Defaults to false so existing callers are unaffected."
+        required: false
+        type: boolean
+        default: false
     outputs:
       git_tag:
         description: "Computed git tag for artifacts"
@@ -76,12 +81,27 @@ jobs:
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
           OS: el9
+          BUILD_CATALOG_COLLECTOR: ${{ inputs.build_catalog_collector }}
         run: |
           set -euo pipefail
-          
+
           echo "::group::Building backend containers"
           make -j4 build-containers
           echo "::endgroup::"
+
+          # The catalog collector is not part of build-containers: no default
+          # deployment installs it. Its e2e suite does, so runs that can
+          # select that suite build it here - in this step, so it is stamped
+          # with the same SOURCE_GIT_* metadata and tagged for the same
+          # registry, owner and OS as every other backend image, and before
+          # the bundle step so it travels to the cluster with them.
+          if [[ "${BUILD_CATALOG_COLLECTOR}" == "true" ]]; then
+            echo "::group::Building catalog collector container"
+            make flightctl-catalog-collector-container
+            echo "::endgroup::"
+          else
+            echo "Catalog collector image not requested; skipping."
+          fi
 
       - name: Bundle images
         id: bundle-images

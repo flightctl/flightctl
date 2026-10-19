@@ -23,6 +23,12 @@ type Providers struct {
 	RBAC      RBACProvider
 	Secrets   SecretsProvider
 	TPM       TPMProvider
+	// CollectorDeployment deploys the catalog collector into the environment
+	// under test. It is always populated: a deployment type that cannot host a
+	// collector gets an implementation whose Available says so, so callers ask
+	// the same question everywhere instead of branching on the deployment type
+	// or on a nil provider.
+	CollectorDeployment CollectorDeployer
 }
 
 // EnvironmentConfig holds configuration for the test environment.
