@@ -142,7 +142,7 @@ func (p *containerProvider) Verify(ctx context.Context) error {
 }
 
 func (p *containerProvider) Install(ctx context.Context) error {
-	resolveImageMountVolumes(ctx, p.podman, p.spec.Volume, p.log)
+	p.spec.Volume.ResolveImageMountVolumes(ctx, p.podman)
 	if p.spec.ContainerApp == nil {
 		return fmt.Errorf("container application spec is nil")
 	}
@@ -162,7 +162,7 @@ func (p *containerProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("binding Quadlet image volumes: %w", err)
 	}
 
-	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID); err != nil {
+	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID, p.spec.User); err != nil {
 		return fmt.Errorf("installing container: %w", err)
 	}
 

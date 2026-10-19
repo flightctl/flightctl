@@ -42,9 +42,27 @@ $(E2E_AGENT_IMAGES_SENTINEL): | bin
 	touch $(E2E_AGENT_IMAGES_SENTINEL)
 else
 # Build + bundle artifacts (no push)
-$(E2E_AGENT_IMAGES_SENTINEL): | bin
+.PHONY: e2e-agent-image-bundle-check
+e2e-agent-image-bundle-check:
+
+$(E2E_AGENT_IMAGES_SENTINEL): e2e-agent-image-bundle-check | bin
 	@set -e; \
+	needs_enrollment_hook_image=false; \
+	case "$(AGENT_OS_ID)" in \
+		cs9-bootc|cs10-bootc) needs_enrollment_hook_image=true ;; \
+	esac; \
+	bundle_is_current=true; \
 	if [ ! -f "$(AGENT_BUNDLE)" ]; then \
+		bundle_is_current=false; \
+	elif [ "$${needs_enrollment_hook_image}" = true ] && ! ( \
+		tar -xOf "$(AGENT_BUNDLE)" e2e-refs.tsv 2>/dev/null | awk -F '\t' '$$1 == "v13" { found=1 } END { exit !found }' \
+		|| tar -xOf "$(AGENT_BUNDLE)" manifest.json 2>/dev/null | awk '$$0 ~ /flightctl-device:v13([^[:alnum:]_.-]|$$)/ { found=1 } END { exit !found }' \
+	); then \
+		echo "Device bundle is missing the v13 enrollment-hook fixture; rebuilding $(AGENT_BUNDLE)"; \
+		rm -f "$(AGENT_BUNDLE)"; \
+		bundle_is_current=false; \
+	fi; \
+	if [ "$${bundle_is_current}" = false ]; then \
 		$(MAKE) bin/.rpm; \
 		BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
 			AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
@@ -80,6 +98,12 @@ push-e2e-agent-images: e2e-agent-images
 		echo "App bundle not found at $(APP_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
 	fi
+	@set -e; \
+	registry_endpoint="$${REGISTRY_ENDPOINT:-$${REGISTRY_ADDRESS:-}}"; \
+	if [ -z "$$registry_endpoint" ]; then \
+		registry_endpoint="$$(bash -c 'source "$(ROOT_DIR)/test/scripts/functions" && registry_address')"; \
+	fi; \
+	export REGISTRY_ENDPOINT="$$registry_endpoint"; \
 	go run ./test/e2e/infra/cmd/push-e2e-images
 
 bin/.e2e-agent-certs:

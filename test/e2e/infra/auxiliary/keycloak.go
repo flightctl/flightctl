@@ -19,11 +19,28 @@ const (
 	keycloakPort           = "8080/tcp"
 	keycloakManagementPort = "9000/tcp" // health endpoints (Keycloak 25+)
 	keycloakRealmName      = "flightctl"
+	// keycloakAdminUsername and keycloakAdminPassword are the bootstrap
+	// credentials Start passes to the container.
+	keycloakAdminUsername = "admin"
+	keycloakAdminPassword = "admin" //nolint:gosec // G101: e2e bootstrap admin password only
 	// KeycloakE2EClientSecret is the client secret for flightctl-client in the e2e realm.
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
 	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
 	KeycloakE2EOAuth2ClientSecret = "e2e-flightctl-oauth2-client-secret" //nolint:gosec // G101: e2e test client secret only
+
+	// KeycloakE2ECatalogCollectorClientID is the confidential client with a
+	// service account (client-credentials grant) that the catalog collector
+	// e2e suite uses to authenticate against the Flight Control API.
+	KeycloakE2ECatalogCollectorClientID = "flightctl-catalog-collector"
+	// KeycloakE2ECatalogCollectorSecret is the client secret for
+	// KeycloakE2ECatalogCollectorClientID in the e2e realm.
+	KeycloakE2ECatalogCollectorSecret = "e2e-flightctl-catalog-collector-secret" //nolint:gosec // G101: e2e test client secret only
 )
+
+// TokenURL returns the OIDC token endpoint for the flightctl realm.
+func (k *Keycloak) TokenURL() string {
+	return k.IssuerURL() + "/protocol/openid-connect/token"
+}
 
 // Keycloak holds connection info and the container for the aux Keycloak.
 type Keycloak struct {
@@ -34,6 +51,14 @@ type Keycloak struct {
 }
 
 // Start starts the Keycloak container and sets URL, Host, Port.
+//
+// flightctl-realm.json is the single declarative source for the realm, but
+// Keycloak only imports it when it starts with an empty database. The
+// container is shared across runs under a fixed name, so an instance an
+// earlier run left behind keeps the realm it was created with: editing the
+// realm file has no effect on it. After changing the realm file, run
+// "make stop-keycloak" once and let the next run import it afresh.
+// "make clean-aux" does not remove this container.
 func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error {
 	logrus.Info("Starting Keycloak container (reuse=true)")
 	realmPath, err := getKeycloakRealmPath()
@@ -50,8 +75,8 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		Entrypoint:   []string{"/bin/bash", "-c"},
 		Cmd:          []string{"/opt/keycloak/bin/kc.sh build --health-enabled=true && /opt/keycloak/bin/kc.sh start-dev --import-realm"},
 		Env: map[string]string{
-			"KC_BOOTSTRAP_ADMIN_USERNAME": "admin",
-			"KC_BOOTSTRAP_ADMIN_PASSWORD": "admin",
+			"KC_BOOTSTRAP_ADMIN_USERNAME": keycloakAdminUsername,
+			"KC_BOOTSTRAP_ADMIN_PASSWORD": keycloakAdminPassword,
 			"KC_HEALTH_ENABLED":           "true",
 		},
 		Files: []testcontainers.ContainerFile{
@@ -88,12 +113,14 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 	discoveryURL := k.IssuerURL() + "/.well-known/openid-configuration"
 	deadline := time.Now().Add(30 * time.Second)
 	client := &http.Client{Timeout: 5 * time.Second}
+	reachable := false
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(discoveryURL)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return nil
+				reachable = true
+				break
 			}
 		}
 		select {
@@ -102,7 +129,10 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	if !reachable {
+		return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	}
+	return nil
 }
 
 func getKeycloakRealmPath() (string, error) {

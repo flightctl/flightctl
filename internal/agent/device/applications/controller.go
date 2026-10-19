@@ -19,6 +19,14 @@ type Controller struct {
 	manager       Manager
 	log           *log.PrefixLogger
 	bootTime      string
+	appDataCache  map[string]*provider.AppData
+}
+
+type ControllerOption func(*Controller)
+
+// WithControllerAppDataCache shares prepared parent contents with installation.
+func WithControllerAppDataCache(cache map[string]*provider.AppData) ControllerOption {
+	return func(c *Controller) { c.appDataCache = cache }
 }
 
 func NewController(
@@ -28,8 +36,9 @@ func NewController(
 	rwFactory fileio.ReadWriterFactory,
 	log *log.PrefixLogger,
 	bootTime string,
+	opts ...ControllerOption,
 ) *Controller {
-	return &Controller{
+	c := &Controller{
 		log:           log,
 		manager:       manager,
 		podmanFactory: podmanFactory,
@@ -37,6 +46,10 @@ func NewController(
 		rwFactory:     rwFactory,
 		bootTime:      bootTime,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
@@ -64,6 +77,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		c.rwFactory,
 		desired,
 		provider.WithEmbedded(c.bootTime),
+		provider.WithAppDataCache(c.appDataCache),
 	)
 	if err != nil {
 		return fmt.Errorf("desired %w: %w", errors.ErrAppProviders, err)

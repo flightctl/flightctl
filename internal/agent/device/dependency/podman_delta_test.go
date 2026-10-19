@@ -213,7 +213,8 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				if !tc.copyFailure {
 					exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
 					if tc.outcome == v1beta1.DeviceDeltaApplyOutcomeApplied {
-						exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/app@"+platformTargetDigest).Return("", "", 0)
+						exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/app@"+platformTargetDigest).Return(podmanDeltaImageID, "", 0)
+						expectPodmanDeltaActivation(exec, image)
 					}
 				}
 			}
@@ -338,7 +339,8 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", nested, gomock.Any()).Return("", "", 0)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/web@"+podmanDeltaTargetDigest).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/web@"+podmanDeltaTargetDigest).Return(podmanDeltaImageID, "", 0)
+			expectPodmanDeltaActivation(exec, nested)
 			for ref, task := range tasks {
 				require.NoError(manager.pull(context.Background(), ref, task))
 				task.done = true
