@@ -239,10 +239,10 @@ func (_d *TracedDeviceService) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, refreshLastSeen bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchDeviceStatus")
 
-	dp1, s1 = _d.inner.PatchDeviceStatus(ctx, orgId, name, patch)
+	dp1, s1 = _d.inner.PatchDeviceStatus(ctx, orgId, name, patch, refreshLastSeen)
 	endSpan(span, s1)
 	return dp1, s1
 }

@@ -472,7 +472,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/status/systemInfo", Value: &value},
 		}
-		result, status := svc.PatchDeviceStatus(context.Background(), orgId, "foo", patch)
+		result, status := svc.PatchDeviceStatus(context.Background(), orgId, "foo", patch, false)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
@@ -494,7 +494,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.NoError(t, err)
 		var value interface{} = infoMap
 		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo", Value: &value}}
-		result, status := svc.PatchDeviceStatus(ctx, orgId, "foo", patch)
+		result, status := svc.PatchDeviceStatus(ctx, orgId, "foo", patch, false)
 
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
@@ -512,7 +512,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/metadata/name", Value: &value},
 		}
-		_, status := svc.PatchDeviceStatus(context.Background(), orgId, "foo", patch)
+		_, status := svc.PatchDeviceStatus(context.Background(), orgId, "foo", patch, false)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
 
@@ -522,7 +522,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &value},
 		}
-		_, status := svc.PatchDeviceStatus(context.Background(), orgId, "bar", patch)
+		_, status := svc.PatchDeviceStatus(context.Background(), orgId, "bar", patch, false)
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 }

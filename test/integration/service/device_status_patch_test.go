@@ -6,6 +6,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
+	servicecommon "github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -121,13 +123,86 @@ var _ = Describe("Device status PATCH immutability", func() {
 			Expect(domain.DeviceSpecsAreEqual(lo.FromPtr(stored.Spec), lo.FromPtr(roundTripped.Spec))).To(BeTrue(),
 				"the semantic comparison must treat the two specs as equal")
 
-			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, systemInfoPatch("arm64"))
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, systemInfoPatch("arm64"), false)
 			Expect(status.Code).To(Equal(int32(200)), status.Message)
 
 			persisted, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(persisted.Status.SystemInfo.Architecture).To(Equal("arm64"))
 			Expect(persisted.Spec.Os.Image).To(Equal("quay.io/test/os:v1.0.0"))
+		})
+	})
+
+	Context("When a status patch round-trips the device through JSON", func() {
+		criticalDiskPatch := func() api.PatchRequest {
+			var disk interface{} = string(api.DeviceResourceStatusCritical)
+			return api.PatchRequest{{Op: "replace", Path: "/status/resources/disk", Value: &disk}}
+		}
+
+		expectCriticalSummary := func(deviceName string) {
+			persisted, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(persisted.Status.Resources.Disk).To(Equal(api.DeviceResourceStatusCritical))
+			Expect(persisted.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusError),
+				"a status patch must not mark a live device as disconnected")
+			Expect(lo.FromPtr(persisted.Status.Summary.Info)).To(Equal(servicecommon.DiskIsCritical))
+		}
+
+		It("an agent patch should stamp lastSeen so a live device is not marked disconnected", func() {
+			deviceName := "status-patch-agent-lastseen"
+			createDevice(deviceName, newUnionSpec())
+
+			// The device has never reported a full status, so it has no
+			// last_seen yet: the alert-driven patch itself is the liveness
+			// signal that must keep the summary off Unknown.
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, criticalDiskPatch(), true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+
+			seen, err := suite.DeviceStore.GetWithTimestamp(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(seen.Status.LastSeen).ToNot(BeNil(), "an agent patch must stamp lastSeen")
+			expectCriticalSummary(deviceName)
+
+			By("raising the events downstream consumers listen for")
+			// The alert exporter turns the resource transition event into an
+			// Alertmanager alert, so a patch-delivered transition must raise it
+			// exactly like a full status update does — and must not raise a
+			// disconnect event for a device that just checked in.
+			events, err := suite.EventStore.List(suite.Ctx, suite.OrgID, store.ListParams{Limit: 100})
+			Expect(err).ToNot(HaveOccurred())
+			var criticalEvent, disconnectedEvent *domain.Event
+			for i := range events.Items {
+				event := &events.Items[i]
+				if event.InvolvedObject.Kind != domain.DeviceKind || event.InvolvedObject.Name != deviceName {
+					continue
+				}
+				switch event.Reason {
+				case domain.EventReasonDeviceDiskCritical:
+					criticalEvent = event
+				case domain.EventReasonDeviceDisconnected:
+					disconnectedEvent = event
+				}
+			}
+			Expect(criticalEvent).ToNot(BeNil(),
+				"a resource status delivered by patch must raise the resource transition event")
+			Expect(disconnectedEvent).To(BeNil(),
+				"a patch from a live device must not raise a disconnect event")
+		})
+
+		It("a non-agent patch should keep the stored lastSeen so a live device is not marked disconnected", func() {
+			deviceName := "status-patch-preserved-lastseen"
+			createDevice(deviceName, newUnionSpec())
+
+			// The agent reported in earlier: last_seen is stored, and a patch
+			// that does not carry it must not lose it to the JSON round-trip.
+			Expect(suite.DeviceStore.Healthcheck(suite.Ctx, suite.OrgID, []string{deviceName})).To(Succeed())
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, criticalDiskPatch(), false)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+
+			persisted, err := suite.DeviceStore.GetWithTimestamp(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(persisted.Status.LastSeen).ToNot(BeNil(), "a non-agent patch must keep the stored lastSeen")
+			expectCriticalSummary(deviceName)
 		})
 	})
 
@@ -138,7 +213,7 @@ var _ = Describe("Device status PATCH immutability", func() {
 
 			var image interface{} = "quay.io/test/os:v2.0.0"
 			patch := api.PatchRequest{{Op: "replace", Path: "/spec/os/image", Value: &image}}
-			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch)
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch, false)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("spec is immutable"))
 
@@ -162,7 +237,7 @@ var _ = Describe("Device status PATCH immutability", func() {
 			Expect(json.Unmarshal(encoded, &decoded)).To(Succeed())
 
 			patch := api.PatchRequest{{Op: "replace", Path: "/spec/config", Value: &decoded}}
-			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch)
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch, false)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("spec is immutable"))
 		})
@@ -173,7 +248,7 @@ var _ = Describe("Device status PATCH immutability", func() {
 
 			var labels interface{} = map[string]string{"site": "west"}
 			patch := api.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &labels}}
-			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch)
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch, false)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("metadata is immutable"))
 
@@ -188,7 +263,7 @@ var _ = Describe("Device status PATCH immutability", func() {
 
 			var owner interface{} = "Fleet/attacker"
 			patch := api.PatchRequest{{Op: "replace", Path: "/metadata/owner", Value: &owner}}
-			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch)
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, deviceName, patch, false)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("metadata is immutable"))
 		})
