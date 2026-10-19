@@ -358,7 +358,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
 | global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
 | global.auth.oidc.organizationAssignment | object | `{"organizationName":"default","type":"static"}` | Organization assignment configuration |
-| global.auth.oidc.prompt | string | `"login"` | Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login. |
+| global.auth.oidc.prompt | string | `"select_account"` | Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to select_account. |
 | global.auth.oidc.roleAssignment | object | `{"claimPath":["groups"],"type":"dynamic"}` | Role assignment configuration |
 | global.auth.oidc.scopes | list | `["openid","profile","email","roles","offline_access"]` | List of OIDC scopes to request (e.g. openid, profile, email, roles, offline_access) |
 | global.auth.oidc.usernameClaim | list | `["preferred_username"]` | Username claim to extract from OIDC token (default: "preferred_username") |

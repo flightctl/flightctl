@@ -102,7 +102,7 @@ Use values supported by your provider. Login clients must support this field for
 it to affect authorization requests.
 
 For a provider configured in the service configuration file, set `auth.oauth2.prompt`.
-This setting uses the same defaults and empty string behavior as `spec.prompt`.
+This setting uses the same default and empty string behavior as `spec.prompt`.
 Restart the affected services after changing service configuration.
 
 The standard Helm and Podman deployment templates do not configure static OAuth2

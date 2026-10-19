@@ -17,8 +17,8 @@ func TestConfiguredAuthProviderPrompt(t *testing.T) {
 		want    string
 		invalid bool
 	}{
-		{name: "When prompt is omitted it should default to login", want: "login"},
-		{name: "When prompt is null it should default to login", field: "prompt: null", want: "login"},
+		{name: "When prompt is omitted it should default to select_account", want: "select_account"},
+		{name: "When prompt is null it should default to select_account", field: "prompt: null", want: "select_account"},
 		{name: "When prompt is empty it should preserve the opt-out", field: `prompt: ""`},
 		{name: "When prompt has extra spaces it should preserve them", field: `prompt: " login  consent "`, want: " login  consent "},
 		{name: "When prompt has provider extensions it should preserve them", field: `prompt: 'login "custom" #extension'`, want: `login "custom" #extension`},
