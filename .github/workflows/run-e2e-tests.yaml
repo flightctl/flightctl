@@ -26,6 +26,11 @@ on:
         description: "Image tag"
         required: true
         type: string
+      catalog_collector_selected:
+        description: "The label filter can select the catalog collector suite, so the collector image was built into the backend bundle and the suite's environment must be exported."
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   generate-matrix:
@@ -180,6 +185,35 @@ jobs:
 
       - name: Check disk space
         run: df -h
+
+      # The catalog collector suite is opt-in, and so is its image: the
+      # collector is not in the default backend build. These settings are
+      # exported only for the runs whose label filter can select the suite -
+      # the same flag that asked for the image to be built - so an ordinary
+      # sanity run neither names a collector image nor requires one.
+      - name: Export catalog collector environment
+        if: ${{ inputs.catalog_collector_selected }}
+        env:
+          # The collector image from the build this run is testing. It is in
+          # the backend bundle "Deploy backend with Helm" loads into kind,
+          # under the tag the build gives it (OS=el9 in
+          # build-images-and-charts.yaml). It is never in this runner's podman
+          # store, so the suite is told it is already in the cluster and must
+          # not try to load it again.
+          COLLECTOR_IMAGE: quay.io/flightctl/flightctl-catalog-collector-el9:${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "E2E_CATALOG_COLLECTOR_IMAGE=${COLLECTOR_IMAGE}"
+            echo "E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED=true"
+            # Fail setup instead of skipping if that image ever stops
+            # shipping. This covers the availability question only - no
+            # image, or a deployment that cannot host a collector - and says
+            # nothing about whether any spec was selected, sharded or run.
+            # Verifying that specs actually executed is a separate concern.
+            echo "E2E_CATALOG_COLLECTOR_REQUIRED=true"
+          } >> "$GITHUB_ENV"
+          echo "Catalog collector suite selected; using ${COLLECTOR_IMAGE}"
 
       - name: Run E2E Test Slice
         env:

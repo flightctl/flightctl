@@ -16,7 +16,11 @@ endif
 # they asked for, so its tests belong in the same gate as the rest.
 # ./cmd/flightctl-catalog-collector/... carries unit tests of its own; without
 # it listed here "make unit-test" never runs them.
-GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/... ./scripts/... ./cmd/flightctl-catalog-collector/...
+# ./test/ci/... checks which e2e suites CI selects and which images it builds
+# for them. That logic lives in workflow YAML and shell, so nothing else
+# compiles or exercises it; it belongs in a gate that runs on every PR rather
+# than only when e2e itself does.
+GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/... ./scripts/... ./cmd/flightctl-catalog-collector/... ./test/ci/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
@@ -292,13 +296,21 @@ start-trustify:
 stop-trustify:
 	go run ./cmd/aux-service stop trustify
 
+# Kubeflow Model Registry (REST server + PostgreSQL) used by the catalog
+# collector e2e suite. Not part of "start-aux": only that suite needs it.
+start-model-registry:
+	go run ./cmd/aux-service start model-registry
+
+stop-model-registry:
+	go run ./cmd/aux-service stop model-registry
+
 start-aux: bin/e2e-certs/ca.pem
 	go run ./cmd/aux-service start all
 
 stop-aux:
 	go run ./cmd/aux-service stop all
 
-.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-aux stop-aux
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-model-registry stop-model-registry start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing
