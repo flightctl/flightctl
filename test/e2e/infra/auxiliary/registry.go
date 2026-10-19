@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -82,6 +83,7 @@ func getContainerLogs(name string) (string, error) {
 func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
 	logrus.Infof("Starting registry container (reuse=%v)", reuse)
 	r.Reused = reuse && containers.ContainerRunningByName(registryContainerName)
+	hostIP := GetHostIP()
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)
@@ -124,8 +126,26 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 		}
 		r.Reused = false
 	}
+	if r.Reused {
+		certificateMatches, certErr := registryContainerCertificateMatchesHost(ctx, container, hostIP)
+		if certErr != nil {
+			logrus.Warnf("Could not validate reused registry certificate: %v; recreating registry container", certErr)
+			certificateMatches = false
+		}
+		if !certificateMatches {
+			logrus.Infof("Recreating registry container because its certificate does not contain host %s", hostIP)
+			if err := container.Terminate(ctx); err != nil {
+				return fmt.Errorf("remove registry container with stale certificate: %w", err)
+			}
+			req.SkipReaper = false
+			container, err = CreateContainer(ctx, req, false, WithNetwork(network), WithHostAccess())
+			if err != nil {
+				return fmt.Errorf("restart registry container with current certificate: %w", err)
+			}
+			r.Reused = false
+		}
+	}
 	r.container = container
-	hostIP := GetHostIP()
 	r.Port = registryHostPort
 	// For IPv6: use localhost for host-side podman and container name for container-to-container DNS.
 	// IPv6 addresses in image names are parsed as transport prefixes (e.g., "fd2e:" looks like "docker:")
@@ -149,7 +169,7 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
-	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
+	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, r.Reused); err != nil {
 		return fmt.Errorf("failed to start authenticated registry endpoint: %w", err)
 	}
 	return nil
@@ -169,6 +189,11 @@ func registryStorageDeleteEnabled(env []string) bool {
 func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, network string, reuse bool) error {
 	logrus.Info("Starting authenticated registry endpoint (nginx + basic auth)")
 	logrus.Infof("Authenticated endpoint upstream: %s:%s (network: %s)", r.Host, r.Port, network)
+	if !reuse && containers.ContainerExistsByName(privateRegistryContainerName) {
+		if err := containers.RemoveContainerByName(privateRegistryContainerName); err != nil {
+			return fmt.Errorf("remove existing authenticated registry endpoint: %w", err)
+		}
+	}
 
 	certPath := filepath.Join(certDir, "registry.crt")
 	keyPath := filepath.Join(certDir, "registry.key")
@@ -224,6 +249,44 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 
 	logrus.Infof("Authenticated registry endpoint started: %s", r.Authenticated.HostPort)
 	return nil
+}
+
+func registryContainerCertificateMatchesHost(ctx context.Context, container testcontainers.Container, host string) (bool, error) {
+	if container == nil {
+		return false, fmt.Errorf("registry container is nil")
+	}
+	if strings.TrimSpace(host) == "" {
+		return false, fmt.Errorf("registry host is empty")
+	}
+	certFile, err := container.CopyFileFromContainer(ctx, "/certs/registry.crt")
+	if err != nil {
+		return false, fmt.Errorf("copy registry certificate from container: %w", err)
+	}
+	defer func() {
+		if closeErr := certFile.Close(); closeErr != nil {
+			logrus.Warnf("Failed to close copied registry certificate: %v", closeErr)
+		}
+	}()
+	certPEM, err := io.ReadAll(certFile)
+	if err != nil {
+		return false, fmt.Errorf("read registry certificate from container: %w", err)
+	}
+	certBlock, _ := pem.Decode(certPEM)
+	if certBlock == nil {
+		return false, fmt.Errorf("decode registry certificate from container")
+	}
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("parse registry certificate from container: %w", err)
+	}
+	return registryCertificateMatchesHost(cert, host)
+}
+
+func registryCertificateMatchesHost(cert *x509.Certificate, host string) (bool, error) {
+	if cert == nil {
+		return false, fmt.Errorf("registry certificate is nil")
+	}
+	return cert.VerifyHostname(host) == nil, nil
 }
 
 // generateNginxConf returns an nginx configuration that proxies HTTPS requests
