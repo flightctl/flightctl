@@ -72,6 +72,7 @@ func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId u
 	if !exists {
 		return nil, nil, flterrors.ErrResourceNotFound
 	}
+	req.Metadata.CreationTimestamp = old.Metadata.CreationTimestamp
 	// Mirror internal/store/model.NewCertificateSigningRequestFromApiResource, which always
 	// defaults Status to a non-nil, empty-conditions struct regardless of the caller's input.
 	if req.Status == nil {
@@ -482,11 +483,15 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
 		Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 	}
-	fakeStore.items[cn] = &csr
+	_, err := fakeStore.Create(context.Background(), uuid.New(), &csr)
+	require.NoError(t, err)
+	createdAt := *csr.Metadata.CreationTimestamp
 
 	result, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, csr)
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.NotNil(t, result)
+	require.NotNil(t, result.Metadata.CreationTimestamp)
+	require.Equal(t, createdAt, *result.Metadata.CreationTimestamp)
 
 	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequestFromUntrusted should clear them before replacing", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler(t)
@@ -500,12 +505,18 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 			},
 			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &csr
+		_, err := fakeStore.Create(context.Background(), orgId, &csr)
+		require.NoError(t, err)
+		createdAt := *csr.Metadata.CreationTimestamp
+		incoming := csr
+		incoming.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 
-		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, csr)
+		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, incoming)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
 		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 
 	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
@@ -520,12 +531,18 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 			},
 			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &csr
+		_, err := fakeStore.Create(context.Background(), orgId, &csr)
+		require.NoError(t, err)
+		createdAt := *csr.Metadata.CreationTimestamp
+		incoming := csr
+		incoming.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 
-		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, csr)
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, incoming)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 }
 
@@ -556,11 +573,15 @@ func TestReplaceCertificateSigningRequestOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
 			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &existing
+		_, err := fakeStore.Create(context.Background(), uuid.New(), &existing)
+		require.NoError(t, err)
+		createdAt := *existing.Metadata.CreationTimestamp
 
 		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, existing)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, owner, lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 }
 

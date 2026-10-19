@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -120,10 +121,20 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 		stored = api.EnrollmentRequest{}
 		request(management.Client, baseURL, http.MethodPut, path+"/status", statusUpdate, http.StatusOK, &stored)
 		Expect(stored.Status.EnrollmentCertificateName).To(Equal(expected))
+		statusBeforePatch := *stored.Status
+		statusBeforePatch.Conditions = slices.Clone(stored.Status.Conditions)
 		patch := []map[string]any{{"op": "add", "path": "/status/enrollmentCertificateName", "value": "patch-forgery"}}
-		request(management.Client, baseURL, http.MethodPatch, path, patch, http.StatusOK, &stored)
+		var failure api.Status
+		request(management.Client, baseURL, http.MethodPatch, path, patch, http.StatusBadRequest, &failure)
+		Expect(failure.Message).To(ContainSubstring("status is immutable"))
+		stored = api.EnrollmentRequest{}
 		request(management.Client, baseURL, http.MethodGet, path, nil, http.StatusOK, &stored)
 		Expect(stored.Status.EnrollmentCertificateName).To(Equal(expected))
+		Expect(*stored.Status).To(Equal(statusBeforePatch))
+		labelsPatch := []map[string]any{{"op": "add", "path": "/metadata/labels", "value": map[string]string{"ownership": "preserved"}}}
+		request(management.Client, baseURL, http.MethodPatch, path, labelsPatch, http.StatusOK, &stored)
+		Expect(stored.Metadata.Labels).To(Equal(lo.ToPtr(map[string]string{"ownership": "preserved"})))
+		Expect(*stored.Status).To(Equal(statusBeforePatch))
 	}, Entry("known origin from authenticated agent creation", true), Entry("historical absence from management creation", false))
 
 	It("When roundtripping an issued CSR it should ignore forged time and retain the committed issuance pair", func() {
@@ -135,15 +146,16 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 		request(management.Client, baseURL, http.MethodPost, "/certificatesigningrequests", csr, http.StatusCreated, &stored)
 		Expect(stored.Status.IssuedAt).NotTo(BeNil())
 		Expect(stored.Status.IssuedAt).NotTo(Equal(&forged))
-		firstTime, firstCertificate := stored.Status.IssuedAt, stored.Status.Certificate
+		firstTime, firstCertificate := *stored.Status.IssuedAt, *stored.Status.Certificate
 		path := "/certificatesigningrequests/" + *stored.Metadata.Name
 		stored.Status.IssuedAt = &forged
 		request(management.Client, baseURL, http.MethodPut, path, stored, http.StatusOK, &stored)
-		Expect(stored.Status.IssuedAt).To(Equal(firstTime))
-		Expect(stored.Status.Certificate).To(Equal(firstCertificate))
+		Expect(stored.Status.IssuedAt).To(Equal(&firstTime))
+		Expect(stored.Status.Certificate).To(Equal(&firstCertificate))
 		request(management.Client, baseURL, http.MethodPut, path+"/approval", stored, http.StatusConflict, nil)
 		request(management.Client, baseURL, http.MethodGet, path, nil, http.StatusOK, &stored)
-		Expect(stored.Status.IssuedAt).To(Equal(firstTime))
+		Expect(stored.Status.IssuedAt).To(Equal(&firstTime))
+		Expect(stored.Status.Certificate).To(Equal(&firstCertificate))
 	})
 
 	It("When an authenticated device submits CSR status it should ignore issuance time on creation and approval", func() {
@@ -170,13 +182,26 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 		var stored api.CertificateSigningRequest
 		request(deviceClient, agentURL, http.MethodPost, "/certificatesigningrequests", renewal, http.StatusCreated, &stored)
 		Expect(stored.Status.IssuedAt).To(BeNil())
+		path := "/certificatesigningrequests/" + *stored.Metadata.Name
+		stored = api.CertificateSigningRequest{}
+		request(management.Client, baseURL, http.MethodGet, path, nil, http.StatusOK, &stored)
+		Expect(api.IsStatusConditionTrue(stored.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue())
+		Expect(stored.Status.Certificate).NotTo(BeNil())
+		Expect(*stored.Status.Certificate).NotTo(BeEmpty())
+		Expect(stored.Status.IssuedAt).To(BeNil())
+		certificate := *stored.Status.Certificate
+		conditions := slices.Clone(stored.Status.Conditions)
 		approval := stored
 		approval.Status.IssuedAt = renewal.Status.IssuedAt
 		approval.Status.Conditions = []api.Condition{{Type: api.ConditionTypeCertificateSigningRequestApproved, Status: api.ConditionStatusTrue, Reason: "Approved"}}
 		stored = api.CertificateSigningRequest{}
-		request(management.Client, baseURL, http.MethodPut, "/certificatesigningrequests/"+*approval.Metadata.Name+"/approval", approval, http.StatusOK, &stored)
+		var failure api.Status
+		request(management.Client, baseURL, http.MethodPut, path+"/approval", approval, http.StatusConflict, &failure)
+		Expect(failure.Message).To(Equal("The request has already been approved and the certificate issued"))
+		request(management.Client, baseURL, http.MethodGet, path, nil, http.StatusOK, &stored)
 		Expect(stored.Status.IssuedAt).To(BeNil())
-		Expect(stored.Status.Certificate).NotTo(BeNil())
+		Expect(stored.Status.Certificate).To(Equal(&certificate))
+		Expect(stored.Status.Conditions).To(Equal(conditions))
 	})
 
 	It("When unrelated read-only or invalid writable data is submitted it should still reject it", func() {

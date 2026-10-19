@@ -290,7 +290,7 @@ var _ = Describe("Enrollment credential identity", func() {
 		Entry("management signer", "flightctl.io/device-enrollment", false),
 	)
 
-	DescribeTable("When approval supplies certificate replacements it should retain the stored certificate for every signer",
+	DescribeTable("When approval supplies certificate replacements it should sanitize them and commit conditions for every signer",
 		func(signerName, expectedCertificate string) {
 			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 			request := CreateTestCSR()
@@ -302,14 +302,15 @@ var _ = Describe("Enrollment credential identity", func() {
 			Expect(err).NotTo(HaveOccurred())
 			published.Status.Certificate = lo.ToPtr([]byte("replacement-publication"))
 			published.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
-			updated, err := approveCSRConditions(suite.csrServiceWithSigner(provider, "example.org/bootstrap"), suite.Ctx, suite.OrgID, published)
+			updated, err := approveCSRConditions(suite.csrServiceWithSigner(provider, "flightctl.io/device-svc-client"), suite.Ctx, suite.OrgID, published)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(*updated.Status.Certificate)).To(Equal(expectedCertificate))
 			current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(*current.Status.Certificate)).To(Equal(expectedCertificate))
+			Expect(domain.IsStatusConditionTrue(current.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
 		},
-		Entry("configured enrollment signer", "example.org/bootstrap", "first-publication"),
+		Entry("configured enrollment signer", "flightctl.io/device-svc-client", "first-publication"),
 		Entry("default name is not enrollment when configured differently", "flightctl.io/enrollment", "first-publication"),
 		Entry("management signer", "flightctl.io/device-enrollment", "first-publication"),
 	)

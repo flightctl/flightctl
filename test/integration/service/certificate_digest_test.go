@@ -63,7 +63,7 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		Expect(resolved).To(BeNil())
 	})
 
-	DescribeTable("When a retained enrollment signer outlives a spec change it should preserve its key and known or unknown issuance time", func(knownTime bool) {
+	DescribeTable("When a retained enrollment signer outlives a spec change it should preserve its key and known or unknown issuance time", func(knownTime, concurrent bool) {
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 		request := CreateTestCSR()
 		request.Spec.SignerName = "example.org/enrollment"
@@ -73,26 +73,52 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		Expect(err).NotTo(HaveOccurred())
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
-		created.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
+		certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+		created.Status.Certificate = &certificate
 		var expectedTime *time.Time
 		if knownTime {
 			expectedTime = lo.ToPtr(time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC))
 		}
 		created.Status.IssuedAt = expectedTime
+		if concurrent {
+			created.Status.Certificate = lo.ToPtr([]byte{})
+			created.Status.IssuedAt = nil
+		}
 		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
 		Expect(err).NotTo(HaveOccurred())
-		published.Spec.SignerName = "example.org/management"
+		published.Spec.SignerName = suite.caClient.Cfg.DeviceManagementSignerName
 		updated, _, err := provider.Update(suite.Ctx, suite.OrgID, published)
 		Expect(err).NotTo(HaveOccurred())
 		updated.Status.Certificate = lo.ToPtr([]byte("losing replacement"))
 		updated.Status.IssuedAt = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 		updated.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
-		retained, err := approveCSRConditions(suite.csrServiceWithSigner(provider, "example.org/enrollment"), suite.Ctx, suite.OrgID, updated)
+		var persistence csrstore.Store = provider
+		if concurrent {
+			persistence = &concurrentCSRPublication{Store: provider, concurrentWrite: func(_ *domain.CertificateSigningRequest) error {
+				winner, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+				if err != nil {
+					return err
+				}
+				winner.Status.Certificate = &certificate
+				winner.Status.IssuedAt = expectedTime
+				_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, winner)
+				return err
+			}}
+		}
+		retained, err := approveCSRConditions(suite.csrServiceWithSigner(persistence, "example.org/enrollment"), suite.Ctx, suite.OrgID, updated)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(retained.Status.Certificate).To(Equal(&certificate))
 		Expect(retained.Status.IssuedAt).To(Equal(expectedTime))
+		Expect(domain.IsStatusConditionTrue(retained.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
+		current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(current.Status.Certificate).To(Equal(&certificate))
+		Expect(current.Status.IssuedAt).To(Equal(expectedTime))
+		Expect(domain.IsStatusConditionTrue(current.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
 		Expect(provider.UpdateConditions(suite.Ctx, suite.OrgID, *retained.Metadata.Name, []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}})).To(Succeed())
 		resolved, err := suite.CertificateSigningRequest.FindNameByCertificate(suite.Ctx, suite.OrgID, leaf.Raw)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resolved).To(Equal(retained.Metadata.Name))
-	}, Entry("known first issuance time", true), Entry("historically unknown issuance time", false))
+	}, Entry("known first issuance time", true, false), Entry("historically unknown issuance time", false, false),
+		Entry("known concurrent first issuance time", true, true), Entry("historically unknown concurrent issuance time", false, true))
 })
