@@ -13,14 +13,17 @@ import (
 )
 
 // FindNameByCertificate recovers a unique exact retained leaf among tenant-local digest candidates.
-func (s *CertificateSigningRequestStore) FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (resolved *string, err error) {
+func (h *ServiceHandler) FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (resolved *string, err error) {
 	digest := sha256.Sum256(leafDER)
 	filter := selector.NewFieldSelectorFromMapOrDie(map[string]string{
 		"internal.certificateDigest": hex.EncodeToString(digest[:]),
 	}, selector.WithPrivateSelectors())
-	candidates, err := s.List(ctx, orgId, store.ListParams{FieldSelector: filter})
+	candidates, err := h.store.List(ctx, orgId, store.ListParams{FieldSelector: filter})
 	if err != nil {
 		return nil, err
+	}
+	if len(candidates.Items) > 1 {
+		h.log.WithFields(map[string]interface{}{"org_id": orgId, "candidates": len(candidates.Items)}).Warn("Multiple CSR certificate digest candidates")
 	}
 	for _, candidate := range candidates.Items {
 		if candidate.Status == nil || candidate.Status.Certificate == nil {

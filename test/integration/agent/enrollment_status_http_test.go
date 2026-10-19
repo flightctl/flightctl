@@ -38,13 +38,13 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 	assertCanonicalOwnership := func() {
 		core, err := api.GetSpec()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(core.Components.Schemas["EnrollmentRequestStatus"].Value.Properties["enrollmentCertificateName"].Value.ReadOnly).To(BeTrue())
-		Expect(core.Components.Schemas["CertificateSigningRequestStatus"].Value.Properties["issuedAt"].Value.ReadOnly).To(BeTrue())
+		Expect(core.Components.Schemas["EnrollmentRequestStatus"].Value.Properties["enrollmentCertificateName"].Value.ReadOnly).To(BeFalse())
+		Expect(core.Components.Schemas["CertificateSigningRequestStatus"].Value.Properties["issuedAt"].Value.ReadOnly).To(BeFalse())
 		agent, err := agentapi.GetSpec()
 		Expect(err).NotTo(HaveOccurred())
 		for path, property := range map[string]string{"/enrollmentrequests": "enrollmentCertificateName", "/certificatesigningrequests": "issuedAt"} {
 			resource := agent.Paths.Find(path).Post.RequestBody.Value.Content["application/json"].Schema.Value
-			Expect(resource.Properties["status"].Value.Properties[property].Value.ReadOnly).To(BeTrue())
+			Expect(resource.Properties["status"].Value.Properties[property].Value.ReadOnly).To(BeFalse())
 		}
 	}
 
@@ -53,12 +53,14 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(testutil.StartSpecTracerForGinkgo(suiteCtx), time.Minute)
 		DeferCleanup(cancel)
+		oidcProvider, managementToken := newEnrollmentHTTPAuth()
 		var err error
 		fixture, err = harness.NewTestHarness(ctx, GinkgoT().TempDir(), func(err error) { GinkgoWriter.Printf("HTTP fixture: %v\n", err) },
-			harness.WithRedis(redisHost, redisPort, redisPassword), harness.WithoutAutoStartAgent())
+			harness.WithRedis(redisHost, redisPort, redisPassword), harness.WithoutAutoStartAgent(), harness.WithOIDCProvider(oidcProvider))
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(fixture.Cleanup)
 		management = fixture.Client.ClientInterface.(*apiclient.Client)
+		management.Client = enrollmentManagementHTTPClient{client: management.Client, token: managementToken}
 		certDir := filepath.Join(fixture.TestDirPath, "etc", "flightctl", "certs")
 		roots, err := icrypto.LoadCACertsFromFile(filepath.Join(certDir, "client-signer.crt"))
 		Expect(err).NotTo(HaveOccurred())
@@ -78,6 +80,9 @@ var _ = Describe("Server-owned enrollment status over HTTP", func() {
 		req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(baseURL, "/")+path, bytes.NewReader(encoded))
 		Expect(err).NotTo(HaveOccurred())
 		req.Header.Set("Content-Type", "application/json")
+		if method == http.MethodPatch {
+			req.Header.Set("Content-Type", "application/json-patch+json")
+		}
 		response, err := client.Do(req)
 		Expect(err).NotTo(HaveOccurred())
 		defer response.Body.Close()

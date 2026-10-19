@@ -70,6 +70,21 @@ func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
 }
 
+// FindNameByCertificate mocks base method.
+func (m *MockService) FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (*string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindNameByCertificate", ctx, orgId, leafDER)
+	ret0, _ := ret[0].(*string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindNameByCertificate indicates an expected call of FindNameByCertificate.
+func (mr *MockServiceMockRecorder) FindNameByCertificate(ctx, orgId, leafDER any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindNameByCertificate", reflect.TypeOf((*MockService)(nil).FindNameByCertificate), ctx, orgId, leafDER)
+}
+
 // GetCertificateSigningRequest mocks base method.
 func (m *MockService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()

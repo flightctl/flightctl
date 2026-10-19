@@ -64,5 +64,5 @@ func (h *ServiceHandler) enrollmentCertificateName(ctx context.Context, orgID uu
 	if present {
 		return &name, nil
 	}
-	return h.csrStore.FindNameByCertificate(ctx, orgID, leaf.Raw)
+	return h.findCertificate(ctx, orgID, leaf.Raw)
 }

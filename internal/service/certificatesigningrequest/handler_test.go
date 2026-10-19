@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"testing"
+	"time"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -50,6 +51,9 @@ func (f *fakeCertificateSigningRequestStore) InitialMigration(ctx context.Contex
 
 func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
+	if req.Metadata.CreationTimestamp == nil {
+		req.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	}
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
@@ -111,13 +115,22 @@ func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId u
 	return true, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	before, err := store.CloneJSON(f.items[name])
+	if err != nil {
+		return nil, nil, false, err
 	}
-	f.items[name] = req
-	return req, nil
+	current, err := store.CloneJSON(before)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	mutation := &store.Mutation[domain.CertificateSigningRequest]{}
+	mutation.SetResource(current)
+	if err := apply(mutation); err != nil {
+		return nil, nil, false, err
+	}
+	f.items[name] = mutation.Resource()
+	return mutation.Resource(), before, before == nil, nil
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {

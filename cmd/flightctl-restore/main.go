@@ -45,7 +45,7 @@ by flightctl-backup. It performs the following steps:
   3. Reads and validates archive metadata (deployment type compatibility)
   4. Stops FlightCtl services (systemd units or Kubernetes Deployments)
   5. Restores the database from the archive dump
-  6. Migrates the restored database before restarting FlightCtl services
+  6. Starts FlightCtl services again (always, even on failure)
   7. Prepares devices for reconnection after restore
 
 WARNING: FlightCtl services will be stopped for the duration of the restore.

@@ -22,7 +22,6 @@ import (
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -110,7 +109,6 @@ func (s *RestoreTestSuite) Setup() {
 	s.EventStore = eventstore.NewEventStore(s.DB, s.Log.WithField("pkg", "event-store"))
 	s.EnrollmentRequestStore = enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 
 	// Add a default admin mapped identity to the context
 	testOrg := &model.Organization{
@@ -143,7 +141,7 @@ func (s *RestoreTestSuite) Setup() {
 	eventsSvc := events.NewServiceHandler(s.EventStore, workerClient, s.Log)
 	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, nil, fleetStore, eventsSvc, kvStore, "", s.Log)
 	s.Event = eventservice.NewServiceHandler(s.EventStore, eventsSvc)
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.DeviceStore, csrStore, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", nil, nil)
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.DeviceStore, nil, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", nil, nil)
 }
 
 // Teardown performs common cleanup for restore tests.

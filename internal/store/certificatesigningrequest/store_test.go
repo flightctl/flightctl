@@ -14,7 +14,7 @@ import (
 func TestNewCertificateSigningRequestStore_ReturnsNonNilStore(t *testing.T) {
 	req := require.New(t)
 
-	s := NewCertificateSigningRequestStore(nil, logrus.New(), "example.org/bootstrap")
+	s := NewCertificateSigningRequestStore(nil, logrus.New())
 
 	req.NotNil(s)
 }

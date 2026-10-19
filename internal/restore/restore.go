@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/sirupsen/logrus"
 )
@@ -28,8 +27,8 @@ const startServicesTimeout = 2 * time.Minute
 //  9. Restores service configuration (deployer.RestoreConfig)
 //  10. Retrieves service credentials via deployer.GetConfig
 //  11. Exposes DB and KV via deployer.ExposeService (no-op for Podman, port-forward for Kubernetes)
-//  12. Migrates the restored database before post-restoration device preparation (PrepareDevices)
-//  13. Starts FlightCtl services unless the restored schema could not be migrated
+//  12. Runs post-restoration device preparation (PrepareDevices)
+//  13. Starts FlightCtl services (deployer.StartServices) — deferred, always runs even on failure
 //
 // The deployer encapsulates all deployment-specific operations and credential extraction.
 // The temporary extraction directory is always cleaned up before Restore returns.
@@ -77,12 +76,7 @@ func Restore(
 	//
 	// The named return retErr lets the deferred closure merge a restart failure
 	// into the function's return value rather than only logging it.
-	schemaReady := true
 	defer func() {
-		if !schemaReady {
-			log.Warn("Restored database migration not completed; skipping final service restart")
-			return
-		}
 		log.Info("Starting FlightCtl services")
 		startCtx, cancel := context.WithTimeout(context.Background(), startServicesTimeout)
 		defer cancel()
@@ -108,7 +102,6 @@ func Restore(
 		return fmt.Errorf("database restore failed: %w", err)
 	}
 	log.Info("Database restore completed")
-	schemaReady = false
 
 	log.Info("Restoring PKI materials")
 	if err := deployer.RestorePKI(ctx, extractDir); err != nil {
@@ -180,19 +173,6 @@ func Restore(
 		}
 	}
 
-	migrationDB, err := store.InitMigrationDB(&exposedCfg, log)
-	if err != nil {
-		return fmt.Errorf("failed to initialize migration connection: %w", err)
-	}
-	migrationErr := migration.Run(ctx, migrationDB, log, false)
-	if sqlDB, closeErr := migrationDB.DB(); closeErr == nil {
-		sqlDB.Close()
-	}
-	if migrationErr != nil {
-		return fmt.Errorf("failed to migrate restored database: %w", migrationErr)
-	}
-	schemaReady = true
-
 	db, err := store.InitDB(&exposedCfg, log)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database connection: %w", err)
@@ -213,5 +193,6 @@ func Restore(
 	if _, err := PrepareDevices(ctx, NewRestoreStore(db), kv, log); err != nil {
 		return fmt.Errorf("post-restoration device preparation failed: %w", err)
 	}
+
 	return nil
 }

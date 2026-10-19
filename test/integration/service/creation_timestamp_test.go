@@ -33,33 +33,13 @@ var _ = Describe("Persisted creation timestamps", func() {
 		database = suite.DB.Session(&gorm.Session{NowFunc: func() time.Time {
 			return time.Date(2026, 10, 18, 12, 0, 0, 123456789, time.UTC)
 		}})
-		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log, suite.caClient.Cfg.DeviceEnrollmentSignerName)
+		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log)
 		service = csrservice.NewServiceHandler(credentials, tpmcsr.NewVerifier(suite.EnrollmentRequest), suite.caClient,
 			events.NewServiceHandler(suite.EventStore, suite.workerClient, suite.Log), suite.Log, "", "")
 	})
 
 	AfterEach(func() {
 		suite.Teardown()
-	})
-
-	It("When creating a CSR it should return its stored timestamp and accept an immediate status update", func() {
-		request := CreateTestCSR()
-		created, err := credentials.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(created.Metadata.CreationTimestamp).To(Equal(&storedTime))
-		loaded, err := credentials.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(loaded.Metadata.CreationTimestamp).To(Equal(created.Metadata.CreationTimestamp))
-		created.Status.Conditions = []domain.Condition{{
-			Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue,
-			Reason: "Approved", Message: "Approved for issuance",
-		}}
-		updated, err := credentials.UpdateStatus(suite.Ctx, suite.OrgID, created)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(domain.IsStatusConditionTrue(updated.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue())
-		loaded, err = credentials.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(loaded.Status).To(Equal(updated.Status))
 	})
 
 	It("When signing a fresh CSR it should persist approval and issuance without a false incarnation conflict", func() {
@@ -125,8 +105,8 @@ var _ = Describe("Persisted creation timestamps", func() {
 		Expect(created.Metadata.CreationTimestamp).To(Equal(&storedTime))
 		created.Status.EnrollmentCertificateName = lo.ToPtr("replacement-origin")
 		created.Status.Conditions = []domain.Condition{{Type: "Pending", Status: domain.ConditionStatusTrue, Reason: "AwaitingApproval", Message: "Awaiting approval"}}
-		updated, _, err := provider.UpdateStatus(suite.Ctx, suite.OrgID, created)
-		Expect(err).NotTo(HaveOccurred())
+		updated, status := suite.enrollmentServiceWithPersistence(credentials, provider).ReplaceEnrollmentRequestStatus(suite.Ctx, suite.OrgID, *created.Metadata.Name, *created)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(updated.Status.EnrollmentCertificateName).To(Equal(origin))
 		Expect(updated.Status.Conditions).To(Equal(created.Status.Conditions))
 		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)

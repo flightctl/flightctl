@@ -117,16 +117,6 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	return true, nil
 }
 
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.items[name] = req
-	return req, old, nil
-}
-
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
 // used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {

@@ -64,7 +64,7 @@ func New(
 	// Service handler for internal operations (enrollment credential generation).
 	// nil worker_client: matches Run()'s eventsSvc - events are stored in DB for audit/logging
 	// but are not pushed to TaskQueue.
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"), ca.Cfg.DeviceEnrollmentSignerName)
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log.WithField("component", "events"))
 	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, nil, ca, kvStore, eventsSvc, log.WithField("component", "enrollmentrequest"), nil, "", "", nil, nil)

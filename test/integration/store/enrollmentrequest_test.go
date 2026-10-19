@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -206,7 +207,13 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, _, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest)
+			_, _, _, err := enrollmentRequestStore.Mutate(ctx, orgId, *enrollmentrequest.Metadata.Name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				mutation.Resource().Status = enrollmentrequest.Status
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())

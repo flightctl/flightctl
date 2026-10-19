@@ -26,7 +26,6 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -113,30 +112,6 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
-		return nil, nil, flterrors.ErrResourceIsNil
-	}
-	candidate, err := store.CloneJSON(resource)
-	if err != nil {
-		return nil, nil, err
-	}
-	updated, previous, _, err := s.Mutate(ctx, orgId, *resource.Metadata.Name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
-		if err := mutation.RequireExisting(); err != nil {
-			return err
-		}
-		current := mutation.Resource()
-		if candidate.Metadata.CreationTimestamp != nil && (current.Metadata.CreationTimestamp == nil || !candidate.Metadata.CreationTimestamp.Equal(*current.Metadata.CreationTimestamp)) {
-			return flterrors.ErrResourceVersionConflict
-		}
-		status := *candidate.Status
-		status.EnrollmentCertificateName = current.Status.EnrollmentCertificateName
-		current.Status = &status
-		return nil
-	})
-	return updated, previous, store.ErrorFromGormError(err)
-}
-
 func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	var incarnation *time.Time
 	return s.genericStore.Mutate(ctx, orgId, name, nil, store.MutateHooks[domain.EnrollmentRequest]{
@@ -178,7 +153,6 @@ func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid
 	if err != nil {
 		return false, err
 	}
-	proposed.Status.Data.EnrollmentCertificateName = record.Status.Data.EnrollmentCertificateName
 	updates := map[string]interface{}{
 		"status":           proposed.Status,
 		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),

@@ -27,7 +27,6 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -130,7 +129,6 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 		erStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
-		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "csr-store"), cfg.CA.DeviceEnrollmentSignerName)
 		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		repoStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 		depStore := dependencyrefstore.NewDependencyRefStore(db, log.WithField("pkg", "dependencyref-store"))
@@ -152,7 +150,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		templateVersionSvc = templateversionservice.NewServiceHandler(tvStore, kvStoreInst, eventsSvc, log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(depStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repoStore, eventsSvc, log)
-		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, csrStore, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
+		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, nil, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
 
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, identity.NewMappedIdentity("admin", "uid-admin", nil, nil, true, nil))
 

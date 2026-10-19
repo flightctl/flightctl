@@ -8281,7 +8281,6 @@ components:
           minLength: 1
           maxLength: 253
           pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-          readOnly: true
           description: Optional tenant-local issuing enrollment CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
         certificate:
           type: string
@@ -9281,7 +9280,6 @@ components:
           description: Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
           type: string
           format: date-time
-          readOnly: true
         certificate:
           description: The issued signed certificate, immutable once populated.
           format: byte

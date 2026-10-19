@@ -8,6 +8,8 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -227,7 +229,13 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, _, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource)
+		_, _, _, err = enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+			if err := mutation.RequireExisting(); err != nil {
+				return err
+			}
+			mutation.Resource().Status = resource.Status
+			return nil
+		})
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}

@@ -22,91 +22,29 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
 		suite.Ctx = util.WithOrganizationID(suite.Ctx, suite.OrgID)
-		provider = csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, "example.org/bootstrap")
+		provider = csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 	})
 	AfterEach(func() { suite.Teardown() })
 
-	It("When updating non-enrollment status it should discard supplied issuance time without freezing other fields", func() {
+	It("When approving non-enrollment status it should normalize issuance time and preserve stored certificate ownership", func() {
 		request := CreateTestCSR()
-		request.Spec.SignerName = "flightctl.io/device-enrollment"
+		request.Spec.SignerName = suite.caClient.Cfg.DeviceManagementSignerName
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
-		created.Status.Certificate = lo.ToPtr([]byte("first-management-certificate"))
+		created.Status.Certificate = lo.ToPtr([]byte("stored-management-certificate"))
 		created.Status.IssuedAt = lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-		updated, err := provider.UpdateStatus(suite.Ctx, suite.OrgID, created)
+		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
+		Expect(err).NotTo(HaveOccurred())
+		published.Status.Certificate = lo.ToPtr([]byte("forged-management-certificate"))
+		published.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
+		updated, err := approveCSRConditions(suite.CertificateSigningRequest, suite.Ctx, suite.OrgID, published)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(updated.Status.IssuedAt).To(BeNil())
-		updated.Status.Certificate = lo.ToPtr([]byte("replacement-management-certificate"))
-		updated.Status.IssuedAt = lo.ToPtr(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC))
-		updated.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue, Reason: "Approved"}}
-		updated, err = provider.UpdateStatus(suite.Ctx, suite.OrgID, updated)
+		Expect(string(*updated.Status.Certificate)).To(Equal("stored-management-certificate"))
+		Expect(domain.IsStatusConditionTrue(updated.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
+		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *updated.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
-		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(loaded.Status.IssuedAt).To(BeNil())
-		Expect(string(*loaded.Status.Certificate)).To(Equal("replacement-management-certificate"))
-		Expect(domain.IsStatusConditionTrue(loaded.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue())
 		Expect(loaded.Status).To(Equal(updated.Status))
-	})
-
-	DescribeTable("When writing conditions on historical non-enrollment status it should normalize time only on an actual write", func(change bool) {
-		request := CreateTestCSR()
-		request.Spec.SignerName = "flightctl.io/device-enrollment"
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		oldTime := time.Date(2024, 3, 2, 1, 0, 0, 0, time.UTC)
-		created.Status.IssuedAt = &oldTime
-		result := suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *created.Metadata.Name).
-			Update("status", model.MakeJSONField(*created.Status))
-		Expect(result.Error).NotTo(HaveOccurred())
-		Expect(result.RowsAffected).To(Equal(int64(1)))
-		conditions := []domain.Condition{}
-		if change {
-			conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
-		}
-		Expect(provider.UpdateConditions(suite.Ctx, suite.OrgID, *created.Metadata.Name, conditions)).To(Succeed())
-		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		if change {
-			Expect(loaded.Status.IssuedAt).To(BeNil())
-			Expect(domain.IsStatusConditionTrue(loaded.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
-		} else {
-			Expect(loaded.Status.IssuedAt).To(Equal(&oldTime))
-			Expect(loaded.Metadata.ResourceVersion).To(Equal(created.Metadata.ResourceVersion))
-		}
-	}, Entry("changed conditions", true), Entry("no-op conditions", false))
-
-	It("When an unchanged condition follows a changed condition it should persist the change and normalize non-enrollment time", func() {
-		request := CreateTestCSR()
-		request.Spec.SignerName = "flightctl.io/device-enrollment"
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		unchanged := domain.Condition{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusFalse, Reason: "Pending"}
-		created.Status.Conditions = []domain.Condition{unchanged}
-		created, err = provider.UpdateStatus(suite.Ctx, suite.OrgID, created)
-		Expect(err).NotTo(HaveOccurred())
-		oldTime := time.Date(2024, 3, 2, 1, 0, 0, 0, time.UTC)
-		created.Status.IssuedAt = &oldTime
-		result := suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *created.Metadata.Name).
-			Update("status", model.MakeJSONField(*created.Status))
-		Expect(result.Error).NotTo(HaveOccurred())
-		Expect(result.RowsAffected).To(Equal(int64(1)))
-		conditions := []domain.Condition{
-			{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"},
-			unchanged,
-		}
-		Expect(provider.UpdateConditions(suite.Ctx, suite.OrgID, *created.Metadata.Name, conditions)).To(Succeed())
-		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(domain.IsStatusConditionTrue(loaded.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
-		Expect(domain.FindStatusCondition(loaded.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved).Reason).To(Equal("Pending"))
-		Expect(loaded.Status.IssuedAt).To(BeNil())
-		Expect(loaded.Metadata.ResourceVersion).NotTo(Equal(created.Metadata.ResourceVersion))
-		Expect(provider.UpdateConditions(suite.Ctx, suite.OrgID, *created.Metadata.Name, conditions)).To(Succeed())
-		repeated, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(repeated.Status).To(Equal(loaded.Status))
-		Expect(repeated.Metadata.ResourceVersion).To(Equal(loaded.Metadata.ResourceVersion))
 	})
 
 	It("When approval signing fails for historical non-enrollment status it should persist the old failure reason without issuance time", func() {
@@ -143,14 +81,15 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 		Expect(err).NotTo(HaveOccurred())
 		created.Status.Certificate = &certificate
 		created.Status.IssuedAt = issuedAt
-		published, err := provider.UpdateStatus(suite.Ctx, suite.OrgID, created)
+		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
 		Expect(err).NotTo(HaveOccurred())
 		published.Spec.SignerName = "flightctl.io/device-enrollment"
 		changed, _, err := provider.Update(suite.Ctx, suite.OrgID, published)
 		Expect(err).NotTo(HaveOccurred())
 		changed.Status.Certificate = lo.ToPtr([]byte("uncommitted-replacement"))
 		changed.Status.IssuedAt = lo.ToPtr(time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
-		updated, err := provider.UpdateStatus(suite.Ctx, suite.OrgID, changed)
+		changed.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
+		updated, err := approveCSRConditions(suite.csrServiceWithSigner(provider, "example.org/bootstrap"), suite.Ctx, suite.OrgID, changed)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(updated.Status.Certificate).To(Equal(&certificate))
 		Expect(updated.Status.IssuedAt).To(Equal(issuedAt))

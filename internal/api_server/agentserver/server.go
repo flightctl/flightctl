@@ -10,7 +10,6 @@ import (
 	"time"
 
 	agentv1beta1 "github.com/flightctl/flightctl/api/agent/v1beta1"
-	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
 	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
@@ -47,6 +46,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -111,7 +111,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
 	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.ca.Cfg.DeviceEnrollmentSignerName)
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
@@ -141,7 +141,9 @@ func (s *AgentServer) init(ctx context.Context) error {
 		enrollmenthookpolicyservice.NewServiceHandler(ehPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicySvc, notifySecretsStore))
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, func(ctx context.Context, orgID uuid.UUID, leafDER []byte) (*string, error) {
+			return s.csrSvc.FindNameByCertificate(ctx, orgID, leafDER)
+		}, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicySvc, notifySecretsStore))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.catalogSvc = catalogservice.WrapWithTracing(
@@ -353,9 +355,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(s.deviceSvc, s.enrollmentRequestSvc, s.csrSvc, convertv1beta1.NewConverter(), s.ca, s.log)
 
 	// Create version-specific router with OpenAPI validation
-	agentV1Beta1Swagger, err := fcmiddleware.EnrollmentStatusRequestSpec(agentv1beta1.SpecYAML(), map[string][]byte{
-		"../../core/v1beta1/openapi.yaml": corev1beta1.SpecYAML(),
-	})
+	agentV1Beta1Swagger, err := agentv1beta1.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed loading agent v1beta1 swagger spec: %w", err)
 	}

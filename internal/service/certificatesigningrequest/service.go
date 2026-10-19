@@ -8,6 +8,7 @@ import (
 )
 
 type Service interface {
+	FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (*string, error)
 	ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status)
 	CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status)
 	DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status

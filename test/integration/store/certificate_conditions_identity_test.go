@@ -1,51 +1,30 @@
-package service_test
+package store_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/pem"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-type delayedConditionConnection struct {
-	*sql.DB
-	ready   chan struct{}
-	release <-chan struct{}
-}
-
-func (connection *delayedConditionConnection) ExecContext(ctx context.Context, query string, arguments ...any) (sql.Result, error) {
-	select {
-	case connection.ready <- struct{}{}:
-	default:
-	}
-	select {
-	case <-connection.release:
-		return connection.DB.ExecContext(ctx, query, arguments...)
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
 var _ = Describe("Condition updates across credential name reuse", func() {
 	It("When an old condition write races recreation it should retain the new incarnation's issuance and lookup key", func() {
-		suite := NewServiceTestSuite()
-		suite.Setup()
-		DeferCleanup(suite.Teardown)
+		suite := newCertificatePersistenceSuite()
 		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
 		defer cancel()
 		createdAt := time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC)
 		recreatedAt := time.Date(2025, 3, 4, 5, 6, 7, 123457000, time.UTC)
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return createdAt }}), suite.Log, "example.org/enrollment")
-		request := CreateTestCSR()
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return createdAt }}), suite.Log)
+		request := newStoredCSR()
 		request.Spec.SignerName = "example.org/enrollment"
 		parsed, err := fcrypto.ParseCSR(request.Spec.Request)
 		Expect(err).NotTo(HaveOccurred())
@@ -58,41 +37,50 @@ var _ = Describe("Condition updates across credential name reuse", func() {
 		Expect(err).NotTo(HaveOccurred())
 		original.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: oldLeaf.Raw}))
 		original.Status.IssuedAt = &createdAt
-		original, err = provider.UpdateStatus(ctx, suite.OrgID, original)
+		original, err = seedCSRStatus(provider, ctx, suite.OrgID, original)
 		Expect(err).NotTo(HaveOccurred())
 
-		database, err := suite.DB.DB()
-		Expect(err).NotTo(HaveOccurred())
 		release := make(chan struct{})
+		ready := make(chan struct{})
 		released := false
 		defer func() {
 			if !released {
 				close(release)
 			}
 		}()
-		connection := &delayedConditionConnection{DB: database, ready: make(chan struct{}, 1), release: release}
-		conditionDB, err := gorm.Open(postgres.New(postgres.Config{Conn: connection}), &gorm.Config{SkipDefaultTransaction: true})
-		Expect(err).NotTo(HaveOccurred())
-		conditionProvider := csrstore.NewCertificateSigningRequestStore(conditionDB, suite.Log, "example.org/enrollment")
+		var pause sync.Once
 		result := make(chan error, 1)
 		go func() {
-			result <- conditionProvider.UpdateConditions(ctx, suite.OrgID, *original.Metadata.Name, []domain.Condition{{
-				Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied",
-			}})
+			_, _, _, err := provider.Mutate(ctx, suite.OrgID, *original.Metadata.Name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				domain.SetStatusCondition(&mutation.Resource().Status.Conditions, domain.Condition{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"})
+				pause.Do(func() {
+					close(ready)
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
+				})
+				return ctx.Err()
+			})
+			result <- err
 		}()
+
 		select {
-		case <-connection.ready:
+		case <-ready:
 		case <-ctx.Done():
 			Fail("condition write did not reach the database before its deadline")
 		}
 		_, err = provider.Delete(ctx, suite.OrgID, *original.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
-		replacementProvider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return recreatedAt }}), suite.Log, "example.org/enrollment")
+		replacementProvider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return recreatedAt }}), suite.Log)
 		replacement, err := replacementProvider.Create(ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
 		replacement.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newLeaf.Raw}))
 		replacement.Status.IssuedAt = &recreatedAt
-		replacement, err = replacementProvider.UpdateStatus(ctx, suite.OrgID, replacement)
+		replacement, err = seedCSRStatus(replacementProvider, ctx, suite.OrgID, replacement)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(replacement.Metadata.ResourceVersion).To(Equal(original.Metadata.ResourceVersion))
 		close(release)
@@ -108,10 +96,10 @@ var _ = Describe("Condition updates across credential name reuse", func() {
 		Expect(current.Status.Certificate).To(Equal(replacement.Status.Certificate))
 		Expect(current.Status.IssuedAt).To(Equal(&recreatedAt))
 		Expect(current.Status.Conditions).To(ContainElement(HaveField("Reason", "Denied")))
-		resolved, err := provider.FindNameByCertificate(ctx, suite.OrgID, newLeaf.Raw)
+		resolved, err := findStoredCertificate(provider, ctx, suite.OrgID, newLeaf.Raw)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resolved).To(Equal(replacement.Metadata.Name))
-		resolved, err = provider.FindNameByCertificate(ctx, suite.OrgID, oldLeaf.Raw)
+		resolved, err = findStoredCertificate(provider, ctx, suite.OrgID, oldLeaf.Raw)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resolved).To(BeNil())
 	})

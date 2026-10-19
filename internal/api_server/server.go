@@ -66,6 +66,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -201,7 +202,7 @@ func (s *Server) Run(ctx context.Context) error {
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
 	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.ca.Cfg.DeviceEnrollmentSignerName)
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"))
 	templateVersionStore := templateversionstore.NewTemplateVersionStore(s.db, s.log.WithField("pkg", "templateversion-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.db, s.log.WithField("pkg", "repository-store"))
 	resourceSyncStore := resourcesyncstore.NewResourceSyncStore(s.db, s.log.WithField("pkg", "resourcesync-store"))
@@ -221,9 +222,12 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
+	var csrSvc certificatesigningrequestservice.Service
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
-	csrSvc := certificatesigningrequestservice.WrapWithTracing(
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, func(ctx context.Context, orgID uuid.UUID, leafDER []byte) (*string, error) {
+			return csrSvc.FindNameByCertificate(ctx, orgID, leafDER)
+		}, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
+	csrSvc = certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
@@ -333,7 +337,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create v1beta1 router with OpenAPI validation
-	v1beta1Swagger, err := fcmiddleware.EnrollmentStatusRequestSpec(corev1beta1.SpecYAML(), nil)
+	v1beta1Swagger, err := corev1beta1.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}

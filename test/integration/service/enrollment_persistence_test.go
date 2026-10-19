@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	erstore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -17,11 +19,17 @@ type unavailableIssuancePersistence struct {
 	csrstore.Store
 }
 
-func (persistence *unavailableIssuancePersistence) UpdateStatus(ctx context.Context, orgID uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	if resource.Status != nil && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
-		return nil, errors.New("issuance publication unavailable")
-	}
-	return persistence.Store.UpdateStatus(ctx, orgID, resource)
+func (persistence *unavailableIssuancePersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	return persistence.Store.Mutate(ctx, orgID, name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+		if err := apply(mutation); err != nil {
+			return err
+		}
+		resource := mutation.Resource()
+		if resource.Status != nil && resource.Status.Certificate != nil && len(*resource.Status.Certificate) > 0 {
+			return errors.New("issuance publication unavailable")
+		}
+		return nil
+	})
 }
 
 type unavailableCSRReads struct {
@@ -33,10 +41,6 @@ func (persistence *unavailableCSRReads) Get(context.Context, uuid.UUID, string) 
 }
 
 func (persistence *unavailableCSRReads) List(context.Context, uuid.UUID, store.ListParams) (*domain.CertificateSigningRequestList, error) {
-	return nil, errors.New("credential storage unavailable")
-}
-
-func (persistence *unavailableCSRReads) FindNameByCertificate(context.Context, uuid.UUID, []byte) (*string, error) {
 	return nil, errors.New("credential storage unavailable")
 }
 
@@ -61,6 +65,11 @@ func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, 
 
 func (suite *ServiceTestSuite) enrollmentServiceWithPersistence(csrPersistence csrstore.Store, erPersistence erstore.Store) enrollmentrequestservice.Service {
 	eventService := events.NewServiceHandler(suite.EventStore, suite.workerClient, suite.Log)
-	return enrollmentrequestservice.NewServiceHandler(erPersistence, suite.DeviceStore, csrPersistence,
+	var csrSvc csrservice.Service
+	erSvc := enrollmentrequestservice.NewServiceHandler(erPersistence, suite.DeviceStore, func(ctx context.Context, orgID uuid.UUID, leafDER []byte) (*string, error) {
+		return csrSvc.FindNameByCertificate(ctx, orgID, leafDER)
+	},
 		suite.caClient, suite.kvStore, eventService, suite.Log, nil, "", "", suite.EnrollmentHookPolicy, suite.NotifySecretsStore)
+	csrSvc = csrservice.NewServiceHandler(csrPersistence, tpmcsr.NewVerifier(erSvc), suite.caClient, eventService, suite.Log, "", "")
+	return erSvc
 }

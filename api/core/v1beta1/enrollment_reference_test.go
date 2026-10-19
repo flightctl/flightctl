@@ -12,7 +12,7 @@ func TestEnrollmentCertificateReferenceName(t *testing.T) {
 	spec, err := GetSpec()
 	require.NoError(t, err)
 	property := spec.Components.Schemas["EnrollmentRequestStatus"].Value.Properties["enrollmentCertificateName"].Value
-	require.True(t, property.ReadOnly)
+	require.False(t, property.ReadOnly)
 	for _, testCase := range []struct {
 		name  string
 		value string
