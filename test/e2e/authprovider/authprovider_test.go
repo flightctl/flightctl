@@ -308,6 +308,9 @@ var _ = Describe("Auth provider browser login", func() {
 			callbackPort, err := reserveFreeCallbackPort()
 			Expect(err).ToNot(HaveOccurred(), "reserve callback port for PAM browser login")
 			err = configureQuadletPAMRedirectURIForTest(callbackPort)
+			if err != nil && strings.Contains(err.Error(), "bundled PAM issuer is disabled") {
+				Skip("bundled PAM issuer is disabled in this deployment's config")
+			}
 			Expect(err).ToNot(HaveOccurred(), "PAM redirect URI should be configured for the test callback port")
 
 			By("waiting for the public API endpoint after the PAM redirect config restart")
