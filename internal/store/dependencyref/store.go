@@ -155,7 +155,7 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 	}
 	return s.getDB(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}, {Name: "fleet_name"}, {Name: "device_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name", "config_provider_name"}),
+		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name", "config_provider_name", "config_provider_names"}),
 	}).Create(&refs).Error
 }
 
@@ -163,7 +163,9 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 // polling. It LEFT JOINs dependency_refs with sync_states so that refs
 // without a sync state row (never polled) are included, filters out
 // parameterized revisions, applies the poll-interval time gate, and groups
-// by (repository_name, revision) with array_agg for fan-out targets.
+// by (repository_name, revision) with array_agg for fan-out targets. Rendered
+// fingerprints are read from device service conditions so the first probe can
+// detect a remote change that happened after the device rendered its dependency.
 func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error) {
 	var probes []model.GitDependencyProbe
 	err := s.getDB(ctx).
@@ -171,10 +173,30 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 		Select(
 			"dr.repository_name, dr.revision, ss.fingerprint, r.spec AS repo_spec, "+
 				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
-				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names",
+				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names, "+
+				"COALESCE(jsonb_agg(DISTINCT jsonb_build_object("+
+				"'fleetName', dr.fleet_name, "+
+				"'deviceName', rendered_ref.device_name, "+
+				"'fingerprint', rendered_ref.fingerprint, "+
+				"'deviceLevel', dr.device_name <> ''"+
+				")) FILTER (WHERE rendered_ref.fingerprint IS NOT NULL AND rendered_ref.fingerprint <> ''), '[]'::jsonb) AS rendered_targets",
 		).
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Joins("LEFT JOIN repositories r ON r.org_id = dr.org_id AND r.name = dr.repository_name").
+		Joins("LEFT JOIN ("+
+			"SELECT first_seen_device.org_id, first_seen_device.device_name, first_seen_device.owner, "+
+			"rendered_ref->>'configProviderName' AS config_provider_name, "+
+			"rendered_ref->>'fingerprint' AS fingerprint "+
+			"FROM ("+
+			"SELECT DISTINCT d.org_id, d.name AS device_name, d.owner "+
+			"FROM dependency_refs dr0 "+
+			"LEFT JOIN sync_states ss0 ON ss0.org_id = dr0.org_id AND ss0.resource_key = dr0.resource_key "+
+			"JOIN devices d ON d.org_id = dr0.org_id AND d.deleted_at IS NULL AND ((dr0.device_name <> '' AND d.name = dr0.device_name) OR (dr0.device_name = '' AND dr0.fleet_name <> '' AND d.owner = CONCAT('Fleet/', dr0.fleet_name))) "+
+			"WHERE dr0.org_id = ? AND dr0.ref_type = 'git' AND dr0.revision NOT LIKE ? AND (ss0.fingerprint IS NULL OR ss0.fingerprint = '') AND (ss0.last_checked_at IS NULL OR ss0.last_checked_at + ? * INTERVAL '1 second' < NOW())"+
+			") AS first_seen_device "+
+			"JOIN devices d ON d.org_id = first_seen_device.org_id AND d.name = first_seen_device.device_name AND d.deleted_at IS NULL "+
+			"CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.service_conditions->'dependencySync'->'configRefs', '[]'::jsonb)) AS rendered_ref"+
+			") AS rendered_ref ON (ss.fingerprint IS NULL OR ss.fingerprint = '') AND rendered_ref.org_id = dr.org_id AND ((dr.device_name <> '' AND rendered_ref.device_name = dr.device_name) OR (dr.device_name = '' AND dr.fleet_name <> '' AND rendered_ref.owner = CONCAT('Fleet/', dr.fleet_name))) AND (rendered_ref.config_provider_name = dr.config_provider_name OR rendered_ref.config_provider_name = ANY(COALESCE(dr.config_provider_names, ARRAY[]::text[])))", orgID, "%{{%", pollInterval.Seconds()).
 		Where("dr.org_id = ?", orgID).
 		Where("dr.ref_type = 'git'").
 		Where("dr.revision NOT LIKE ?", "%{{%").
