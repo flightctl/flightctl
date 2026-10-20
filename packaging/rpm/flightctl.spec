@@ -457,53 +457,6 @@ fi
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana
 
-    # flightctl-catalog-collector sub-package steps
-    #
-    # The collector quadlet is installed directly rather than through
-    # "flightctl-standalone render quadlets": the collector is an optional
-    # add-on that is not part of flightctl.target and must stay installable
-    # without flightctl-services.
-    #
-    # The image reference still comes from the same %{images_config} that
-    # drives the services quadlets, so there is exactly one place that decides
-    # which registry and which dist suffix a build uses. Hardcoding it here
-    # would silently diverge from images.yaml the first time a downstream
-    # build repointed the registry. This is the same rule the pam-issuer
-    # image already follows.
-    #
-    # packaging/images/rhelN/images.yaml is deliberately not consulted
-    # here. Those files list only the RPM-only images the air-gap mirror tool
-    # needs and omit the service entries the render step above requires, so a
-    # downstream RHEL build repoints %{images_config} itself rather than
-    # splitting the collector onto a second source.
-    CATALOG_COLLECTOR_IMAGE=$(awk '
-        /^catalog-collector:[[:space:]]*$/ { in_entry = 1; next }
-        /^[^[:space:]#]/                   { in_entry = 0 }
-        in_entry && $1 == "image:"         { print $2; exit }
-    ' "%{images_config}")
-    if [ -z "${CATALOG_COLLECTOR_IMAGE}" ]; then
-        echo "ERROR: no catalog-collector image entry in %{images_config}" >&2
-        exit 1
-    fi
-
-    install -d -m 0755 %{buildroot}%{_sysconfdir}/flightctl/flightctl-catalog-collector
-    install -d -m 0755 %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples
-    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/config-vanilla.yaml \
-        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/config-vanilla.yaml
-    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/config-rhoai-to-flightctl.yaml \
-        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/config-rhoai-to-flightctl.yaml
-    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/vanilla-publish-8080.conf \
-        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/vanilla-publish-8080.conf
-
-    install -d -m 0755 %{buildroot}%{_datadir}/containers/systemd
-    sed -e "s|@CATALOG_COLLECTOR_IMAGE@|${CATALOG_COLLECTOR_IMAGE}:${IMAGE_TAG}|" \
-        deploy/podman/flightctl-catalog-collector/flightctl-catalog-collector.container \
-        > %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container
-    chmod 0644 %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container
-    grep -q '@CATALOG_COLLECTOR_IMAGE@' \
-        %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container \
-        && { echo "ERROR: catalog collector image placeholder was not substituted" >&2; exit 1; } || :
-
 %check
     # Run the installed binary from the buildroot and capture its output
     out="$("%{buildroot}%{_bindir}/flightctl-agent" version)"
