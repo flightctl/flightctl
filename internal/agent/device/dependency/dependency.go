@@ -906,7 +906,6 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 		if err := m.pull(ctx, target, task); err != nil {
 			if errors.IsRetryable(err) {
 				retries++
-				m.log.Warnf("Retrying prefetch for %s (attempt %d): %v", target, retries+1, err)
 				m.setError(target, fmt.Errorf("%w: %w", errors.WithElement(target.image), err), task)
 
 				// cleanup file system from partial layer pulls
@@ -916,6 +915,21 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 					m.log.Debug("cleanup completed successfully")
 				}
 
+				// A pull client may already have exhausted its own retry budget.
+				// Do not retry that exhausted error again from the prefetch loop.
+				// Also enforce the prefetch retry budget for retryable errors that
+				// are returned without a client-side retry limit.
+				if errors.Is(err, poll.ErrMaxSteps) ||
+					(m.pollConfig != nil && m.pollConfig.MaxSteps > 0 && retries > m.pollConfig.MaxSteps) {
+					m.log.Warnf("Prefetch retry limit reached for %s after %d attempts: %v", target, retries, err)
+					m.setResult(target, fmt.Errorf(
+						"%w: pulling oci target %w after retry limit (%d): %w",
+						errors.ErrNoRetry, errors.WithElement(target.image), retries, err,
+					), task)
+					return
+				}
+
+				m.log.Warnf("Retrying prefetch for %s (attempt %d): %v", target, retries+1, err)
 				select {
 				case <-time.After(poll.CalculateBackoffDelay(m.pollConfig, retries)):
 					continue

@@ -284,6 +284,93 @@ func TestEnsureScheduled(t *testing.T) {
 	}
 }
 
+// TestProcessTargetStopsAfterPullRetryLimit verifies that a client-side retry limit
+// is preserved as a non-retryable prefetch error.
+func TestProcessTargetStopsAfterPullRetryLimit(t *testing.T) {
+	const image = "quay.io/test/missing:latest"
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "podman", "pull", image,
+	).Return("", "Error: manifest unknown", 1)
+	// A failed retry must still clean up any partial image layers.
+	exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "podman", "info", "--format", "{{.Store.ImageCopyTmpDir}}",
+	).Return("", "", 0)
+
+	logger := log.NewPrefixLogger("test")
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	podman := client.NewPodman(logger, exec, rw, poll.Config{
+		BaseDelay: time.Nanosecond,
+		Factor:    1,
+		MaxSteps:  1,
+	})
+	target := imageRef{image: image, ociType: OCITypePodmanImage}
+	manager := &prefetchManager{
+		log: logger,
+		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		pullTimeout: time.Second,
+		pollConfig: &poll.Config{
+			BaseDelay: time.Nanosecond,
+			Factor:    1,
+			MaxSteps:  3,
+		},
+		tasks: map[imageRef]*prefetchTask{
+			target: {ociType: OCITypePodmanImage},
+		},
+	}
+
+	manager.processTarget(context.Background(), target)
+
+	task := manager.tasks[target]
+	require.True(t, task.done)
+	require.ErrorIs(t, task.err, errors.ErrNoRetry)
+	require.ErrorIs(t, task.err, errors.ErrImageNotFound)
+	require.ErrorIs(t, task.err, poll.ErrMaxSteps)
+	require.Contains(t, task.err.Error(), "manifest unknown")
+	require.False(t, errors.IsRetryable(task.err))
+}
+
+// TestProcessTargetStopsAfterPrefetchRetryLimit verifies that the prefetch retry
+// limit allows the configured number of retries after the initial pull attempt.
+func TestProcessTargetStopsAfterPrefetchRetryLimit(t *testing.T) {
+	const image = "quay.io/test/missing:latest"
+
+	logger := log.NewPrefixLogger("test")
+	target := imageRef{image: image, ociType: OCITypePodmanImage}
+	factoryCalls := 0
+	manager := &prefetchManager{
+		log: logger,
+		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+			factoryCalls++
+			return nil, errors.ErrNetwork
+		},
+		pullTimeout: time.Second,
+		pollConfig: &poll.Config{
+			BaseDelay: time.Nanosecond,
+			Factor:    1,
+			MaxSteps:  2,
+		},
+		tasks: map[imageRef]*prefetchTask{
+			target: {ociType: OCITypePodmanImage},
+		},
+	}
+
+	manager.processTarget(context.Background(), target)
+
+	task := manager.tasks[target]
+	// Each failed attempt invokes the factory once for the pull and once for cleanup.
+	require.Equal(t, 6, factoryCalls)
+	require.True(t, task.done)
+	require.ErrorIs(t, task.err, errors.ErrNoRetry)
+	require.False(t, errors.IsRetryable(task.err))
+}
+
 func TestIsReady(t *testing.T) {
 	tests := []struct {
 		name            string
