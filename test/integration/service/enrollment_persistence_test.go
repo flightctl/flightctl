@@ -49,6 +49,14 @@ type concurrentEnrollmentPersistence struct {
 	concurrentWrite func() error
 }
 
+type unavailableEnrollmentReads struct {
+	erstore.Store
+}
+
+func (persistence *unavailableEnrollmentReads) Get(context.Context, uuid.UUID, string) (*domain.EnrollmentRequest, error) {
+	return nil, errors.New("enrollment read unavailable")
+}
+
 func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	return persistence.Store.Mutate(ctx, orgID, name, previous, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 		if err := apply(mutation); err != nil {

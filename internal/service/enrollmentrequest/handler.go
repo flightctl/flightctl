@@ -41,6 +41,7 @@ type ServiceHandler struct {
 	store              enrollmentrequeststore.Store
 	deviceStore        devicestore.Store
 	csrService         csrservice.Service
+	enrollmentConfig   *enrollmentconfig.ServiceHandler
 	ca                 *crypto.CAClient
 	kvStore            kvstore.KVStore
 	events             events.Service
@@ -49,9 +50,6 @@ type ServiceHandler struct {
 	agentGate          *semaphore.Weighted
 	ehPolicySvc        enrollmenthookpolicy.Service
 	notifySecretsStore enrollmenthooknotifysecrets.Store
-
-	agentEndpoint string
-	uiUrl         string
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
@@ -60,14 +58,13 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 		store:              store,
 		deviceStore:        deviceStore,
 		csrService:         csrService,
+		enrollmentConfig:   enrollmentconfig.NewServiceHandler(csrService, ca, agentEndpoint, uiUrl),
 		ca:                 ca,
 		kvStore:            kvStore,
 		events:             events,
 		log:                log,
 		tpmCAPaths:         tpmCAPaths,
 		agentGate:          semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint:      agentEndpoint,
-		uiUrl:              uiUrl,
 		ehPolicySvc:        ehPolicySvc,
 		notifySecretsStore: notifySecretsStore,
 	}
@@ -480,24 +477,18 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	previous, err := h.store.Get(ctx, orgId, name)
-	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
-		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
-	}
-	if previous == nil {
-		leaf, _ := signer.PeerCertificateFromCtx(ctx)
-		credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
-		if recoverName {
-			credentialName, err = h.findCertificateName(ctx, orgId, leaf)
-			if err != nil {
-				return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
-			}
-		}
-		er.Status.EnrollmentCertificateName = credentialName
-	}
-	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, previous, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 		current := mutation.Resource()
 		if current == nil {
+			leaf, _ := signer.PeerCertificateFromCtx(ctx)
+			credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
+			if recoverName {
+				credentialName, err = h.findCertificateName(ctx, orgId, leaf)
+				if err != nil {
+					return err
+				}
+			}
+			er.Status.EnrollmentCertificateName = credentialName
 			candidate, err := store.CloneJSON(&er)
 			if err != nil {
 				return err
@@ -755,5 +746,5 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 }
 
 func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	return enrollmentconfig.NewServiceHandler(h.csrService, h.ca, h.agentEndpoint, h.uiUrl).GetEnrollmentConfig(ctx, orgId, params)
+	return h.enrollmentConfig.GetEnrollmentConfig(ctx, orgId, params)
 }

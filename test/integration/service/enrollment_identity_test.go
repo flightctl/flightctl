@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -836,6 +837,53 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(current.Spec.Csr).To(Equal(replacement.Spec.Csr))
 		Expect(current.Status.Certificate).To(BeNil())
 		Expect(current.Status.EnrollmentCertificateName).To(BeNil())
+	})
+
+	DescribeTable("When replacing an ER through mutation it should retain stored origin without separate reads", func(bound bool) {
+		credentialRequest := CreateTestCSR()
+		credential, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, credentialRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		leaf, err := fcrypto.ParseCertificatePEM(*credential.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
+		creatorContext := suite.Ctx
+		if bound {
+			creatorContext = ctx
+		}
+		request := CreateTestER()
+		created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(creatorContext, suite.OrgID, request)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		originalStatus, err := store.CloneJSON(created.Status)
+		Expect(err).NotTo(HaveOccurred())
+		created.Metadata.Labels = &map[string]string{"updated": "true"}
+		created.Status = &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("forged-origin")}
+		service := suite.enrollmentServiceWithPersistence(
+			&unavailableCSRReads{Store: csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)},
+			&unavailableEnrollmentReads{Store: erstore.NewEnrollmentRequestStore(suite.DB, suite.Log)})
+		updated, status := service.ReplaceEnrollmentRequest(ctx, suite.OrgID, *request.Metadata.Name, *created)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		Expect(updated.Status).To(Equal(originalStatus))
+		Expect(lo.FromPtr(updated.Metadata.Labels)).To(Equal(map[string]string{"updated": "true"}))
+		stored, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		Expect(stored.Status).To(Equal(originalStatus))
+	}, Entry("known origin", true), Entry("absent origin", false))
+
+	It("When retrieving enrollment config repeatedly it should include only the requested retained certificate", func() {
+		request := CreateTestCSR()
+		credential, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		certificate := *credential.Status.Certificate
+		config, status := suite.EnrollmentRequest.GetEnrollmentConfig(suite.Ctx, suite.OrgID, domain.GetEnrollmentConfigParams{Csr: request.Metadata.Name})
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		decoded, err := base64.StdEncoding.DecodeString(config.EnrollmentService.Authentication.ClientCertificateData)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(decoded).To(Equal(certificate))
+		Expect(config.EnrollmentService.Authentication.ClientKeyData).To(BeEmpty())
+		config, status = suite.EnrollmentRequest.GetEnrollmentConfig(suite.Ctx, suite.OrgID, domain.GetEnrollmentConfigParams{})
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		Expect(config.EnrollmentService.Authentication.ClientCertificateData).To(BeEmpty())
+		Expect(config.EnrollmentService.Service.CertificateAuthorityData).NotTo(BeEmpty())
 	})
 
 	It("When an ER is deleted during replacement it should not recreate a stale credential association", func() {
