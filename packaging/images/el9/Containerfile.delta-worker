@@ -33,11 +33,17 @@ WORKDIR /app
 USER 0
 
 RUN ARCH=$(uname -m) && \
-    dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs --nogpgcheck \
+    curl -fsSL https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256 -o /tmp/RPM-GPG-KEY-CentOS-Official && \
+    echo '5af55449d6c9bc594e2e2fb7222374cb25a8ad2d8ea6ce3de894a3201944daa2  /tmp/RPM-GPG-KEY-CentOS-Official' | sha256sum -c - && \
+    dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs \
+      --setopt=gpgcheck=True --setopt='*.gpgcheck=True' \
       --repofrompath "cs-baseos,https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/" \
       --repofrompath "cs-appstream,https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/" \
+      --setopt=cs-baseos.gpgkey=file:///tmp/RPM-GPG-KEY-CentOS-Official \
+      --setopt=cs-appstream.gpgkey=file:///tmp/RPM-GPG-KEY-CentOS-Official \
       oci-delta openssl-libs tzdata && \
-    dnf --installroot=/runtime-root clean all
+    dnf --installroot=/runtime-root clean all && \
+    rm /tmp/RPM-GPG-KEY-CentOS-Official
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
