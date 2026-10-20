@@ -678,6 +678,7 @@ func TestCollectConfigRefs_DeduplicatesByResourceKey(t *testing.T) {
 
 		require.Len(t, refs, 1)
 		assert.Equal(t, "git:my-repo/main", refs[0].ResourceKey)
+		assert.ElementsMatch(t, model.StringArray{"app-config", "infra-config"}, refs[0].ConfigProviderNames)
 	})
 
 	t.Run("When two HTTP configs share repo and suffix it should produce one ref", func(t *testing.T) {

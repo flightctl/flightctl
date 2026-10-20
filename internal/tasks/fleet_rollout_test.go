@@ -1159,6 +1159,8 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 		assert.Equal(t, "feature-a", *refs[0].Revision)
 		assert.Equal(t, "git:my-repo/feature-a", refs[0].ResourceKey)
 		assert.Equal(t, "my-repo", *refs[0].RepositoryName)
+		assert.Equal(t, "git-cfg", refs[0].ConfigProviderName)
+		assert.Equal(t, model.StringArray{"git-cfg"}, refs[0].ConfigProviderNames)
 	})
 
 	t.Run("When targetRevision is not parameterized it should return no refs", func(t *testing.T) {
@@ -1208,6 +1210,31 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 
 		assert.Contains(t, refsByKey, "git:repo-c/staging")
 		assert.Equal(t, "device-1", *refsByKey["git:repo-c/staging"].DeviceName)
+	})
+
+	t.Run("When parameterized git configs share a resolved resource it should preserve every provider name", func(t *testing.T) {
+		owner := util.SetResourceOwner(domain.FleetKind, fleetName)
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "dev"},
+			},
+		}
+		tv := &domain.TemplateVersion{
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeGitConfigItem(t, "git-1", "repo-a", "{{ .metadata.labels.branch }}"),
+					makeGitConfigItem(t, "git-2", "repo-a", "{{ .metadata.labels.branch }}"),
+				},
+			},
+		}
+
+		_, refs, errs := logic.getDeviceConfig(device, tv)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "git:repo-a/dev", refs[0].ResourceKey)
+		assert.ElementsMatch(t, model.StringArray{"git-1", "git-2"}, refs[0].ConfigProviderNames)
 	})
 }
 

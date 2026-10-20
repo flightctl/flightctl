@@ -50,12 +50,14 @@ func NewDependencySyncGit(log logrus.FieldLogger, dependencyrefSvc dependencyref
 
 // probeResult holds the outcome of a single (repo, revision) probe.
 type probeResult struct {
-	probe       *model.GitDependencyProbe
-	resourceKey string
-	newSHA      string
-	changed     bool
-	firstSeen   bool
-	probeErr    string // non-empty when the probe failed
+	probe                *model.GitDependencyProbe
+	resourceKey          string
+	newSHA               string
+	changed              bool
+	firstSeen            bool
+	firstSeenFleetNames  model.StringArray
+	firstSeenDeviceNames model.StringArray
+	probeErr             string // non-empty when the probe failed
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
@@ -180,6 +182,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		// A failed initial probe creates a state row without observing a SHA.
 		if p.Fingerprint == nil || *p.Fingerprint == "" {
 			r.firstSeen = true
+			r.changed, r.firstSeenFleetNames, r.firstSeenDeviceNames = renderedDependencyChanged(p.RenderedTargets, newSHA)
 		} else if newSHA != *p.Fingerprint {
 			r.changed = true
 		}
@@ -187,6 +190,44 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		results = append(results, r)
 	}
 	return results
+}
+
+// renderedDependencyChanged reports whether a dependency already rendered on
+// any target differs from the SHA observed by the first successful probe. It
+// preserves the target kind and fleet association so first-seen events are
+// limited to stale targets. An empty list remains a no-op.
+func renderedDependencyChanged(renderedTargets *model.JSONField[[]model.GitDependencyRenderedTarget], newSHA string) (bool, model.StringArray, model.StringArray) {
+	if renderedTargets == nil {
+		return false, nil, nil
+	}
+
+	changed := false
+	fleetNames := model.StringArray{}
+	deviceNames := model.StringArray{}
+	seenFleets := make(map[string]struct{})
+	seenDevices := make(map[string]struct{})
+	for _, target := range renderedTargets.Data {
+		if target.Fingerprint == "" || target.Fingerprint == newSHA {
+			continue
+		}
+
+		changed = true
+		if !target.DeviceLevel {
+			if target.FleetName != "" {
+				if _, seen := seenFleets[target.FleetName]; !seen {
+					seenFleets[target.FleetName] = struct{}{}
+					fleetNames = append(fleetNames, target.FleetName)
+				}
+			}
+			continue
+		}
+		if _, seen := seenDevices[target.DeviceName]; seen {
+			continue
+		}
+		seenDevices[target.DeviceName] = struct{}{}
+		deviceNames = append(deviceNames, target.DeviceName)
+	}
+	return changed, fleetNames, deviceNames
 }
 
 // reconcile emits events for changed probes, then updates sync states.
@@ -217,6 +258,21 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 		}
 		if d.metrics != nil {
 			d.metrics.ObserveProbeChange(periodic.RefTypeGit)
+		}
+		if r.firstSeen {
+			for _, fleetName := range r.firstSeenFleetNames {
+				event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
+				if event != nil {
+					d.eventSvc.CreateEvent(ctx, orgId, event)
+				}
+			}
+			for _, deviceName := range r.firstSeenDeviceNames {
+				event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
+				if event != nil {
+					d.eventSvc.CreateEvent(ctx, orgId, event)
+				}
+			}
+			continue
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
