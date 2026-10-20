@@ -483,10 +483,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 			leaf, _ := signer.PeerCertificateFromCtx(ctx)
 			credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
 			if recoverName {
-				credentialName, err = h.findCertificateName(ctx, orgId, leaf)
+				resolvedName, err := h.findCertificateName(ctx, orgId, leaf)
 				if err != nil {
 					return err
 				}
+				credentialName = resolvedName
 			}
 			er.Status.EnrollmentCertificateName = credentialName
 			candidate, err := store.CloneJSON(&er)

@@ -850,13 +850,33 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 }
 
 func TestGetEnrollmentConfigRestored(t *testing.T) {
-	handler, _, _, _, _ := newTestHandler(t)
-	result, status := handler.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{})
-	require.EqualValues(t, 200, status.Code)
-	require.NotNil(t, result)
-	require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
-	require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
-	result, status = handler.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("invalid name!")})
-	require.EqualValues(t, 400, status.Code)
-	require.Nil(t, result)
+	tests := []struct {
+		name         string
+		params       domain.GetEnrollmentConfigParams
+		expectedCode int32
+	}{
+		{
+			name:         "When no CSR is requested it should return the CA without a client certificate",
+			expectedCode: statusSuccessCode,
+		},
+		{
+			name:         "When the CSR name is invalid it should reject the request without config",
+			params:       domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("invalid name!")},
+			expectedCode: statusBadRequestCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, _, _, _ := newTestHandler(t)
+			result, status := handler.GetEnrollmentConfig(context.Background(), uuid.New(), test.params)
+			require.Equal(t, test.expectedCode, status.Code)
+			if test.expectedCode == statusBadRequestCode {
+				require.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
+			require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
+		})
+	}
 }

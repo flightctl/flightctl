@@ -59,6 +59,7 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		cancelled, cancel := context.WithCancel(suite.Ctx)
 		cancel()
 		_, status = suite.CertificateSigningRequest.ListCertificateSigningRequests(cancelled, suite.OrgID, domain.ListCertificateSigningRequestsParams{FieldSelector: &filter}, selector.WithPrivateSelectors())
+		// Selector parsing wraps cancellation in SelectorError, which maps to HTTP 400.
 		Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 		Expect(corruptRetainedCertificateEncoding(suite.DB, suite.OrgID, *candidate.Metadata.Name)).To(Succeed())
 		enrollment, status = suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
@@ -81,8 +82,12 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		}
 		var published *domain.CertificateSigningRequest
 		if concurrent {
+			request.Spec.SignerName = suite.caClient.Cfg.DeviceEnrollmentSignerName
 			published, err = suite.createUnpublishedCSR(provider, suite.Ctx, suite.OrgID, request)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(published.Spec.SignerName).To(Equal(suite.caClient.Cfg.DeviceEnrollmentSignerName))
+			Expect(published.Status.Certificate).To(BeNil())
+			Expect(published.Status.IssuedAt).To(BeNil())
 			published.Status.Certificate = lo.ToPtr([]byte{})
 			published.Status.Conditions = []domain.Condition{}
 			published, err = seedHistoricalCSRStatus(provider, suite.Ctx, suite.OrgID, published)

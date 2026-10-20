@@ -97,7 +97,7 @@ type ServiceTestSuite struct {
 	Catalog                   catalogservice.Service
 	CertificateSigningRequest certificatesigningrequestservice.Service
 	Device                    deviceservice.Service
-	EnrollmentRequest         enrollmentrequestservice.Service
+	EnrollmentRequest         *enrollmentrequestservice.ServiceHandler
 	Fleet                     fleetservice.Service
 	EnrollmentHookPolicy      enrollmenthookpolicyservice.Service
 	Repository                repositoryservice.Service
