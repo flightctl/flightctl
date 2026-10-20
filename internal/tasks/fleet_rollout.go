@@ -799,13 +799,13 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceGitConfigParameters(device, configItem)
 			for _, ref := range refs {
-				depRefs[ref.ResourceKey] = ref
+				mergeDependencyRef(depRefs, ref)
 			}
 		case domain.KubernetesSecretProviderType:
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceKubeSecretConfigParameters(device, configItem)
 			for _, ref := range refs {
-				depRefs[ref.ResourceKey] = ref
+				mergeDependencyRef(depRefs, ref)
 			}
 		case domain.InlineConfigProviderType:
 			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
@@ -813,7 +813,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceHTTPConfigParameters(device, configItem)
 			for _, ref := range refs {
-				depRefs[ref.ResourceKey] = ref
+				mergeDependencyRef(depRefs, ref)
 			}
 		default:
 			errs = append(errs, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
@@ -834,6 +834,20 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 		refs = append(refs, ref)
 	}
 	return &deviceConfig, refs, nil
+}
+
+func mergeDependencyRef(refs map[string]model.DependencyRef, ref model.DependencyRef) {
+	existing, ok := refs[ref.ResourceKey]
+	if !ok {
+		refs[ref.ResourceKey] = ref
+		return
+	}
+
+	existing.AddConfigProviderName(ref.ConfigProviderName)
+	for _, name := range ref.ConfigProviderNames {
+		existing.AddConfigProviderName(name)
+	}
+	refs[ref.ResourceKey] = existing
 }
 
 func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {
@@ -864,12 +878,14 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, co
 		deviceName := lo.FromPtr(device.Metadata.Name)
 		ownerFleetName, _, _ := getOwnerFleet(device)
 		refs = append(refs, model.DependencyRef{
-			FleetName:      &ownerFleetName,
-			DeviceName:     &deviceName,
-			RefType:        "git",
-			ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
-			RepositoryName: &gitSpec.GitRef.Repository,
-			Revision:       &gitSpec.GitRef.TargetRevision,
+			FleetName:           &ownerFleetName,
+			DeviceName:          &deviceName,
+			RefType:             "git",
+			ResourceKey:         fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+			RepositoryName:      &gitSpec.GitRef.Repository,
+			Revision:            &gitSpec.GitRef.TargetRevision,
+			ConfigProviderName:  gitSpec.Name,
+			ConfigProviderNames: model.StringArray{gitSpec.Name},
 		})
 	}
 
