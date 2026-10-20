@@ -132,7 +132,6 @@ func TestCABundleCreatorRouteCustomHostRBAC(t *testing.T) {
 
 	role := strings.Join(documents, "\n")
 	require.Contains(t, role, `resources: ["routes/custom-host"]`)
-	require.Contains(t, role, `verbs: ["create"]`)
 	// OpenShift cert-field SAR omits resource name; resourceNames would break authz.
 	customHostRuleStart := strings.Index(role, `resources: ["routes/custom-host"]`)
 	require.GreaterOrEqual(t, customHostRuleStart, 0)
@@ -140,6 +139,7 @@ func TestCABundleCreatorRouteCustomHostRBAC(t *testing.T) {
 	if nextRule := strings.Index(customHostRule[1:], "\n  - apiGroups:"); nextRule >= 0 {
 		customHostRule = customHostRule[:nextRule+1]
 	}
+	require.Contains(t, customHostRule, `verbs: ["create"]`)
 	require.NotContains(t, customHostRule, "resourceNames:")
 }
 
