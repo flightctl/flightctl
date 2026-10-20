@@ -46,7 +46,7 @@ auth:
     externalApiUrl: {{.global.auth.aap.externalApiUrl}}
 {{- else if eq .global.auth.type "oidc"}}
   oidc:
-    prompt: {{if eq .global.auth.oidc.prompt nil}}"login"{{else}}{{printf "%q" .global.auth.oidc.prompt}}{{end}}
+    prompt: {{if eq .global.auth.oidc.prompt nil}}"select_account"{{else}}{{printf "%q" .global.auth.oidc.prompt}}{{end}}
     enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
     {{if eq .global.auth.pamOidcIssuer.enabled true}}
     issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}/_/pam-issuer/api/v1/auth{{end}}

@@ -58,11 +58,11 @@ func TestMultiAuth_PromptUpdates(t *testing.T) {
 				prompt *string
 				want   string
 			}{
-				{"When a legacy provider omits prompt it should expose login", nil, "login"},
+				{"When a legacy provider omits prompt it should expose select_account", nil, "select_account"},
 				{"When prompt is explicitly empty it should expose empty", lo.ToPtr(""), ""},
 				{"When prompt changes to login it should expose login", lo.ToPtr("login"), "login"},
 				{"When prompt contains extensions and spaces it should preserve them", lo.ToPtr(" custom  consent "), " custom  consent "},
-				{"When prompt is removed it should expose login", nil, "login"},
+				{"When prompt is removed it should expose select_account", nil, "select_account"},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {

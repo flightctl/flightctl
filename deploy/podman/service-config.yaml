@@ -30,8 +30,8 @@ global:
         - read
         - write
     oidc:
-      # Authorization prompt exposed to login clients. Empty string omits the parameter; omitted or null defaults to login.
-      prompt: "login"
+      # Authorization prompt exposed to login clients. Empty string omits the parameter; omitted or null defaults to select_account.
+      prompt: "select_account"
       clientId: flightctl-client
       clientSecret:  # Optional: Client secret for OIDC provider (injected by token proxy)
       enabled: true

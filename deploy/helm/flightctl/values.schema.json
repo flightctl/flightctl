@@ -109,7 +109,7 @@
               "properties": {
                 "prompt": {
                   "type": ["string", "null"],
-                  "default": "login",
+                  "default": "select_account",
                   "pattern": "^(| *[!-~]+( +[!-~]+)* *)$",
                   "if": {
                     "type": "string",
@@ -118,7 +118,7 @@
                   "then": {
                     "pattern": "^ *none( +none)* *$"
                   },
-                  "description": "Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login."
+                  "description": "Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to select_account."
                 },
                 "clientId": { "type": "string", "description": "OIDC Client ID" },
                 "clientSecret": {
