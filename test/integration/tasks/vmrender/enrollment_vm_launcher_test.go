@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -26,7 +27,9 @@ import (
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -150,7 +153,10 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		templateVersionSvc = templateversionservice.NewServiceHandler(tvStore, kvStoreInst, eventsSvc, log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(depStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repoStore, eventsSvc, log)
-		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, nil, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
+		var tpmVerifier tpmcsr.Verifier
+		csrSvc := csrservice.NewServiceHandler(csrstore.NewCertificateSigningRequestStore(db, log), &tpmVerifier, caClient, eventsSvc, log, "", "")
+		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, csrSvc, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
+		tpmVerifier = *tpmcsr.NewVerifier(enrollmentSvc)
 
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, identity.NewMappedIdentity("admin", "uid-admin", nil, nil, true, nil))
 

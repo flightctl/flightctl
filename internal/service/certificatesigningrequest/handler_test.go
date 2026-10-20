@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
@@ -116,22 +116,22 @@ func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId u
 	return true, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	before, err := store.CloneJSON(f.items[name])
-	if err != nil {
-		return nil, nil, false, err
-	}
-	current, err := store.CloneJSON(before)
-	if err != nil {
-		return nil, nil, false, err
-	}
+func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	before := f.items[name]
 	mutation := &store.Mutation[domain.CertificateSigningRequest]{}
-	mutation.SetResource(current)
+	mutation.SetResource(before)
 	if err := apply(mutation); err != nil {
-		return nil, nil, false, err
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
+		}
+		return nil, before, false, err
 	}
-	f.items[name] = mutation.Resource()
-	return mutation.Resource(), before, before == nil, nil
+	if before == nil {
+		result, err := f.Create(ctx, orgId, mutation.Resource())
+		return result, nil, true, err
+	}
+	result, _, err := f.Update(ctx, orgId, mutation.Resource())
+	return result, before, false, err
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
@@ -146,7 +146,6 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
 // verification tests (GetEnrollmentRequest only).
 type fakeEnrollmentRequestService struct {
-	enrollmentrequest.Service
 	items map[string]*domain.EnrollmentRequest
 }
 

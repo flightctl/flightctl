@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -70,21 +71,6 @@ func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
 }
 
-// FindNameByCertificate mocks base method.
-func (m *MockService) FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (*string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindNameByCertificate", ctx, orgId, leafDER)
-	ret0, _ := ret[0].(*string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FindNameByCertificate indicates an expected call of FindNameByCertificate.
-func (mr *MockServiceMockRecorder) FindNameByCertificate(ctx, orgId, leafDER any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindNameByCertificate", reflect.TypeOf((*MockService)(nil).FindNameByCertificate), ctx, orgId, leafDER)
-}
-
 // GetCertificateSigningRequest mocks base method.
 func (m *MockService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
@@ -101,18 +87,23 @@ func (mr *MockServiceMockRecorder) GetCertificateSigningRequest(ctx, orgId, name
 }
 
 // ListCertificateSigningRequests mocks base method.
-func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
+func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCertificateSigningRequests", ctx, orgId, params)
+	varargs := []any{ctx, orgId, params}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListCertificateSigningRequests", varargs...)
 	ret0, _ := ret[0].(*domain.CertificateSigningRequestList)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListCertificateSigningRequests indicates an expected call of ListCertificateSigningRequests.
-func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, params any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), ctx, orgId, params)
+	varargs := append([]any{ctx, orgId, params}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), varargs...)
 }
 
 // PatchCertificateSigningRequest mocks base method.

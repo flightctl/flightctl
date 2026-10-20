@@ -93,7 +93,7 @@ var _ = Describe("Persisted creation timestamps", func() {
 		var err error
 		if mutate {
 			var wasCreated bool
-			created, _, wasCreated, err = provider.Mutate(suite.Ctx, suite.OrgID, *request.Metadata.Name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+			created, _, wasCreated, err = provider.Mutate(suite.Ctx, suite.OrgID, *request.Metadata.Name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 				mutation.SetResource(&request)
 				return nil
 			})

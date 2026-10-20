@@ -238,7 +238,7 @@ func HasConditionChanged(oldCondition, newCondition *domain.Condition) bool {
 //
 // Relocated from the unexported internal/service.prepareListParams (renamed/exported as part
 // of this move so it is callable from outside internal/service).
-func PrepareListParams(cont *string, lSelector *string, fSelector *string, limit *int32) (*store.ListParams, domain.Status) {
+func PrepareListParams(cont *string, lSelector *string, fSelector *string, limit *int32, opts ...selector.FieldSelectorOption) (*store.ListParams, domain.Status) {
 	cnt, err := store.ParseContinueString(cont)
 	if err != nil {
 		return nil, domain.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
@@ -246,7 +246,7 @@ func PrepareListParams(cont *string, lSelector *string, fSelector *string, limit
 
 	var fieldSelector *selector.FieldSelector
 	if fSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*fSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*fSelector, opts...); err != nil {
 			return nil, domain.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
 		}
 	}

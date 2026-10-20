@@ -191,7 +191,7 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 		}
 		updated = mutation.Resource()
 		return false, nil
-	})
+	}, lo.FromPtrOr(hooks.MaxRetries, retryIterations-1))
 	return updated, before, created, err
 }
 

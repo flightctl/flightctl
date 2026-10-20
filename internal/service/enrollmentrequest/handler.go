@@ -18,8 +18,10 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
@@ -38,7 +40,7 @@ import (
 type ServiceHandler struct {
 	store              enrollmentrequeststore.Store
 	deviceStore        devicestore.Store
-	findCertificate    func(context.Context, uuid.UUID, []byte) (*string, error)
+	csrService         csrservice.Service
 	ca                 *crypto.CAClient
 	kvStore            kvstore.KVStore
 	events             events.Service
@@ -53,11 +55,11 @@ type ServiceHandler struct {
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, findCertificate func(context.Context, uuid.UUID, []byte) (*string, error), ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrService csrservice.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
 	return &ServiceHandler{
 		store:              store,
 		deviceStore:        deviceStore,
-		findCertificate:    findCertificate,
+		csrService:         csrService,
 		ca:                 ca,
 		kvStore:            kvStore,
 		events:             events,
@@ -373,9 +375,14 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
-	credentialName, err := h.enrollmentCertificateName(ctx, orgId)
-	if err != nil {
-		return nil, domain.StatusInternalServerError(err.Error())
+	leaf, _ := signer.PeerCertificateFromCtx(ctx)
+	credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
+	if recoverName {
+		var err error
+		credentialName, err = h.findCertificateName(ctx, orgId, leaf)
+		if err != nil {
+			return nil, domain.StatusInternalServerError(err.Error())
+		}
 	}
 	er.Status.EnrollmentCertificateName = credentialName
 
@@ -473,18 +480,28 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+	previous, err := h.store.Get(ctx, orgId, name)
+	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+	}
+	if previous == nil {
+		leaf, _ := signer.PeerCertificateFromCtx(ctx)
+		credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
+		if recoverName {
+			credentialName, err = h.findCertificateName(ctx, orgId, leaf)
+			if err != nil {
+				return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+			}
+		}
+		er.Status.EnrollmentCertificateName = credentialName
+	}
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, previous, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 		current := mutation.Resource()
 		if current == nil {
 			candidate, err := store.CloneJSON(&er)
 			if err != nil {
 				return err
 			}
-			credentialName, err := h.enrollmentCertificateName(ctx, orgId)
-			if err != nil {
-				return err
-			}
-			candidate.Status.EnrollmentCertificateName = credentialName
 			mutation.SetResource(candidate)
 			return nil
 		}
@@ -735,4 +752,8 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 		}
 		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 	})
+}
+
+func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
+	return enrollmentconfig.NewServiceHandler(h.csrService, h.ca, h.agentEndpoint, h.uiUrl).GetEnrollmentConfig(ctx, orgId, params)
 }

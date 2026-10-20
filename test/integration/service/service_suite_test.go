@@ -177,10 +177,11 @@ func (s *ServiceTestSuite) Setup() {
 	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.DB, s.Log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	s.NotifySecretsStore = notifySecretsStore
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, func(ctx context.Context, orgID uuid.UUID, leafDER []byte) (*string, error) {
-		return s.CertificateSigningRequest.FindNameByCertificate(ctx, orgID, leafDER)
-	}, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
-	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
+
+	var tpmVerifier tpmcsr.Verifier
+	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.caClient, eventsSvc, s.Log, "", "")
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, s.CertificateSigningRequest, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
+	tpmVerifier = *tpmcsr.NewVerifier(s.EnrollmentRequest)
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
 

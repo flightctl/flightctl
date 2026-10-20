@@ -14,7 +14,7 @@ import (
 )
 
 func seedCSRStatus(provider csrstore.Store, ctx context.Context, orgID uuid.UUID, candidate *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	updated, _, _, err := provider.Mutate(ctx, orgID, *candidate.Metadata.Name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	updated, _, _, err := provider.Mutate(ctx, orgID, *candidate.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
@@ -46,8 +46,8 @@ type concurrentCSRPublication struct {
 	concurrentWrite func(*domain.CertificateSigningRequest) error
 }
 
-func (provider *concurrentCSRPublication) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	return provider.Store.Mutate(ctx, orgID, name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+func (provider *concurrentCSRPublication) Mutate(ctx context.Context, orgID uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	return provider.Store.Mutate(ctx, orgID, name, previous, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 		if err := apply(mutation); err != nil {
 			return err
 		}

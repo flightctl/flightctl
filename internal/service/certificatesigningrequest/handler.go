@@ -85,22 +85,22 @@ func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *
 	}
 }
 
-func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) error {
+func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
 	if csr.Status.Certificate != nil && len(*csr.Status.Certificate) > 0 {
-		return nil
+		return
 	}
 
 	request, _, err := newSignRequestFromCertificateSigningRequest(csr)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
-		return nil
+		return
 	}
 
 	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
-		return nil
+		return
 	}
 
 	csr.Status.Certificate = &certPEM
@@ -111,15 +111,14 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		h.log.WithError(err).Error("failed to set signed certificate")
 		csr.Status.Certificate = nil
 		csr.Status.IssuedAt = nil
-		return err
+		return
 	} else {
 		*csr = *published
 	}
-	return nil
 }
 
-func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
-	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
+	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit, opts...)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
@@ -186,9 +185,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	}
 
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
-		}
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
 	return result, domain.StatusCreated()
@@ -267,9 +264,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
-		}
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
 	return result, domain.StatusOK()
@@ -337,9 +332,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
-		}
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
 	return result, common.StoreErrorToApiStatus(nil, created, domain.CertificateSigningRequestKind, &name)
@@ -397,7 +390,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newConditions := newCSR.Status.Conditions
 
 	// Updating the approval should only update the conditions.
-	newCSR.Metadata = oldCSR.Metadata
+	newCSR.Metadata.CreationTimestamp = oldCSR.Metadata.CreationTimestamp
 	newCSR.Spec = oldCSR.Spec
 	newCSR.Status = oldCSR.Status
 	newCSR.Status.Conditions = newConditions
@@ -408,9 +401,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
-		if err := h.signApprovedCertificateSigningRequest(ctx, orgId, result); err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, result.Metadata.Name)
-		}
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
 	return result, domain.StatusOK()

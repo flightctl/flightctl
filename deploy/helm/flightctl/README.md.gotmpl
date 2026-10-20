@@ -115,9 +115,9 @@ If you need to access the service using the `flightctl` CLI, select **Copy login
 
 {{ .Name | title }} uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Stop credential writers and selected services** — the API and image builder worker always stop before migration, including image-only upgrades. The hook also scales services selected by `upgradeHooks.scaleDown` to zero. It waits for their Pods to terminate and aborts the upgrade if shutdown fails. Deployments in separate public and internal namespaces are handled independently.
+1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
 2. **Migration dry-run** — validates database migrations to catch issues early.
-3. **Database migration** — applies schema changes and converts existing data before upgraded writers start.
+3. **Database migration (expand-only)** — applies backward-compatible schema changes.
 4. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
 Example upgrade hooks configuration:

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -17,7 +18,7 @@ import (
 )
 
 var _ = Describe("Condition updates across credential name reuse", func() {
-	It("When an old condition write races recreation it should retain the new incarnation's issuance and lookup key", func() {
+	It("When an old condition write races recreation it should reject the stale attempt and require a fresh condition update", func() {
 		suite := newCertificatePersistenceSuite()
 		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
 		defer cancel()
@@ -51,7 +52,7 @@ var _ = Describe("Condition updates across credential name reuse", func() {
 		var pause sync.Once
 		result := make(chan error, 1)
 		go func() {
-			_, _, _, err := provider.Mutate(ctx, suite.OrgID, *original.Metadata.Name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+			_, _, _, err := provider.Mutate(ctx, suite.OrgID, *original.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 				if err := mutation.RequireExisting(); err != nil {
 					return err
 				}
@@ -87,11 +88,17 @@ var _ = Describe("Condition updates across credential name reuse", func() {
 		released = true
 		select {
 		case err := <-result:
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		case <-ctx.Done():
 			Fail("condition update did not finish before its deadline")
 		}
 		current, err := provider.Get(ctx, suite.OrgID, *replacement.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(current.Status.Certificate).To(Equal(replacement.Status.Certificate))
+		Expect(current.Status.IssuedAt).To(Equal(&recreatedAt))
+		Expect(current.Status.Conditions).To(Equal(replacement.Status.Conditions))
+		Expect(provider.UpdateConditions(ctx, suite.OrgID, *replacement.Metadata.Name, []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}})).To(Succeed())
+		current, err = provider.Get(ctx, suite.OrgID, *replacement.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(current.Status.Certificate).To(Equal(replacement.Status.Certificate))
 		Expect(current.Status.IssuedAt).To(Equal(&recreatedAt))

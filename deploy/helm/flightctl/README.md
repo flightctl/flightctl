@@ -85,9 +85,9 @@ If you need to access the service using the `flightctl` CLI, select **Copy login
 
 Flightctl uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Stop credential writers and selected services** — the API and image builder worker always stop before migration, including image-only upgrades. The hook also scales services selected by `upgradeHooks.scaleDown` to zero. It waits for their Pods to terminate and aborts the upgrade if shutdown fails. Deployments in separate public and internal namespaces are handled independently.
+1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
 2. **Migration dry-run** — validates database migrations to catch issues early.
-3. **Database migration** — applies schema changes and converts existing data before upgraded writers start.
+3. **Database migration (expand-only)** — applies backward-compatible schema changes.
 4. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
 Example upgrade hooks configuration:
@@ -487,7 +487,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker","flightctl-delta-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
-| upgradeHooks.scaleDown.condition | string | `"chart"` | When to scale optional services: "always", "never", or "chart" (default). Credential writers are always stopped before migration. |
+| upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker","flightctl-delta-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caCertConfigMapName":"","caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caCertConfigMapName":"","caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |

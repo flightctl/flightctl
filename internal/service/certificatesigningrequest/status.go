@@ -35,7 +35,7 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, cand
 	if candidate == nil || candidate.Metadata.Name == nil || candidate.Status == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}

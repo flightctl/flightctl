@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -49,19 +50,22 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	before := f.items[name]
-	current, err := store.CloneJSON(before)
-	if err != nil {
-		return nil, nil, false, err
-	}
 	mutation := &store.Mutation[domain.EnrollmentRequest]{}
-	mutation.SetResource(current)
+	mutation.SetResource(before)
 	if err := apply(mutation); err != nil {
-		return nil, before, before == nil, err
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
+		}
+		return nil, before, false, err
 	}
-	f.items[name] = mutation.Resource()
-	return mutation.Resource(), before, before == nil, nil
+	if before == nil {
+		result, err := f.Create(ctx, orgId, mutation.Resource())
+		return result, nil, true, err
+	}
+	result, _, err := f.Update(ctx, orgId, mutation.Resource())
+	return result, before, false, err
 }
 
 func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
@@ -843,4 +847,16 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 		require.ErrorIs(t, getErr, flterrors.ErrResourceNotFound)
 		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
 	})
+}
+
+func TestGetEnrollmentConfigRestored(t *testing.T) {
+	handler, _, _, _, _ := newTestHandler(t)
+	result, status := handler.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{})
+	require.EqualValues(t, 200, status.Code)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
+	require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
+	result, status = handler.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("invalid name!")})
+	require.EqualValues(t, 400, status.Code)
+	require.Nil(t, result)
 }

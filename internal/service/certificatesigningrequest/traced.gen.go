@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -60,18 +61,6 @@ func (_d *TracedService) DeleteCertificateSigningRequest(ctx context.Context, or
 	return s1
 }
 
-func (_d *TracedService) FindNameByCertificate(ctx context.Context, orgId uuid.UUID, leafDER []byte) (sp1 *string, err error) {
-	ctx, span := startSpan(ctx, "FindNameByCertificate")
-
-	sp1, err = _d.inner.FindNameByCertificate(ctx, orgId, leafDER)
-	st := domain.StatusOK()
-	if err != nil {
-		st = domain.StatusInternalServerError(err.Error())
-	}
-	endSpan(span, st)
-	return sp1, err
-}
-
 func (_d *TracedService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetCertificateSigningRequest")
 
@@ -80,10 +69,10 @@ func (_d *TracedService) GetCertificateSigningRequest(ctx context.Context, orgId
 	return cp1, s1
 }
 
-func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (cp1 *domain.CertificateSigningRequestList, s1 domain.Status) {
+func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (cp1 *domain.CertificateSigningRequestList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListCertificateSigningRequests")
 
-	cp1, s1 = _d.inner.ListCertificateSigningRequests(ctx, orgId, params)
+	cp1, s1 = _d.inner.ListCertificateSigningRequests(ctx, orgId, params, opts...)
 	endSpan(span, s1)
 	return cp1, s1
 }

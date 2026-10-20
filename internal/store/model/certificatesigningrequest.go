@@ -1,13 +1,12 @@
 package model
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
@@ -74,8 +73,7 @@ func CertificateSigningRequestCertificateDigest(certificate *[]byte) *string {
 	if err != nil {
 		return nil
 	}
-	digest := sha256.Sum256(leaf.Raw)
-	return lo.ToPtr(hex.EncodeToString(digest[:]))
+	return lo.ToPtr(crypto.CertificateDigest(leaf.Raw))
 }
 
 func CertificateSigningRequestAPIVersion() string {

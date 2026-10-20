@@ -19,8 +19,8 @@ type unavailableIssuancePersistence struct {
 	csrstore.Store
 }
 
-func (persistence *unavailableIssuancePersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	return persistence.Store.Mutate(ctx, orgID, name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+func (persistence *unavailableIssuancePersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	return persistence.Store.Mutate(ctx, orgID, name, previous, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 		if err := apply(mutation); err != nil {
 			return err
 		}
@@ -49,8 +49,8 @@ type concurrentEnrollmentPersistence struct {
 	concurrentWrite func() error
 }
 
-func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
-	return persistence.Store.Mutate(ctx, orgID, name, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, orgID uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	return persistence.Store.Mutate(ctx, orgID, name, previous, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 		if err := apply(mutation); err != nil {
 			return err
 		}
@@ -65,11 +65,11 @@ func (persistence *concurrentEnrollmentPersistence) Mutate(ctx context.Context, 
 
 func (suite *ServiceTestSuite) enrollmentServiceWithPersistence(csrPersistence csrstore.Store, erPersistence erstore.Store) enrollmentrequestservice.Service {
 	eventService := events.NewServiceHandler(suite.EventStore, suite.workerClient, suite.Log)
-	var csrSvc csrservice.Service
-	erSvc := enrollmentrequestservice.NewServiceHandler(erPersistence, suite.DeviceStore, func(ctx context.Context, orgID uuid.UUID, leafDER []byte) (*string, error) {
-		return csrSvc.FindNameByCertificate(ctx, orgID, leafDER)
-	},
+
+	var tpmVerifier tpmcsr.Verifier
+	csrSvc := csrservice.NewServiceHandler(csrPersistence, &tpmVerifier, suite.caClient, eventService, suite.Log, "", "")
+	erSvc := enrollmentrequestservice.NewServiceHandler(erPersistence, suite.DeviceStore, csrSvc,
 		suite.caClient, suite.kvStore, eventService, suite.Log, nil, "", "", suite.EnrollmentHookPolicy, suite.NotifySecretsStore)
-	csrSvc = csrservice.NewServiceHandler(csrPersistence, tpmcsr.NewVerifier(erSvc), suite.caClient, eventService, suite.Log, "", "")
+	tpmVerifier = *tpmcsr.NewVerifier(erSvc)
 	return erSvc
 }

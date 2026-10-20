@@ -23,7 +23,7 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -123,15 +123,23 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	return s.genericStore.Mutate(ctx, orgId, name, nil, store.MutateHooks[domain.CertificateSigningRequest]{
+func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
+		previous = nil
+	}
+	hooks := store.MutateHooks[domain.CertificateSigningRequest]{
+		MaxRetries: lo.ToPtr(0),
 		Wrap: func(current *domain.CertificateSigningRequest) store.ResourceMutation[domain.CertificateSigningRequest] {
 			mutation := &store.Mutation[domain.CertificateSigningRequest]{}
 			mutation.SetResource(current)
 			return mutation
 		},
+		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (*domain.CertificateSigningRequest, error) {
+			return s.Create(ctx, orgId, mutation.Resource())
+		},
 		PersistUpdate: s.persistStatus,
-	}, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
+	}
+	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
 		return apply(mutation.(*store.Mutation[domain.CertificateSigningRequest]))
 	})
 }
@@ -163,7 +171,7 @@ func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgI
 }
 
 func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
-	_, _, _, err := s.Mutate(ctx, orgId, name, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
