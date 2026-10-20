@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,6 +15,7 @@ func TestFromStderr(t *testing.T) {
 		exitCode   int
 		expected   error
 		shouldWrap bool
+		retryable  bool
 	}{
 		{
 			name:       "unauthorized returns ErrImageUnauthorized",
@@ -21,6 +23,14 @@ func TestFromStderr(t *testing.T) {
 			exitCode:   125,
 			expected:   ErrImageUnauthorized,
 			shouldWrap: true,
+		},
+		{
+			name:       "When the manifest is unknown it should retry ErrImageNotFound",
+			stderr:     "Error: manifest unknown",
+			exitCode:   1,
+			expected:   ErrImageNotFound,
+			shouldWrap: true,
+			retryable:  true,
 		},
 		{
 			name:       "authentication required returns ErrAuthenticationFailed",
@@ -55,6 +65,15 @@ func TestFromStderr(t *testing.T) {
 			} else {
 				require.Equal(tc.expected, err)
 			}
+			require.Equal(tc.retryable, IsRetryable(err))
 		})
 	}
+}
+
+// TestIsRetryableNoRetryMarkerTakesPrecedence verifies that terminal errors
+// remain non-retryable when they wrap a retryable cause.
+func TestIsRetryableNoRetryMarkerTakesPrecedence(t *testing.T) {
+	err := fmt.Errorf("%w: %w", ErrNoRetry, poll.ErrMaxSteps)
+
+	require.False(t, IsRetryable(err))
 }

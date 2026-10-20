@@ -469,6 +469,12 @@ func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
+	// ErrNoRetry is an explicit terminal marker and takes precedence over
+	// retryable causes wrapped in the same error.
+	if errors.Is(err, ErrNoRetry) {
+		return false
+	}
+
 	var dnsErr *net.DNSError
 	switch {
 	case errors.As(err, &dnsErr):
@@ -505,8 +511,9 @@ func IsRetryable(err error) bool {
 	case strings.Contains(err.Error(), "unexpected EOF"):
 		// HTTP client wraps EOF errors from broken connections
 		return true
-	case errors.Is(err, ErrNoRetry):
-		return false
+	case errors.Is(err, ErrImageNotFound):
+		// An image may be published after the desired spec references it.
+		return true
 	case errors.Is(err, ErrAuthenticationFailed):
 		return false
 	case errors.Is(err, ErrKubeconfigNotFound):
