@@ -8281,7 +8281,7 @@ components:
           minLength: 1
           maxLength: 253
           pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-          description: Optional tenant-local issuing enrollment CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
+          description: Optional tenant-local enrollment credential CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
         certificate:
           type: string
           description: 'The PEM-encoded signed certificate.'

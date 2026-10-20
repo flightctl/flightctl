@@ -2193,7 +2193,7 @@ type EnrollmentRequestStatus struct {
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions []Condition `json:"conditions"`
 
-	// EnrollmentCertificateName Optional tenant-local issuing enrollment CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
+	// EnrollmentCertificateName Optional tenant-local enrollment credential CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
 	EnrollmentCertificateName *string `json:"enrollmentCertificateName,omitempty"`
 }
 

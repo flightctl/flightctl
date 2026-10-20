@@ -22,9 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// nowFunc allows overriding for unit tests
-var nowFunc = time.Now
-
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
 	tpmVerifier   *tpmcsr.Verifier
@@ -33,13 +30,14 @@ type ServiceHandler struct {
 	log           logrus.FieldLogger
 	agentEndpoint string
 	uiUrl         string
+	now           func() time.Time
 }
 
 // NewServiceHandler creates a new certificatesigningrequest ServiceHandler instance.
 // agentEndpoint/uiUrl are only used by GenerateEnrollmentCredential (they're embedded in the
 // returned crypto.EnrollmentCredential); pass "" if a caller never needs enrollment credentials.
 func NewServiceHandler(store certificatesigningrequeststore.Store, tpmVerifier *tpmcsr.Verifier, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
-	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
+	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl, now: time.Now}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -105,7 +103,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 
 	csr.Status.Certificate = &certPEM
 	if enrollment {
-		csr.Status.IssuedAt = lo.ToPtr(nowFunc().UTC())
+		csr.Status.IssuedAt = lo.ToPtr(h.now().UTC())
 	}
 	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
@@ -432,7 +430,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go
 func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningRequest) {
-	now := nowFunc()
+	now := time.Now()
 	for i := range newCSR.Status.Conditions {
 		// preserve existing lastTransitionTime if the condition with this type/status already exists,
 		// otherwise set to now.
