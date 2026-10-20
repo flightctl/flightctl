@@ -1,6 +1,7 @@
 package auxiliary
 
 import (
+	"crypto/x509"
 	"net"
 	"testing"
 )
@@ -45,6 +46,38 @@ func TestRegistryCertificateSANs(t *testing.T) {
 		}
 		if test.wantIP != "" && !containsIP(ipAddresses, net.ParseIP(test.wantIP)) {
 			t.Errorf("registryCertificateSANs(%q) IP SANs = %v, want %q", test.host, ipAddresses, test.wantIP)
+		}
+	}
+}
+
+func TestRegistryCertificateMatchesHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		cert    *x509.Certificate
+		host    string
+		want    bool
+		wantErr bool
+	}{
+		{name: "When the current IPv4 host is in the certificate it should reuse the registry", cert: &x509.Certificate{IPAddresses: []net.IP{net.ParseIP(registryCertificateIPv4)}}, host: registryCertificateIPv4, want: true},
+		{name: "When the current IPv4 host is absent it should recreate the registry", cert: &x509.Certificate{IPAddresses: []net.IP{net.ParseIP("192.168.122.140")}}, host: registryCertificateIPv4},
+		{name: "When the current DNS host is in the certificate it should reuse the registry", cert: &x509.Certificate{DNSNames: []string{registryCertificateHostname}}, host: registryCertificateHostname, want: true},
+		{name: "When the certificate is missing it should return an error", host: registryCertificateIPv4, wantErr: true},
+	}
+
+	for _, test := range tests {
+		got, err := registryCertificateMatchesHost(test.cert, test.host)
+		if test.wantErr {
+			if err == nil {
+				t.Errorf("%s: registryCertificateMatchesHost() error = nil, want error", test.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: registryCertificateMatchesHost() error = %v", test.name, err)
+			continue
+		}
+		if got != test.want {
+			t.Errorf("%s: registryCertificateMatchesHost() = %t, want %t", test.name, got, test.want)
 		}
 	}
 }
