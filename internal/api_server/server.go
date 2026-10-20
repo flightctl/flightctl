@@ -30,6 +30,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentconfigservice "github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
@@ -248,7 +249,8 @@ func (s *Server) Run(ctx context.Context) error {
 		authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, s.log))
 	vulnerabilityFindingSvc := vulnerabilityfindingservice.WrapWithTracing(
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, vulnerabilityEnabled, s.log))
-	enrollmentConfigSvc := enrollmentRequestSvc
+	enrollmentConfigSvc := enrollmentconfigservice.WrapWithTracing(
+		enrollmentconfigservice.NewServiceHandler(csrSvc, s.ca, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
 	// Initialize auth with the authprovider service for OIDC provider access
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderSvc)

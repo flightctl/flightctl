@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -36,25 +35,19 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 			signer.WithExtension(signer.OIDOrgID, suite.OrgID.String()))
 		Expect(err).NotTo(HaveOccurred())
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		created.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
-		created, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
+		created, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), nil)
 		Expect(err).NotTo(HaveOccurred())
 		other := CreateTestCSR()
 		other.Spec.SignerName = "example.org/management"
-		candidate, err := provider.Create(suite.Ctx, suite.OrgID, &other)
-		Expect(err).NotTo(HaveOccurred())
 		parsed, err = fcrypto.ParseCSR(other.Spec.Request)
 		Expect(err).NotTo(HaveOccurred())
 		different, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(different.Raw).NotTo(Equal(leaf.Raw))
-		candidate.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: different.Raw}))
-		_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, candidate)
+		candidate, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, other, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: different.Raw}), nil)
 		Expect(err).NotTo(HaveOccurred())
 		digest := sha256.Sum256(leaf.Raw)
-		Expect(suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *candidate.Metadata.Name).Update("certificate_digest", hex.EncodeToString(digest[:])).Error).To(Succeed())
+		Expect(injectCertificateDigestCollision(suite.DB, suite.OrgID, *candidate.Metadata.Name, hex.EncodeToString(digest[:]))).To(Succeed())
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		enrollment, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -66,9 +59,8 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		cancelled, cancel := context.WithCancel(suite.Ctx)
 		cancel()
 		_, status = suite.CertificateSigningRequest.ListCertificateSigningRequests(cancelled, suite.OrgID, domain.ListCertificateSigningRequestsParams{FieldSelector: &filter}, selector.WithPrivateSelectors())
-		Expect(status.Code).To(BeEquivalentTo(http.StatusInternalServerError))
-		Expect(suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *candidate.Metadata.Name).
-			Update("status", model.MakeJSONField(map[string]any{"certificate": "!bad-base64!"})).Error).To(Succeed())
+		Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
+		Expect(corruptRetainedCertificateEncoding(suite.DB, suite.OrgID, *candidate.Metadata.Name)).To(Succeed())
 		enrollment, status = suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusInternalServerError))
 		Expect(enrollment).To(BeNil())
@@ -82,23 +74,24 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		Expect(err).NotTo(HaveOccurred())
 		leaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600, signer.WithExtension(signer.OIDSignerName, "example.org/enrollment"))
 		Expect(err).NotTo(HaveOccurred())
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
 		certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
-		created.Status.Certificate = &certificate
 		var expectedTime *time.Time
 		if knownTime {
 			expectedTime = lo.ToPtr(time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC))
 		}
-		created.Status.IssuedAt = expectedTime
+		var published *domain.CertificateSigningRequest
 		if concurrent {
-			created.Status.Certificate = lo.ToPtr([]byte{})
-			created.Status.IssuedAt = nil
+			published, err = suite.createUnpublishedCSR(provider, suite.Ctx, suite.OrgID, request)
+			Expect(err).NotTo(HaveOccurred())
+			published.Status.Certificate = lo.ToPtr([]byte{})
+			published.Status.Conditions = []domain.Condition{}
+			published, err = seedHistoricalCSRStatus(provider, suite.Ctx, suite.OrgID, published)
+		} else {
+			published, err = seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, certificate, expectedTime)
 		}
-		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
 		Expect(err).NotTo(HaveOccurred())
 		published.Spec.SignerName = suite.caClient.Cfg.DeviceManagementSignerName
-		updated, _, err := provider.Update(suite.Ctx, suite.OrgID, published)
+		updated, err := replaceHistoricalCSRSigner(provider, suite.Ctx, suite.OrgID, published)
 		Expect(err).NotTo(HaveOccurred())
 		updated.Status.Certificate = lo.ToPtr([]byte("losing replacement"))
 		updated.Status.IssuedAt = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -112,7 +105,7 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 				}
 				winner.Status.Certificate = &certificate
 				winner.Status.IssuedAt = expectedTime
-				_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, winner)
+				_, err = seedHistoricalCSRStatus(provider, suite.Ctx, suite.OrgID, winner)
 				return err
 			}}
 		}
@@ -120,8 +113,8 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		retained, err := approveCSRConditions(service, suite.Ctx, suite.OrgID, updated)
 		if concurrent {
 			Expect(err).To(MatchError(ContainSubstring("approval status 409")))
-			winner, getErr := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-			Expect(getErr).NotTo(HaveOccurred())
+			winner, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(winner.Status.Certificate).To(Equal(&certificate))
 			Expect(winner.Status.IssuedAt).To(Equal(expectedTime))
 			Expect(domain.IsStatusConditionTrue(winner.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeFalse())
@@ -132,12 +125,11 @@ var _ = Describe("Indexed retained enrollment leaves", func() {
 		Expect(retained.Status.Certificate).To(Equal(&certificate))
 		Expect(retained.Status.IssuedAt).To(Equal(expectedTime))
 		Expect(domain.IsStatusConditionTrue(retained.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
-		current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		current, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(current.Status.Certificate).To(Equal(&certificate))
 		Expect(current.Status.IssuedAt).To(Equal(expectedTime))
 		Expect(domain.IsStatusConditionTrue(current.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
-		Expect(provider.UpdateConditions(suite.Ctx, suite.OrgID, *retained.Metadata.Name, []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}})).To(Succeed())
 		filter := "internal.certificateDigest=" + icrypto.CertificateDigest(leaf.Raw)
 		candidates, status := suite.CertificateSigningRequest.ListCertificateSigningRequests(suite.Ctx, suite.OrgID, domain.ListCertificateSigningRequestsParams{FieldSelector: &filter}, selector.WithPrivateSelectors())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))

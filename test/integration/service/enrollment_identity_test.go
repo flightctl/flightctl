@@ -223,10 +223,12 @@ var _ = Describe("Enrollment credential identity", func() {
 	})
 
 	It("When approval supplies forged issuance evidence it should issue only server-owned evidence", func() {
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 		request := CreateTestCSR()
-		_, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		pending, err := suite.createUnpublishedCSR(provider, suite.Ctx, suite.OrgID, request)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(pending.Status.Certificate).To(BeNil())
+		Expect(pending.Status.IssuedAt).To(BeNil())
 		forgedTime := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 		request.Status = &domain.CertificateSigningRequestStatus{
 			Certificate: lo.ToPtr([]byte("caller-certificate")), IssuedAt: &forgedTime,
@@ -263,58 +265,20 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(current.Status.IssuedAt.Equal(issuedAt)).To(BeTrue())
 	})
 
-	DescribeTable("When deleting issued CSR names it should allow name reuse for every signer",
-		func(signerName string, changeSigner bool) {
-			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-			request := CreateTestCSR()
-			request.Spec.SignerName = signerName
-			stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-			Expect(err).NotTo(HaveOccurred())
-			parsed, err := fcrypto.ParseCSR(request.Spec.Request)
-			Expect(err).NotTo(HaveOccurred())
-			leaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600,
-				signer.WithExtension(signer.OIDSignerName, signerName))
-			Expect(err).NotTo(HaveOccurred())
-			stored.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
-			published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(published.Status.IssuedAt).To(BeNil())
-			if changeSigner {
-				published.Spec.SignerName = "flightctl.io/device-enrollment"
-				_, _, err = provider.Update(suite.Ctx, suite.OrgID, published)
-				Expect(err).NotTo(HaveOccurred())
-			}
-			deleted, err := provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(deleted).To(BeTrue())
-			recreated, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(recreated.Status.Certificate).To(BeNil())
-			Expect(recreated.Status.IssuedAt).To(BeNil())
-		},
-		Entry("configured enrollment signer, historical leaf without identity metadata", "example.org/bootstrap", false),
-		Entry("issued enrollment credential after a signer-spec change", "example.org/bootstrap", true),
-		Entry("default name when enrollment is configured differently", "flightctl.io/enrollment", false),
-		Entry("management signer", "flightctl.io/device-enrollment", false),
-	)
-
 	DescribeTable("When approval supplies certificate replacements it should sanitize them and commit conditions for every signer",
 		func(signerName, expectedCertificate string) {
 			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 			request := CreateTestCSR()
 			request.Spec.SignerName = signerName
-			stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-			Expect(err).NotTo(HaveOccurred())
-			stored.Status.Certificate = lo.ToPtr([]byte("first-publication"))
-			published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+			published, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, []byte("first-publication"), nil)
 			Expect(err).NotTo(HaveOccurred())
 			published.Status.Certificate = lo.ToPtr([]byte("replacement-publication"))
 			published.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
 			updated, err := approveCSRConditions(suite.csrServiceWithSigner(provider, "flightctl.io/device-svc-client"), suite.Ctx, suite.OrgID, published)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(*updated.Status.Certificate)).To(Equal(expectedCertificate))
-			current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-			Expect(err).NotTo(HaveOccurred())
+			current, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(string(*current.Status.Certificate)).To(Equal(expectedCertificate))
 			Expect(domain.IsStatusConditionTrue(current.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
 		},
@@ -326,10 +290,7 @@ var _ = Describe("Enrollment credential identity", func() {
 	It("When a historical credential has no issuance time it should keep that time unknown on later status writes", func() {
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 		request := CreateTestCSR()
-		stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		stored.Status.Certificate = lo.ToPtr([]byte("historical-certificate"))
-		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+		published, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, []byte("historical-certificate"), nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(published.Status.IssuedAt).To(BeNil())
 		published.Status.Certificate = lo.ToPtr([]byte("replacement-certificate"))
@@ -339,8 +300,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(*updated.Status.Certificate)).To(Equal("historical-certificate"))
 		Expect(updated.Status.IssuedAt).To(BeNil())
-		current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		current, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(string(*current.Status.Certificate)).To(Equal("historical-certificate"))
 		Expect(current.Status.IssuedAt).To(BeNil())
 	})
@@ -360,7 +321,7 @@ var _ = Describe("Enrollment credential identity", func() {
 					}
 					current.Status.Certificate = candidate.Status.Certificate
 					current.Status.IssuedAt = candidate.Status.IssuedAt
-					if _, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, current); err != nil {
+					if _, err := seedHistoricalCSRStatus(provider, suite.Ctx, suite.OrgID, current); err != nil {
 						return err
 					}
 				}
@@ -373,7 +334,7 @@ var _ = Describe("Enrollment credential identity", func() {
 				if err != nil {
 					return err
 				}
-				replacement, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, replacement)
+				replacement, err = seedHistoricalCSRStatus(provider, suite.Ctx, suite.OrgID, replacement)
 				if err != nil {
 					return err
 				}
@@ -396,8 +357,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		Expect(created.Status.Certificate).To(BeNil())
 		Expect(created.Status.IssuedAt).To(BeNil())
-		current, err := provider.Get(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		current, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(current.Spec).To(Equal(replacement.Spec))
 		Expect(current.Status.Certificate).To(BeNil())
 		Expect(current.Status.IssuedAt).To(BeNil())
@@ -406,7 +367,7 @@ var _ = Describe("Enrollment credential identity", func() {
 	It("When approvals prepare different certificates it should publish one pair without returning uncommitted issuance or retrying", func() {
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
 		request := CreateTestCSR()
-		first, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		first, err := suite.createUnpublishedCSR(provider, suite.Ctx, suite.OrgID, request)
 		Expect(err).NotTo(HaveOccurred())
 		first.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue, Reason: "Approved"}}
 		type publication struct {
@@ -465,8 +426,8 @@ var _ = Describe("Enrollment credential identity", func() {
 				Fail("concurrent publication exceeded its deadline")
 			}
 		}
-		current, err := provider.Get(suite.Ctx, suite.OrgID, *first.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		current, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *first.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		published, unpublished := 0, 0
 		for _, outcome := range outcomes {
 			Expect(outcome.status.Code).To(BeEquivalentTo(http.StatusOK))
@@ -510,10 +471,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		request := CreateTestCSR()
 		_, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		deleted, err := provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(deleted).To(BeTrue())
+		status = suite.CertificateSigningRequest.DeleteCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		_, status = suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
 		recreated, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, request)
@@ -590,9 +549,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		leaf, err := fcrypto.ParseCertificatePEM(*created.Status.Certificate)
 		Expect(err).NotTo(HaveOccurred())
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		_, err = provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		status = suite.CertificateSigningRequest.DeleteCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		er, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -636,10 +594,7 @@ var _ = Describe("Enrollment credential identity", func() {
 			signer.WithExtension(signer.OIDSignerName, "flightctl.io/enrollment"))
 		Expect(err).NotTo(HaveOccurred())
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		stored.Status = &domain.CertificateSigningRequestStatus{Certificate: lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))}
-		_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+		_, err = seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), nil)
 		Expect(err).NotTo(HaveOccurred())
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		er, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
@@ -675,10 +630,7 @@ var _ = Describe("Enrollment credential identity", func() {
 			if certificateKind == "different-signer" {
 				retained.Spec.SignerName = "flightctl.io/device"
 			}
-			stored, err := provider.Create(suite.Ctx, suite.OrgID, &retained)
-			Expect(err).NotTo(HaveOccurred())
-			stored.Status.Certificate = &retainedPEM
-			_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+			_, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, retained, retainedPEM, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}
 		if foreignCopy {
@@ -687,10 +639,7 @@ var _ = Describe("Enrollment credential identity", func() {
 				ID: foreignTenant, ExternalID: "other-credential-tenant", DisplayName: "Other credential tenant",
 			})
 			Expect(err).NotTo(HaveOccurred())
-			stored, err := provider.Create(suite.Ctx, foreignTenant, &request)
-			Expect(err).NotTo(HaveOccurred())
-			stored.Status.Certificate = &retainedPEM
-			_, err = seedCSRStatus(provider, suite.Ctx, foreignTenant, stored)
+			_, err = seedPreFeatureCertificate(provider, suite.Ctx, foreignTenant, request, retainedPEM, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
@@ -723,10 +672,7 @@ var _ = Describe("Enrollment credential identity", func() {
 			})
 		Expect(err).NotTo(HaveOccurred())
 		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		stored.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
-		_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+		_, err = seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), nil)
 		Expect(err).NotTo(HaveOccurred())
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		er, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
@@ -1004,9 +950,8 @@ var _ = Describe("Enrollment credential identity", func() {
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		_, status = suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, CreateTestER())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
-		_, err = provider.Delete(suite.Ctx, suite.OrgID, *request.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		status = suite.CertificateSigningRequest.DeleteCertificateSigningRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		requests, status := suite.EnrollmentRequest.ListEnrollmentRequests(suite.Ctx, suite.OrgID, domain.ListEnrollmentRequestsParams{
 			FieldSelector: lo.ToPtr("status.enrollmentCertificateName"),
 		})

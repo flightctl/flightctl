@@ -107,7 +107,7 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := enrollmentrequeststore.NewEnrollmentRequestStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := certificatesigningrequeststore.InitialMigration(ctx, tx); err != nil {
+	if err := certificatesigningrequeststore.NewCertificateSigningRequestStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 	if err := fleetstore.NewFleetStore(tx, log).InitialMigration(ctx); err != nil {

@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/ginkgo/v2"
@@ -29,11 +28,7 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 	It("When approving non-enrollment status it should normalize issuance time and preserve stored certificate ownership", func() {
 		request := CreateTestCSR()
 		request.Spec.SignerName = suite.caClient.Cfg.DeviceManagementSignerName
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
-		created.Status.Certificate = lo.ToPtr([]byte("stored-management-certificate"))
-		created.Status.IssuedAt = lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
+		published, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, []byte("stored-management-certificate"), lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
 		Expect(err).NotTo(HaveOccurred())
 		published.Status.Certificate = lo.ToPtr([]byte("forged-management-certificate"))
 		published.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"}}
@@ -42,8 +37,8 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 		Expect(updated.Status.IssuedAt).To(BeNil())
 		Expect(string(*updated.Status.Certificate)).To(Equal("stored-management-certificate"))
 		Expect(domain.IsStatusConditionTrue(updated.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
-		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *updated.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		loaded, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *updated.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(loaded.Status).To(Equal(updated.Status))
 	})
 
@@ -51,17 +46,13 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 		request := CreateTestCSR()
 		request.Spec.SignerName = suite.caClient.Cfg.DeviceManagementSignerName
 		request.Metadata.Name = lo.ToPtr(*request.Metadata.Name + "-mismatch")
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		created, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, nil, lo.ToPtr(time.Date(2024, 3, 2, 1, 0, 0, 0, time.UTC)))
 		Expect(err).NotTo(HaveOccurred())
-		created.Status.IssuedAt = lo.ToPtr(time.Date(2024, 3, 2, 1, 0, 0, 0, time.UTC))
-		result := suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *created.Metadata.Name).
-			Update("status", model.MakeJSONField(*created.Status))
-		Expect(result.Error).NotTo(HaveOccurred())
 		created.Status.Conditions = []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue, Reason: "Approved"}}
 		_, status := suite.CertificateSigningRequest.UpdateCertificateSigningRequestApproval(suite.Ctx, suite.OrgID, *created.Metadata.Name, *created)
 		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
-		loaded, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
-		Expect(err).NotTo(HaveOccurred())
+		loaded, getStatus := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, *created.Metadata.Name)
+		Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 		Expect(loaded.Status.IssuedAt).To(BeNil())
 		Expect(loaded.Status.Certificate).To(BeNil())
 		Expect(domain.FindStatusCondition(loaded.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed).Reason).To(Equal("SigningFailed"))
@@ -70,8 +61,6 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 	DescribeTable("When the signer spec changes it should preserve actual retained custom enrollment history", func(issuedAt *time.Time) {
 		request := CreateTestCSR()
 		request.Spec.SignerName = "example.org/bootstrap"
-		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
-		Expect(err).NotTo(HaveOccurred())
 		parsed, err := fcrypto.ParseCSR(request.Spec.Request)
 		Expect(err).NotTo(HaveOccurred())
 		leaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600,
@@ -79,12 +68,10 @@ var _ = Describe("Enrollment issuance field ownership", func() {
 		Expect(err).NotTo(HaveOccurred())
 		certificate, err := fcrypto.EncodeCertificatePEM(leaf)
 		Expect(err).NotTo(HaveOccurred())
-		created.Status.Certificate = &certificate
-		created.Status.IssuedAt = issuedAt
-		published, err := seedCSRStatus(provider, suite.Ctx, suite.OrgID, created)
+		published, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, certificate, issuedAt)
 		Expect(err).NotTo(HaveOccurred())
 		published.Spec.SignerName = "flightctl.io/device-enrollment"
-		changed, _, err := provider.Update(suite.Ctx, suite.OrgID, published)
+		changed, err := replaceHistoricalCSRSigner(provider, suite.Ctx, suite.OrgID, published)
 		Expect(err).NotTo(HaveOccurred())
 		changed.Status.Certificate = lo.ToPtr([]byte("uncommitted-replacement"))
 		changed.Status.IssuedAt = lo.ToPtr(time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))

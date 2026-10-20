@@ -11,12 +11,10 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	"github.com/flightctl/flightctl/internal/store/model"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
-	"gorm.io/gorm"
 )
 
 var _ = Describe("Retained enrollment leaf lookup", func() {
@@ -40,16 +38,13 @@ var _ = Describe("Retained enrollment leaf lookup", func() {
 		for index := 0; index < 130; index++ {
 			candidate := request
 			candidate.Metadata.Name = lo.ToPtr(fmt.Sprintf("candidate-%03d", index))
-			stored, err := provider.Create(suite.Ctx, suite.OrgID, &candidate)
-			Expect(err).NotTo(HaveOccurred())
 			certificate := []byte("malformed PEM")
 			if index == 0 || index == 129 {
 				certificate = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
 			}
-			stored.Status.Certificate = &certificate
-			_, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
+			stored, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, candidate, certificate, nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(suite.DB.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *stored.Metadata.Name).Update("certificate_digest", hex.EncodeToString(digest[:])).Error).To(Succeed())
+			Expect(injectCertificateDigestCollision(suite.DB, suite.OrgID, *stored.Metadata.Name, hex.EncodeToString(digest[:]))).To(Succeed())
 		}
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
@@ -66,16 +61,9 @@ var _ = Describe("Retained enrollment leaf lookup", func() {
 			signer.WithExtension(signer.OIDSignerName, suite.caClient.Cfg.DeviceEnrollmentSignerName),
 			signer.WithExtension(signer.OIDOrgID, suite.OrgID.String()))
 		Expect(err).NotTo(HaveOccurred())
-		stored, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		stored, err := seedPreFeatureCertificate(provider, suite.Ctx, suite.OrgID, request, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), nil)
 		Expect(err).NotTo(HaveOccurred())
-		stored.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
-		stored, err = seedCSRStatus(provider, suite.Ctx, suite.OrgID, stored)
-		Expect(err).NotTo(HaveOccurred())
-		result := suite.DB.Model(&model.CertificateSigningRequest{}).
-			Where("org_id = ? AND name = ?", suite.OrgID, *stored.Metadata.Name).
-			UpdateColumn("status", gorm.Expr("?::jsonb", `{"certificate":"not-base64"}`))
-		Expect(result.Error).NotTo(HaveOccurred())
-		Expect(result.RowsAffected).To(Equal(int64(1)))
+		Expect(corruptRetainedCertificateEncoding(suite.DB, suite.OrgID, *stored.Metadata.Name)).To(Succeed())
 		ctx := context.WithValue(suite.Ctx, consts.TLSPeerCertificateCtxKey, leaf)
 		created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
 		Expect(status.Code).To(BeEquivalentTo(http.StatusInternalServerError))

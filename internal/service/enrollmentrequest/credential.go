@@ -39,6 +39,8 @@ func certificateIdentityExtension(leaf *x509.Certificate, oid asn1.ObjectIdentif
 	return value, present, true
 }
 
+// extractCertificateName trusts only tenant-bound enrollment issuer metadata;
+// recovery is allowed only for an absent name, never malformed metadata.
 func extractCertificateName(leaf *x509.Certificate, orgID uuid.UUID, enrollmentSigner string) (*string, bool) {
 	if leaf == nil {
 		return nil, false
@@ -72,6 +74,8 @@ func extractCertificateName(leaf *x509.Certificate, orgID uuid.UUID, enrollmentS
 	return nil, true
 }
 
+// findCertificateName recovers an old leaf's unique enrollment credential CSR within its tenant;
+// ambiguity yields no reference, while lookup errors propagate to the caller.
 func (h *ServiceHandler) findCertificateName(ctx context.Context, orgID uuid.UUID, leaf *x509.Certificate) (*string, error) {
 	filter := "internal.certificateDigest=" + crypto.CertificateDigest(leaf.Raw)
 	var resolved *string

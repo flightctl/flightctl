@@ -39,9 +39,10 @@ const (
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
-	csrstore.Store
 	items map[string]*domain.CertificateSigningRequest
 }
+
+var _ csrstore.Store = (*fakeCertificateSigningRequestStore)(nil)
 
 func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore {
 	return &fakeCertificateSigningRequestStore{items: map[string]*domain.CertificateSigningRequest{}}

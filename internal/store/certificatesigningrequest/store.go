@@ -53,11 +53,7 @@ func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
 }
 
 func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
-	return InitialMigration(ctx, s.dbHandler)
-}
-
-func InitialMigration(ctx context.Context, db *gorm.DB) error {
-	db = db.WithContext(ctx)
+	db := s.getDB(ctx)
 
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
