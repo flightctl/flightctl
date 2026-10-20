@@ -97,7 +97,7 @@ func TestAuthProviderSpec_Validate_Prompt(t *testing.T) {
 	}
 }
 
-func TestAuthProviderPrompt_HTTPDefaults(t *testing.T) {
+func TestAuthProviderPrompt_HTTPPreservesOmittedPrompt(t *testing.T) {
 	swagger, err := GetSpec()
 	require.NoError(t, err)
 	router, err := gorillamux.NewRouter(swagger)
@@ -106,10 +106,10 @@ func TestAuthProviderPrompt_HTTPDefaults(t *testing.T) {
 		name    string
 		include bool
 		value   any
-		want    string
+		want    any
 	}{
-		{"When prompt is omitted it should default to login", false, nil, "login"},
-		{"When prompt is null it should default to login", true, nil, "login"},
+		{"When prompt is omitted it should preserve the omission", false, nil, nil},
+		{"When prompt is null it should preserve null", true, nil, nil},
 		{"When prompt is empty it should remain empty", true, "", ""},
 		{"When prompt is configured it should preserve its value", true, " login  consent ", " login  consent "},
 	}

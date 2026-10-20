@@ -55,8 +55,8 @@ global:
       # -- Optional prefix for org names from this provider (e.g. "k8s-"). Incoming org name is exposed as prefix + name.
       organizationNamePrefix: ""
     oidc:
-      # -- Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login.
-      prompt: "login"
+      # -- Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to select_account.
+      prompt: "select_account"
       # -- OIDC Client ID
       clientId: "flightctl-client"
       # -- List of OIDC scopes to request (e.g. openid, profile, email, roles, offline_access)
