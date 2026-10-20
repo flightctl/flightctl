@@ -117,7 +117,7 @@ func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.device.PatchDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.device.PatchDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, false)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

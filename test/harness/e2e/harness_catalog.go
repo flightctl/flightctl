@@ -65,6 +65,24 @@ func (h *Harness) CreateCatalogItem(catalogName, itemName string, spec v1alpha1.
 	return resp.JSON201, nil
 }
 
+// GetCatalog retrieves a catalog by name.
+func (h *Harness) GetCatalog(name string) (*v1alpha1.Catalog, error) {
+	client := h.GetV1Alpha1Client()
+	if client == nil {
+		return nil, fmt.Errorf("v1alpha1 client not available")
+	}
+
+	resp, err := client.GetCatalogWithResponse(h.Context, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get catalog %s: %w", name, err)
+	}
+	if resp.JSON200 == nil {
+		return nil, fmt.Errorf("failed to get catalog %s: unexpected status %d, body: %s",
+			name, resp.StatusCode(), string(resp.Body))
+	}
+	return resp.JSON200, nil
+}
+
 // GetCatalogItem retrieves a catalog item by catalog and item name.
 func (h *Harness) GetCatalogItem(catalogName, itemName string) (*v1alpha1.CatalogItem, error) {
 	client := h.GetV1Alpha1Client()

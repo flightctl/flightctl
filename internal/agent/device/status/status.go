@@ -275,8 +275,9 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1beta1.C
 }
 
 // UpdateCritical runs registered patchers on a deep copy of the current status,
-// diffs the before/after to generate RFC 6902 JSON Patch replace ops, and
-// sends them via PatchDeviceStatus. Returns nil if no fields changed.
+// diffs the result against the last status the server holds to generate RFC
+// 6902 JSON Patch replace ops, and sends them via PatchDeviceStatus. Returns
+// nil if no fields changed.
 func (m *StatusManager) UpdateCritical(ctx context.Context) error {
 	m.mu.Lock()
 	if len(m.criticalExporters) == 0 {
@@ -306,9 +307,20 @@ func (m *StatusManager) UpdateCritical(ctx context.Context) error {
 			return fmt.Errorf("critical exporter failed: %w", err)
 		}
 	}
+	// The patch has to move the server from what it currently holds, so diff
+	// against the last successfully pushed status. Diffing against the
+	// collected in-memory status instead would drop an edge that follows a
+	// pushed opposite edge — a critical alert resolving right after its
+	// firing was pushed looks like no change, because the collect still
+	// holds the pre-alert state. Before anything was pushed there is no
+	// server state to diff against, so fall back to the collected status.
+	baseline := m.lastStatus
 	m.mu.Unlock()
+	if baseline == nil {
+		baseline = before
+	}
 
-	ops, err := diffStatusToPatch("/status", before, after)
+	ops, err := diffStatusToPatch("/status", baseline, after)
 	if err != nil {
 		return fmt.Errorf("generating patch ops: %w", err)
 	}

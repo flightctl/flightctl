@@ -1,9 +1,14 @@
 package generate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/oci"
@@ -17,6 +22,8 @@ import (
 const (
 	ociDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
 	ociDeltaSourceAnnotation = "io.github.containers.delta.source"
+	errCodeManifestInvalid   = "MANIFEST_INVALID"
+	errCodeManifestUnknown   = "MANIFEST_UNKNOWN"
 	maxRegistryResponseBytes = 10 << 20
 	maxReferrerPages         = 100
 )
@@ -39,6 +46,7 @@ func checkExistingDelta(ctx context.Context, deltaRepository, sourceDigest, targ
 	}
 	repo.MaxMetadataBytes = maxRegistryResponseBytes
 	repo.ReferrerListMaxPages = maxReferrerPages
+	repo.Client = referrersMissingSubjectClient{base: repo.Client}
 	existence, err := checkDeltaExists(ctx, repo, deltaRepository, source, target)
 	if err != nil {
 		return nil, fmt.Errorf("existence check: %w", err)
@@ -129,6 +137,80 @@ func matchingDeltaDescriptor(referrers []ocispec.Descriptor, sourceDigest string
 		return referrer, true
 	}
 	return ocispec.Descriptor{}, false
+}
+
+// referrersMissingSubjectClient rewrites a referrers GET that reports
+// MANIFEST_INVALID into MANIFEST_UNKNOWN. Quay returns 400 for that lookup
+// when the subject manifest is not stored in the repository. oras-go falls
+// back to the referrers tag schema only after a not-found response, so a new
+// delta repository otherwise retries the existence check indefinitely.
+type referrersMissingSubjectClient struct {
+	base remote.Client
+}
+
+func (c referrersMissingSubjectClient) Do(req *http.Request) (*http.Response, error) {
+	resp, err := c.base.Do(req)
+	if err != nil || resp == nil || resp.Body == nil || !isReferrersGet(req) || resp.StatusCode != http.StatusBadRequest {
+		return resp, err
+	}
+	prefix, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRegistryResponseBytes+1))
+	if readErr != nil || len(prefix) > maxRegistryResponseBytes || !manifestInvalidOnly(prefix) {
+		original := resp.Body
+		resp.Body = prefixedBody{
+			Reader: io.MultiReader(bytes.NewReader(prefix), original),
+			Closer: original,
+		}
+		return resp, nil
+	}
+	if err := resp.Body.Close(); err != nil {
+		return nil, err
+	}
+	unknown := []byte(`{"errors":[{"code":"` + errCodeManifestUnknown + `","message":"manifest unknown"}]}`)
+	resp.StatusCode = http.StatusNotFound
+	resp.Status = fmt.Sprintf("%d %s", http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	resp.ContentLength = int64(len(unknown))
+	resp.Header.Set("Content-Type", "application/json")
+	resp.Header.Set("Content-Length", strconv.Itoa(len(unknown)))
+	resp.Body = io.NopCloser(bytes.NewReader(unknown))
+	return resp, nil
+}
+
+// prefixedBody returns bytes already read from an HTTP response, then the unread remainder.
+type prefixedBody struct {
+	io.Reader
+	io.Closer
+}
+
+// isReferrersGet reports whether req is a GET of the OCI Referrers API,
+// /v2/<repository>/referrers/<digest>. A repository name may itself contain a
+// referrers segment, so the match is the final referrers/<digest> pair.
+func isReferrersGet(req *http.Request) bool {
+	if req == nil || req.Method != http.MethodGet || req.URL == nil {
+		return false
+	}
+	parts := strings.Split(req.URL.Path, "/")
+	if len(parts) < 5 || parts[1] != "v2" || parts[len(parts)-2] != "referrers" {
+		return false
+	}
+	_, err := digest.Parse(parts[len(parts)-1])
+	return err == nil
+}
+
+func manifestInvalidOnly(body []byte) bool {
+	var parsed struct {
+		Errors []struct {
+			Code string `json:"code"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Errors) == 0 {
+		return false
+	}
+	for _, item := range parsed.Errors {
+		if item.Code != errCodeManifestInvalid {
+			return false
+		}
+	}
+	return true
 }
 
 func exactRepository(ctx context.Context, spec *domain.OciRepoSpec, repository string) (*remote.Repository, error) {
