@@ -912,7 +912,7 @@ auth:
     {{- end }}
     {{- else }}
     oidc:
-        prompt: {{ if eq .Values.global.auth.oidc.prompt nil }}"login"{{ else }}{{ .Values.global.auth.oidc.prompt | quote }}{{ end }}
+        prompt: {{ if eq .Values.global.auth.oidc.prompt nil }}"select_account"{{ else }}{{ .Values.global.auth.oidc.prompt | quote }}{{ end }}
         oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
         clientId: {{ .Values.global.auth.oidc.clientId }}
         {{- if .Values.global.auth.oidc.clientSecret }}

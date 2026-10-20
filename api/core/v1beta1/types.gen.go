@@ -3038,7 +3038,7 @@ type OAuth2ProviderSpec struct {
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
-	// Prompt Space-separated, case-sensitive authorization prompt values, such as login, consent, select_account, none, or provider-specific values. Omitted or null values default to login. An empty string instructs clients to omit the prompt parameter. Values must be printable ASCII separated by spaces; none cannot accompany a different value. Accepted values are preserved, including extra spaces and duplicates.
+	// Prompt Space-separated, case-sensitive authorization prompt values, such as login, consent, select_account, none, or provider-specific values. Omitted and null values are preserved in AuthProvider resources and exposed as select_account in public authentication configuration. An empty string instructs clients to omit the prompt parameter. Values must be printable ASCII separated by spaces; none cannot accompany a different value. Accepted values are preserved, including extra spaces and duplicates.
 	Prompt *string `json:"prompt,omitempty"`
 
 	// ProviderType The type of authentication provider.
@@ -3083,7 +3083,7 @@ type OIDCProviderSpec struct {
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
-	// Prompt Space-separated, case-sensitive authorization prompt values, such as login, consent, select_account, none, or provider-specific values. Omitted or null values default to login. An empty string instructs clients to omit the prompt parameter. Values must be printable ASCII separated by spaces; none cannot accompany a different value. Accepted values are preserved, including extra spaces and duplicates.
+	// Prompt Space-separated, case-sensitive authorization prompt values, such as login, consent, select_account, none, or provider-specific values. Omitted and null values are preserved in AuthProvider resources and exposed as select_account in public authentication configuration. An empty string instructs clients to omit the prompt parameter. Values must be printable ASCII separated by spaces; none cannot accompany a different value. Accepted values are preserved, including extra spaces and duplicates.
 	Prompt *string `json:"prompt,omitempty"`
 
 	// ProviderType The type of authentication provider.
