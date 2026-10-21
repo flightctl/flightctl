@@ -5,7 +5,7 @@ This directory contains everything needed to deploy the Flight Control service: 
 ## Layout
 
 - **deploy/helm/** – Helm charts and e2e extras. Main chart: `deploy/helm/flightctl/` (values, templates, Chart.yaml). See [deploy/helm/flightctl/README.md](helm/flightctl/README.md). The catalog collector ships as a separate, independently installable chart: `deploy/helm/flightctl-catalog-collector/` – see [its README](helm/flightctl-catalog-collector/README.md).
-- **deploy/podman/** – Quadlet unit files and config for running Flight Control as systemd-managed Podman containers (API, DB, worker, periodic, imagebuilder, observability, etc.). `flightctl-catalog-collector/` is the exception: it is an optional add-on, installed directly by the RPM instead of being rendered by `flightctl-standalone render quadlets`, and is not part of `flightctl.target`.
+- **deploy/podman/** – Quadlet unit files and config for running Flight Control as systemd-managed Podman containers (API, DB, worker, periodic, imagebuilder, observability, etc.).
 - **deploy/scripts/** – Shell scripts: `deploy_quadlets.sh`, `clean_quadlets.sh`, cert init, DB setup, migration.
 - **deploy/kind.yaml** – kind cluster config (used by test/scripts and deploy).
 - **Makefile integration:** Deployment targets are in `deploy/deploy.mk` and `deploy/agent-vm.mk`, included from the root Makefile.

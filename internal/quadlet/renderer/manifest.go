@@ -28,6 +28,11 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-alert-exporter/flightctl-alert-exporter.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-alert-exporter.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-alert-exporter/flightctl-alert-exporter-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-alert-exporter/"), Template: false, Mode: RegularFileMode},
 
+		// Catalog Collector service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-catalog-collector/flightctl-catalog-collector.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-catalog-collector.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-catalog-collector/examples/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-catalog-collector", "examples"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-catalog-collector"), Mode: ExecutableFileMode},
+
 		// PAM Issuer service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-pam-issuer/flightctl-pam-issuer.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-pam-issuer.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-pam-issuer/flightctl-pam-issuer-etc.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-pam-issuer-etc.volume"), Template: false, Mode: RegularFileMode},
