@@ -57,7 +57,7 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 					gomock.Any(), "skopeo", "copy", "docker://"+deltaActivationCandidate, gomock.Any(),
 				).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+					gomock.Any(), "oci-delta", "import", gomock.Any(),
 				).Return("", "", 0)
 				refreshCanonical := exec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "podman", "pull", refreshImage,
@@ -109,11 +109,8 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 					gomock.Any(), "skopeo", "copy", "docker://"+deltaActivationCandidate, gomock.Any(),
 				).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+					gomock.Any(), "oci-delta", "import", gomock.Any(),
 				).Return("", "", 0)
-				reconstructedVisible := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "crictl", "images", image,
-				).Return("IMAGE TAG IMAGE ID SIZE\nquay.io/acme/app target sha256:3333333333333333333333333333333333333333333333333333333333333333 1MB\n", "", 0)
 
 				pullEnv := make([]any, len(os.Environ()))
 				for i := range pullEnv {
@@ -125,9 +122,6 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 				inspectCanonical := exec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "crictl", "inspecti", "--output", "json", refreshImage,
 				).Return(canonicalMetadata, "", 0)
-				removeReconstructed := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "crictl", "rmi", image,
-				).Return("", "", 0)
 				activateSelector := exec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "skopeo", "copy", "--preserve-digests", "docker://"+refreshImage, "containers-storage:"+image,
 				).Return("", "", 0)
@@ -142,8 +136,8 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 				).Return(targetIndex, "", 0)
 				gomock.InOrder(
 					targetMissing, deltaManifest, targetManifest, localSources, runtimeInfo,
-					copyDelta, importDelta, reconstructedVisible, refreshCanonical,
-					inspectCanonical, removeReconstructed, activateSelector, verifySelector,
+					copyDelta, importDelta, refreshCanonical,
+					inspectCanonical, activateSelector, verifySelector,
 					observeSelector, verifyObservedDigest,
 				)
 			},
@@ -541,7 +535,7 @@ func TestWhenPodmanDeltaActivationFailsItShouldFallBackWithoutApplied(t *testing
 				gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
 			).Return("", "", 0)
 			importDelta := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+				gomock.Any(), "oci-delta", "import", gomock.Any(),
 			).Return("", "", 0)
 			refreshCanonical := exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "podman", "pull", refreshImage,
