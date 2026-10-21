@@ -103,6 +103,9 @@ func CloneJSON[A any](v *A) (*A, error) {
 func RetryUpdate(fn func() (bool, error), maxRetries ...int) error {
 	attempts := retryIterations
 	if len(maxRetries) > 0 {
+		if maxRetries[0] < 0 {
+			return fmt.Errorf("maxRetries must not be negative")
+		}
 		attempts = maxRetries[0] + 1
 	}
 	var err error
