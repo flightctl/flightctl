@@ -350,47 +350,47 @@ func waitForRolloutWithoutDeltaPreparing(harness *e2e.Harness, fleetName, device
 	deviceProgress := generationProgressTracker{lastChange: time.Now()}
 	lastLifecycleProgress := time.Now()
 	var settledAt time.Time
-	Eventually(func() error {
+	Eventually(func() (bool, error) {
 		fleet, err := harness.GetFleet(fleetName)
 		if err != nil {
-			return fmt.Errorf("get fleet %s: %w", fleetName, err)
+			return pollNil(fmt.Errorf("get fleet %s: %w", fleetName, err))
 		}
 		failIfDeltaPreparingFailed(fleet)
 		if fleetConditionTrue(fleet, v1beta1.ConditionTypeFleetDeltaPreparing) {
-			return StopTrying(fmt.Sprintf("fleet %s unexpectedly entered FleetDeltaPreparing", fleetName))
+			return pollNil(StopTrying(fmt.Sprintf("fleet %s unexpectedly entered FleetDeltaPreparing", fleetName)))
 		}
 
 		device, err := harness.GetDevice(deviceId)
 		if err != nil {
-			return fmt.Errorf("get device %s: %w", deviceId, err)
+			return pollNil(fmt.Errorf("get device %s: %w", deviceId, err))
 		}
 		if device.Status == nil {
-			return fmt.Errorf("device %s has no status", deviceId)
+			return pollNil(fmt.Errorf("device %s has no status", deviceId))
 		}
 		lifecycle, observedProgress, err := observeDeltaLifecycleEvents(harness, fleetName, deviceId, baseline, loggedEvents, &fleetProgress, &deviceProgress)
 		if err != nil {
-			return err
+			return pollNil(err)
 		}
 		if observedProgress {
 			lastLifecycleProgress = time.Now()
 		}
 		if lifecycle.generationProgress {
-			return StopTrying(fmt.Sprintf("device %s unexpectedly observed DeltaGenerationProgress while delta generation is disabled", deviceId))
+			return pollNil(StopTrying(fmt.Sprintf("device %s unexpectedly observed DeltaGenerationProgress while delta generation is disabled", deviceId)))
 		}
 		failIfDeviceDeltaPreparingFailed(device)
 		if deviceConditionTrue(device, v1beta1.ConditionTypeDeviceDeltaPreparing) {
-			return StopTrying(fmt.Sprintf("device %s unexpectedly entered DeviceDeltaPreparing", deviceId))
+			return pollNil(StopTrying(fmt.Sprintf("device %s unexpectedly entered DeviceDeltaPreparing", deviceId)))
 		}
 
 		rendered, err := tryRenderedDevice(harness, deviceId)
 		if err != nil {
 			if time.Since(lastLifecycleProgress) > rolloutProgressStall {
-				return StopTrying(fmt.Sprintf("device %s rollout made no observable progress for %s", deviceId, rolloutProgressStall))
+				return pollNil(StopTrying(fmt.Sprintf("device %s rollout made no observable progress for %s", deviceId, rolloutProgressStall)))
 			}
-			return err
+			return pollNil(err)
 		}
 		if renderedOsImage(rendered) == v2Image && renderedDeltaImage(rendered) != "" {
-			return StopTrying(fmt.Sprintf("device %s rendered unexpected OS delta hint %q", deviceId, renderedDeltaImage(rendered)))
+			return pollNil(StopTrying(fmt.Sprintf("device %s rendered unexpected OS delta hint %q", deviceId, renderedDeltaImage(rendered))))
 		}
 		deviceSettled := deviceOsImage(device) == v2Image &&
 			device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
@@ -398,18 +398,18 @@ func waitForRolloutWithoutDeltaPreparing(harness *e2e.Harness, fleetName, device
 		if !deviceSettled {
 			settledAt = time.Time{}
 			if time.Since(lastLifecycleProgress) > rolloutProgressStall {
-				return StopTrying(fmt.Sprintf("device %s rollout made no observable progress for %s", deviceId, rolloutProgressStall))
+				return pollNil(StopTrying(fmt.Sprintf("device %s rollout made no observable progress for %s", deviceId, rolloutProgressStall)))
 			}
-			return fmt.Errorf("device %s has not reached UpToDate on %q (reported image %q, rendered image %q)", deviceId, v2Image, device.Status.Os.Image, renderedOsImage(rendered))
+			return pollNil(fmt.Errorf("device %s has not reached UpToDate on %q (reported image %q, rendered image %q)", deviceId, v2Image, device.Status.Os.Image, renderedOsImage(rendered)))
 		}
 		if settledAt.IsZero() {
 			settledAt = time.Now()
 		}
 		if !lifecycle.deviceContentUpToDate {
-			return retrySettledEvent(fmt.Errorf("device %s reached the target state without a DeviceContentUpToDate event", deviceId), settledAt)
+			return pollNil(retrySettledEvent(fmt.Errorf("device %s reached the target state without a DeviceContentUpToDate event", deviceId), settledAt))
 		}
-		return nil
-	}, timeout, POLLING).Should(BeNil(), description)
+		return pollNil(nil)
+	}, timeout, POLLING).Should(BeTrue(), description)
 }
 
 func waitSettledOSDeltaUpdate(harness *e2e.Harness, fleetName, deviceId, v2Image string, expectation deltaUpdateExpectation, baseline deltaEventBaseline) {
@@ -419,26 +419,34 @@ func waitSettledOSDeltaUpdate(harness *e2e.Harness, fleetName, deviceId, v2Image
 		loggedEvents:          make(map[string]struct{}),
 		lastLifecycleProgress: time.Now(),
 	}
-	Eventually(func() error {
+	Eventually(func() (bool, error) {
 		snapshot, err := observeOSDeltaUpdate(harness, fleetName, deviceId, expectation, baseline, &tracker)
 		if err != nil {
-			return err
+			return pollNil(err)
 		}
 
 		rendered, err := renderedDeviceOrWaitForProgress(harness, fleetName, deviceId, expectation, snapshot.lifecycle, &tracker)
 		if err != nil {
-			return err
+			return pollNil(err)
 		}
 		if !deviceOSDeltaUpdateSettled(snapshot.device, rendered, v2Image) {
 			tracker.settledAt = time.Time{}
-			return retryUnsettledOSDeltaUpdate(snapshot, rendered, expectation, fleetName, deviceId, v2Image, &tracker)
+			return pollNil(retryUnsettledOSDeltaUpdate(snapshot, rendered, expectation, fleetName, deviceId, v2Image, &tracker))
 		}
 
 		if tracker.settledAt.IsZero() {
 			tracker.settledAt = time.Now()
 		}
-		return validateSettledOSDeltaUpdate(snapshot, rendered, expectation, fleetName, deviceId, v2Image, tracker.settledAt)
-	}, LONGTIMEOUT, POLLING).Should(BeNil())
+		return pollNil(validateSettledOSDeltaUpdate(snapshot, rendered, expectation, fleetName, deviceId, v2Image, tracker.settledAt))
+	}, LONGTIMEOUT, POLLING).Should(BeTrue())
+}
+
+// pollNil succeeds only when err is nil. Retry errors and StopTrying stay in the
+// error return. Gomega treats a lone error return as the matched value, so a later
+// StopTrying would fail BeNil against the previous retry ("At one point, however,
+// the function did return successfully").
+func pollNil(err error) (bool, error) {
+	return err == nil, err
 }
 
 func observeOSDeltaUpdate(harness *e2e.Harness, fleetName, deviceId string, expectation deltaUpdateExpectation, baseline deltaEventBaseline, tracker *deltaUpdateWaitTracker) (deltaUpdateSnapshot, error) {
