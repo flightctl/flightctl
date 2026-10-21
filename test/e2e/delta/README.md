@@ -5,6 +5,9 @@ Ginkgo suite for control-plane OS delta generation and application delta usage. 
 - The non-Helm application specs run on the delta-capable bootc base image and update container, inline Compose, inline Quadlet, and VM applications. They do not change the OS or configure MicroShift. V2 uses newly built, full target images with an added layer; the target refs stay in the registry while the test verifies they are absent from the device before prefetch. The desired specs contain no delta hints. After the server reports successful generation, the test reads the rendered device spec and requires the generated hints before it waits for agent-reported status. It then checks the application-level `lastDelta.outcome`, target image digests, and `Running`/`Healthy` status. Fallback cases require a reported fallback reason.
 - Compose includes two images. Quadlet exercises image discovery from a `.container` unit, a referenced `.image` unit, and an image-backed `.volume`, with containers sharing a `.pod` unit. The `.kube`/Pod YAML fixture was removed because kube-quadlet workloads lack the application labels needed by the monitor to report their image digest snapshots. Kube-quadlet needs separate delta e2e coverage. The standalone and fleet cases also update a VM app and retain its expected `Running`/`Healthy` assertions. A separate Compose case pauses the agent, waits for the server-generated hint, removes that delta artifact, and then verifies full-pull fallback reporting. Another case applies the same source-to-target delta in a later prepare and checks that the rendered spec reuses the existing delta artifact without a second generation event.
 - The Helm specs migrate the device to the V12 MicroShift-capable image and wait for MicroShift readiness before installing the V1 Helm application. The V1 to V2 update increments the chart version and changes six workload image refs. The delta chart renders a Deployment with app, sidecar, and init container images, plus standalone Pod, Job, and suspended CronJob images. The test checks a rendered hint for every target image, requires an application-level `lastDelta.outcome` of `Applied`, verifies reported digests for workloads that create Pods, and confirms all target refs are present in CRI storage.
+- The discovery specs create OCI deltas with `oci-delta`, publish them as OCI 1.1 referrers in each target image repository, and bypass control-plane generation. The OS spec uses `generateDelta: false`; non-Helm application specs update container, Compose, Quadlet, image-backed volume, and VM targets without configuring a writable delta storage target; Helm specs update all six workload images in standalone and fleet mode with generation disabled. Application source digests come from `status.applications[].imageDigests[]`; the OS source digest comes from `status.os.imageDigest`. Successful specs require no rendered hint, no control-plane `deltaSize`, and an agent-reported `Applied` outcome. Focused non-Helm and Helm fallback specs remove a delta layer after publishing its referrer and require full-pull recovery with a reason; focused non-Helm and Helm ranking specs publish two usable referrers and verify the agent log names the smaller (lexically first on a tie) artifact. The Helm discovery values pin the Deployment image to the target digest.
+
+The delta specs are serial because each spec's setup clears shared delta-generation database rows, Redis hints, and registry delta tags. With Ginkgo parallel processes, a non-serial spec could delete another spec's in-flight generation state or artifacts. Making these specs parallel requires replacing that global cleanup with per-spec or per-worker isolation; the VM pool itself supports parallel workers.
 
 Both groups use the auxiliary OCI registry and test fixtures. The non-Helm application specs also need a VM image with `oci-delta`, `skopeo`, and `crictl` available. The suite clears delta preparation/generation state and old delta/target tags before each spec while preserving the bundled fixture tags. Rebuild agent images after the base Containerfile change:
 
@@ -22,6 +25,12 @@ Run only the application delta specs without Helm or MicroShift setup:
 
 ```bash
 make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift'
+```
+
+Run only the externally published, agent-discovered delta specs:
+
+```bash
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && discovery'
 ```
 
 Run a specific non-Helm application spec:
