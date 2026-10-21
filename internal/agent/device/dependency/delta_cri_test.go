@@ -32,6 +32,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 		refreshStderr     string
 		wantFallback      bool
 		fallbackReasonHas string
+		targetPresent     bool
 	}{
 		{
 			name: "When the canonical registry reference refresh succeeds it should clear delta fallback status",
@@ -47,6 +48,10 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			refreshStderr:     "registry manifest refresh failed",
 			wantFallback:      true,
 			fallbackReasonHas: "refresh registry manifest after delta import",
+		},
+		{
+			name:          "When CRI-O has an existing mutable target it should activate without removing the tag",
+			targetPresent: true,
 		},
 	}
 
@@ -68,11 +73,8 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
 			).Return("", "", 0)
 			importDelta := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+				gomock.Any(), "oci-delta", "import", gomock.Any(),
 			).Return("", "", 0)
-			imageExists := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "crictl", "images", image,
-			).Return("IMAGE TAG IMAGE ID SIZE\nquay.io/acme/app target sha256:cccc 1MB\n", "", 0)
 
 			refreshEnv := make([]any, len(os.Environ()))
 			for i := range refreshEnv {
@@ -90,10 +92,10 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				fullPull := exec.EXPECT().ExecuteWithContextFromDir(
 					gomock.Any(), "", "crictl", []string{"pull", image}, fullPullEnv...,
 				).Return("Image pulled", "", 0)
-				gomock.InOrder(runtimeInfo, copyDelta, importDelta, imageExists, refreshRegistryReference, fullPull)
+				gomock.InOrder(runtimeInfo, copyDelta, importDelta, refreshRegistryReference, fullPull)
 			} else {
 				activation := expectCRIDeltaActivation(exec, image, refreshImage)
-				gomock.InOrder(append([]any{runtimeInfo, copyDelta, importDelta, imageExists, refreshRegistryReference}, activation...)...)
+				gomock.InOrder(append([]any{runtimeInfo, copyDelta, importDelta, refreshRegistryReference}, activation...)...)
 			}
 
 			root := t.TempDir()
@@ -108,6 +110,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			task := &prefetchTask{
 				delta:                &OCIDeltaTarget{Hint: candidate, Application: "app"},
 				deltaGeneration:      1,
+				targetPresent:        tc.targetPresent,
 				applicationTargetKey: applicationImageTargetKeyFor(target, "", OCITypeCRIImage),
 			}
 			manager := &prefetchManager{
@@ -160,9 +163,6 @@ func expectCRIDeltaActivation(exec *executer.MockExecuter, image, refreshImage s
 		exec.EXPECT().ExecuteWithContext(
 			gomock.Any(), "crictl", "inspecti", "--output", "json", refreshImage,
 		).Return(metadata, "", 0),
-		exec.EXPECT().ExecuteWithContext(
-			gomock.Any(), "crictl", "rmi", image,
-		).Return("", "", 0),
 		exec.EXPECT().ExecuteWithContext(
 			gomock.Any(), "skopeo", "copy", "--preserve-digests", "docker://"+refreshImage, "containers-storage:"+image,
 		).Return("", "", 0),

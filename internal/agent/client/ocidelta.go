@@ -87,19 +87,19 @@ func (d *OCIDelta) ApplyFromDirectory(ctx context.Context, sourceDir, deltaRef, 
 	return nil
 }
 
-// Import reconstructs an OCI image directly in containers/storage.
+// Import reconstructs an OCI image directly in containers/storage. An empty
+// targetRef imports the image without assigning it a name.
 func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error {
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 
-	_, stderr, exitCode := d.exec.ExecuteWithContext(
-		ctx,
-		ociDeltaCmd,
-		"import",
-		"--tag",
-		targetRef,
-		deltaRef,
-	)
+	args := []string{"import"}
+	if targetRef != "" {
+		args = append(args, "--tag", targetRef)
+	}
+	args = append(args, deltaRef)
+
+	_, stderr, exitCode := d.exec.ExecuteWithContext(ctx, ociDeltaCmd, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
