@@ -36,7 +36,7 @@ RUN ARCH=$(uname -m) && \
     mkdir -p /runtime-root/etc/yum.repos.d && \
     echo -e "[centos-baseos]\nname=CentOS Stream 9 - BaseOS\nbaseurl=https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=0" > /runtime-root/etc/yum.repos.d/centos.repo && \
     echo -e "[centos-appstream]\nname=CentOS Stream 9 - AppStream\nbaseurl=https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=0" >> /runtime-root/etc/yum.repos.d/centos.repo && \
-    dnf install -y --installroot=/runtime-root --releasever=9 --setopt=install_weak_deps=False \
+    dnf install -y --installroot=/runtime-root --releasever=9 --setopt=install_weak_deps=False --nodocs \
         oci-delta openssl-libs tzdata && \
     dnf --installroot=/runtime-root clean all && \
     rm -rf /runtime-root/var/cache/dnf
