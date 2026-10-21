@@ -216,7 +216,7 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(discoveredDeltaReferrer(harness, registry, target.repository, sourceDigest, target.targetDigest),
 			util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
-		Expect(deleteDiscoveredDeltaLayer(target.repository, artifact)).To(Succeed())
+		Expect(deleteDiscoveredDeltaLayer(registry, target.repository, artifact)).To(Succeed())
 		Eventually(discoveredDeltaReferrer(harness, registry, target.repository, sourceDigest, target.targetDigest),
 			util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
 
@@ -308,7 +308,7 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 		Eventually(discoveredApplicationDeltaOutcome(
 			harness, deviceID, applicationDeltaComposeName, []applicationDeltaTarget{target}, v1beta1.DeviceDeltaApplyOutcomeApplied,
 		), util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
-		expectedDelta, err := expectedDiscoveredDelta(target.repository, fartherDelta, closerDelta)
+		expectedDelta, err := expectedDiscoveredDelta(registry, target.repository, fartherDelta, closerDelta)
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(agentAppliedDiscoveredDelta(harness, target, expectedDelta), util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
 		Expect(getDeltaDevice(harness, deviceID).Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta))
@@ -317,9 +317,10 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 
 // publishDiscoveredDelta creates and publishes an externally generated OCI delta.
 func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepository, sourceRef, targetRef string) (discoveredDeltaArtifact, error) {
+	repositoryPath := registryRepositoryPath(registry, targetRepository)
 	targetTag := applicationDeltaTargetTag(tag)
-	registerApplicationImageCleanup(targetRepository, targetTag)
-	deltaImage := applicationImageReference(registry, targetRepository, targetTag)
+	registerApplicationImageCleanup(repositoryPath, targetTag)
+	deltaImage := applicationImageReference(registry, repositoryPath, targetTag)
 	workDir := "/tmp/flightctl-delta-discovery-" + tag
 	commands := []string{
 		"set -eu",
@@ -340,7 +341,7 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	if err != nil {
 		return discoveredDeltaArtifact{}, fmt.Errorf("publish externally generated delta %s: %w", deltaImage, err)
 	}
-	deltaDigest, err := resolveApplicationImageDigest(harness, registry, targetRepository, targetTag)
+	deltaDigest, err := resolveApplicationImageDigest(harness, registry, repositoryPath, targetTag)
 	if err != nil {
 		return discoveredDeltaArtifact{}, fmt.Errorf("resolve externally generated delta %s: %w", deltaImage, err)
 	}
@@ -349,6 +350,11 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 		return discoveredDeltaArtifact{}, err
 	}
 	return discoveredDeltaArtifact{reference: reference, digest: deltaDigest}, nil
+}
+
+// registryRepositoryPath removes the registry host from a full repository reference.
+func registryRepositoryPath(registry, repository string) string {
+	return strings.TrimPrefix(repository, registry+"/")
 }
 
 // publishDiscoveredDeltaForTarget creates a delta from sourceImage to target and publishes it in target's repository.
@@ -363,7 +369,7 @@ func publishDiscoveredDeltaForTarget(
 	if err != nil {
 		return discoveredDeltaArtifact{}, err
 	}
-	return publishDiscoveredDelta(harness, registry, tag, target.repository, sourceRef, targetRef)
+	return publishDiscoveredDelta(harness, registry, tag, registryRepositoryPath(registry, target.repository), sourceRef, targetRef)
 }
 
 type discoveredDeltaManifest struct {
@@ -378,14 +384,15 @@ type discoveredDeltaManifest struct {
 }
 
 // fetchDiscoveredDeltaManifest fetches and parses an OCI delta manifest.
-func fetchDiscoveredDeltaManifest(repository, digest string) (discoveredDeltaManifest, int64, error) {
+func fetchDiscoveredDeltaManifest(registry, repository, digest string) (discoveredDeltaManifest, int64, error) {
+	repositoryPath := registryRepositoryPath(registry, repository)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client, err := e2eRegistryHTTPClient()
 	if err != nil {
 		return discoveredDeltaManifest{}, 0, err
 	}
-	url := "https://" + auxSvcs.Registry.URL + "/v2/" + repository + "/manifests/" + digest
+	url := "https://" + auxSvcs.Registry.URL + "/v2/" + repositoryPath + "/manifests/" + digest
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return discoveredDeltaManifest{}, 0, err
@@ -411,8 +418,8 @@ func fetchDiscoveredDeltaManifest(repository, digest string) (discoveredDeltaMan
 }
 
 // deleteDiscoveredDeltaLayer removes the first layer of a published delta artifact.
-func deleteDiscoveredDeltaLayer(repository string, artifact discoveredDeltaArtifact) error {
-	manifest, _, err := fetchDiscoveredDeltaManifest(repository, artifact.digest)
+func deleteDiscoveredDeltaLayer(registry, repository string, artifact discoveredDeltaArtifact) error {
+	manifest, _, err := fetchDiscoveredDeltaManifest(registry, repository, artifact.digest)
 	if err != nil {
 		return err
 	}
@@ -427,7 +434,7 @@ func deleteDiscoveredDeltaLayer(repository string, artifact discoveredDeltaArtif
 	if err != nil {
 		return err
 	}
-	url := "https://" + auxSvcs.Registry.URL + "/v2/" + repository + "/blobs/" + layerDigest
+	url := "https://" + auxSvcs.Registry.URL + "/v2/" + registryRepositoryPath(registry, repository) + "/blobs/" + layerDigest
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("create delete request for discovered delta layer %s: %w", layerDigest, err)
@@ -448,8 +455,8 @@ func deleteDiscoveredDeltaLayer(repository string, artifact discoveredDeltaArtif
 }
 
 // discoveredDeltaDownloadSize returns the total manifest, config, and layer download size.
-func discoveredDeltaDownloadSize(repository string, artifact discoveredDeltaArtifact) (int64, error) {
-	manifest, manifestSize, err := fetchDiscoveredDeltaManifest(repository, artifact.digest)
+func discoveredDeltaDownloadSize(registry, repository string, artifact discoveredDeltaArtifact) (int64, error) {
+	manifest, manifestSize, err := fetchDiscoveredDeltaManifest(registry, repository, artifact.digest)
 	if err != nil {
 		return 0, err
 	}
@@ -461,17 +468,17 @@ func discoveredDeltaDownloadSize(repository string, artifact discoveredDeltaArti
 }
 
 // expectedDiscoveredDelta selects the artifact matching discovery's size and reference ordering.
-func expectedDiscoveredDelta(repository string, candidates ...discoveredDeltaArtifact) (discoveredDeltaArtifact, error) {
+func expectedDiscoveredDelta(registry, repository string, candidates ...discoveredDeltaArtifact) (discoveredDeltaArtifact, error) {
 	if len(candidates) == 0 {
 		return discoveredDeltaArtifact{}, fmt.Errorf("no discovered delta candidates were provided")
 	}
 	selected := candidates[0]
-	selectedSize, err := discoveredDeltaDownloadSize(repository, selected)
+	selectedSize, err := discoveredDeltaDownloadSize(registry, repository, selected)
 	if err != nil {
 		return discoveredDeltaArtifact{}, err
 	}
 	for _, candidate := range candidates[1:] {
-		candidateSize, err := discoveredDeltaDownloadSize(repository, candidate)
+		candidateSize, err := discoveredDeltaDownloadSize(registry, repository, candidate)
 		if err != nil {
 			return discoveredDeltaArtifact{}, err
 		}
@@ -501,7 +508,7 @@ func agentAppliedDiscoveredDelta(harness *e2e.Harness, target applicationDeltaTa
 // discoveredDeltaReferrer returns a condition that checks for a matching OCI referrer.
 func discoveredDeltaReferrer(harness *e2e.Harness, registry, repository, sourceDigest, targetDigest string) func() error {
 	return func() error {
-		referrers, err := harness.FetchReferrers(registry, repository, targetDigest)
+		referrers, err := harness.FetchReferrers(registry, registryRepositoryPath(registry, repository), targetDigest)
 		if err != nil {
 			return err
 		}

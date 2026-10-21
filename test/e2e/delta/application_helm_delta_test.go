@@ -459,7 +459,7 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 		if err != nil {
 			return fixture, err
 		}
-		if err := deleteDiscoveredDeltaLayer(target.repository, artifact); err != nil {
+		if err := deleteDiscoveredDeltaLayer(registry, target.repository, artifact); err != nil {
 			return fixture, err
 		}
 	} else {
@@ -476,7 +476,7 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 		if err != nil {
 			return fixture, err
 		}
-		fixture.expectedDelta, err = expectedDiscoveredDelta(target.repository, fartherDelta, closerDelta)
+		fixture.expectedDelta, err = expectedDiscoveredDelta(registry, target.repository, fartherDelta, closerDelta)
 		if err != nil {
 			return fixture, err
 		}
