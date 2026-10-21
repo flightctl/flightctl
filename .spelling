@@ -294,6 +294,7 @@ corporate
 orgs
 LDAP
 SSO
+SCC
 agent_version
 backend
 behaviour

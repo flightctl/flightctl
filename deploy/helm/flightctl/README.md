@@ -16,7 +16,9 @@ The `flightctl-imagebuilder-worker` component requires elevated privileges to bu
 - Host device access (`/dev`, `/sys`, `/lib/modules`)
 - Capabilities: `SYS_ADMIN`, `MKNOD`, `SYS_CHROOT`, `SETFCAP`
 
-If your namespace enforces the "restricted" Pod Security Standard, you will see warnings during deployment. To suppress these warnings, configure the namespace labels:
+The `flightctl-delta-worker` component runs `oci-delta` to generate OS and application image deltas. The container must run as root and add `SYS_ADMIN`. A restricted policy assigns a non-root uid, and delta generation then fails while creating the delta.
+
+If your namespace enforces the "restricted" or "baseline" Pod Security Standard, you will see warnings during deployment. To suppress these warnings, configure the namespace labels:
 
 ```bash
 kubectl label namespace <namespace> \
@@ -25,7 +27,7 @@ kubectl label namespace <namespace> \
   pod-security.kubernetes.io/audit=privileged
 ```
 
-On OpenShift clusters, the chart automatically creates a SecurityContextConstraints (SCC) that grants the required permissions to the `flightctl-imagebuilder-worker` service account.
+On OpenShift clusters, the chart automatically creates a security context constraint (SCC) for the `flightctl-imagebuilder-worker` and `flightctl-delta-worker` service accounts.
 
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
