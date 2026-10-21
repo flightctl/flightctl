@@ -34,6 +34,17 @@ func TestServicesManifestOnlyInstallsGrafanaDashboardJSON(t *testing.T) {
 	require.Empty(t, expected)
 }
 
+func TestCatalogCollectorTagOverride(t *testing.T) {
+	config := &RendererConfig{
+		CatalogCollector:             ImageConfig{Tag: "latest"},
+		FlightctlServicesTagOverride: "1.2.3",
+	}
+
+	config.ApplyFlightctlServicesTagOverride(log.NewPrefixLogger("test"))
+
+	require.Equal(t, "1.2.3", config.CatalogCollector.Tag)
+}
+
 // Helper function to create a test config with temporary directories
 func createTestConfig(t *testing.T) *RendererConfig {
 	t.Helper()
