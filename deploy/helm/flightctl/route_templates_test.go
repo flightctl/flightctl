@@ -125,6 +125,24 @@ func TestRouteExternalCertificate(t *testing.T) {
 	}
 }
 
+func TestCABundleCreatorRouteCustomHostRBAC(t *testing.T) {
+	manifest := renderChart(t, "auto", "auto", true, false, "")
+	documents := sourceDocuments(manifest, "flightctl/templates/certs/flightctl-ca-bundle-creator-rbac.yaml")
+	require.NotEmpty(t, documents)
+
+	role := strings.Join(documents, "\n")
+	require.Contains(t, role, `resources: ["routes/custom-host"]`)
+	// OpenShift cert-field SAR omits resource name; resourceNames would break authz.
+	customHostRuleStart := strings.Index(role, `resources: ["routes/custom-host"]`)
+	require.GreaterOrEqual(t, customHostRuleStart, 0)
+	customHostRule := role[customHostRuleStart:]
+	if nextRule := strings.Index(customHostRule[1:], "\n  - apiGroups:"); nextRule >= 0 {
+		customHostRule = customHostRule[:nextRule+1]
+	}
+	require.Contains(t, customHostRule, `verbs: ["create"]`)
+	require.NotContains(t, customHostRule, "resourceNames:")
+}
+
 func renderChart(t *testing.T, routeCertificate, certificateMethod string, certManagerInstalled, upgrade bool, existingObject string) string {
 	t.Helper()
 
