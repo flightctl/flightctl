@@ -136,6 +136,9 @@ func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.
 }
 
 func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgId uuid.UUID, name string, before *domain.CertificateSigningRequest, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (bool, error) {
+	if mutation.Resource() == nil || mutation.Resource().Status == nil {
+		return false, flterrors.ErrResourceIsNil
+	}
 	if before.Metadata.CreationTimestamp == nil {
 		return false, flterrors.ErrResourceVersionConflict
 	}

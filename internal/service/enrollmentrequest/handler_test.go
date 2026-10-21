@@ -51,21 +51,40 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
 func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
-	before := f.items[name]
+	before, err := store.CloneJSON(f.items[name])
+	if err != nil {
+		return nil, nil, false, err
+	}
+	current, err := store.CloneJSON(before)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	mutation := &store.Mutation[domain.EnrollmentRequest]{}
-	mutation.SetResource(before)
+	mutation.SetResource(current)
 	if err := apply(mutation); err != nil {
 		if errors.Is(err, store.ErrMutateSkipWrite) {
 			return mutation.Resource(), before, false, nil
 		}
 		return nil, before, false, err
 	}
-	if before == nil {
-		result, err := f.Create(ctx, orgId, mutation.Resource())
-		return result, nil, true, err
+	if mutation.Resource() == nil {
+		return nil, before, false, flterrors.ErrResourceIsNil
 	}
-	result, _, err := f.Update(ctx, orgId, mutation.Resource())
-	return result, before, false, err
+	persisted, err := store.CloneJSON(mutation.Resource())
+	if err != nil {
+		return nil, before, false, err
+	}
+	var result *domain.EnrollmentRequest
+	if before == nil {
+		result, err = f.Create(ctx, orgId, persisted)
+	} else {
+		result, _, err = f.Update(ctx, orgId, persisted)
+	}
+	if err != nil {
+		return nil, before, before == nil, err
+	}
+	result, err = store.CloneJSON(result)
+	return result, before, before == nil, err
 }
 
 func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
@@ -545,6 +564,43 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
+}
+
+func TestEnrollmentRequestSnapshots(testingT *testing.T) {
+	handler, _, _, _, eventRecorder := newTestHandler(testingT)
+	ctx := context.Background()
+	orgID := uuid.New()
+	name := "enrollment-snapshots"
+	request := testEnrollmentRequest(name)
+	request.Spec.Csr = csrPEM(testingT, name)
+	request.Metadata.Labels = lo.ToPtr(map[string]string{"phase": "initial"})
+	request.Status = &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{{
+		Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusFalse, Reason: "AwaitingApproval",
+	}}}
+	created, status := handler.ReplaceEnrollmentRequest(ctx, orgID, name, request)
+	require.Equal(testingT, statusCreatedCode, status.Code)
+	created.Metadata.Labels = lo.ToPtr(map[string]string{"phase": "replacement"})
+	created.Status.Conditions[0].Reason = "ClientEdited"
+	current, status := handler.GetEnrollmentRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "initial"}, *current.Metadata.Labels)
+	require.Equal(testingT, "AwaitingApproval", current.Status.Conditions[0].Reason)
+
+	updated, status := handler.ReplaceEnrollmentRequest(ctx, orgID, name, *created)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *updated.Metadata.Labels)
+	updated.Status.Conditions[0].Reason = "ResponseEdited"
+	current, status = handler.GetEnrollmentRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *current.Metadata.Labels)
+	require.Equal(testingT, "AwaitingApproval", current.Status.Conditions[0].Reason)
+	require.Len(testingT, eventRecorder.createdEvents, 2)
+	updateEvent := eventRecorder.createdEvents[1]
+	require.Equal(testingT, domain.EventReasonResourceUpdated, updateEvent.Reason)
+	require.NotNil(testingT, updateEvent.Details)
+	details, err := updateEvent.Details.AsResourceUpdatedDetails()
+	require.NoError(testingT, err)
+	require.Equal(testingT, []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels}, details.UpdatedFields)
 }
 
 func TestReplaceEnrollmentRequestStatus(t *testing.T) {

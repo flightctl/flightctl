@@ -118,21 +118,40 @@ func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId u
 }
 
 func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	before := f.items[name]
+	before, err := store.CloneJSON(f.items[name])
+	if err != nil {
+		return nil, nil, false, err
+	}
+	current, err := store.CloneJSON(before)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	mutation := &store.Mutation[domain.CertificateSigningRequest]{}
-	mutation.SetResource(before)
+	mutation.SetResource(current)
 	if err := apply(mutation); err != nil {
 		if errors.Is(err, store.ErrMutateSkipWrite) {
 			return mutation.Resource(), before, false, nil
 		}
 		return nil, before, false, err
 	}
-	if before == nil {
-		result, err := f.Create(ctx, orgId, mutation.Resource())
-		return result, nil, true, err
+	if mutation.Resource() == nil {
+		return nil, before, false, flterrors.ErrResourceIsNil
 	}
-	result, _, err := f.Update(ctx, orgId, mutation.Resource())
-	return result, before, false, err
+	persisted, err := store.CloneJSON(mutation.Resource())
+	if err != nil {
+		return nil, before, false, err
+	}
+	var result *domain.CertificateSigningRequest
+	if before == nil {
+		result, err = f.Create(ctx, orgId, persisted)
+	} else {
+		result, _, err = f.Update(ctx, orgId, persisted)
+	}
+	if err != nil {
+		return nil, before, before == nil, err
+	}
+	result, err = store.CloneJSON(result)
+	return result, before, before == nil, err
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
@@ -336,6 +355,42 @@ func TestUpdateCertificateSigningRequestApprovalServerSvc(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCertificateSigningRequestSnapshots(testingT *testing.T) {
+	handler, _, _, eventRecorder, _ := newTestHandler(testingT)
+	ctx := context.Background()
+	orgID := uuid.New()
+	name := "csr-snapshots"
+	request := domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: &name, Labels: lo.ToPtr(map[string]string{"phase": "initial"})},
+		Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(testingT, name), Usages: validUsages()},
+	}
+	created, status := handler.CreateCertificateSigningRequest(ctx, orgID, request)
+	require.Equal(testingT, statusCreatedCode, status.Code)
+	require.NotEmpty(testingT, created.Status.Conditions)
+	created.Metadata.Labels = lo.ToPtr(map[string]string{"phase": "replacement"})
+	created.Status.Conditions[0].Reason = "ClientEdited"
+	current, status := handler.GetCertificateSigningRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "initial"}, *current.Metadata.Labels)
+	require.Equal(testingT, "Approved", current.Status.Conditions[0].Reason)
+
+	created.Status.Conditions[0].Reason = "Approved"
+	updated, status := handler.ReplaceCertificateSigningRequest(ctx, orgID, name, *created)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *updated.Metadata.Labels)
+	current, status = handler.GetCertificateSigningRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *current.Metadata.Labels)
+	require.Equal(testingT, "Approved", current.Status.Conditions[0].Reason)
+	require.Len(testingT, eventRecorder.created, 2)
+	updateEvent := eventRecorder.created[1]
+	require.Equal(testingT, domain.EventReasonResourceUpdated, updateEvent.Reason)
+	require.NotNil(testingT, updateEvent.Details)
+	details, err := updateEvent.Details.AsResourceUpdatedDetails()
+	require.NoError(testingT, err)
+	require.Equal(testingT, []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels}, details.UpdatedFields)
 }
 
 func TestCreateCertificateSigningRequest(t *testing.T) {
