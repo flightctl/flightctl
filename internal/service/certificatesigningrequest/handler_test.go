@@ -471,6 +471,64 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 	})
 }
 
+func TestEnrollmentIssuanceClock(t *testing.T) {
+	tests := []struct {
+		name string
+		now  time.Time
+	}{
+		{
+			name: "When server time is UTC it should publish exact issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC),
+		},
+		{
+			name: "When server time has an offset it should publish UTC issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 7, 6, 7, 123456000, time.FixedZone("server", 2*60*60)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, _, _, cfg := newTestHandler(t)
+			ctx := context.Background()
+			orgID := uuid.New()
+			name := "enrollment-clock"
+			request := domain.CertificateSigningRequest{
+				Metadata: domain.ObjectMeta{Name: &name},
+				Spec: domain.CertificateSigningRequestSpec{
+					SignerName: cfg.DeviceEnrollmentSignerName,
+					Request:    csrPEM(t, name),
+					Usages:     validUsages(),
+				},
+			}
+			created, status := handler.CreateCertificateSigningRequest(ctx, orgID, request)
+			require.Equal(t, statusCreatedCode, status.Code)
+			require.NotNil(t, created)
+			require.NotNil(t, created.Status)
+			require.NotNil(t, created.Status.IssuedAt)
+			require.WithinDuration(t, time.Now(), *created.Status.IssuedAt, time.Minute)
+			require.Same(t, time.UTC, created.Status.IssuedAt.Location())
+			require.NotNil(t, created.Status.Certificate)
+			require.NotEmpty(t, *created.Status.Certificate)
+			publishedCertificate := append([]byte(nil), (*created.Status.Certificate)...)
+			publishedAt := *created.Status.IssuedAt
+
+			replacement := *created
+			replacement.Metadata.Labels = &map[string]string{"clock": "advanced"}
+			updated, status := handler.ReplaceCertificateSigningRequest(ctx, orgID, name, replacement)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, &publishedCertificate, updated.Status.Certificate)
+			require.NotNil(t, updated.Status.IssuedAt)
+			require.Equal(t, &publishedAt, updated.Status.IssuedAt)
+			retrieved, status := handler.GetCertificateSigningRequest(ctx, orgID, name)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, "advanced", (*retrieved.Metadata.Labels)["clock"])
+			require.Equal(t, &publishedCertificate, retrieved.Status.Certificate)
+			require.NotNil(t, retrieved.Status.IssuedAt)
+			require.Equal(t, &publishedAt, retrieved.Status.IssuedAt)
+			require.Same(t, time.UTC, retrieved.Status.IssuedAt.Location())
+		})
+	}
+}
+
 func TestListCertificateSigningRequests(t *testing.T) {
 	h, fakeStore, _, _, _ := newTestHandler(t)
 	csr := domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}

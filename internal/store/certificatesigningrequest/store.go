@@ -94,6 +94,11 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
 	}
+	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest") {
+		if err := db.Exec("CREATE INDEX idx_csr_org_certificate_digest ON certificate_signing_requests (org_id, certificate_digest)").Error; err != nil {
+			return err
+		}
+	}
 
 	// Create GIN index for CertificateSigningRequest labels
 	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_labels") {
@@ -187,8 +192,9 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 		return false, err
 	}
 	updates := map[string]interface{}{
-		"status":           proposed.Status,
-		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+		"status":             proposed.Status,
+		"certificate_digest": proposed.CertificateDigest,
+		"resource_version":   gorm.Expr("COALESCE(resource_version, 0) + 1"),
 	}
 	if !proposed.HasSameSpecAs(record) {
 		updates["spec"] = proposed.Spec
