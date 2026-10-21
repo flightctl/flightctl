@@ -1,0 +1,47 @@
+{{- if eq (include "flightctl.enableOpenShiftExtensions" .) "true" }}
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: flightctl-delta-worker
+  labels:
+    flightctl.service: flightctl-delta-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    description: "SecurityContextConstraints for flightctl-delta-worker. oci-delta must run as root with CAP_SYS_ADMIN. A restricted policy assigns a non-root uid and delta generation fails in createDelta."
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+  - SYS_ADMIN
+defaultAddCapabilities: null
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 0
+      max: 0
+readOnlyRootFilesystem: false
+requiredDropCapabilities: null
+runAsUser:
+  type: MustRunAs
+  uid: 0
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+    - min: 0
+      max: 0
+volumes:
+  - configMap
+  - secret
+  - emptyDir
+  - projected
+  - downwardAPI
+users:
+  - system:serviceaccount:{{ default .Release.Namespace .Values.global.internalNamespace }}:flightctl-delta-worker
+{{- end }}
