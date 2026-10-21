@@ -221,10 +221,13 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
-	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
+
+	var tpmVerifier tpmcsr.Verifier
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrSvc, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
+	tpmVerifier = *tpmcsr.NewVerifier(enrollmentRequestSvc)
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(

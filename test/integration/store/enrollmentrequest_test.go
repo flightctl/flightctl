@@ -2,10 +2,12 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -13,7 +15,6 @@ import (
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
@@ -50,7 +51,35 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, enrollmentRequestStore, orgId)
+		for i := 1; i <= numEnrollmentRequests; i++ {
+			resource := api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
+					Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: "csr string",
+				},
+				Status: &api.EnrollmentRequestStatus{
+					Certificate: lo.ToPtr("cert"),
+				},
+			}
+
+			_, err := enrollmentRequestStore.Create(ctx, orgId, &resource)
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			_, _, _, err = enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				mutation.Resource().Status = resource.Status
+				return nil
+			})
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
 	})
 
 	AfterEach(func() {
@@ -206,7 +235,13 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, _, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest)
+			_, _, _, err := enrollmentRequestStore.Mutate(ctx, orgId, *enrollmentrequest.Metadata.Name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				mutation.Resource().Status = enrollmentrequest.Status
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())

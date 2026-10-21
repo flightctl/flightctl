@@ -2,7 +2,6 @@ package certificatesigningrequest
 
 import (
 	"context"
-	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -12,6 +11,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Store interface {
@@ -23,7 +23,7 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -114,65 +114,71 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
+		previous = nil
+	}
+	hooks := store.MutateHooks[domain.CertificateSigningRequest]{
+		MaxRetries: lo.ToPtr(0),
+		Wrap: func(current *domain.CertificateSigningRequest) store.ResourceMutation[domain.CertificateSigningRequest] {
+			mutation := &store.Mutation[domain.CertificateSigningRequest]{}
+			mutation.SetResource(current)
+			return mutation
+		},
+		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (*domain.CertificateSigningRequest, error) {
+			return s.Create(ctx, orgId, mutation.Resource())
+		},
+		PersistUpdate: s.persistStatus,
+	}
+	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
+		return apply(mutation.(*store.Mutation[domain.CertificateSigningRequest]))
+	})
 }
 
-func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (bool, error) {
-	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).Take(&existingRecord)
+func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgId uuid.UUID, name string, before *domain.CertificateSigningRequest, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (bool, error) {
+	if before.Metadata.CreationTimestamp == nil {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	record, err := model.NewCertificateSigningRequestFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	record.OrgID = orgId
+	result := s.getDB(ctx).Model(record).
+		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
+		Clauses(clause.Returning{}).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(*mutation.Resource().Status), "resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+	})
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)
 	}
-
-	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(domain.CertificateSigningRequestStatus{})
-	}
-	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []domain.Condition{}
-	}
-	changed := false
-	for _, condition := range conditions {
-		changed = domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
-	}
-	if !changed {
-		return false, nil
-	}
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"status":           existingRecord.Status,
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-	err := store.ErrorFromGormError(result.Error)
-	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
-	}
-	if result.RowsAffected == 0 {
+	if result.RowsAffected != 1 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
-	return false, nil
+	updated, err := record.ToApiResource()
+	mutation.SetResource(updated)
+	return false, err
 }
 
 func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateConditions(ctx, orgId, name, conditions)
+	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		current := mutation.Resource()
+		if current.Status == nil {
+			current.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		changed := false
+		for _, condition := range conditions {
+			if domain.SetStatusCondition(&current.Status.Conditions, condition) {
+				changed = true
+			}
+		}
+		if !changed {
+			return store.ErrMutateSkipWrite
+		}
+		return nil
 	})
-}
-
-// retryIterations and retryUpdate mirror the unexported helpers of the same
-// name in internal/store (internal/store/common.go), which are not exported
-// for cross-package reuse. Duplicated here since UpdateConditions needs
-// identical optimistic-concurrency retry behavior within this package.
-const retryIterations = 10
-
-func retryUpdate(fn func() (bool, error)) error {
-	var (
-		retry bool
-		err   error
-	)
-	i := 0
-	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
-		i++
-	}
 	return err
 }

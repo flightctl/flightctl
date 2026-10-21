@@ -6,22 +6,25 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
+type EnrollmentRequestService interface {
+	GetEnrollmentRequest(context.Context, uuid.UUID, string) (*domain.EnrollmentRequest, domain.Status)
+}
+
 // Verifier confirms a TPM-based CertificateSigningRequest against the owning
 // EnrollmentRequest's attested TPM material.
 type Verifier struct {
-	enrollments enrollmentrequest.Service
+	enrollments EnrollmentRequestService
 }
 
 // NewVerifier returns a Verifier that looks up enrollment requests via the
 // enrollmentrequest service.
-func NewVerifier(enrollments enrollmentrequest.Service) *Verifier {
+func NewVerifier(enrollments EnrollmentRequestService) *Verifier {
 	return &Verifier{enrollments: enrollments}
 }
 
