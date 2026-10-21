@@ -9123,7 +9123,7 @@ components:
           description: A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
     EnrollmentApprovalConditionReason:
       type: string
-      description: Non-exhaustive known reasons for EnrollmentRequest Approved and CertificateSigningRequest Approved or Denied conditions. Clients must tolerate unknown reason strings.
+      description: Non-exhaustive known reasons for approval conditions. EnrollmentRequest Approved uses ManuallyApproved; CertificateSigningRequest Approved and Denied use Approved and Denied respectively. Clients must tolerate unknown reason strings.
       enum:
         - Approved
         - ManuallyApproved

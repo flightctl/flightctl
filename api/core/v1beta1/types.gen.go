@@ -2101,7 +2101,7 @@ type Duration = string
 // EncodingType Specifies the encoding type used for data representation.
 type EncodingType string
 
-// EnrollmentApprovalConditionReason Non-exhaustive known reasons for EnrollmentRequest Approved and CertificateSigningRequest Approved or Denied conditions. Clients must tolerate unknown reason strings.
+// EnrollmentApprovalConditionReason Non-exhaustive known reasons for approval conditions. EnrollmentRequest Approved uses ManuallyApproved; CertificateSigningRequest Approved and Denied use Approved and Denied respectively. Clients must tolerate unknown reason strings.
 type EnrollmentApprovalConditionReason string
 
 // EnrollmentConfig defines model for EnrollmentConfig.

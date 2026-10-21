@@ -13,7 +13,7 @@ and runtime values are unchanged; generated catalog constants are additive.
 
 | Catalog | Resource and condition | Known values |
 | --- | --- | --- |
-| EnrollmentApprovalConditionReason | EnrollmentRequest Approved; CertificateSigningRequest Approved/Denied | Approved, ManuallyApproved (EnrollmentRequest only), Denied (CertificateSigningRequest only) |
+| EnrollmentApprovalConditionReason | EnrollmentRequest Approved; CertificateSigningRequest Approved/Denied | ManuallyApproved (EnrollmentRequest); Approved, Denied (CertificateSigningRequest) |
 | CertificateSigningRequestFailureConditionReason | CertificateSigningRequest Failed | SigningFailed |
 | TpmConditionReason | EnrollmentRequest and CertificateSigningRequest TPMVerified | TPMVerificationFailed (both); TPMVerificationSucceeded (CertificateSigningRequest); TPMChallengeRequired, TPMChallengeFailed, TPMChallengeSucceeded (EnrollmentRequest) |
 | RepositoryConditionReason | Repository Accessible | Accessible, Inaccessible |
