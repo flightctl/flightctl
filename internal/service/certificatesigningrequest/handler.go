@@ -22,9 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// nowFunc allows overriding for unit tests
-var nowFunc = time.Now
-
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
 	tpmVerifier   *tpmcsr.Verifier
@@ -96,6 +93,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
+	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
@@ -103,17 +101,21 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 
 	csr.Status.Certificate = &certPEM
+	if enrollment {
+		csr.Status.IssuedAt = lo.ToPtr(time.Now().UTC())
+	}
 	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
 		csr.Status.Certificate = nil
+		csr.Status.IssuedAt = nil
 		return
 	} else {
 		*csr = *published
 	}
 }
 
-func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
-	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
+	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit, opts...)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
@@ -427,7 +429,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go
 func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningRequest) {
-	now := nowFunc()
+	now := time.Now()
 	for i := range newCSR.Status.Conditions {
 		// preserve existing lastTransitionTime if the condition with this type/status already exists,
 		// otherwise set to now.
