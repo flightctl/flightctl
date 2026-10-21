@@ -22,8 +22,7 @@ StartLimitBurst=5
 
 [Container]
 ContainerName=flightctl-catalog-collector
-# Replaced at RPM build time with the dist-qualified, version-pinned image.
-Image=@CATALOG_COLLECTOR_IMAGE@
+Image={{ .CatalogCollector.Image }}:{{ .CatalogCollector.Tag }}
 Pull=missing
 AddHost=%H:host-gateway
 # Configuration, credential files, and CA bundles all live under
