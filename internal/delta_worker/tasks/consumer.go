@@ -29,6 +29,7 @@ type Consumer struct {
 	generator       GenerateDeltaHandler
 	completion      GenerationCompleteHandler
 	prepareComplete PrepareCompleteHandler
+	completionQueue bool
 }
 
 type PrepareDeltasHandler interface {
@@ -57,10 +58,19 @@ type ConsumerWiring struct {
 
 // NewConsumer creates a new Consumer instance.
 func NewConsumer(cfg *deltaconfig.DeltaGenerationConfig, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring) *Consumer {
+	return newConsumer(cfg, workerMetrics, log, wiring, false)
+}
+
+func newCompletionConsumer(cfg *deltaconfig.DeltaGenerationConfig, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring) *Consumer {
+	return newConsumer(cfg, workerMetrics, log, wiring, true)
+}
+
+func newConsumer(cfg *deltaconfig.DeltaGenerationConfig, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring, completionQueue bool) *Consumer {
 	c := &Consumer{
-		cfg:           cfg,
-		workerMetrics: workerMetrics,
-		log:           log,
+		cfg:             cfg,
+		workerMetrics:   workerMetrics,
+		log:             log,
+		completionQueue: completionQueue,
 	}
 	if wiring != nil {
 		c.preparer = wiring.Preparer
@@ -86,6 +96,10 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 
 	if !worker_client.IsDeltaGenerationQueueEvent(event.Event.Reason) {
 		log.WithField("reason", event.Event.Reason).Warn("dropping mis-routed event on delta-generation queue")
+		return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
+	}
+	if c.completionQueue && !worker_client.IsDeltaGenerationCompletionQueueEvent(event.Event.Reason) {
+		log.WithField("reason", event.Event.Reason).Warn("dropping non-completion event on delta-generation completion queue")
 		return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
 	}
 
@@ -183,10 +197,11 @@ func (c *Consumer) handlePrepareDeltas(ctx context.Context, ev worker_client.Eve
 func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *deltaconfig.DeltaGenerationConfig, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring) error {
 	n := cfg.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
-		workerMetrics.SetConsumersActive(float64(n))
+		workerMetrics.SetConsumersActive(float64(n + 1))
 		// Queue depth is populated by the queue integration when available; zero is
 		// the initial value until the first depth update is observed.
 		workerMetrics.SetQueueDepth(consts.DeltaGenerationTaskQueue, 0)
+		workerMetrics.SetQueueDepth(consts.DeltaGenerationCompletionQueue, 0)
 		go func() {
 			<-ctx.Done()
 			workerMetrics.SetConsumersActive(0)
@@ -194,6 +209,7 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *d
 	}
 
 	taskConsumer := NewConsumer(cfg, workerMetrics, log, wiring)
+	completionTaskConsumer := newCompletionConsumer(cfg, workerMetrics, log, wiring)
 	for i := 0; i < n; i++ {
 		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.DeltaGenerationTaskQueue)
 		if err != nil {
@@ -202,6 +218,14 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *d
 		if err = consumer.Consume(ctx, taskConsumer.Consume); err != nil {
 			return fmt.Errorf("failed to start delta-generation consumer %d: %w", i, err)
 		}
+	}
+
+	completionConsumer, err := queuesProvider.NewQueueConsumer(ctx, consts.DeltaGenerationCompletionQueue)
+	if err != nil {
+		return fmt.Errorf("failed to create delta-generation completion consumer: %w", err)
+	}
+	if err = completionConsumer.Consume(ctx, completionTaskConsumer.Consume); err != nil {
+		return fmt.Errorf("failed to start delta-generation completion consumer: %w", err)
 	}
 	return nil
 }

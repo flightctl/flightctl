@@ -181,16 +181,20 @@ func TestLaunchConsumers(t *testing.T) {
 	log.SetLevel(logrus.ErrorLevel)
 	ctx := context.Background()
 
-	t.Run("When default config it should open DeltaGenerationTaskQueue twice", func(t *testing.T) {
+	t.Run("When default config it should open generation consumers and one completion consumer", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
 		err := LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, metrics, log, nil)
 		require.NoError(t, err)
-		require.Equal(t, []string{consts.DeltaGenerationTaskQueue, consts.DeltaGenerationTaskQueue}, provider.queueNames)
+		require.Equal(t, []string{
+			consts.DeltaGenerationTaskQueue,
+			consts.DeltaGenerationTaskQueue,
+			consts.DeltaGenerationCompletionQueue,
+		}, provider.queueNames)
 		require.NoError(t, testutil.CollectAndCompare(metrics, strings.NewReader(`
 # HELP flightctl_worker_consumers_active Number of active consumer goroutines
 # TYPE flightctl_worker_consumers_active gauge
-flightctl_worker_consumers_active 2
+flightctl_worker_consumers_active 3
 `), "flightctl_worker_consumers_active"))
 	})
 
@@ -199,10 +203,12 @@ flightctl_worker_consumers_active 2
 		cfg := &deltaconfig.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 3}
 		err := LaunchConsumers(ctx, provider, cfg, nil, log, nil)
 		require.NoError(t, err)
-		require.Len(t, provider.queueNames, 3)
-		for _, name := range provider.queueNames {
-			require.Equal(t, consts.DeltaGenerationTaskQueue, name)
-		}
+		require.Equal(t, []string{
+			consts.DeltaGenerationTaskQueue,
+			consts.DeltaGenerationTaskQueue,
+			consts.DeltaGenerationTaskQueue,
+			consts.DeltaGenerationCompletionQueue,
+		}, provider.queueNames)
 	})
 
 	t.Run("When PrepareDeltas payload it should ack with nil error", func(t *testing.T) {
@@ -334,6 +340,26 @@ flightctl_worker_consumers_active 2
 		require.NoError(t, provider.consumers[0].handler(ctx, payload, "4", provider.consumers[0], log))
 		require.Equal(t, 1, provider.consumers[0].completeN)
 		require.NoError(t, provider.consumers[0].completeErr)
+		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
+		require.Equal(t, 0, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
+	})
+
+	t.Run("When non-completion payload arrives on completion queue it should ack as permanent failure", func(t *testing.T) {
+		provider := &recordingProvider{}
+		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
+		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, metrics, log, &ConsumerWiring{
+			Preparer: failingPreparer{},
+		}))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
+		})
+		require.NoError(t, err)
+
+		completionConsumer := provider.consumers[len(provider.consumers)-1]
+		require.NoError(t, completionConsumer.handler(ctx, payload, "7", completionConsumer, log))
+		require.Equal(t, 1, completionConsumer.completeN)
+		require.NoError(t, completionConsumer.completeErr)
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
 		require.Equal(t, 0, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
 	})
