@@ -366,6 +366,80 @@ func TestPresentApplicationImageIsReusedWithoutFollowingMutableTag(t *testing.T)
 	}
 }
 
+func TestWhenPodmanActivatesAMutableDeltaTargetItShouldReplaceTheTagAtomically(t *testing.T) {
+	const (
+		application = "app"
+		image       = "quay.io/acme/app:v2"
+		candidate   = "quay.io/acme/delta:target"
+		refreshRef  = "quay.io/acme/app@" + podmanDeltaTargetDigest
+	)
+
+	testCases := []struct {
+		name          string
+		targetPresent bool
+	}{
+		{
+			name: "When the mutable target is absent it should import unnamed and tag the new image",
+		},
+		{
+			name:          "When the mutable target is already present it should replace the tag without removing it",
+			targetPresent: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+			expectPodmanDeltaTarget(t, exec, image, 1)
+			expectPodmanDeltaSource(exec, 1)
+
+			copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
+			importDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", gomock.Any()).Return("", "", 0)
+			refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", refreshRef).Return(podmanDeltaImageID, "", 0)
+			activation := expectPodmanDeltaActivation(exec, image)
+			gomock.InOrder(append([]any{copyDelta, importDelta, refreshRegistryReference}, activation...)...)
+
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
+			skopeo := client.NewSkopeo(logger, exec, rw)
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
+			task := &prefetchTask{
+				delta:                &OCIDeltaTarget{Hint: candidate, Application: application},
+				deltaGeneration:      1,
+				targetPresent:        tc.targetPresent,
+				applicationTargetKey: applicationImageTargetKeyFor(target, "", OCITypePodmanImage),
+			}
+			manager := &prefetchManager{
+				log:             logger,
+				readWriter:      rw,
+				pullTimeout:     time.Minute,
+				ociDelta:        client.NewOCIDelta(logger, exec, time.Minute),
+				tasks:           map[imageRef]*prefetchTask{target: task},
+				deltaGeneration: 1,
+				deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
+					application: {target: {targetKey: task.applicationTargetKey}},
+				},
+				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{target.targetID(): target},
+				deltaAppTargetKeys:    map[string]map[string]string{application: {target.targetID(): task.applicationTargetKey}},
+			}
+
+			require.NoError(manager.pullApplicationImage(context.Background(), target, task, podman, skopeo, client.Timeout(time.Minute)))
+			task.done = true
+			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, context.Background(), status))
+			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
 func TestOCIArtifactWithDeltaHintFallsBackToFullArtifactPull(t *testing.T) {
 	const (
 		application    = "app"
@@ -1656,7 +1730,7 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 		gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
 	).Return("", "", 0)
 	deltaImport := userExec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+		gomock.Any(), "oci-delta", "import", gomock.Any(),
 	).Return("", "", 0)
 	canonicalPull := userExec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "podman", "pull", "quay.io/acme/app@"+podmanDeltaTargetDigest,
@@ -1727,7 +1801,7 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 		gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
 	).Return("", "", 0)
 	deltaImport := userExec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
+		gomock.Any(), "oci-delta", "import", gomock.Any(),
 	).Return("", "import into RunAs storage failed", 1)
 	fullPull := userExec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "podman", "pull", image,

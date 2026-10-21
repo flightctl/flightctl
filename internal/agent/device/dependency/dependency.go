@@ -1117,9 +1117,13 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
 
+	importRef, digestPinned, err := applicationDeltaImportReference(target.image)
+	if err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+	}
 	switch runtimeInfo.Name {
 	case client.CRIRuntimeCRIO:
-		if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+		if err := m.ociDelta.Import(ctx, deltaFile, importRef); err != nil {
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
 	case client.CRIRuntimeContainerd:
@@ -1128,7 +1132,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		}
 	}
 
-	if !cri.ImageExists(ctx, target.image, opts...) {
+	if (digestPinned || runtimeInfo.Name == client.CRIRuntimeContainerd) && !cri.ImageExists(ctx, target.image, opts...) {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
 
@@ -1171,9 +1175,6 @@ func (m *prefetchManager) activateCRIRefreshedImage(
 	case client.CRIRuntimeCRIO:
 		if digestPinned {
 			break
-		}
-		if err := cri.RemoveImage(ctx, target.image, opts...); err != nil {
-			return fmt.Errorf("remove reconstructed image for %s: %w", target.image, err)
 		}
 		if err := skopeo.CopyPreservingDigests(
 			ctx, "docker://"+refreshImage, "containers-storage:"+target.image, deltaOpts...,
@@ -1285,6 +1286,17 @@ func imageReferenceIsDigestPinned(image string) (bool, error) {
 	return digestPinned, nil
 }
 
+func applicationDeltaImportReference(image string) (string, bool, error) {
+	digestPinned, err := imageReferenceIsDigestPinned(image)
+	if err != nil {
+		return "", false, err
+	}
+	if digestPinned {
+		return image, true, nil
+	}
+	return "", false, nil
+}
+
 func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, deltaErr error, opts ...client.ClientOption) error {
 	m.recordDeltaFallback(target, task, deltaErr)
 	imageRef, err := m.cliClients.CRI().Pull(ctx, target.image, opts...)
@@ -1350,7 +1362,11 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err := skopeo.Copy(ctx, "docker://"+candidate.Reference, "oci-archive:"+deltaFile, deltaOpts...); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
-	if err := ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+	importRef, digestPinned, err := applicationDeltaImportReference(target.image)
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+	if err := ociDelta.Import(ctx, deltaFile, importRef); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 	// Pull the registry reference after importing the reconstructed image so
@@ -1369,29 +1385,34 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 		return m.applicationDeltaFallback(ctx, target, task, podman,
 			fmt.Errorf("refresh registry manifest after delta import: empty image ID"), opts...)
 	}
-	digestPinned, err := imageReferenceIsDigestPinned(target.image)
-	if err != nil {
-		return m.applicationDeltaFallback(ctx, target, task, podman,
-			fmt.Errorf("activate refreshed image for %s: %w", target.image, err), opts...)
-	}
-	if !digestPinned {
-		if err := podman.Tag(ctx, imageID, target.image); err != nil {
-			return m.applicationDeltaFallback(ctx, target, task, podman,
-				fmt.Errorf("activate refreshed image for %s: %w", target.image, err), opts...)
-		}
-	}
-	boundImageID, err := podman.ImageID(ctx, target.image)
-	if err != nil {
-		return m.applicationDeltaFallback(ctx, target, task, podman,
-			fmt.Errorf("verify activated image for %s: %w", target.image, err), opts...)
-	}
-	if boundImageID != imageID {
-		return m.applicationDeltaFallback(ctx, target, task, podman,
-			fmt.Errorf("verify activated image for %s: bound image ID %q does not match canonical image ID %q", target.image, boundImageID, imageID), opts...)
+	if err := activateApplicationDeltaImage(ctx, target, podman, imageID, digestPinned); err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 	m.recordObservedDeltaResult(ctx, target, task, podman, imageID, v1beta1.DeviceDeltaApplyOutcomeApplied, "", opts...)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate.Reference)
 	m.log.Debugf("Refreshed registry reference for application image %s after OCI delta import", target.image)
+	return nil
+}
+
+func activateApplicationDeltaImage(
+	ctx context.Context,
+	target imageRef,
+	podman *client.Podman,
+	imageID string,
+	digestPinned bool,
+) error {
+	if !digestPinned {
+		if err := podman.Tag(ctx, imageID, target.image); err != nil {
+			return fmt.Errorf("activate refreshed image for %s: %w", target.image, err)
+		}
+	}
+	boundImageID, err := podman.ImageID(ctx, target.image)
+	if err != nil {
+		return fmt.Errorf("verify activated image for %s: %w", target.image, err)
+	}
+	if boundImageID != imageID {
+		return fmt.Errorf("verify activated image for %s: bound image ID %q does not match canonical image ID %q", target.image, boundImageID, imageID)
+	}
 	return nil
 }
 

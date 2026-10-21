@@ -88,11 +88,13 @@ func TestOCIDeltaImport(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		targetRef     string
 		setupMocks    func(*executer.MockExecuter)
 		expectedError bool
 	}{
 		{
-			name: "When import succeeds it should import into container storage",
+			name:      "When import succeeds it should import into container storage",
+			targetRef: targetRef,
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
@@ -105,7 +107,20 @@ func TestOCIDeltaImport(t *testing.T) {
 			},
 		},
 		{
-			name: "When import fails it should return an error wrapping stderr",
+			name:      "When import has no target it should import unnamed",
+			targetRef: "",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"oci-delta",
+					"import",
+					deltaRef,
+				).Return("", "", 0)
+			},
+		},
+		{
+			name:      "When import fails it should return an error wrapping stderr",
+			targetRef: targetRef,
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
@@ -131,7 +146,7 @@ func TestOCIDeltaImport(t *testing.T) {
 			tt.setupMocks(mockExec)
 
 			delta := NewOCIDelta(logger, mockExec, time.Minute)
-			err := delta.Import(context.Background(), deltaRef, targetRef)
+			err := delta.Import(context.Background(), deltaRef, tt.targetRef)
 			if tt.expectedError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "diff_id mismatch")
