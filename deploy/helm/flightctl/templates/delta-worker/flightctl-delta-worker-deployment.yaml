@@ -33,6 +33,16 @@ spec:
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.deltaWorker.image.pullPolicy }}
           resources:
             {{- toYaml .Values.deltaWorker.resources | nindent 12 }}
+          # oci-delta re-executes into a user namespace when it is not root or lacks
+          # CAP_SYS_ADMIN. OpenShift restricted admission assigns a non-root uid, and
+          # that unshare fails with ENOSYS during createDelta.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - SYS_ADMIN
           ports:
             - containerPort: 8080
               name: metrics

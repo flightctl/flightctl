@@ -608,10 +608,10 @@ func waitForApplicationDeltaGenerationEvents(harness *e2e.Harness, fleetName, de
 	if len(generationTargets) == 0 {
 		return
 	}
-	Eventually(func() error {
+	Eventually(func() (bool, error) {
 		deviceEvents, err := newResourceEvents(harness, v1beta1.DeviceKind, deviceID, baseline.device)
 		if err != nil {
-			return err
+			return pollNil(err)
 		}
 		generationEvents := deviceEvents
 		generationKind, generationName := v1beta1.DeviceKind, deviceID
@@ -619,18 +619,18 @@ func waitForApplicationDeltaGenerationEvents(harness *e2e.Harness, fleetName, de
 		if fleetName != "" {
 			fleetEvents, err := newResourceEvents(harness, v1beta1.FleetKind, fleetName, baseline.fleet)
 			if err != nil {
-				return err
+				return pollNil(err)
 			}
 			fleetTemplateVersion, err = fleetRolloutStartedTemplateVersion(fleetEvents, fleetName)
 			if err != nil {
-				return err
+				return pollNil(err)
 			}
 			generationEvents = fleetEvents
 			generationKind, generationName = v1beta1.FleetKind, fleetName
 		}
 		observation := newDeltaLifecycleObservation()
 		if err := observeDeltaGenerationProgress(generationEvents, generationKind, generationName, &observation); err != nil {
-			return err
+			return pollNil(err)
 		}
 		for _, generationTarget := range generationTargets {
 			if generationTarget.repository == "" {
@@ -638,7 +638,7 @@ func waitForApplicationDeltaGenerationEvents(harness *e2e.Harness, fleetName, de
 			}
 			generated, err := hasSuccessfulApplicationDeltaGeneration(generationEvents, generationTarget, fleetTemplateVersion)
 			if err != nil {
-				return err
+				return pollNil(err)
 			}
 			if !generated {
 				message := fmt.Sprintf("waiting for a succeeded DeltaGenerationProgress event for %s", generationTarget.repository)
@@ -648,11 +648,11 @@ func waitForApplicationDeltaGenerationEvents(harness *e2e.Harness, fleetName, de
 				if fleetTemplateVersion != "" {
 					message += fmt.Sprintf(" in template version %s", fleetTemplateVersion)
 				}
-				return fmt.Errorf("%s", message)
+				return pollNil(fmt.Errorf("%s", message))
 			}
 		}
-		return nil
-	}, util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
+		return pollNil(nil)
+	}, util.LONG_TIMEOUT, util.POLLING).Should(BeTrue())
 }
 
 func waitForApplicationDeltaContentUpToDateEvent(harness *e2e.Harness, deviceID string, baseline deltaEventBaseline) {
@@ -732,13 +732,13 @@ func hasSuccessfulApplicationDeltaGeneration(events []v1beta1.Event, target appl
 }
 
 func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName string, target applicationDeltaTarget, expectedOutcome v1beta1.DeviceDeltaApplyOutcomeType) {
-	Eventually(func() error {
+	Eventually(func() (bool, error) {
 		device, err := harness.GetDevice(deviceID)
 		if err != nil {
-			return err
+			return pollNil(err)
 		}
 		if device.Status == nil {
-			return fmt.Errorf("device %s has no status", deviceID)
+			return pollNil(fmt.Errorf("device %s has no status", deviceID))
 		}
 		var appStatus *v1beta1.DeviceApplicationStatus
 		for i := range device.Status.Applications {
@@ -748,32 +748,32 @@ func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName stri
 			}
 		}
 		if appStatus == nil {
-			return fmt.Errorf("device %s has no status for application %s", deviceID, appName)
+			return pollNil(fmt.Errorf("device %s has no status for application %s", deviceID, appName))
 		}
 		if appStatus.Status != v1beta1.ApplicationStatusRunning {
-			return fmt.Errorf("application %s has status %q, waiting for Running", appName, appStatus.Status)
+			return pollNil(fmt.Errorf("application %s has status %q, waiting for Running", appName, appStatus.Status))
 		}
 		if !applicationStatusHasImageDigest(appStatus, target.image, target.targetDigest) {
-			return fmt.Errorf("application %s has not reported target image %s with registry digest %s", appName, target.image, target.targetDigest)
+			return pollNil(fmt.Errorf("application %s has not reported target image %s with registry digest %s", appName, target.image, target.targetDigest))
 		}
 		if appStatus.DeltaSize == nil || *appStatus.DeltaSize == "" {
-			return fmt.Errorf("application %s has not reported the control-plane delta size", appName)
+			return pollNil(fmt.Errorf("application %s has not reported the control-plane delta size", appName))
 		}
 		if appStatus.LastDelta == nil {
-			return fmt.Errorf("application %s has not reported a delta apply outcome", appName)
+			return pollNil(fmt.Errorf("application %s has not reported a delta apply outcome", appName))
 		}
 		if appStatus.LastDelta.Outcome != expectedOutcome {
 			reason := ""
 			if appStatus.LastDelta.FallbackReason != nil {
 				reason = ": " + *appStatus.LastDelta.FallbackReason
 			}
-			return StopTrying(fmt.Sprintf("application %s reported delta outcome %q, expected %q%s", appName, appStatus.LastDelta.Outcome, expectedOutcome, reason))
+			return pollNil(StopTrying(fmt.Sprintf("application %s reported delta outcome %q, expected %q%s", appName, appStatus.LastDelta.Outcome, expectedOutcome, reason)))
 		}
 		if expectedOutcome == v1beta1.DeviceDeltaApplyOutcomeFallback && (appStatus.LastDelta.FallbackReason == nil || *appStatus.LastDelta.FallbackReason == "") {
-			return fmt.Errorf("application %s reported delta fallback without a reason", appName)
+			return pollNil(fmt.Errorf("application %s reported delta fallback without a reason", appName))
 		}
-		return nil
-	}, util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
+		return pollNil(nil)
+	}, util.LONG_TIMEOUT, util.POLLING).Should(BeTrue())
 }
 
 func waitForRenderedNestedDeltaHint(harness *e2e.Harness, deviceID, appName string, appType v1beta1.AppType, target applicationDeltaTarget) v1beta1.ImageDeltaHint {
