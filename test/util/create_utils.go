@@ -10,7 +10,6 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -206,32 +205,6 @@ func CreateRepositories(ctx context.Context, numRepositories int, repositoryStor
 		}
 	}
 	return nil
-}
-
-func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, enrollmentRequestStore enrollmentrequeststore.Store, orgId uuid.UUID) {
-	for i := 1; i <= numEnrollmentRequests; i++ {
-		resource := api.EnrollmentRequest{
-			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.EnrollmentRequestSpec{
-				Csr: "csr string",
-			},
-			Status: &api.EnrollmentRequestStatus{
-				Certificate: lo.ToPtr("cert"),
-			},
-		}
-
-		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating enrollmentrequest: %v", err)
-		}
-		_, _, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("updating enrollmentrequest status: %v", err)
-		}
-	}
 }
 
 func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resourceSyncStore resourcesyncstore.Store, orgId uuid.UUID) {

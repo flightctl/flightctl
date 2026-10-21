@@ -126,6 +126,41 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 
 	// PUT /api/v1/enrollmentrequests/{name}
 	Context("Replace ER operations", func() {
+		DescribeTable("should preserve label replacement compatibility",
+			func(labels *map[string]string, expectedLabels map[string]string) {
+				er := CreateTestER()
+				er.Metadata.Labels = &map[string]string{"environment": "factory"}
+				erName := lo.FromPtr(er.Metadata.Name)
+
+				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				Expect(created).ToNot(BeNil())
+				Expect(created.Metadata.Labels).To(PointTo(Equal(map[string]string{"environment": "factory"})))
+
+				replacement := *created
+				replacement.Metadata.Labels = labels
+				replaced, status := suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, replacement)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(replaced).ToNot(BeNil())
+				Expect(replaced.Metadata.Labels).To(PointTo(Equal(expectedLabels)))
+				VerifyERStatusUnchanged(replaced, created)
+
+				final, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(final).ToNot(BeNil())
+				Expect(final.Metadata.Labels).To(PointTo(Equal(expectedLabels)))
+				VerifyERStatusUnchanged(final, created)
+			},
+			Entry("When labels are omitted it should clear existing labels",
+				(*map[string]string)(nil), map[string]string{}),
+			Entry("When labels are explicitly empty it should clear existing labels",
+				&map[string]string{}, map[string]string{}),
+			Entry("When labels point to a nil map it should preserve existing labels",
+				lo.ToPtr(map[string]string(nil)), map[string]string{"environment": "factory"}),
+			Entry("When labels are nonempty it should replace existing labels",
+				&map[string]string{"site": "warehouse"}, map[string]string{"site": "warehouse"}),
+		)
+
 		DescribeTable("should handle replace operations correctly", func(replaceFunc func(api.EnrollmentRequest) api.EnrollmentRequest, replacedMatcher types.GomegaMatcher, statusMatcher types.GomegaMatcher) {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)

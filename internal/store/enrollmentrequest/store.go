@@ -2,13 +2,17 @@ package enrollmentrequest
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Store interface {
@@ -17,10 +21,10 @@ type Store interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -107,7 +111,64 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	newEr, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
-	return newEr, resource, err
+func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
+		previous = nil
+	}
+	hooks := store.MutateHooks[domain.EnrollmentRequest]{
+		MaxRetries: lo.ToPtr(0),
+		Wrap: func(current *domain.EnrollmentRequest) store.ResourceMutation[domain.EnrollmentRequest] {
+			mutation := &store.Mutation[domain.EnrollmentRequest]{}
+			mutation.SetResource(current)
+			return mutation
+		},
+		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.EnrollmentRequest]) (*domain.EnrollmentRequest, error) {
+			return s.Create(ctx, orgId, mutation.Resource())
+		},
+		PersistUpdate: s.persistMutation,
+	}
+	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.EnrollmentRequest]) error {
+		return apply(mutation.(*store.Mutation[domain.EnrollmentRequest]))
+	})
+}
+
+func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid.UUID, name string, before *domain.EnrollmentRequest, mutation store.ResourceMutation[domain.EnrollmentRequest]) (bool, error) {
+	if before.Metadata.CreationTimestamp == nil {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	record, err := model.NewEnrollmentRequestFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	record.OrgID = orgId
+	proposed, err := model.NewEnrollmentRequestFromApiResource(mutation.Resource())
+	if err != nil {
+		return false, err
+	}
+	updates := map[string]interface{}{
+		"status":           proposed.Status,
+		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+	}
+	if !proposed.HasSameSpecAs(record) {
+		updates["spec"] = proposed.Spec
+		updates["generation"] = gorm.Expr("COALESCE(generation, 0) + 1")
+	}
+	if !reflect.DeepEqual(proposed.Labels, record.Labels) {
+		updates["labels"] = proposed.Labels
+	}
+	if !reflect.DeepEqual(proposed.Annotations, record.Annotations) {
+		updates["annotations"] = proposed.Annotations
+	}
+	result := s.getDB(ctx).Model(record).
+		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
+		Clauses(clause.Returning{}).Updates(updates)
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	updated, err := record.ToApiResource()
+	mutation.SetResource(updated)
+	return false, err
 }
