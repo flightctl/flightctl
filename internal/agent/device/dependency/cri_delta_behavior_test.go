@@ -343,8 +343,16 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, 
 		if tc.selected != "" {
 			expect("skopeo", "copy", "docker://"+tc.selected, gomock.Any())
 			if tc.failStep != "download" {
+				digestPinned, err := imageReferenceIsDigestPinned(image)
+				if err != nil {
+					panic(err)
+				}
 				if !tc.containerd {
-					expect("oci-delta", "import", "--tag", image, gomock.Any())
+					if digestPinned {
+						expect("oci-delta", "import", "--tag", image, gomock.Any())
+					} else {
+						expect("oci-delta", "import", gomock.Any())
+					}
 				} else {
 					ctrArgs := []any{"--address", "/run/workload/containerd.sock", "--namespace", "k8s.io", "images"}
 					mountArgs := append(append([]any{}, ctrArgs...), "mount", "quay.io/local/base@"+sourceRef, gomock.Any())
@@ -362,19 +370,7 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, 
 					}
 				}
 				if tc.failStep != "import" && tc.failStep != "reconstruct" && tc.failStep != "mount" && tc.failStep != "tag" {
-					output := "IMAGE TAG ID\nworkload target image-id"
-					if tc.failStep == "visibility" {
-						output = "IMAGE TAG ID"
-					}
-					args := criArgs("images", image)
-					steps = append(steps, exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(output, "", 0))
-					if tc.failStep != "visibility" {
-						exit, stderr := 0, ""
-						if tc.failStep == "refresh" {
-							exit, stderr = 1, "refresh failed"
-						}
-						steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", refreshImage}, gomock.Any()).Return("", stderr, exit))
-					}
+					steps = append(steps, expectCRIDeltaVisibilityAndRefresh(exec, image, refreshImage, tc, criArgs, digestPinned)...)
 				}
 			}
 		}
@@ -390,6 +386,35 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, 
 		steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", image}, gomock.Any()).Return("", stderr, exit))
 	}
 	gomock.InOrder(steps...)
+}
+
+func expectCRIDeltaVisibilityAndRefresh(
+	exec *executer.MockExecuter,
+	image, refreshImage string,
+	tc criDeltaTestCase,
+	criArgs func(args ...string) []any,
+	digestPinned bool,
+) []any {
+	var steps []any
+	requiresVisibility := digestPinned || tc.containerd
+	if requiresVisibility {
+		output := "IMAGE TAG ID\nworkload target image-id"
+		if tc.failStep == "visibility" {
+			output = "IMAGE TAG ID"
+		}
+		args := criArgs("images", image)
+		steps = append(steps, exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(output, "", 0))
+	}
+	if tc.failStep != "visibility" || !requiresVisibility {
+		exit, stderr := 0, ""
+		if tc.failStep == "refresh" {
+			exit, stderr = 1, "refresh failed"
+		}
+		steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(
+			gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", refreshImage}, gomock.Any(),
+		).Return("", stderr, exit))
+	}
+	return steps
 }
 
 func expectCRIDeltaCanonicalRefresh(
@@ -421,8 +446,6 @@ func expectCRIDeltaCanonicalRefresh(
 				"images", "tag", "--force", refreshImage, image,
 			).Return("", "", 0))
 		} else {
-			removeArgs := criArgs("rmi", image)
-			steps = append(steps, exec.EXPECT().ExecuteWithContext(removeArgs[0], removeArgs[1], removeArgs[2:]...).Return("", "", 0))
 			steps = append(steps, exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "skopeo", "copy", "--preserve-digests", "docker://"+refreshImage, "containers-storage:"+image,
 			).Return("", "", 0))
