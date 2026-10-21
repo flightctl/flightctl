@@ -33,10 +33,16 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "get", "patch", "update"]
+  # get/patch scoped Routes. OpenShift requires create on routes/custom-host to
+  # set TLS cert fields (e.g. externalCertificate); that SAR has no resource
+  # name, so do not set resourceNames on the custom-host rule.
   - apiGroups: ["route.openshift.io"]
     resources: ["routes"]
     resourceNames: ["flightctl-ui", "flightctl-cli-artifacts-route"]
     verbs: ["get", "patch"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes/custom-host"]
+    verbs: ["create"]
 
 ---
 # RoleBinding to grant permissions to the ServiceAccount
