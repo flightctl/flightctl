@@ -261,9 +261,10 @@ flightctl_worker_consumers_active 3
 		payload, err := json.Marshal(worker_client.EventWithOrgId{OrgId: orgID, Event: *event})
 		require.NoError(t, err)
 
-		require.NoError(t, provider.consumers[0].handler(ctx, payload, "5", provider.consumers[0], log))
-		require.Equal(t, 1, provider.consumers[0].completeN)
-		require.NoError(t, provider.consumers[0].completeErr)
+		completionConsumer := provider.consumers[len(provider.consumers)-1]
+		require.NoError(t, completionConsumer.handler(ctx, payload, "5", completionConsumer, log))
+		require.Equal(t, 1, completionConsumer.completeN)
+		require.NoError(t, completionConsumer.completeErr)
 		require.Equal(t, []deltastore.GenerationKey{{
 			OrgID:           orgID,
 			ImageRepository: generation.ImageRepository,

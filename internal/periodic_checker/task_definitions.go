@@ -290,13 +290,14 @@ func (e *DeltaPrepareDeadlineExecutor) Execute(ctx context.Context, log logrus.F
 }
 
 type QueueMaintenanceExecutor struct {
-	log             logrus.FieldLogger
-	checkpointSvc   checkpointservice.Service
-	eventSvc        eventservice.Service
-	organizationSvc organizationservice.Service
-	queuesProvider  queues.Provider
-	workerClient    worker_client.WorkerClient
-	workerMetrics   *worker.WorkerCollector
+	log                    logrus.FieldLogger
+	checkpointSvc          checkpointservice.Service
+	eventSvc               eventservice.Service
+	organizationSvc        organizationservice.Service
+	deltaGenerationTimeout time.Duration
+	queuesProvider         queues.Provider
+	workerClient           worker_client.WorkerClient
+	workerMetrics          *worker.WorkerCollector
 }
 
 func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -304,7 +305,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 	// Create and execute the queue maintenance task
 	// Note: Queue maintenance is system-wide, orgId is not used
-	task := tasks.NewQueueMaintenanceTask(e.log, e.checkpointSvc, e.eventSvc, e.organizationSvc, e.queuesProvider, e.workerClient, e.workerMetrics)
+	task := tasks.NewQueueMaintenanceTask(e.log, e.checkpointSvc, e.eventSvc, e.organizationSvc, e.deltaGenerationTimeout, e.queuesProvider, e.workerClient, e.workerMetrics)
 
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
@@ -467,13 +468,14 @@ func InitializeTaskExecutors(
 			eventSvc:   eventSvc,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
-			log:             log.WithField("pkg", "queue-maintenance"),
-			checkpointSvc:   checkpointSvc,
-			eventSvc:        eventSvc,
-			organizationSvc: organizationSvc,
-			queuesProvider:  queuesProvider,
-			workerClient:    workerClient,
-			workerMetrics:   workerMetrics,
+			log:                    log.WithField("pkg", "queue-maintenance"),
+			checkpointSvc:          checkpointSvc,
+			eventSvc:               eventSvc,
+			organizationSvc:        organizationSvc,
+			deltaGenerationTimeout: cfg.DeltaGeneration.EffectiveTimeout(),
+			queuesProvider:         queuesProvider,
+			workerClient:           workerClient,
+			workerMetrics:          workerMetrics,
 		},
 	}
 

@@ -156,7 +156,9 @@ func TestRun_WhenDeltaWorkerStartsItShouldOpenDedicatedCompletionQueue(t *testin
 		},
 	}
 
-	require.NoError(t, server.Run(context.Background()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, server.Run(ctx))
 	require.Equal(t, []string{
 		consts.TaskQueue,
 		consts.DeltaGenerationTaskQueue,
