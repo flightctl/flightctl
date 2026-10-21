@@ -48,6 +48,7 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Recommends: flightctl-greenboot
+Recommends: oci-delta
 Requires: jq
 Requires: sudo
 
