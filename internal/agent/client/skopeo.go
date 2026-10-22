@@ -417,5 +417,6 @@ func isReferrersFallback(stderr string) bool {
 	return strings.Contains(s, "manifest unknown") ||
 		strings.Contains(s, "404") ||
 		strings.Contains(s, "unknown command") ||
+		strings.Contains(s, "unrecognized command") ||
 		strings.Contains(s, "unknown flag")
 }

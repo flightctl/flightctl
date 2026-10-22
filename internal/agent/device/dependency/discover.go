@@ -40,29 +40,41 @@ func DiscoverDeltaReferrers(
 ) []delta.Candidate {
 	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
 	if err != nil {
+		logger.Infof("DISCOVERY_DELTA event=list-referrers-failed target=%s error=%v", targetImage, err)
 		logger.Debugf("OCI delta referrers unavailable for %s: %v", targetImage, err)
 		return nil
 	}
 	repository := delta.Repository(targetImage)
 	if repository == "" {
+		logger.Infof("DISCOVERY_DELTA event=invalid-target-repository target=%s", targetImage)
 		return nil
 	}
+	logger.Infof("DISCOVERY_DELTA event=referrers-listed target=%s resolvedTargetDigest=%s descriptorCount=%d", targetImage,
+		platformReferrers.TargetDigest, len(platformReferrers.Referrers.Manifests))
 	candidates := make([]delta.Candidate, 0, len(platformReferrers.Referrers.Manifests))
 	for _, referrer := range platformReferrers.Referrers.Manifests {
+		logger.Infof("DISCOVERY_DELTA event=referrer target=%s digest=%s artifactType=%s size=%d", targetImage,
+			referrer.Digest, referrer.ArtifactType, referrer.Size)
 		if !delta.IsDeltaReferrer(referrer) {
 			continue
 		}
 		candidate, err := inspectDeltaReferrer(ctx, repository+"@"+referrer.Digest, referrer.Size, skopeo, opts...)
 		if err != nil {
+			logger.Infof("DISCOVERY_DELTA event=referrer-rejected target=%s digest=%s error=%v", targetImage, referrer.Digest, err)
 			logger.Debugf("Skipping unusable OCI delta %s: %v", referrer.Digest, err)
 			continue
 		}
 		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			logger.Infof("DISCOVERY_DELTA event=target-digest-mismatch target=%s digest=%s candidateTargetDigest=%s resolvedTargetDigest=%s",
+				targetImage, referrer.Digest, candidate.TargetDigest, platformReferrers.TargetDigest)
 			logger.Debugf("Skipping OCI delta %s: target digest does not match the resolved platform digest", referrer.Digest)
 			continue
 		}
+		logger.Infof("DISCOVERY_DELTA event=candidate-accepted target=%s reference=%s sourceDigest=%s targetDigest=%s downloadSize=%d",
+			targetImage, candidate.Reference, candidate.SourceDigest, candidate.TargetDigest, candidate.DownloadSize)
 		candidates = append(candidates, candidate)
 	}
+	logger.Infof("DISCOVERY_DELTA event=candidates-validated target=%s count=%d", targetImage, len(candidates))
 	return candidates
 }
 
@@ -242,23 +254,35 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 	}
 	candidates := DiscoverDeltaReferrers(ctx, targetImage, skopeo, m.log, opts...)
 	if len(candidates) == 0 {
+		m.log.Infof("DISCOVERY_DELTA event=no-candidate target=%s", targetImage)
 		return delta.Candidate{}, "", nil
 	}
+	m.log.Infof("DISCOVERY_DELTA event=checking-cri-sources target=%s candidateCount=%d", targetImage, len(candidates))
 	sourceDigests := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		sourceDigests = append(sourceDigests, candidate.SourceDigest)
 	}
 	sourceRefs, err := m.criSourceReferences(ctx, cri, skopeo, sourceDigests, opts...)
 	if err != nil {
+		m.log.Infof("DISCOVERY_DELTA event=cri-source-inventory-failed target=%s error=%v", targetImage, err)
 		m.log.Debugf("Could not list CRI images for delta sources: %v", err)
 		return delta.Candidate{}, "", nil
 	}
 	for i := range candidates {
 		sourceRef := sourceRefs[candidates[i].SourceDigest]
 		candidates[i].SourceAvailable = sourceRef != ""
+		m.log.Infof("DISCOVERY_DELTA event=source-availability target=%s reference=%s sourceDigest=%s available=%t runtimeReference=%s",
+			targetImage, candidates[i].Reference, candidates[i].SourceDigest, candidates[i].SourceAvailable, sourceRef)
 	}
 	selected := delta.Select(candidates)
-	return selected, sourceRefs[selected.SourceDigest], nil
+	selectedSourceRef := sourceRefs[selected.SourceDigest]
+	if selected.Reference == "" {
+		m.log.Infof("DISCOVERY_DELTA event=no-usable-candidate target=%s", targetImage)
+	} else {
+		m.log.Infof("DISCOVERY_DELTA event=selected target=%s reference=%s sourceDigest=%s targetDigest=%s downloadSize=%d runtimeReference=%s",
+			targetImage, selected.Reference, selected.SourceDigest, selected.TargetDigest, selected.DownloadSize, selectedSourceRef)
+	}
+	return selected, selectedSourceRef, nil
 }
 
 func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.CRI, skopeo *client.Skopeo, sourceDigests []string, opts ...client.ClientOption) (map[string]string, error) {

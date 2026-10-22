@@ -1,6 +1,11 @@
 package delta
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -251,6 +256,9 @@ func runHelmApplicationDeltaDiscoveryTest(fleetOwned bool) {
 	By("enrolling a device and preparing MicroShift without a writable delta storage target")
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 	prepareHelmApplicationDeltaDevice(harness, deviceID)
+	if os.Getenv("FLIGHTCTL_E2E_INSTALL_LOCAL_AGENT") == "1" {
+		installLocalAgentForDeltaInvestigation(harness)
+	}
 
 	registry := applicationRegistryEndpoint()
 	fleetName := ""
@@ -313,13 +321,28 @@ func runHelmApplicationDeltaDiscoveryTest(fleetOwned bool) {
 	for _, discovered := range discoveredTargets {
 		sourceDigest, err := reportedApplicationImageDigest(harness, deviceID, applicationDeltaHelmName, discovered.sourceImage)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = publishDiscoveredDeltaForTarget(
+		artifact, err := publishDiscoveredDeltaForTarget(
 			harness, registry, tagPrefix+"-"+discovered.name, discovered.sourceImage, sourceDigest, discovered.target,
 		)
 		Expect(err).NotTo(HaveOccurred())
+		GinkgoWriter.Printf(
+			"discovery fixture workload=%s sourceImage=%s sourceDigest=%s targetImage=%s targetDigest=%s artifact=%s\n",
+			discovered.name, discovered.sourceImage, sourceDigest, discovered.target.image, discovered.target.targetDigest, artifact.reference,
+		)
 		Eventually(discoveredDeltaReferrer(
 			harness, registry, discovered.target.repository, sourceDigest, discovered.target.targetDigest,
 		), util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
+		referrers, err := harness.FetchReferrers(
+			registry, registryRepositoryPath(registry, discovered.target.repository), discovered.target.targetDigest,
+		)
+		Expect(err).NotTo(HaveOccurred())
+		for _, referrer := range referrers {
+			GinkgoWriter.Printf(
+				"registry candidate targetDigest=%s artifact=%s type=%s sourceDigest=%s\n",
+				discovered.target.targetDigest, discovered.target.repository+"@"+referrer.Digest.String(),
+				referrer.ArtifactType, referrer.Annotations[discoveredDeltaSourceAnnotation],
+			)
+		}
 	}
 
 	v2HelmValues, err := helmDeltaChartValues(v2Images)
@@ -367,6 +390,38 @@ func runHelmApplicationDeltaDiscoveryTest(fleetOwned bool) {
 		requireCRIImagePresent(harness, image)
 	}
 	Expect(getDeltaDevice(harness, deviceID).Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta))
+}
+
+// installLocalAgentForDeltaInvestigation installs the freshly built host agent
+// into the disposable test VM after its V12 OS update. The base E2E image bundle
+// can predate the source under test.
+func installLocalAgentForDeltaInvestigation(harness *e2e.Harness) {
+	agentPath := filepath.Join(util.GetTopLevelDir(), "bin", "flightctl-agent")
+	agentBinary, err := os.ReadFile(agentPath)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(harness.VM).NotTo(BeNil())
+
+	_, err = harness.VM.RunSSH([]string{"sudo", "ostree", "admin", "unlock"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = harness.VM.RunSSH(
+		[]string{"dd", "of=/home/user/flightctl-agent", "status=none"}, bytes.NewBuffer(agentBinary),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = harness.VM.RunSSH([]string{"chmod", "0755", "/home/user/flightctl-agent"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = harness.VM.RunSSH([]string{"sudo", "mv", "/home/user/flightctl-agent", "/usr/bin/flightctl-agent"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = harness.VM.RunSSH([]string{"sudo", "restorecon", "/usr/bin/flightctl-agent"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	remoteChecksum, err := harness.VM.RunSSH([]string{"sha256sum", "/usr/bin/flightctl-agent"}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	localChecksum := sha256.Sum256(agentBinary)
+	Expect(strings.Fields(remoteChecksum.String())).To(HaveLen(2))
+	Expect(strings.Fields(remoteChecksum.String())[0]).To(Equal(hex.EncodeToString(localChecksum[:])))
+	GinkgoWriter.Printf("[delta investigation] installed local agent sha256=%s after V12 OS update\n", hex.EncodeToString(localChecksum[:]))
 }
 
 type helmDiscoverySelectionMode int

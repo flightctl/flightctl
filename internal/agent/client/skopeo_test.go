@@ -373,6 +373,19 @@ func TestSkopeoListReferrers(t *testing.T) {
 			wantDigest: deltaDigest,
 		},
 		{
+			name:  "When Skopeo reports an unrecognized command it should use the Tag Schema tag",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return("", "Unrecognized command `skopeo list-referrers`", 1)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", tagSchemaRef, "--no-creds").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+		{
 			name:  "When Referrers 404 and image is a tag it should resolve digest then use Tag Schema",
 			image: "quay.io/acme/os:latest",
 			setupMocks: func(mockExec *executer.MockExecuter) {

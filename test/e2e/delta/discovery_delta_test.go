@@ -14,7 +14,9 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
+	"oras.land/oras-go/v2/registry/remote"
 )
 
 const (
@@ -321,19 +323,20 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	targetTag := applicationDeltaTargetTag(tag)
 	registerApplicationImageCleanup(repositoryPath, targetTag)
 	deltaImage := applicationImageReference(registry, repositoryPath, targetTag)
-	workDir := "/tmp/flightctl-delta-discovery-" + tag
+	workDir := "/var/tmp/flightctl-delta-discovery-" + tag
 	commands := []string{
 		"set -eu",
+		"export TMPDIR=/var/tmp",
 		fmt.Sprintf("work=%s", shellQuote(workDir)),
 		fmt.Sprintf("delta=%s", shellQuote(deltaImage)),
 		"rm -rf \"$work\"",
-		"mkdir -p \"$work/source\" \"$work/target\" \"$work/delta\"",
+		"mkdir -p \"$work/layout\" \"$work/delta\"",
 		"trap 'rm -rf \"$work\"' EXIT",
-		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/source:img",
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/layout:source",
 			shellQuote("docker://"+sourceRef)),
-		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/target:img",
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/layout:target",
 			shellQuote("docker://"+targetRef)),
-		"oci-delta create oci:$work/source:img oci:$work/target:img oci:$work/delta:img",
+		"oci-delta create oci:$work/layout:source oci:$work/layout:target oci:$work/delta:img",
 		fmt.Sprintf("skopeo copy --preserve-digests --dest-tls-verify=false oci:$work/delta:img %s",
 			shellQuote("docker://"+deltaImage)),
 	}
@@ -345,6 +348,19 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	if err != nil {
 		return discoveredDeltaArtifact{}, fmt.Errorf("resolve externally generated delta %s: %w", deltaImage, err)
 	}
+	_, targetDigest, ok := strings.Cut(targetRef, "@")
+	if !ok || targetDigest == "" {
+		return discoveredDeltaArtifact{}, fmt.Errorf("target reference %q is not digest-pinned", targetRef)
+	}
+	parsedTargetDigest, err := digest.Parse(targetDigest)
+	if err != nil {
+		return discoveredDeltaArtifact{}, fmt.Errorf("invalid target digest %q: %w", targetDigest, err)
+	}
+	referrersTag := parsedTargetDigest.Algorithm().String() + "-" + parsedTargetDigest.Encoded()
+	registerApplicationImageCleanup(repositoryPath, referrersTag)
+	if err := publishDiscoveredDeltaReferrersTag(registry, repositoryPath, targetTag, deltaDigest); err != nil {
+		return discoveredDeltaArtifact{}, fmt.Errorf("publish referrers tag for target %s: %w", targetDigest, err)
+	}
 	reference, err := applicationImageDigestReference(deltaImage, deltaDigest)
 	if err != nil {
 		return discoveredDeltaArtifact{}, err
@@ -355,6 +371,32 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 // registryRepositoryPath removes the registry host from a full repository reference.
 func registryRepositoryPath(registry, repository string) string {
 	return strings.TrimPrefix(repository, registry+"/")
+}
+
+// publishDiscoveredDeltaReferrersTag republishes the OCI artifact through ORAS
+// so registries without the Referrers API get the OCI 1.1 fallback tag index.
+func publishDiscoveredDeltaReferrersTag(registry, repository, artifactTag, artifactDigest string) error {
+	client, err := e2eRegistryHTTPClient()
+	if err != nil {
+		return err
+	}
+	repo, err := remote.NewRepository(registry + "/" + repository)
+	if err != nil {
+		return fmt.Errorf("create registry repository: %w", err)
+	}
+	repo.Client = client
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	descriptor, manifest, err := repo.FetchReference(ctx, artifactDigest)
+	if err != nil {
+		return fmt.Errorf("fetch delta artifact %s: %w", artifactDigest, err)
+	}
+	defer manifest.Close()
+	if err := repo.PushReference(ctx, descriptor, manifest, artifactTag); err != nil {
+		return fmt.Errorf("index delta artifact %s as a referrer: %w", artifactDigest, err)
+	}
+	return nil
 }
 
 // publishDiscoveredDeltaForTarget creates a delta from sourceImage to target and publishes it in target's repository.
