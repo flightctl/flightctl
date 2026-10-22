@@ -649,7 +649,7 @@ func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId strin
 
 func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, observation *deltaLifecycleObservation) error {
 	for _, event := range events {
-		if event.Reason != v1beta1.EventReasonDeltaGenerationProgress {
+		if !isDeltaGenerationLifecycleReason(event.Reason) {
 			continue
 		}
 		if event.Details == nil {
@@ -687,6 +687,18 @@ func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, o
 		}
 	}
 	return nil
+}
+
+func isDeltaGenerationLifecycleReason(reason v1beta1.EventReason) bool {
+	switch reason {
+	case v1beta1.EventReasonDeltaGenerationProgress,
+		v1beta1.EventReasonDeltaGenerationSucceeded,
+		v1beta1.EventReasonDeltaGenerationFailed,
+		v1beta1.EventReasonDeltaGenerationRejected:
+		return true
+	default:
+		return false
+	}
 }
 
 func expectedGenerationProgressPending(expectation deltaUpdateExpectation, observation deltaLifecycleObservation, fleetName, deviceId string) (bool, string) {
@@ -808,7 +820,7 @@ func logDeltaEventsOnce(events []v1beta1.Event, loggedEvents map[string]struct{}
 			continue
 		}
 		loggedEvents[*event.Metadata.Name] = struct{}{}
-		if event.Reason == v1beta1.EventReasonDeltaGenerationProgress && progress != nil {
+		if isDeltaGenerationLifecycleReason(event.Reason) && progress != nil {
 			progress.lastChange = time.Now()
 		}
 		observedProgress = isDeltaLifecycleProgressEvent(event.Reason) || observedProgress
@@ -818,9 +830,11 @@ func logDeltaEventsOnce(events []v1beta1.Event, loggedEvents map[string]struct{}
 }
 
 func isDeltaLifecycleProgressEvent(reason v1beta1.EventReason) bool {
+	if isDeltaGenerationLifecycleReason(reason) {
+		return true
+	}
 	switch reason {
-	case v1beta1.EventReasonDeltaGenerationProgress,
-		v1beta1.EventReasonDeltaGenerationCompleted,
+	case v1beta1.EventReasonDeltaGenerationCompleted,
 		v1beta1.EventReasonDeviceContentOutOfDate,
 		v1beta1.EventReasonDeviceContentUpdating,
 		v1beta1.EventReasonDeviceIsRebooting,
