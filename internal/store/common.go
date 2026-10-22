@@ -61,6 +61,23 @@ func (m *Mutation[A]) RequireExisting() error {
 	return nil
 }
 
+// EnsureResource seeds the create path with a detached clone of candidate and
+// reports whether the mutation was seeded. Existing resources are untouched.
+func (m *Mutation[A]) EnsureResource(candidate *A) (bool, error) {
+	if m.resource != nil {
+		return false, nil
+	}
+	if candidate == nil {
+		return false, flterrors.ErrResourceIsNil
+	}
+	cloned, err := CloneJSON(candidate)
+	if err != nil {
+		return false, err
+	}
+	m.resource = cloned
+	return true, nil
+}
+
 // ApplyFunc mutates m on every Mutate attempt.
 type ApplyFunc[A any] func(m ResourceMutation[A]) error
 
