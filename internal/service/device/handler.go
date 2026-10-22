@@ -272,7 +272,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if err := rejectDecommissionedDevice(current); err != nil {
 			return err
 		}
-		if err := common.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
+		if err := store.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
 			return err
 		}
 		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(device.Spec)) {

@@ -50,7 +50,7 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	before, err := store.CloneJSON(f.items[name])
 	if err != nil {
 		return nil, nil, false, err
@@ -61,6 +61,12 @@ func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID
 	}
 	mutation := &store.Mutation[domain.EnrollmentRequest]{}
 	mutation.SetResource(current)
+	if current != nil && expectedResourceVersion != nil {
+		incoming := domain.ObjectMeta{ResourceVersion: expectedResourceVersion}
+		if err := store.CheckResourceVersionConflict(&current.Metadata, &incoming); err != nil {
+			return nil, before, false, err
+		}
+	}
 	if err := apply(mutation); err != nil {
 		if errors.Is(err, store.ErrMutateSkipWrite) {
 			return mutation.Resource(), before, false, nil
