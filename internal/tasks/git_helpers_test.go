@@ -134,6 +134,7 @@ func TestSanitizeGitError(t *testing.T) {
 	}
 }
 
+// TestGetSSHUser verifies that Git repository URLs yield their SSH usernames.
 func TestGetSSHUser(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -171,6 +172,7 @@ func TestGetSSHUser(t *testing.T) {
 	}
 }
 
+// TestGetAuthSSHURIUser verifies that SSH authentication uses the URL username.
 func TestGetAuthSSHURIUser(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -180,13 +182,14 @@ func TestGetAuthSSHURIUser(t *testing.T) {
 	})
 	privateKeyBase64 := base64.StdEncoding.EncodeToString(privateKeyPEM)
 
+	skipServerVerification := true
 	spec := domain.RepositorySpec{}
 	require.NoError(t, spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Type: domain.GitRepoSpecTypeGit,
 		Url:  "ssh://git@ssh.github.com:443/org/repo.git",
 		SshConfig: &domain.SshConfig{
 			SshPrivateKey:          &privateKeyBase64,
-			SkipServerVerification: boolPtr(true),
+			SkipServerVerification: &skipServerVerification,
 		},
 	}))
 
@@ -200,10 +203,6 @@ func TestGetAuthSSHURIUser(t *testing.T) {
 	clientConfig, err := sshAuth.ClientConfig()
 	require.NoError(t, err)
 	require.Equal(t, "git", clientConfig.User)
-}
-
-func boolPtr(value bool) *bool {
-	return &value
 }
 
 func TestGitLsRemote_EmptyURL(t *testing.T) {
