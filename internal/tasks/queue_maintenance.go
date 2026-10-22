@@ -186,6 +186,9 @@ func (t *QueueMaintenanceTask) deltaGenerationProcessingTimeout(event domain.Eve
 	if err != nil || processingTimeout <= 0 {
 		return t.deltaGenerationTimeout, true
 	}
+	if processingTimeout < t.deltaGenerationTimeout {
+		processingTimeout = t.deltaGenerationTimeout
+	}
 	return processingTimeout, true
 }
 

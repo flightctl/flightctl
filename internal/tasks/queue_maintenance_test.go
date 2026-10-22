@@ -127,3 +127,33 @@ func TestQueueMaintenanceTaskWhenDeltaJobHasLongerFleetTimeoutItShouldLeaveMessa
 	err = provider.timeoutHandlers[consts.DeltaGenerationTaskQueue]("delta-entry", payload, 30*time.Minute)
 	require.ErrorIs(t, err, queues.ErrMessageNotTimedOut)
 }
+
+func TestQueueMaintenanceTaskWhenDeltaJobHasShorterFleetTimeoutItShouldUseDeploymentLease(t *testing.T) {
+	provider := &queueMaintenanceRecordingProvider{}
+	controller := gomock.NewController(t)
+	eventSvc := eventservice.NewMockService(controller)
+	eventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	task := tasks.NewQueueMaintenanceTask(
+		logrus.New(),
+		nil,
+		eventSvc,
+		nil,
+		15*time.Minute,
+		provider,
+		nil,
+		nil,
+	)
+	require.NoError(t, task.Execute(context.Background()))
+
+	payload, err := json.Marshal(worker_client.EventWithOrgId{
+		OrgId: uuid.New(),
+		Event: domain.Event{
+			Reason:  domain.EventReasonGenerateDelta,
+			Message: `{"imageRepository":"repo","sourceDigest":"sha256:source","targetDigest":"sha256:target","timeout":"1m"}`,
+		},
+	})
+	require.NoError(t, err)
+
+	err = provider.timeoutHandlers[consts.DeltaGenerationTaskQueue]("delta-entry", payload, 2*time.Minute)
+	require.ErrorIs(t, err, queues.ErrMessageNotTimedOut)
+}
