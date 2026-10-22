@@ -200,14 +200,7 @@ func (h *ServiceHandler) validateExpression(ctx context.Context, mapping domain.
 }
 
 func (h *ServiceHandler) DeleteLabelSyncMapping(ctx context.Context, orgID uuid.UUID, name string) domain.Status {
-	deleted, err := h.store.Delete(ctx, orgID, name)
-	if err != nil {
-		return common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
-	}
-	if !deleted {
-		return domain.StatusOK()
-	}
-	_, err = h.store.FinalizeDelete(ctx, orgID, name)
+	_, err := h.store.Delete(ctx, orgID, name)
 	return common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
 }
 
