@@ -1,3 +1,5 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10 AS go-toolset
+
 FROM quay.io/packit/packit:latest
 
 USER 0
@@ -5,12 +7,17 @@ USER 0
 RUN mkdir -p /root/.config
 
 RUN dnf install -y \
-      golang \
       openssl-devel \
       go-rpm-macros \
       selinux-policy \
       pam-devel \
       selinux-policy-devel
+
+COPY --from=go-toolset /usr/lib/golang /opt/certified-go
+
+ENV GOROOT=/opt/certified-go \
+    GOTOOLCHAIN=local \
+    PATH=/opt/certified-go/bin:$PATH
 
 RUN dnf clean all
 
@@ -24,6 +31,13 @@ RUN install -d -m 0755 /root/go/pkg/mod && \
 RUN pip3 install --break-system-packages 'specfile>=0.40.0'
 
 COPY mock-site-defaults.cfg /etc/mock/site-defaults.cfg
+COPY mock-go-repo.cfg /etc/mock/templates/flightctl-go.tpl
+COPY mock-roots.conf /etc/mock/flightctl-roots.conf
+
+RUN while IFS='=' read -r mock_root mock_tag || [ -n "$mock_root" ]; do \
+      case "$mock_root" in ''|\#*) continue ;; esac; \
+      printf "\ninclude('templates/flightctl-go.tpl')\n" >> "/etc/mock/${mock_root}.cfg"; \
+    done < /etc/mock/flightctl-roots.conf
 
 COPY mock_prewarm_caches.sh /usr/bin/mock_prewarm_caches.sh
 
