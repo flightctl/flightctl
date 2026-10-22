@@ -14,7 +14,7 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, reso
 	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
-	updated, previous, _, err := h.store.Mutate(ctx, orgId, *resource.Metadata.Name, nil, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+	updated, previous, _, err := h.store.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}

@@ -464,12 +464,15 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, er.Metadata.ResourceVersion, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
 		if mutation.EnrollmentRequest == nil {
 			mutation.EnrollmentRequest = &er
 			return nil
 		}
 		current := mutation.EnrollmentRequest
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &er.Metadata); err != nil {
+			return err
+		}
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})
 		if labels != nil {
