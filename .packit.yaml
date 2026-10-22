@@ -21,9 +21,14 @@ jobs:
   - job: copr_build
     trigger: pull_request
     targets:
-      - fedora-44-x86_64
-      - epel-9-aarch64
-      - epel-10-aarch64
+      fedora-44-x86_64: {}
+      epel-9-aarch64: {}
+      # Keep the OpenSSL-backed toolchain expected by fips-validator.
+      epel-10-aarch64: &epel10_go_toolchain
+        additional_repos:
+          - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/$basearch/appstream/os/
+        with_opts:
+          - go_1_26
     module_hotfixes: true
 
   - job: copr_build
@@ -32,12 +37,12 @@ jobs:
     project: flightctl-dev
     preserve_project: True
     targets:
-      - fedora-44-aarch64
-      - fedora-44-x86_64
-      - epel-9-aarch64
-      - epel-9-x86_64
-      - epel-10-aarch64
-      - epel-10-x86_64
+      fedora-44-aarch64: {}
+      fedora-44-x86_64: {}
+      epel-9-aarch64: {}
+      epel-9-x86_64: {}
+      epel-10-aarch64: *epel10_go_toolchain
+      epel-10-x86_64: *epel10_go_toolchain
 
   - job: copr_build
     trigger: release
@@ -45,9 +50,9 @@ jobs:
     project: flightctl
     preserve_project: True
     targets:
-      - fedora-44-aarch64
-      - fedora-44-x86_64
-      - epel-9-aarch64
-      - epel-9-x86_64
-      - epel-10-aarch64
-      - epel-10-x86_64
+      fedora-44-aarch64: {}
+      fedora-44-x86_64: {}
+      epel-9-aarch64: {}
+      epel-9-x86_64: {}
+      epel-10-aarch64: *epel10_go_toolchain
+      epel-10-x86_64: *epel10_go_toolchain
