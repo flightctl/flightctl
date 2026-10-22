@@ -2,16 +2,23 @@ package tasks
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/go-git/go-billy/v5/memfs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
 var _ = Describe("ConvertFileSystemToIgnition", func() {
@@ -125,6 +132,77 @@ func TestSanitizeGitError(t *testing.T) {
 			require.Equal(tt.expected, result)
 		})
 	}
+}
+
+// TestGetSSHUser verifies that Git repository URLs yield their SSH usernames.
+func TestGetSSHUser(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "When URL is SCP-like it should extract the user",
+			url:      "git@github.com:org/repo.git",
+			expected: "git",
+		},
+		{
+			name:     "When URL is an SSH URI with a custom port it should extract the user",
+			url:      "ssh://git@ssh.github.com:443/org/repo.git",
+			expected: "git",
+		},
+		{
+			name:     "When URL has no user it should return an empty user",
+			url:      "ssh://ssh.github.com:443/org/repo.git",
+			expected: "",
+		},
+		{
+			name:     "When URL is invalid it should return an empty user",
+			url:      "://invalid",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if actual := getSSHUser(tt.url); actual != tt.expected {
+				t.Errorf("getSSHUser(%q) = %q, want %q", tt.url, actual, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetAuthSSHURIUser verifies that SSH authentication uses the URL username.
+func TestGetAuthSSHURIUser(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+	privateKeyBase64 := base64.StdEncoding.EncodeToString(privateKeyPEM)
+
+	skipServerVerification := true
+	spec := domain.RepositorySpec{}
+	require.NoError(t, spec.FromGitRepoSpec(domain.GitRepoSpec{
+		Type: domain.GitRepoSpecTypeGit,
+		Url:  "ssh://git@ssh.github.com:443/org/repo.git",
+		SshConfig: &domain.SshConfig{
+			SshPrivateKey:          &privateKeyBase64,
+			SkipServerVerification: &skipServerVerification,
+		},
+	}))
+
+	auth, err := getAuth(context.Background(), &domain.Repository{Spec: spec}, nil)
+	require.NoError(t, err)
+
+	sshAuth, ok := auth.(interface {
+		ClientConfig() (*ssh.ClientConfig, error)
+	})
+	require.True(t, ok)
+	clientConfig, err := sshAuth.ClientConfig()
+	require.NoError(t, err)
+	require.Equal(t, "git", clientConfig.User)
 }
 
 func TestGitLsRemote_EmptyURL(t *testing.T) {

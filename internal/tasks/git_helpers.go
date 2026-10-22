@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"net/url"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
@@ -31,9 +30,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
-
-// Ref: https://github.com/git/git/blob/master/Documentation/urls.txt#L37
-var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
 type cloneGitRepoFunc func(ctx context.Context, repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error)
@@ -230,6 +226,15 @@ func wrapAuthWithCryptoSettings(auth transport.AuthMethod, settings sshcrypto.SS
 	}
 }
 
+// getSSHUser extracts the username from a Git repository URL.
+func getSSHUser(rawURL string) string {
+	endpoint, err := transport.NewEndpoint(rawURL)
+	if err != nil {
+		return ""
+	}
+	return endpoint.User
+}
+
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
 func getAuth(ctx context.Context, repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
@@ -263,11 +268,7 @@ func getAuth(ctx context.Context, repository *domain.Repository, cfg *config.Con
 				}
 				password = string(decryptedPassphrase)
 			}
-			user := ""
-			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(gitSpec.Url)
-			if len(repoSubmatch) > 1 {
-				user = repoSubmatch[1]
-			}
+			user := getSSHUser(gitSpec.Url)
 			auth, err = gitssh.NewPublicKeys(user, sshPrivateKey, password)
 			if err != nil {
 				return nil, err
