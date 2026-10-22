@@ -25,25 +25,31 @@ import (
 // - Retrying failed messages
 // - Checkpoint advancement based on in-flight task completion tracking
 type QueueMaintenanceTask struct {
-	log             logrus.FieldLogger
-	checkpointSvc   checkpointservice.Service
-	eventSvc        eventservice.Service
-	organizationSvc organizationservice.Service
-	queuesProvider  queues.Provider
-	workerClient    worker_client.WorkerClient
-	workerMetrics   *worker.WorkerCollector
+	log                    logrus.FieldLogger
+	checkpointSvc          checkpointservice.Service
+	eventSvc               eventservice.Service
+	organizationSvc        organizationservice.Service
+	deltaGenerationTimeout time.Duration
+	completionTimeout      time.Duration
+	queuesProvider         queues.Provider
+	workerClient           worker_client.WorkerClient
+	workerMetrics          *worker.WorkerCollector
 }
 
+const deltaGenerationLeaseGracePeriod = time.Minute
+
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service, organizationSvc organizationservice.Service, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service, organizationSvc organizationservice.Service, deltaGenerationTimeout time.Duration, completionTimeout time.Duration, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
-		log:             log,
-		checkpointSvc:   checkpointSvc,
-		eventSvc:        eventSvc,
-		organizationSvc: organizationSvc,
-		queuesProvider:  queuesProvider,
-		workerClient:    workerClient,
-		workerMetrics:   workerMetrics,
+		log:                    log,
+		checkpointSvc:          checkpointSvc,
+		eventSvc:               eventSvc,
+		organizationSvc:        organizationSvc,
+		deltaGenerationTimeout: deltaGenerationTimeout,
+		completionTimeout:      completionTimeout,
+		queuesProvider:         queuesProvider,
+		workerClient:           workerClient,
+		workerMetrics:          workerMetrics,
 	}
 }
 
@@ -52,22 +58,36 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 	log := t.log
 	log.Info("Starting queue maintenance")
 
-	// Process timed out messages for the current organization's queue
-	// Use the same timeout as event processing for consistency
-	timeoutCount, err := t.processTimedOutMessages(ctx, log)
-	if err != nil {
-		log.WithError(err).Error("Failed to process timed out messages")
-	} else if timeoutCount > 0 {
+	timeoutCount := 0
+	for _, queueName := range t.maintainedQueueNames() {
+		maintenanceLease := EventProcessingTimeout
+		if queueName == consts.DeltaGenerationCompletionQueue {
+			maintenanceLease = t.completionTimeout + deltaGenerationLeaseGracePeriod
+		}
+		count, err := t.processTimedOutMessages(ctx, log, queueName, maintenanceLease)
+		if err != nil {
+			log.WithError(err).WithField("queue", queueName).Error("Failed to process timed out messages")
+		} else {
+			timeoutCount += count
+		}
+	}
+	if timeoutCount > 0 {
 		log.WithField("timeoutCount", timeoutCount).Info("Processed timed out messages")
 	} else {
 		log.Debug("No timed out messages to process")
 	}
 
 	// Retry failed messages using the provider's retry config
-	retryCount, err := t.retryFailedMessages(ctx, log)
-	if err != nil {
-		log.WithError(err).Error("Failed to retry failed messages")
-	} else if retryCount > 0 {
+	retryCount := 0
+	for _, queueName := range t.maintainedQueueNames() {
+		count, err := t.retryFailedMessages(ctx, log, queueName)
+		if err != nil {
+			log.WithError(err).WithField("queue", queueName).Error("Failed to retry failed messages")
+		} else {
+			retryCount += count
+		}
+	}
+	if retryCount > 0 {
 		log.WithField("retryCount", retryCount).Info("Retried failed messages")
 	} else {
 		log.Debug("No failed messages to retry")
@@ -88,9 +108,17 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 	return nil
 }
 
+func (t *QueueMaintenanceTask) maintainedQueueNames() []string {
+	return []string{
+		consts.TaskQueue,
+		consts.DeltaGenerationTaskQueue,
+		consts.DeltaGenerationCompletionQueue,
+	}
+}
+
 // processTimedOutMessages processes timed out messages and emits appropriate events
-func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log logrus.FieldLogger) (int, error) {
-	return t.queuesProvider.ProcessTimedOutMessages(ctx, consts.TaskQueue, EventProcessingTimeout, func(entryID string, body []byte, idle time.Duration) error {
+func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log logrus.FieldLogger, queueName string, timeout time.Duration) (int, error) {
+	return t.queuesProvider.ProcessTimedOutMessages(ctx, queueName, timeout, func(entryID string, body []byte, idle time.Duration) error {
 		log.WithField("entryID", entryID).WithField("idle", idle).Debug("Processing timed out message")
 
 		// Try to extract the original event from the message body
@@ -108,9 +136,18 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 				return queues.ErrMessageNotTimedOut
 			}
 
-			timeoutMsg := EventProcessingTimeout
+			timeoutMsg := timeout
 			if shouldEnrollmentHookNotify(originalEvent) {
 				timeoutMsg = EnrollmentHookNotifyProcessingTimeout
+			}
+			if queueName == consts.DeltaGenerationTaskQueue {
+				processingTimeout, hasDeltaTimeout := t.deltaGenerationProcessingTimeout(originalEvent)
+				if hasDeltaTimeout {
+					if idle < processingTimeout+deltaGenerationLeaseGracePeriod {
+						return queues.ErrMessageNotTimedOut
+					}
+					timeoutMsg = processingTimeout
+				}
 			}
 
 			// Use the original event's resource information for better context
@@ -136,9 +173,34 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 	})
 }
 
+func (t *QueueMaintenanceTask) deltaGenerationProcessingTimeout(event domain.Event) (time.Duration, bool) {
+	if event.Reason == domain.EventReasonPrepareDeltas {
+		return t.deltaGenerationTimeout, true
+	}
+	if event.Reason != domain.EventReasonGenerateDelta {
+		return 0, false
+	}
+
+	var payload struct {
+		Timeout string `json:"timeout,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(event.Message), &payload); err != nil || payload.Timeout == "" {
+		return t.deltaGenerationTimeout, true
+	}
+
+	processingTimeout, err := time.ParseDuration(payload.Timeout)
+	if err != nil || processingTimeout <= 0 {
+		return t.deltaGenerationTimeout, true
+	}
+	if processingTimeout < t.deltaGenerationTimeout {
+		processingTimeout = t.deltaGenerationTimeout
+	}
+	return processingTimeout, true
+}
+
 // retryFailedMessages retries failed messages and handles permanently failed messages
-func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logrus.FieldLogger) (int, error) {
-	return t.queuesProvider.RetryFailedMessages(ctx, consts.TaskQueue, queues.DefaultRetryConfig(), func(entryID string, body []byte, retryCount int) error {
+func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logrus.FieldLogger, queueName string) (int, error) {
+	return t.queuesProvider.RetryFailedMessages(ctx, queueName, queues.DefaultRetryConfig(), func(entryID string, body []byte, retryCount int) error {
 		log.WithField("entryID", entryID).WithField("retryCount", retryCount).Debug("Processing permanently failed message")
 
 		// Record permanent failure metric
