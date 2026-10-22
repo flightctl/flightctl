@@ -117,7 +117,7 @@ func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId u
 	return true, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply csrstore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
 	before, err := store.CloneJSON(f.items[name])
 	if err != nil {
 		return nil, nil, false, err
@@ -126,8 +126,7 @@ func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId u
 	if err != nil {
 		return nil, nil, false, err
 	}
-	mutation := &store.Mutation[domain.CertificateSigningRequest]{}
-	mutation.SetResource(current)
+	mutation := &csrstore.CertificateSigningRequestMutation{CertificateSigningRequest: current}
 	if err := apply(mutation); err != nil {
 		if errors.Is(err, store.ErrMutateSkipWrite) {
 			return mutation.Resource(), before, false, nil

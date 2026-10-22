@@ -57,11 +57,11 @@ func newStoredCSR() domain.CertificateSigningRequest {
 }
 
 func seedCSRStatus(provider csrstore.Store, ctx context.Context, orgID uuid.UUID, candidate *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	updated, _, _, err := provider.Mutate(ctx, orgID, *candidate.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	updated, _, _, err := provider.Mutate(ctx, orgID, *candidate.Metadata.Name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
-		mutation.Resource().Status = candidate.Status
+		mutation.CertificateSigningRequest.Status = candidate.Status
 		return nil
 	})
 	return updated, err

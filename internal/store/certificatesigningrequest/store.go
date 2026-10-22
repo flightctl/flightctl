@@ -24,7 +24,7 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -34,6 +34,41 @@ type CertificateSigningRequestStore struct {
 	log          logrus.FieldLogger
 	genericStore *store.GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
 }
+
+// CertificateSigningRequestMutation is the unit apply mutates. Handlers decide all field changes.
+// CertificateSigningRequest is nil on the create path until apply assigns it.
+type CertificateSigningRequestMutation struct {
+	CertificateSigningRequest *domain.CertificateSigningRequest
+}
+
+func (m *CertificateSigningRequestMutation) Resource() *domain.CertificateSigningRequest {
+	return m.CertificateSigningRequest
+}
+
+func (m *CertificateSigningRequestMutation) SetResource(resource *domain.CertificateSigningRequest) {
+	m.CertificateSigningRequest = resource
+}
+
+func (m *CertificateSigningRequestMutation) Clone() (store.ResourceMutation[domain.CertificateSigningRequest], error) {
+	cloned, err := store.CloneJSON(m.CertificateSigningRequest)
+	if err != nil {
+		return nil, err
+	}
+	return &CertificateSigningRequestMutation{CertificateSigningRequest: cloned}, nil
+}
+
+// RequireExisting returns ErrResourceNotFound when CertificateSigningRequest is nil (create path).
+func (m *CertificateSigningRequestMutation) RequireExisting() error {
+	if m.CertificateSigningRequest == nil {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+// CertificateSigningRequestApplyFunc mutates m in place on every Mutate attempt.
+type CertificateSigningRequestApplyFunc func(m *CertificateSigningRequestMutation) error
+
+var _ store.ResourceMutation[domain.CertificateSigningRequest] = (*CertificateSigningRequestMutation)(nil)
 
 // Make sure we conform to the Store interface
 var _ Store = (*CertificateSigningRequestStore)(nil)
@@ -116,16 +151,14 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 }
 
 // Mutate applies an atomic create-or-update; apply decides which resource fields change.
-func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
 	}
 	hooks := store.MutateHooks[domain.CertificateSigningRequest]{
 		MaxRetries: lo.ToPtr(0),
 		Wrap: func(current *domain.CertificateSigningRequest) store.ResourceMutation[domain.CertificateSigningRequest] {
-			mutation := &store.Mutation[domain.CertificateSigningRequest]{}
-			mutation.SetResource(current)
-			return mutation
+			return &CertificateSigningRequestMutation{CertificateSigningRequest: current}
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (*domain.CertificateSigningRequest, error) {
 			return s.Create(ctx, orgId, mutation.Resource())
@@ -133,7 +166,7 @@ func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.
 		PersistUpdate: s.persistMutation,
 	}
 	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
-		return apply(mutation.(*store.Mutation[domain.CertificateSigningRequest]))
+		return apply(mutation.(*CertificateSigningRequestMutation))
 	})
 }
 
@@ -182,7 +215,7 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 }
 
 func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
-	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *CertificateSigningRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}

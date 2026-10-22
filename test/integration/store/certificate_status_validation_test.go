@@ -5,7 +5,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,14 +31,14 @@ var _ = Describe("CSR status mutation validation", func() {
 				LastTransitionTime: time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC),
 			}}))
 
-			_, _, _, err = provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+			_, _, _, err = provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 				if err := mutation.RequireExisting(); err != nil {
 					return err
 				}
 				if clearResource {
-					mutation.SetResource(nil)
+					mutation.CertificateSigningRequest = nil
 				} else {
-					mutation.Resource().Status = nil
+					mutation.CertificateSigningRequest.Status = nil
 				}
 				return nil
 			})
@@ -64,11 +63,11 @@ var _ = Describe("CSR status mutation validation", func() {
 		request := newStoredCSR()
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
-		updated, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+		updated, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 			if err := mutation.RequireExisting(); err != nil {
 				return err
 			}
-			mutation.Resource().Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
+			mutation.CertificateSigningRequest.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
 				Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue,
 				Reason: "NewDenial", Message: "New decision",
 				LastTransitionTime: time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC),
@@ -97,11 +96,11 @@ var _ = Describe("CSR status mutation validation", func() {
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
 
-		updated, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+		updated, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 			if err := mutation.RequireExisting(); err != nil {
 				return err
 			}
-			current := mutation.Resource()
+			current := mutation.CertificateSigningRequest
 			current.Spec.Request = []byte("updated request")
 			current.Metadata.Labels = &map[string]string{"updated": "label"}
 			current.Metadata.Annotations = &map[string]string{"updated": "annotation"}

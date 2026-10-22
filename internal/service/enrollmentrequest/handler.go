@@ -23,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -465,8 +464,12 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, &er, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
-		current := mutation.Resource()
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, er.Metadata.ResourceVersion, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+		if mutation.EnrollmentRequest == nil {
+			mutation.EnrollmentRequest = &er
+			return nil
+		}
+		current := mutation.EnrollmentRequest
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})
 		if labels != nil {
