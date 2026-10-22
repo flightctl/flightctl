@@ -86,6 +86,42 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	})
 
 	Context("EnrollmentRequest store", func() {
+		It("Mutate creates an enrollment request when it does not exist", func() {
+			resource := api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("mutate-create"),
+					Labels: &map[string]string{"phase": "created"},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: "mutate create csr",
+				},
+				Status: &api.EnrollmentRequestStatus{
+					Certificate: lo.ToPtr("mutate create certificate"),
+				},
+			}
+
+			updated, before, created, err := enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				Expect(mutation.EnrollmentRequest).To(BeNil())
+				mutation.EnrollmentRequest = &resource
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+			Expect(before).To(BeNil())
+			Expect(updated).ToNot(BeNil())
+			Expect(*updated.Metadata.Name).To(Equal("mutate-create"))
+			Expect(updated.Spec.Csr).To(Equal("mutate create csr"))
+			Expect(updated.Metadata.Labels).ToNot(BeNil())
+			Expect(*updated.Metadata.Labels).To(HaveKeyWithValue("phase", "created"))
+
+			loaded, err := enrollmentRequestStore.Get(ctx, orgId, "mutate-create")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(loaded.Spec.Csr).To(Equal("mutate create csr"))
+			Expect(loaded.Metadata.Labels).ToNot(BeNil())
+			Expect(*loaded.Metadata.Labels).To(HaveKeyWithValue("phase", "created"))
+			Expect(loaded.Metadata.ResourceVersion).To(Equal(updated.Metadata.ResourceVersion))
+		})
+
 		It("Get enrollmentrequest success", func() {
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())

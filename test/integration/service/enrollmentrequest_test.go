@@ -246,6 +246,37 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				BeEquivalentTo(http.StatusBadRequest),
 			),
 		)
+
+		It("should reject a replacement with a stale resource version", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			By("creating initial EnrollmentRequest")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("replacing with the current resource version")
+			current := *created
+			current.Metadata.Labels = &map[string]string{"phase": "current"}
+			_, status = suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, current)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+
+			latest, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(latest.Metadata.ResourceVersion).NotTo(Equal(created.Metadata.ResourceVersion))
+
+			By("replacing with the stale resource version")
+			stale := *created
+			stale.Metadata.Labels = &map[string]string{"phase": "stale"}
+			_, status = suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, stale)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+
+			final, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(final.Metadata.Labels).To(PointTo(Equal(map[string]string{"phase": "current"})))
+			Expect(final.Metadata.ResourceVersion).To(Equal(latest.Metadata.ResourceVersion))
+		})
 	})
 
 	// PUT /api/v1/enrollmentrequests/{name}/status
