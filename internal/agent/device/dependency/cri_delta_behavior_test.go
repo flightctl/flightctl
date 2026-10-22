@@ -95,7 +95,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 		{name: "When containerd reconstruction fails it should unmount and recover with a full pull", containerd: true, failStep: "reconstruct", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "reconstruct failed"},
 		{name: "When a containerd import fails it should clean up and recover with a full pull", containerd: true, failStep: "import", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "import failed"},
 		{name: "When containerd target tagging fails it should clean up and recover with a full pull", containerd: true, failStep: "tag", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "tag failed"},
-		{name: "When runtime visibility fails it should recover with a full pull", failStep: "visibility", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "did not make"},
+		{name: "When containerd runtime visibility fails it should recover with a full pull", containerd: true, failStep: "visibility", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "did not make"},
 		{name: "When canonical refresh fails it should retry the exact reference through a full pull", failStep: "refresh", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "refresh registry manifest"},
 		{name: "When full recovery fails it should return an error and preserve Fallback", fullFailure: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "source image is unavailable"},
 	}
@@ -370,7 +370,7 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, 
 					}
 				}
 				if tc.failStep != "import" && tc.failStep != "reconstruct" && tc.failStep != "mount" && tc.failStep != "tag" {
-					steps = append(steps, expectCRIDeltaVisibilityAndRefresh(exec, image, refreshImage, tc, criArgs, digestPinned)...)
+					steps = append(steps, expectCRIDeltaVisibilityAndRefresh(exec, image, refreshImage, tc, criArgs)...)
 				}
 			}
 		}
@@ -393,10 +393,9 @@ func expectCRIDeltaVisibilityAndRefresh(
 	image, refreshImage string,
 	tc criDeltaTestCase,
 	criArgs func(args ...string) []any,
-	digestPinned bool,
 ) []any {
 	var steps []any
-	requiresVisibility := digestPinned || tc.containerd
+	requiresVisibility := tc.containerd
 	if requiresVisibility {
 		output := "IMAGE TAG ID\nworkload target image-id"
 		if tc.failStep == "visibility" {
@@ -404,6 +403,10 @@ func expectCRIDeltaVisibilityAndRefresh(
 		}
 		args := criArgs("images", image)
 		steps = append(steps, exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(output, "", 0))
+		if tc.failStep == "visibility" {
+			args := criArgs("images", "--digests", "--no-trunc")
+			steps = append(steps, exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(output, "", 0))
+		}
 	}
 	if tc.failStep != "visibility" || !requiresVisibility {
 		exit, stderr := 0, ""

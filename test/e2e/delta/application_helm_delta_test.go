@@ -454,6 +454,9 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 	fixture.deviceID = deviceID
 	prepareHelmApplicationDeltaDevice(harness, deviceID)
+	if os.Getenv("FLIGHTCTL_E2E_INSTALL_LOCAL_AGENT") == "1" {
+		installLocalAgentForDeltaInvestigation(harness)
+	}
 
 	registry := applicationRegistryEndpoint()
 	tagPrefix := applicationDeltaArtifactTag(harness) + "-helm-discovery-selection"
@@ -474,6 +477,10 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 		By("building a closer local source for the ranking fixture")
 		closerSource, err := buildApplicationDeltaTargetImage(harness, registry, tagPrefix+"-closer-source", applicationDeltaAlpineRepo, target.image)
 		if err != nil {
+			return fixture, err
+		}
+		// Building the closer source pulls the target into shared Podman/CRI-O storage.
+		if _, err := harness.RunShellAsUserOnVM("root", "podman image rm "+shellQuote(target.image)); err != nil {
 			return fixture, err
 		}
 		v1Images.sidecar = closerSource.image

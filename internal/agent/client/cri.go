@@ -227,6 +227,40 @@ func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOptio
 	return len(lines) > 1
 }
 
+// ImageInventory returns the CRI runtime's image list with repository digests.
+// It is used by delta investigation diagnostics to compare the imported image
+// identity with a digest-pinned target before the canonical reference refresh.
+func (c *CRI) ImageInventory(ctx context.Context, opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	args := []string{}
+	if options.criConfigPath != "" {
+		exists, err := c.readWriter.PathExists(options.criConfigPath)
+		if err != nil {
+			return "", fmt.Errorf("check CRI config path: %w", err)
+		}
+		if exists {
+			args = append(args, "--config", options.criConfigPath)
+		}
+	}
+	args = append(args, "images", "--digests", "--no-trunc")
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	if exitCode != 0 {
+		return strings.TrimSpace(stdout), fmt.Errorf("crictl images: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
 // ImageRepoDigests returns the registry digests recorded for a local CRI image.
 func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...ClientOption) ([]string, error) {
 	metadata, err := c.ImageMetadata(ctx, image, opts...)
