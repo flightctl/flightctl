@@ -775,6 +775,8 @@ deltaGeneration:
   maxConcurrentDeltaGenerations: 2
   # -- Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0.
   timeout: 30m
+  # -- Timeout for terminal-generation completion fan-out. Defaults to 10m when omitted or <= 0.
+  completionTimeout: 10m
   # -- Optional prepare wait cap (Go duration, e.g. 10m). Omitted means no deadline. 0s generates then resumes immediately.
   # maxWaitForDelta: 10m
 

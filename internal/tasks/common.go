@@ -22,10 +22,6 @@ const (
 	// webhookdelivery.DefaultDeadline so delivery is not canceled or reclaimed
 	// by the shared EventProcessingTimeout.
 	EnrollmentHookNotifyProcessingTimeout = 10 * time.Minute
-
-	// DeltaGenerationCompletionProcessingTimeout is the time budget for
-	// terminal-generation fan-out across waiting prepares.
-	DeltaGenerationCompletionProcessingTimeout = 10 * time.Minute
 )
 
 var (

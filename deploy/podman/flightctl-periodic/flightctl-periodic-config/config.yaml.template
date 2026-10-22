@@ -27,6 +27,8 @@ metrics:
   enabled: true
   address: ":15690"
 service: {}
+deltaGeneration:
+  completionTimeout: {{if and .deltaGeneration .deltaGeneration.completionTimeout}}{{.deltaGeneration.completionTimeout}}{{else}}10m{{end}}
 {{- with .periodic }}
 periodic:
 {{- if .consumers }}

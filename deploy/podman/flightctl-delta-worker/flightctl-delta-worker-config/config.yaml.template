@@ -53,6 +53,7 @@ metrics:
 deltaGeneration:
   maxConcurrentDeltaGenerations: {{if and .deltaGeneration .deltaGeneration.maxConcurrentDeltaGenerations}}{{.deltaGeneration.maxConcurrentDeltaGenerations}}{{else}}2{{end}}
   timeout: {{if and .deltaGeneration .deltaGeneration.timeout}}{{.deltaGeneration.timeout}}{{else}}30m{{end}}
+  completionTimeout: {{if and .deltaGeneration .deltaGeneration.completionTimeout}}{{.deltaGeneration.completionTimeout}}{{else}}10m{{end}}
   {{- if and .deltaGeneration .deltaGeneration.maxWaitForDelta }}
   maxWaitForDelta: {{.deltaGeneration.maxWaitForDelta}}
   {{- end }}

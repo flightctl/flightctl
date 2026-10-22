@@ -22,7 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	sharedtasks "github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -287,7 +287,8 @@ flightctl_worker_consumers_active 3
 	t.Run("When DeltaGenerationComplete payload it should apply the completion processing deadline", func(t *testing.T) {
 		provider := &recordingProvider{}
 		completionHandler := &deadlineRecordingCompletionHandler{}
-		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, nil, log, &ConsumerWiring{
+		cfg := &deltaconfig.DeltaGenerationConfig{CompletionTimeout: util.Duration(2 * time.Minute)}
+		require.NoError(t, LaunchConsumers(ctx, provider, cfg, nil, log, &ConsumerWiring{
 			Completion: completionHandler,
 		}))
 		payload, err := json.Marshal(worker_client.EventWithOrgId{
@@ -301,7 +302,7 @@ flightctl_worker_consumers_active 3
 		require.True(t, completionHandler.hasDeadline)
 		require.WithinDuration(
 			t,
-			time.Now().Add(sharedtasks.DeltaGenerationCompletionProcessingTimeout),
+			time.Now().Add(2*time.Minute),
 			completionHandler.deadline,
 			time.Second,
 		)

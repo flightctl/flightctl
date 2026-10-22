@@ -13,7 +13,6 @@ import (
 	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
-	sharedtasks "github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -182,7 +181,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 }
 
 func (c *Consumer) handleDeltaGenerationComplete(ctx context.Context, event worker_client.EventWithOrgId) error {
-	ctx, cancel := context.WithTimeout(ctx, sharedtasks.DeltaGenerationCompletionProcessingTimeout)
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.EffectiveCompletionTimeout())
 	defer cancel()
 	return c.completion.Handle(ctx, event)
 }

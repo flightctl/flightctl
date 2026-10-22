@@ -580,6 +580,28 @@ deltaGeneration:
 	})
 }
 
+func TestEffectiveCompletionTimeout(t *testing.T) {
+	t.Run("When config is omitted it should default to 10m", func(t *testing.T) {
+		require.Equal(t, 10*time.Minute, (*deltaconfig.DeltaGenerationConfig)(nil).EffectiveCompletionTimeout())
+		require.Equal(t, 10*time.Minute, (&deltaconfig.DeltaGenerationConfig{}).EffectiveCompletionTimeout())
+	})
+
+	t.Run("When completion timeout is zero or negative it should default to 10m", func(t *testing.T) {
+		require.Equal(t, 10*time.Minute, (&deltaconfig.DeltaGenerationConfig{CompletionTimeout: 0}).EffectiveCompletionTimeout())
+		require.Equal(t, 10*time.Minute, (&deltaconfig.DeltaGenerationConfig{CompletionTimeout: util.Duration(-1)}).EffectiveCompletionTimeout())
+	})
+
+	t.Run("When YAML sets completion timeout to 2m it should be 2m", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  completionTimeout: 2m
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, 2*time.Minute, cfg.DeltaGeneration.EffectiveCompletionTimeout())
+	})
+}
+
 func TestEffectiveMaxWaitForDelta(t *testing.T) {
 	t.Run("When config is omitted it should return nil deadline", func(t *testing.T) {
 		require.Nil(t, (*deltaconfig.DeltaGenerationConfig)(nil).EffectiveMaxWaitForDelta())

@@ -30,6 +30,7 @@ type QueueMaintenanceTask struct {
 	eventSvc               eventservice.Service
 	organizationSvc        organizationservice.Service
 	deltaGenerationTimeout time.Duration
+	completionTimeout      time.Duration
 	queuesProvider         queues.Provider
 	workerClient           worker_client.WorkerClient
 	workerMetrics          *worker.WorkerCollector
@@ -38,13 +39,14 @@ type QueueMaintenanceTask struct {
 const deltaGenerationLeaseGracePeriod = time.Minute
 
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service, organizationSvc organizationservice.Service, deltaGenerationTimeout time.Duration, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service, organizationSvc organizationservice.Service, deltaGenerationTimeout time.Duration, completionTimeout time.Duration, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
 		log:                    log,
 		checkpointSvc:          checkpointSvc,
 		eventSvc:               eventSvc,
 		organizationSvc:        organizationSvc,
 		deltaGenerationTimeout: deltaGenerationTimeout,
+		completionTimeout:      completionTimeout,
 		queuesProvider:         queuesProvider,
 		workerClient:           workerClient,
 		workerMetrics:          workerMetrics,
@@ -60,7 +62,7 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 	for _, queueName := range t.maintainedQueueNames() {
 		maintenanceLease := EventProcessingTimeout
 		if queueName == consts.DeltaGenerationCompletionQueue {
-			maintenanceLease = DeltaGenerationCompletionProcessingTimeout + deltaGenerationLeaseGracePeriod
+			maintenanceLease = t.completionTimeout + deltaGenerationLeaseGracePeriod
 		}
 		count, err := t.processTimedOutMessages(ctx, log, queueName, maintenanceLease)
 		if err != nil {

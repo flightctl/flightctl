@@ -80,6 +80,7 @@ func TestQueueMaintenanceTaskWhenMaintainingQueuesItShouldUseEachQueueLease(t *t
 		nil,
 		nil,
 		15*time.Minute,
+		12*time.Minute,
 		provider,
 		nil,
 		nil,
@@ -89,7 +90,7 @@ func TestQueueMaintenanceTaskWhenMaintainingQueuesItShouldUseEachQueueLease(t *t
 	require.Equal(t, []queueMaintenanceTimeoutCall{
 		{queueName: consts.TaskQueue, timeout: tasks.EventProcessingTimeout},
 		{queueName: consts.DeltaGenerationTaskQueue, timeout: tasks.EventProcessingTimeout},
-		{queueName: consts.DeltaGenerationCompletionQueue, timeout: tasks.DeltaGenerationCompletionProcessingTimeout + time.Minute},
+		{queueName: consts.DeltaGenerationCompletionQueue, timeout: 13 * time.Minute},
 	}, provider.timeoutCalls)
 	require.Equal(t, []string{
 		consts.TaskQueue,
@@ -109,6 +110,7 @@ func TestQueueMaintenanceTaskWhenDeltaJobHasLongerFleetTimeoutItShouldLeaveMessa
 		eventSvc,
 		nil,
 		15*time.Minute,
+		10*time.Minute,
 		provider,
 		nil,
 		nil,
@@ -139,6 +141,7 @@ func TestQueueMaintenanceTaskWhenDeltaJobHasShorterFleetTimeoutItShouldUseDeploy
 		eventSvc,
 		nil,
 		15*time.Minute,
+		10*time.Minute,
 		provider,
 		nil,
 		nil,
