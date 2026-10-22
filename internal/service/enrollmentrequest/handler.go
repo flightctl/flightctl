@@ -465,7 +465,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, er.Metadata.ResourceVersion, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 		seeded, err := mutation.EnsureResource(&er)
 		if err != nil {
 			return err
@@ -474,9 +474,6 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 			return nil
 		}
 		current := mutation.Resource()
-		if err := common.CheckResourceVersionConflict(&current.Metadata, &er.Metadata); err != nil {
-			return err
-		}
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})
 		if labels != nil {
