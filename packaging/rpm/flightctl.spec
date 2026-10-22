@@ -7,8 +7,8 @@
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
 
-# COPR can select the Go series supported by the OpenSSL FIPS validator.
-%bcond_with go_1_26
+# RHEL-compatible builds use the OpenSSL FIPS validator.
+%global fips_enabled 0%{?rhel}
 
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
@@ -24,7 +24,7 @@ URL:            %{gourl}
 
 Source0:         1%{?dist}
 
-%if %{with go_1_26}
+%if %{fips_enabled}
 BuildRequires:  (golang >= 1.26.10 with golang < 1.27)
 %else
 BuildRequires:  golang
@@ -294,8 +294,6 @@ fi
 %setup -q %{forgesetupargs}
 
 %build
-
-%global fips_enabled 0%{?rhel}
 
 %if %{fips_enabled}
 %define disable_fips %{nil}

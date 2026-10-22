@@ -27,8 +27,6 @@ jobs:
       epel-10-aarch64: &epel10_go_toolchain
         additional_repos:
           - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/$basearch/appstream/os/
-        with_opts:
-          - go_1_26
     module_hotfixes: true
 
   - job: copr_build
