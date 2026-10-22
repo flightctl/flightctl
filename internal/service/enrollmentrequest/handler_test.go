@@ -18,11 +18,11 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -51,7 +51,7 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply enrollmentrequeststore.EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	before, err := store.CloneJSON(f.items[name])
 	if err != nil {
 		return nil, nil, false, err
@@ -60,26 +60,18 @@ func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID
 	if err != nil {
 		return nil, nil, false, err
 	}
-	mutation := &store.Mutation[domain.EnrollmentRequest]{}
-	mutation.SetResource(current)
-	skipApply := false
-	if current == nil && incoming != nil {
-		if _, err := mutation.EnsureResource(incoming); err != nil {
-			return nil, before, false, err
-		}
-		skipApply = true
-	} else if current != nil && incoming != nil {
-		if err := common.CheckResourceVersionConflict(&current.Metadata, &incoming.Metadata); err != nil {
-			return nil, before, false, err
+	mutation := &enrollmentrequeststore.EnrollmentRequestMutation{EnrollmentRequest: current}
+	if current != nil && expectedResourceVersion != nil {
+		currentVersion := current.Metadata.ResourceVersion
+		if currentVersion == nil || *currentVersion != *expectedResourceVersion {
+			return nil, before, false, flterrors.ErrResourceVersionConflict
 		}
 	}
-	if !skipApply {
-		if err := apply(mutation); err != nil {
-			if errors.Is(err, store.ErrMutateSkipWrite) {
-				return mutation.Resource(), before, false, nil
-			}
-			return nil, before, false, err
+	if err := apply(mutation); err != nil {
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
 		}
+		return nil, before, false, err
 	}
 	if mutation.Resource() == nil {
 		return nil, before, false, flterrors.ErrResourceIsNil

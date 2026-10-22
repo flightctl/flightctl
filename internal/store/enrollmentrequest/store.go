@@ -21,7 +21,7 @@ type Store interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
-	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -32,6 +32,41 @@ type EnrollmentRequestStore struct {
 	log          logrus.FieldLogger
 	genericStore *store.GenericStore[*model.EnrollmentRequest, model.EnrollmentRequest, domain.EnrollmentRequest, domain.EnrollmentRequestList]
 }
+
+// EnrollmentRequestMutation is the unit apply mutates. Handlers decide all field changes.
+// EnrollmentRequest is nil on the create path until apply assigns it.
+type EnrollmentRequestMutation struct {
+	EnrollmentRequest *domain.EnrollmentRequest
+}
+
+func (m *EnrollmentRequestMutation) Resource() *domain.EnrollmentRequest {
+	return m.EnrollmentRequest
+}
+
+func (m *EnrollmentRequestMutation) SetResource(resource *domain.EnrollmentRequest) {
+	m.EnrollmentRequest = resource
+}
+
+func (m *EnrollmentRequestMutation) Clone() (store.ResourceMutation[domain.EnrollmentRequest], error) {
+	cloned, err := store.CloneJSON(m.EnrollmentRequest)
+	if err != nil {
+		return nil, err
+	}
+	return &EnrollmentRequestMutation{EnrollmentRequest: cloned}, nil
+}
+
+// RequireExisting returns ErrResourceNotFound when EnrollmentRequest is nil (create path).
+func (m *EnrollmentRequestMutation) RequireExisting() error {
+	if m.EnrollmentRequest == nil {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+// EnrollmentRequestApplyFunc mutates m in place on every Mutate attempt.
+type EnrollmentRequestApplyFunc func(m *EnrollmentRequestMutation) error
+
+var _ store.ResourceMutation[domain.EnrollmentRequest] = (*EnrollmentRequestMutation)(nil)
 
 // Make sure we conform to the Store interface
 var _ Store = (*EnrollmentRequestStore)(nil)
@@ -111,20 +146,17 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-// Mutate applies an atomic create-or-update. When incoming is non-nil, Mutate
-// seeds the create path with a detached clone of it (apply runs only on the
-// update path) and enforces its resourceVersion, when set, against the loaded
-// resource. A nil incoming delegates both decisions to apply.
-func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+// Mutate applies an atomic create-or-update. When expectedResourceVersion is
+// non-nil and the resource exists, Mutate rejects a client-supplied version
+// that does not match the loaded resource before apply runs.
+func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
 	}
 	hooks := store.MutateHooks[domain.EnrollmentRequest]{
 		MaxRetries: lo.ToPtr(0),
 		Wrap: func(current *domain.EnrollmentRequest) store.ResourceMutation[domain.EnrollmentRequest] {
-			mutation := &store.Mutation[domain.EnrollmentRequest]{}
-			mutation.SetResource(current)
-			return mutation
+			return &EnrollmentRequestMutation{EnrollmentRequest: current}
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.EnrollmentRequest]) (*domain.EnrollmentRequest, error) {
 			return s.Create(ctx, orgId, mutation.Resource())
@@ -132,19 +164,10 @@ func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, na
 		PersistUpdate: s.persistMutation,
 	}
 	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.EnrollmentRequest]) error {
-		m := mutation.(*store.Mutation[domain.EnrollmentRequest])
-		if m.Resource() == nil {
-			if incoming == nil {
-				return apply(m)
-			}
-			if _, err := m.EnsureResource(incoming); err != nil {
-				return err
-			}
-			return nil
-		}
-		if incoming != nil && incoming.Metadata.ResourceVersion != nil {
-			currentVersion := m.Resource().Metadata.ResourceVersion
-			if currentVersion == nil || *currentVersion != *incoming.Metadata.ResourceVersion {
+		m := mutation.(*EnrollmentRequestMutation)
+		if m.EnrollmentRequest != nil && expectedResourceVersion != nil {
+			currentVersion := m.EnrollmentRequest.Metadata.ResourceVersion
+			if currentVersion == nil || *currentVersion != *expectedResourceVersion {
 				return flterrors.ErrResourceVersionConflict
 			}
 		}

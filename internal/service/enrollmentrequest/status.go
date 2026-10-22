@@ -6,6 +6,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/google/uuid"
 )
 
@@ -13,11 +14,11 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, reso
 	if resource == nil || resource.Metadata.Name == nil || resource.Status == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
-	updated, previous, _, err := h.store.Mutate(ctx, orgId, *resource.Metadata.Name, nil, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+	updated, previous, _, err := h.store.Mutate(ctx, orgId, *resource.Metadata.Name, nil, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
-		current := mutation.Resource()
+		current := mutation.EnrollmentRequest
 		if resource.Metadata.CreationTimestamp != nil && (current.Metadata.CreationTimestamp == nil || !resource.Metadata.CreationTimestamp.Equal(*current.Metadata.CreationTimestamp)) {
 			return flterrors.ErrResourceVersionConflict
 		}

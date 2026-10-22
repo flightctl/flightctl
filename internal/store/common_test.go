@@ -4,9 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,63 +49,6 @@ func TestRetryUpdateBudget(testingT *testing.T) {
 			require.Equal(testingT, testCase.wantAttempts, attempts)
 		})
 	}
-}
-
-func TestMutationEnsureResource(t *testing.T) {
-	t.Run("When an enrollment request mutation is on the create path it should seed a detached clone", func(t *testing.T) {
-		candidate := &domain.EnrollmentRequest{
-			Kind:     domain.EnrollmentRequestKind,
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr("enrollment-candidate")},
-		}
-		mutation := &Mutation[domain.EnrollmentRequest]{}
-
-		seeded, err := mutation.EnsureResource(candidate)
-		require.NoError(t, err)
-		require.True(t, seeded)
-		require.Equal(t, candidate, mutation.Resource())
-		require.NotSame(t, candidate, mutation.Resource())
-
-		candidate.Metadata.Name = lo.ToPtr("mutated-after-seeding")
-		require.Equal(t, "enrollment-candidate", lo.FromPtr(mutation.Resource().Metadata.Name))
-	})
-
-	t.Run("When a certificate signing request mutation is on the create path it should seed a detached clone", func(t *testing.T) {
-		candidate := &domain.CertificateSigningRequest{
-			Kind:     domain.CertificateSigningRequestKind,
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr("csr-candidate")},
-		}
-		mutation := &Mutation[domain.CertificateSigningRequest]{}
-
-		seeded, err := mutation.EnsureResource(candidate)
-		require.NoError(t, err)
-		require.True(t, seeded)
-		require.Equal(t, candidate, mutation.Resource())
-		require.NotSame(t, candidate, mutation.Resource())
-
-		candidate.Metadata.Name = lo.ToPtr("mutated-after-seeding")
-		require.Equal(t, "csr-candidate", lo.FromPtr(mutation.Resource().Metadata.Name))
-	})
-
-	t.Run("When the mutation already carries a resource it should leave the resource untouched", func(t *testing.T) {
-		existing := &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("existing")}}
-		candidate := &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("candidate")}}
-		mutation := &Mutation[domain.EnrollmentRequest]{}
-		mutation.SetResource(existing)
-
-		seeded, err := mutation.EnsureResource(candidate)
-		require.NoError(t, err)
-		require.False(t, seeded)
-		require.Same(t, existing, mutation.Resource())
-	})
-
-	t.Run("When the candidate is nil it should reject seeding the create path", func(t *testing.T) {
-		mutation := &Mutation[domain.CertificateSigningRequest]{}
-
-		seeded, err := mutation.EnsureResource(nil)
-		require.ErrorIs(t, err, flterrors.ErrResourceIsNil)
-		require.False(t, seeded)
-		require.Nil(t, mutation.Resource())
-	})
 }
 
 func TestCreateParamsFromKey(t *testing.T) {

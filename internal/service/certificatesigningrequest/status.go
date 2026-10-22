@@ -5,7 +5,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/google/uuid"
 )
 
@@ -13,12 +13,12 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, cand
 	if candidate == nil || candidate.Metadata.Name == nil || candidate.Status == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, nil, func(mutation *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}
 		status := *candidate.Status
-		mutation.Resource().Status = &status
+		mutation.CertificateSigningRequest.Status = &status
 		return nil
 	})
 	return updated, err

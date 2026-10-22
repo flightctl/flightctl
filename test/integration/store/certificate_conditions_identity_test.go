@@ -8,7 +8,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/ginkgo/v2"
@@ -51,11 +50,11 @@ var _ = Describe("Condition updates across CSR name reuse", func() {
 		var pause sync.Once
 		result := make(chan error, 1)
 		go func() {
-			_, _, _, err := provider.Mutate(ctx, suite.OrgID, *original.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+			_, _, _, err := provider.Mutate(ctx, suite.OrgID, *original.Metadata.Name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 				if err := mutation.RequireExisting(); err != nil {
 					return err
 				}
-				domain.SetStatusCondition(&mutation.Resource().Status.Conditions, domain.Condition{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"})
+				domain.SetStatusCondition(&mutation.CertificateSigningRequest.Status.Conditions, domain.Condition{Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue, Reason: "Denied"})
 				pause.Do(func() {
 					close(ready)
 					select {
