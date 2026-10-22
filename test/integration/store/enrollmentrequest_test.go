@@ -69,7 +69,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			if err != nil {
 				Expect(err).NotTo(HaveOccurred())
 			}
-			_, _, _, err = enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+			_, _, _, err = enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 				if err := mutation.RequireExisting(); err != nil {
 					return err
 				}
@@ -235,7 +235,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, _, _, err := enrollmentRequestStore.Mutate(ctx, orgId, *enrollmentrequest.Metadata.Name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+			_, _, _, err := enrollmentRequestStore.Mutate(ctx, orgId, *enrollmentrequest.Metadata.Name, nil, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
 				if err := mutation.RequireExisting(); err != nil {
 					return err
 				}

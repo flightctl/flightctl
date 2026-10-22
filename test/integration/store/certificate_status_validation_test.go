@@ -87,4 +87,35 @@ var _ = Describe("CSR status mutation validation", func() {
 		Expect(updated.Metadata.ResourceVersion).To(Equal(current.Metadata.ResourceVersion))
 		Expect(current.Metadata.ResourceVersion).NotTo(Equal(created.Metadata.ResourceVersion))
 	})
+
+	It("When non-status fields are mutated it should persist them", func() {
+		suite := newCertificatePersistenceSuite()
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		request := newStoredCSR()
+		request.Metadata.Labels = &map[string]string{"original": "label"}
+		request.Metadata.Annotations = &map[string]string{"original": "annotation"}
+		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+
+		updated, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, *created.Metadata.Name, nil, func(mutation *store.Mutation[domain.CertificateSigningRequest]) error {
+			if err := mutation.RequireExisting(); err != nil {
+				return err
+			}
+			current := mutation.Resource()
+			current.Spec.Request = []byte("updated request")
+			current.Metadata.Labels = &map[string]string{"updated": "label"}
+			current.Metadata.Annotations = &map[string]string{"updated": "annotation"}
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		current, err := provider.Get(suite.Ctx, suite.OrgID, *created.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(current.Spec.Request).To(Equal([]byte("updated request")))
+		Expect(current.Metadata.Labels).To(Equal(&map[string]string{"updated": "label"}))
+		Expect(current.Metadata.Annotations).To(Equal(&map[string]string{"updated": "annotation"}))
+		Expect(updated.Spec).To(Equal(current.Spec))
+		Expect(updated.Metadata.ResourceVersion).To(Equal(current.Metadata.ResourceVersion))
+		Expect(current.Metadata.ResourceVersion).NotTo(Equal(created.Metadata.ResourceVersion))
+	})
 })

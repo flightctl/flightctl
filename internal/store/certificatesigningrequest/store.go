@@ -2,6 +2,7 @@ package certificatesigningrequest
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -114,6 +115,7 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
+// Mutate applies an atomic create-or-update; apply decides which resource fields change.
 func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
@@ -128,14 +130,14 @@ func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (*domain.CertificateSigningRequest, error) {
 			return s.Create(ctx, orgId, mutation.Resource())
 		},
-		PersistUpdate: s.persistStatus,
+		PersistUpdate: s.persistMutation,
 	}
 	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.CertificateSigningRequest]) error {
 		return apply(mutation.(*store.Mutation[domain.CertificateSigningRequest]))
 	})
 }
 
-func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgId uuid.UUID, name string, before *domain.CertificateSigningRequest, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (bool, error) {
+func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, orgId uuid.UUID, name string, before *domain.CertificateSigningRequest, mutation store.ResourceMutation[domain.CertificateSigningRequest]) (bool, error) {
 	if mutation.Resource() == nil || mutation.Resource().Status == nil {
 		return false, flterrors.ErrResourceIsNil
 	}
@@ -147,11 +149,27 @@ func (s *CertificateSigningRequestStore) persistStatus(ctx context.Context, orgI
 		return false, err
 	}
 	record.OrgID = orgId
+	proposed, err := model.NewCertificateSigningRequestFromApiResource(mutation.Resource())
+	if err != nil {
+		return false, err
+	}
+	updates := map[string]interface{}{
+		"status":           proposed.Status,
+		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+	}
+	if !proposed.HasSameSpecAs(record) {
+		updates["spec"] = proposed.Spec
+		updates["generation"] = gorm.Expr("COALESCE(generation, 0) + 1")
+	}
+	if !reflect.DeepEqual(proposed.Labels, record.Labels) {
+		updates["labels"] = proposed.Labels
+	}
+	if !reflect.DeepEqual(proposed.Annotations, record.Annotations) {
+		updates["annotations"] = proposed.Annotations
+	}
 	result := s.getDB(ctx).Model(record).
 		Where("org_id = ? AND name = ? AND created_at = ? AND (resource_version IS NULL OR resource_version = ?)", orgId, name, *before.Metadata.CreationTimestamp, lo.FromPtr(record.ResourceVersion)).
-		Clauses(clause.Returning{}).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(*mutation.Resource().Status), "resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
-	})
+		Clauses(clause.Returning{}).Updates(updates)
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)
 	}
