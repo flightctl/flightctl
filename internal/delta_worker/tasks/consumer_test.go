@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	sharedtasks "github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -91,6 +92,16 @@ type failingPreparer struct{}
 
 func (failingPreparer) Prepare(context.Context, worker_client.EventWithOrgId) error {
 	return errors.New("prepare failed")
+}
+
+type deadlineRecordingCompletionHandler struct {
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (h *deadlineRecordingCompletionHandler) Handle(ctx context.Context, _ worker_client.EventWithOrgId) error {
+	h.deadline, h.hasDeadline = ctx.Deadline()
+	return nil
 }
 
 type recordingCompletionStore struct {
@@ -271,6 +282,46 @@ flightctl_worker_consumers_active 3
 			SourceDigest:    generation.SourceDigest,
 			TargetDigest:    generation.TargetDigest,
 		}}, completion.keys)
+	})
+
+	t.Run("When DeltaGenerationComplete payload it should apply the completion processing deadline", func(t *testing.T) {
+		provider := &recordingProvider{}
+		completionHandler := &deadlineRecordingCompletionHandler{}
+		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, nil, log, &ConsumerWiring{
+			Completion: completionHandler,
+		}))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonDeltaGenerationComplete},
+		})
+		require.NoError(t, err)
+
+		completionConsumer := provider.consumers[len(provider.consumers)-1]
+		require.NoError(t, completionConsumer.handler(ctx, payload, "8", completionConsumer, log))
+		require.True(t, completionHandler.hasDeadline)
+		require.WithinDuration(
+			t,
+			time.Now().Add(sharedtasks.DeltaGenerationCompletionProcessingTimeout),
+			completionHandler.deadline,
+			time.Second,
+		)
+	})
+
+	t.Run("When DeltaGenerationComplete payload arrives on generation queue it should ack as permanent failure", func(t *testing.T) {
+		provider := &recordingProvider{}
+		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
+		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, metrics, log, nil))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonDeltaGenerationComplete},
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, provider.consumers[0].handler(ctx, payload, "9", provider.consumers[0], log))
+		require.Equal(t, 1, provider.consumers[0].completeN)
+		require.NoError(t, provider.consumers[0].completeErr)
+		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
+		require.Equal(t, 0, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
 	})
 
 	t.Run("When DeltaPrepareComplete payload it should resume the prepare", func(t *testing.T) {

@@ -58,7 +58,11 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 
 	timeoutCount := 0
 	for _, queueName := range t.maintainedQueueNames() {
-		count, err := t.processTimedOutMessages(ctx, log, queueName, EventProcessingTimeout)
+		maintenanceLease := EventProcessingTimeout
+		if queueName == consts.DeltaGenerationCompletionQueue {
+			maintenanceLease = DeltaGenerationCompletionProcessingTimeout + deltaGenerationLeaseGracePeriod
+		}
+		count, err := t.processTimedOutMessages(ctx, log, queueName, maintenanceLease)
 		if err != nil {
 			log.WithError(err).WithField("queue", queueName).Error("Failed to process timed out messages")
 		} else {

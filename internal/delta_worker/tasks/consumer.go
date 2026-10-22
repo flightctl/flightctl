@@ -13,6 +13,7 @@ import (
 	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	sharedtasks "github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -94,12 +95,13 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 		return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
 	}
 
-	if !worker_client.IsDeltaGenerationQueueEvent(event.Event.Reason) {
+	if c.completionQueue {
+		if !worker_client.IsDeltaGenerationCompletionQueueEvent(event.Event.Reason) {
+			log.WithField("reason", event.Event.Reason).Warn("dropping non-completion event on delta-generation completion queue")
+			return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
+		}
+	} else if !worker_client.IsDeltaGenerationQueueEvent(event.Event.Reason) {
 		log.WithField("reason", event.Event.Reason).Warn("dropping mis-routed event on delta-generation queue")
-		return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
-	}
-	if c.completionQueue && !worker_client.IsDeltaGenerationCompletionQueueEvent(event.Event.Reason) {
-		log.WithField("reason", event.Event.Reason).Warn("dropping non-completion event on delta-generation completion queue")
 		return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
 	}
 
@@ -134,7 +136,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 			c.workerMetrics.IncTasksByType(taskType)
 		}
 		if c.completion != nil {
-			procErr = c.completion.Handle(ctx, event)
+			procErr = c.handleDeltaGenerationComplete(ctx, event)
 			if generationcomplete.IsInvalidPayload(procErr) {
 				log.WithError(procErr).Error("invalid DeltaGenerationComplete payload")
 				return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
@@ -177,6 +179,12 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	}
 
 	return procErr
+}
+
+func (c *Consumer) handleDeltaGenerationComplete(ctx context.Context, event worker_client.EventWithOrgId) error {
+	ctx, cancel := context.WithTimeout(ctx, sharedtasks.DeltaGenerationCompletionProcessingTimeout)
+	defer cancel()
+	return c.completion.Handle(ctx, event)
 }
 
 func (c *Consumer) handlePrepareDeltas(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {

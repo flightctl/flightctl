@@ -89,7 +89,7 @@ func TestQueueMaintenanceTaskWhenMaintainingQueuesItShouldUseEachQueueLease(t *t
 	require.Equal(t, []queueMaintenanceTimeoutCall{
 		{queueName: consts.TaskQueue, timeout: tasks.EventProcessingTimeout},
 		{queueName: consts.DeltaGenerationTaskQueue, timeout: tasks.EventProcessingTimeout},
-		{queueName: consts.DeltaGenerationCompletionQueue, timeout: tasks.EventProcessingTimeout},
+		{queueName: consts.DeltaGenerationCompletionQueue, timeout: tasks.DeltaGenerationCompletionProcessingTimeout + time.Minute},
 	}, provider.timeoutCalls)
 	require.Equal(t, []string{
 		consts.TaskQueue,
