@@ -466,9 +466,6 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 	}
 
 	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, &er, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
-		if err := mutation.RequireExisting(); err != nil {
-			return err
-		}
 		current := mutation.Resource()
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})
