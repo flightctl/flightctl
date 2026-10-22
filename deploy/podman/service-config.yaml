@@ -228,6 +228,10 @@ prometheus:
 #     scheme: https
 #     skipServerVerification: false
 #     # ca.crt: <base64-encoded PEM>
+#   maxConcurrentDeltaGenerations: 2
+#   timeout: 30m
+#   completionTimeout: 10m
+#   maxWaitForDelta: 10m
 
 # Automated dependency synchronization (optional).
 # Controls the global polling interval for git/HTTP dependency probes.

@@ -63,11 +63,11 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantDelta: 0,
 		},
 		{
-			name:      "When DeltaGenerationComplete it should enqueue on the delta producer only",
+			name:      "When DeltaGenerationComplete without completion publisher it should enqueue on neither producer",
 			reason:    domain.EventReasonDeltaGenerationComplete,
 			withDelta: true,
 			wantTask:  0,
-			wantDelta: 1,
+			wantDelta: 0,
 		},
 		{
 			name:      "When FleetRolloutStarted it should enqueue on the TaskQueue producer",
@@ -115,6 +115,32 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			require.Equal(t, tt.reason, got.Event.Reason)
 		})
 	}
+}
+
+func TestEmitEvent_WhenDeltaGenerationCompleteWithCompletionPublisherItShouldEnqueueOnCompletionProducerOnly(t *testing.T) {
+	taskProd := &recordingProducer{}
+	deltaProd := &recordingProducer{}
+	completionProd := &recordingProducer{}
+	orgID := uuid.New()
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
+	client := NewWorkerClient(
+		taskProd,
+		log,
+		WithDeltaPublisher(deltaProd),
+		WithDeltaCompletionPublisher(completionProd),
+	)
+	client.EmitEvent(context.Background(), orgID, &domain.Event{Reason: domain.EventReasonDeltaGenerationComplete})
+
+	require.Empty(t, taskProd.payloads)
+	require.Empty(t, deltaProd.payloads)
+	require.Len(t, completionProd.payloads, 1)
+
+	var got EventWithOrgId
+	require.NoError(t, json.Unmarshal(completionProd.payloads[0], &got))
+	require.Equal(t, orgID, got.OrgId)
+	require.Equal(t, domain.EventReasonDeltaGenerationComplete, got.Event.Reason)
 }
 
 func TestEmitEvent_WhenPrepareDeltasWithoutDeltaPublisherItShouldWarn(t *testing.T) {

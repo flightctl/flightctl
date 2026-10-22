@@ -69,8 +69,9 @@ Ensure both the control plane and the device agent can access the registry, as d
 | Parameter | Type | Required | Description |
 | --------- | ---- | :------: | ----------- |
 | `defaultRepository` | `object` | | Shared default OCI storage target. An organization's delta storage target takes precedence. See the repository fields below. |
-| `maxConcurrentDeltaGenerations` | `integer` | | Maximum concurrent generation jobs per delta worker instance. Defaults to `2` when omitted or set to `0` or a negative value. Values greater than `32` are capped at `32`. Multiply this value by the delta-worker replica count for the deployment's maximum concurrent jobs. |
+| `maxConcurrentDeltaGenerations` | `integer` | | Maximum concurrent generation jobs per delta worker instance. Defaults to `2` when omitted or set to `0` or a negative value. Values greater than `32` are capped at `32`. Multiply this value by the delta-worker replica count for the deployment's maximum concurrent jobs. Terminal-generation fan-out uses a separate queue and is not counted against this limit. |
 | `timeout` | `duration` | | Deadline for each generation job, expressed as a Go duration such as `30m`. Defaults to `30m` when omitted or set to `0` or a negative duration. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.deltaGenerationTimeout`. |
+| `completionTimeout` | `duration` | | Deadline for terminal-generation completion fan-out, expressed as a Go duration such as `10m`. Defaults to `10m` when omitted or set to `0` or a negative duration. It is a processing deadline, not a queue wait limit. |
 | `maxWaitForDelta` | `duration` | | Optional preparation wait cap, expressed as a Go duration such as `10m`. Omitted by default: the update waits until all generation pairs reach a terminal state. `timeout` bounds each running job; queued pairs can extend the total wait. `0s` starts generation and continues the update immediately. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.maxWaitForDelta`. |
 
 Standalone devices use these deployment defaults. Fleet overrides apply to both OS and application generation. See [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation) for rollout options.
@@ -85,6 +86,7 @@ deltaGeneration:
     scheme: https
   maxConcurrentDeltaGenerations: 2 # Default
   timeout: 30m # Default
+  completionTimeout: 10m # Default
   maxWaitForDelta: 10m
 ```
 
