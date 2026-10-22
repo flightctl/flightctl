@@ -7,6 +7,9 @@
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
 
+# RHEL-compatible builds use the OpenSSL FIPS validator.
+%global fips_enabled 0%{?rhel}
+
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
@@ -21,7 +24,11 @@ URL:            %{gourl}
 
 Source0:         1%{?dist}
 
+%if %{fips_enabled}
+BuildRequires:  (golang >= 1.26.10 with golang < 1.27)
+%else
 BuildRequires:  golang
+%endif
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
@@ -287,8 +294,6 @@ fi
 %setup -q %{forgesetupargs}
 
 %build
-
-%global fips_enabled 0%{?rhel}
 
 %if %{fips_enabled}
 %define disable_fips %{nil}
