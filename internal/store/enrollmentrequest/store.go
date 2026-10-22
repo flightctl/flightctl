@@ -21,7 +21,7 @@ type Store interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
-	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -111,10 +111,11 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
-// Mutate applies an atomic create-or-update. When expectedResourceVersion is
-// non-nil and the resource exists, Mutate rejects a client-supplied version
-// that does not match the loaded resource before apply runs.
-func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+// Mutate applies an atomic create-or-update. When incoming is non-nil, Mutate
+// seeds the create path with a detached clone of it (apply runs only on the
+// update path) and enforces its resourceVersion, when set, against the loaded
+// resource. A nil incoming delegates both decisions to apply.
+func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
 	}
@@ -132,10 +133,19 @@ func (s *EnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, na
 	}
 	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(mutation store.ResourceMutation[domain.EnrollmentRequest]) error {
 		m := mutation.(*store.Mutation[domain.EnrollmentRequest])
-		if m.Resource() != nil && expectedResourceVersion != nil {
-			incoming := domain.ObjectMeta{ResourceVersion: expectedResourceVersion}
-			if err := store.CheckResourceVersionConflict(&m.Resource().Metadata, &incoming); err != nil {
+		if m.Resource() == nil {
+			if incoming == nil {
+				return apply(m)
+			}
+			if _, err := m.EnsureResource(incoming); err != nil {
 				return err
+			}
+			return nil
+		}
+		if incoming != nil && incoming.Metadata.ResourceVersion != nil {
+			currentVersion := m.Resource().Metadata.ResourceVersion
+			if currentVersion == nil || *currentVersion != *incoming.Metadata.ResourceVersion {
+				return flterrors.ErrResourceVersionConflict
 			}
 		}
 		return apply(m)

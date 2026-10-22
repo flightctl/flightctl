@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
@@ -71,7 +72,7 @@ func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UU
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		if err := store.CheckResourceVersionConflict(&m.Device.Metadata, &device.Metadata); err != nil {
+		if err := common.CheckResourceVersionConflict(&m.Device.Metadata, &device.Metadata); err != nil {
 			return err
 		}
 		if device.Spec != nil {

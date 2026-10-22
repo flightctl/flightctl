@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -50,7 +51,7 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, incoming *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	before, err := store.CloneJSON(f.items[name])
 	if err != nil {
 		return nil, nil, false, err
@@ -61,17 +62,24 @@ func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID
 	}
 	mutation := &store.Mutation[domain.EnrollmentRequest]{}
 	mutation.SetResource(current)
-	if current != nil && expectedResourceVersion != nil {
-		incoming := domain.ObjectMeta{ResourceVersion: expectedResourceVersion}
-		if err := store.CheckResourceVersionConflict(&current.Metadata, &incoming); err != nil {
+	skipApply := false
+	if current == nil && incoming != nil {
+		if _, err := mutation.EnsureResource(incoming); err != nil {
+			return nil, before, false, err
+		}
+		skipApply = true
+	} else if current != nil && incoming != nil {
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &incoming.Metadata); err != nil {
 			return nil, before, false, err
 		}
 	}
-	if err := apply(mutation); err != nil {
-		if errors.Is(err, store.ErrMutateSkipWrite) {
-			return mutation.Resource(), before, false, nil
+	if !skipApply {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.Resource(), before, false, nil
+			}
+			return nil, before, false, err
 		}
-		return nil, before, false, err
 	}
 	if mutation.Resource() == nil {
 		return nil, before, false, flterrors.ErrResourceIsNil

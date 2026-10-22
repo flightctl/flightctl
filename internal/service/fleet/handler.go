@@ -135,7 +135,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 			return pruneFleetLifecycleOnCurrent(h.log, m.Fleet)
 		}
 		current := m.Fleet
-		if err := store.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
 			return err
 		}
 		if enforceOwnership && fleetOwnershipConflict(current, &fleet) {
