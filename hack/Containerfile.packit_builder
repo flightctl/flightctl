@@ -7,18 +7,17 @@ USER 0
 RUN mkdir -p /root/.config
 
 RUN dnf install -y \
-      golang \
       openssl-devel \
       go-rpm-macros \
       selinux-policy \
       pam-devel \
       selinux-policy-devel
 
-RUN rm -rf /usr/lib/golang
+COPY --from=go-toolset /usr/lib/golang /opt/certified-go
 
-COPY --from=go-toolset /usr/lib/golang /usr/lib/golang
-
-ENV PATH=/usr/lib/golang/bin:$PATH
+ENV GOROOT=/opt/certified-go \
+    GOTOOLCHAIN=local \
+    PATH=/opt/certified-go/bin:$PATH
 
 RUN dnf clean all
 
