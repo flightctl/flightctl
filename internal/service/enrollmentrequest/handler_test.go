@@ -51,7 +51,7 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, expectedResourceVersion *string, apply enrollmentrequeststore.EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply enrollmentrequeststore.EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	before, err := store.CloneJSON(f.items[name])
 	if err != nil {
 		return nil, nil, false, err
@@ -61,12 +61,6 @@ func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID
 		return nil, nil, false, err
 	}
 	mutation := &enrollmentrequeststore.EnrollmentRequestMutation{EnrollmentRequest: current}
-	if current != nil && expectedResourceVersion != nil {
-		currentVersion := current.Metadata.ResourceVersion
-		if currentVersion == nil || *currentVersion != *expectedResourceVersion {
-			return nil, before, false, flterrors.ErrResourceVersionConflict
-		}
-	}
 	if err := apply(mutation); err != nil {
 		if errors.Is(err, store.ErrMutateSkipWrite) {
 			return mutation.Resource(), before, false, nil
