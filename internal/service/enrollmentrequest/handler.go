@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -475,14 +474,8 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 			return nil
 		}
 		current := mutation.Resource()
-		if er.Metadata.ResourceVersion != nil {
-			version, err := strconv.ParseInt(*er.Metadata.ResourceVersion, 10, 64)
-			if err != nil {
-				return flterrors.ErrIllegalResourceVersionFormat
-			}
-			if strconv.FormatInt(version, 10) != lo.FromPtrOr(current.Metadata.ResourceVersion, "0") {
-				return flterrors.ErrResourceVersionConflict
-			}
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &er.Metadata); err != nil {
+			return err
 		}
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})

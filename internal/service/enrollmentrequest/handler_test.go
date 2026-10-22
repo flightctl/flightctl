@@ -445,6 +445,38 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
+
+	t.Run("When the client supplies a stale resource version it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "replace-stale-version"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), ResourceVersion: lo.ToPtr("7")},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		incoming := er
+		incoming.Metadata.ResourceVersion = lo.ToPtr("6")
+		_, status := h.ReplaceEnrollmentRequest(context.Background(), uuid.New(), cn, incoming)
+		require.Equal(t, statusConflictCode, status.Code)
+	})
+
+	t.Run("When the client supplies the current resource version it should replace the enrollment request", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "replace-current-version"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), ResourceVersion: lo.ToPtr("7")},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		incoming := er
+		incoming.Spec.Csr = csrPEM(t, cn+"-updated")
+		result, status := h.ReplaceEnrollmentRequest(context.Background(), uuid.New(), cn, incoming)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, incoming.Spec.Csr, fakeStore.items[cn].Spec.Csr)
+	})
 }
 
 func TestPatchEnrollmentRequest(t *testing.T) {
