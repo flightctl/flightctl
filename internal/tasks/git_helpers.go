@@ -226,6 +226,7 @@ func wrapAuthWithCryptoSettings(auth transport.AuthMethod, settings sshcrypto.SS
 	}
 }
 
+// getSSHUser extracts the username from a Git repository URL.
 func getSSHUser(rawURL string) string {
 	endpoint, err := transport.NewEndpoint(rawURL)
 	if err != nil {

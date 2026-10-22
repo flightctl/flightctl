@@ -164,7 +164,9 @@ func TestGetSSHUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, getSSHUser(tt.url))
+			if actual := getSSHUser(tt.url); actual != tt.expected {
+				t.Errorf("getSSHUser(%q) = %q, want %q", tt.url, actual, tt.expected)
+			}
 		})
 	}
 }
