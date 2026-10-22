@@ -184,7 +184,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		workerClient := worker_client.NewWorkerClient(queuePublisher, log)
 
 		// Create queue maintenance task
-		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockCheckpointSvc, mockEventSvc, mockOrganizationSvc, provider, workerClient, nil)
+		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockCheckpointSvc, mockEventSvc, mockOrganizationSvc, 30*time.Minute, 10*time.Minute, provider, workerClient, nil)
 	})
 
 	AfterEach(func() {

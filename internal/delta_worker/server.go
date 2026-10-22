@@ -125,11 +125,17 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("delta publisher: %w", err)
 	}
 	defer deltaPublisher.Close()
+	deltaCompletionPublisher, err := worker_client.DeltaCompletionQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return fmt.Errorf("delta completion publisher: %w", err)
+	}
+	defer deltaCompletionPublisher.Close()
 	if s.eventsHandler != nil {
 		s.eventsHandler.SetWorkerClient(worker_client.NewWorkerClient(
 			workerPublisher,
 			s.log,
 			worker_client.WithDeltaPublisher(deltaPublisher),
+			worker_client.WithDeltaCompletionPublisher(deltaCompletionPublisher),
 		))
 	}
 
@@ -144,7 +150,11 @@ func (s *Server) Run(ctx context.Context) error {
 		s.generationSvc,
 		s.progressSvc,
 		func(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
-			return enqueueDeltaWorkerEvent(ctx, deltaPublisher, orgID, event)
+			producer := deltaPublisher
+			if worker_client.IsDeltaGenerationCompletionQueueEvent(event.Reason) {
+				producer = deltaCompletionPublisher
+			}
+			return enqueueDeltaWorkerEvent(ctx, producer, orgID, event)
 		},
 		s.kvStore,
 	)

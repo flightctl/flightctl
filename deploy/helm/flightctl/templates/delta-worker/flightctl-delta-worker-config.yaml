@@ -61,6 +61,7 @@ data:
     deltaGeneration:
         maxConcurrentDeltaGenerations: {{ default 2 $delta.maxConcurrentDeltaGenerations }}
         timeout: {{ default "30m" $delta.timeout }}
+        completionTimeout: {{ default "10m" $delta.completionTimeout }}
         {{- if hasKey $delta "maxWaitForDelta" }}
         maxWaitForDelta: {{ $delta.maxWaitForDelta | quote }}
         {{- end }}
