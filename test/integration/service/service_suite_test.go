@@ -97,7 +97,7 @@ type ServiceTestSuite struct {
 	Catalog                   catalogservice.Service
 	CertificateSigningRequest certificatesigningrequestservice.Service
 	Device                    deviceservice.Service
-	EnrollmentRequest         enrollmentrequestservice.Service
+	EnrollmentRequest         *enrollmentrequestservice.ServiceHandler
 	Fleet                     fleetservice.Service
 	EnrollmentHookPolicy      enrollmenthookpolicyservice.Service
 	Repository                repositoryservice.Service
@@ -116,6 +116,7 @@ type ServiceTestSuite struct {
 	mockQueueProducer *queues.MockQueueProducer
 	workerClient      worker_client.WorkerClient
 	caClient          *icrypto.CAClient
+	kvStore           kvstore.KVStore
 }
 
 // Setup performs common initialization for service tests
@@ -161,6 +162,7 @@ func (s *ServiceTestSuite) Setup() {
 
 	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, redisHost, redisPort, redisPassword)
 	Expect(err).ToNot(HaveOccurred())
+	s.kvStore = kvStore
 
 	// Setup CA for CSR tests
 	testDirPath := GinkgoT().TempDir()
@@ -175,8 +177,11 @@ func (s *ServiceTestSuite) Setup() {
 	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.DB, s.Log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	s.NotifySecretsStore = notifySecretsStore
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
-	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
+
+	var tpmVerifier tpmcsr.Verifier
+	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.caClient, eventsSvc, s.Log, "", "")
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, s.CertificateSigningRequest, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
+	tpmVerifier = *tpmcsr.NewVerifier(s.EnrollmentRequest)
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
 

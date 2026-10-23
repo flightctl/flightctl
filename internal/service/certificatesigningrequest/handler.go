@@ -80,7 +80,7 @@ func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *
 	})
 	domain.RemoveStatusCondition(&csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)
 
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set approval condition")
 	}
 }
@@ -103,8 +103,12 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 
 	csr.Status.Certificate = &certPEM
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
+		csr.Status.Certificate = nil
+		return
+	} else {
+		*csr = *published
 	}
 }
 
@@ -381,11 +385,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newConditions := newCSR.Status.Conditions
 
 	// Updating the approval should only update the conditions.
+	newCSR.Metadata.CreationTimestamp = oldCSR.Metadata.CreationTimestamp
 	newCSR.Spec = oldCSR.Spec
 	newCSR.Status = oldCSR.Status
 	newCSR.Status.Conditions = newConditions
 
-	result, err := h.store.UpdateStatus(ctx, orgId, newCSR)
+	result, err := h.updateStatus(ctx, orgId, newCSR)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -500,7 +505,7 @@ func (h *ServiceHandler) setCSRFailedCondition(ctx context.Context, orgId uuid.U
 		Message: message,
 	})
 
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set failure condition")
 	}
 }

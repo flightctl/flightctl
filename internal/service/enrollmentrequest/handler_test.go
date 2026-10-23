@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -21,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -48,6 +50,42 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 }
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
+
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply enrollmentrequeststore.EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	before, err := store.CloneJSON(f.items[name])
+	if err != nil {
+		return nil, nil, false, err
+	}
+	current, err := store.CloneJSON(before)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	mutation := &enrollmentrequeststore.EnrollmentRequestMutation{EnrollmentRequest: current}
+	if err := apply(mutation); err != nil {
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
+		}
+		return nil, before, false, err
+	}
+	if mutation.Resource() == nil {
+		return nil, before, false, flterrors.ErrResourceIsNil
+	}
+	persisted, err := store.CloneJSON(mutation.Resource())
+	if err != nil {
+		return nil, before, false, err
+	}
+	var result *domain.EnrollmentRequest
+	if before == nil {
+		result, err = f.Create(ctx, orgId, persisted)
+	} else {
+		result, _, err = f.Update(ctx, orgId, persisted)
+	}
+	if err != nil {
+		return nil, before, before == nil, err
+	}
+	result, err = store.CloneJSON(result)
+	return result, before, before == nil, err
+}
 
 func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
@@ -100,16 +138,6 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	}
 	delete(f.items, name)
 	return true, nil
-}
-
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.items[name] = req
-	return req, old, nil
 }
 
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
@@ -417,6 +445,38 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
+
+	t.Run("When the client supplies a stale resource version it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "replace-stale-version"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), ResourceVersion: lo.ToPtr("7")},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		incoming := er
+		incoming.Metadata.ResourceVersion = lo.ToPtr("6")
+		_, status := h.ReplaceEnrollmentRequest(context.Background(), uuid.New(), cn, incoming)
+		require.Equal(t, statusConflictCode, status.Code)
+	})
+
+	t.Run("When the client supplies the current resource version it should replace the enrollment request", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "replace-current-version"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), ResourceVersion: lo.ToPtr("7")},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		incoming := er
+		incoming.Spec.Csr = csrPEM(t, cn+"-updated")
+		result, status := h.ReplaceEnrollmentRequest(context.Background(), uuid.New(), cn, incoming)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, incoming.Spec.Csr, fakeStore.items[cn].Spec.Csr)
+	})
 }
 
 func TestPatchEnrollmentRequest(t *testing.T) {
@@ -536,6 +596,43 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
+}
+
+func TestEnrollmentRequestSnapshots(testingT *testing.T) {
+	handler, _, _, _, eventRecorder := newTestHandler(testingT)
+	ctx := context.Background()
+	orgID := uuid.New()
+	name := "enrollment-snapshots"
+	request := testEnrollmentRequest(name)
+	request.Spec.Csr = csrPEM(testingT, name)
+	request.Metadata.Labels = lo.ToPtr(map[string]string{"phase": "initial"})
+	request.Status = &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{{
+		Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusFalse, Reason: "AwaitingApproval",
+	}}}
+	created, status := handler.ReplaceEnrollmentRequest(ctx, orgID, name, request)
+	require.Equal(testingT, statusCreatedCode, status.Code)
+	created.Metadata.Labels = lo.ToPtr(map[string]string{"phase": "replacement"})
+	created.Status.Conditions[0].Reason = "ClientEdited"
+	current, status := handler.GetEnrollmentRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "initial"}, *current.Metadata.Labels)
+	require.Equal(testingT, "AwaitingApproval", current.Status.Conditions[0].Reason)
+
+	updated, status := handler.ReplaceEnrollmentRequest(ctx, orgID, name, *created)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *updated.Metadata.Labels)
+	updated.Status.Conditions[0].Reason = "ResponseEdited"
+	current, status = handler.GetEnrollmentRequest(ctx, orgID, name)
+	require.Equal(testingT, statusSuccessCode, status.Code)
+	require.Equal(testingT, map[string]string{"phase": "replacement"}, *current.Metadata.Labels)
+	require.Equal(testingT, "AwaitingApproval", current.Status.Conditions[0].Reason)
+	require.Len(testingT, eventRecorder.createdEvents, 2)
+	updateEvent := eventRecorder.createdEvents[1]
+	require.Equal(testingT, domain.EventReasonResourceUpdated, updateEvent.Reason)
+	require.NotNil(testingT, updateEvent.Details)
+	details, err := updateEvent.Details.AsResourceUpdatedDetails()
+	require.NoError(testingT, err)
+	require.Equal(testingT, []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels}, details.UpdatedFields)
 }
 
 func TestReplaceEnrollmentRequestStatus(t *testing.T) {
@@ -838,4 +935,36 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 		require.ErrorIs(t, getErr, flterrors.ErrResourceNotFound)
 		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
 	})
+}
+
+func TestGetEnrollmentConfigRestored(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       domain.GetEnrollmentConfigParams
+		expectedCode int32
+	}{
+		{
+			name:         "When no CSR is requested it should return the CA without a client certificate",
+			expectedCode: statusSuccessCode,
+		},
+		{
+			name:         "When the CSR name is invalid it should reject the request without config",
+			params:       domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("invalid name!")},
+			expectedCode: statusBadRequestCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, _, _, _ := newTestHandler(t)
+			result, status := handler.GetEnrollmentConfig(context.Background(), uuid.New(), test.params)
+			require.Equal(t, test.expectedCode, status.Code)
+			if test.expectedCode == statusBadRequestCode {
+				require.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
+			require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
+		})
+	}
 }
