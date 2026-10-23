@@ -23,6 +23,7 @@ var (
 	OIDSignerName        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
 	OIDOrgID             = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
 	OIDDeviceFingerprint = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}
+	OIDEnrollmentCSRName = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4}
 )
 
 type certOption = func(*x509.Certificate) error

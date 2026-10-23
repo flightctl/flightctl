@@ -8,7 +8,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
+	"time"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -16,10 +18,10 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -40,6 +42,8 @@ type fakeCertificateSigningRequestStore struct {
 	items map[string]*domain.CertificateSigningRequest
 }
 
+var _ csrstore.Store = (*fakeCertificateSigningRequestStore)(nil)
+
 func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore {
 	return &fakeCertificateSigningRequestStore{items: map[string]*domain.CertificateSigningRequest{}}
 }
@@ -48,6 +52,9 @@ func (f *fakeCertificateSigningRequestStore) InitialMigration(ctx context.Contex
 
 func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
+	if req.Metadata.CreationTimestamp == nil {
+		req.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	}
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
@@ -66,6 +73,7 @@ func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId u
 	if !exists {
 		return nil, nil, flterrors.ErrResourceNotFound
 	}
+	req.Metadata.CreationTimestamp = old.Metadata.CreationTimestamp
 	// Mirror internal/store/model.NewCertificateSigningRequestFromApiResource, which always
 	// defaults Status to a non-nil, empty-conditions struct regardless of the caller's input.
 	if req.Status == nil {
@@ -109,13 +117,22 @@ func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId u
 	return true, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply func(*store.Mutation[domain.CertificateSigningRequest]) error) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	before := f.items[name]
+	mutation := &store.Mutation[domain.CertificateSigningRequest]{}
+	mutation.SetResource(before)
+	if err := apply(mutation); err != nil {
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
+		}
+		return nil, before, false, err
 	}
-	f.items[name] = req
-	return req, nil
+	if before == nil {
+		result, err := f.Create(ctx, orgId, mutation.Resource())
+		return result, nil, true, err
+	}
+	result, _, err := f.Update(ctx, orgId, mutation.Resource())
+	return result, before, false, err
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
@@ -130,7 +147,6 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
 // verification tests (GetEnrollmentRequest only).
 type fakeEnrollmentRequestService struct {
-	enrollmentrequest.Service
 	items map[string]*domain.EnrollmentRequest
 }
 
@@ -401,6 +417,66 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 	})
 }
 
+func TestEnrollmentIssuanceClock(t *testing.T) {
+	tests := []struct {
+		name string
+		now  time.Time
+	}{
+		{
+			name: "When server time is UTC it should publish exact issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC),
+		},
+		{
+			name: "When server time has an offset it should publish UTC issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 7, 6, 7, 123456000, time.FixedZone("server", 2*60*60)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, _, _, cfg := newTestHandler(t)
+			currentTime := test.now
+			handler.now = func() time.Time { return currentTime }
+			ctx := context.Background()
+			orgID := uuid.New()
+			name := "enrollment-clock"
+			request := domain.CertificateSigningRequest{
+				Metadata: domain.ObjectMeta{Name: &name},
+				Spec: domain.CertificateSigningRequestSpec{
+					SignerName: cfg.DeviceEnrollmentSignerName,
+					Request:    csrPEM(t, name),
+					Usages:     validUsages(),
+				},
+			}
+			created, status := handler.CreateCertificateSigningRequest(ctx, orgID, request)
+			require.Equal(t, statusCreatedCode, status.Code)
+			require.NotNil(t, created)
+			require.NotNil(t, created.Status)
+			require.NotNil(t, created.Status.IssuedAt)
+			require.Equal(t, "2025-03-04T05:06:07.123456Z", created.Status.IssuedAt.Format(time.RFC3339Nano))
+			require.Same(t, time.UTC, created.Status.IssuedAt.Location())
+			require.NotNil(t, created.Status.Certificate)
+			require.NotEmpty(t, *created.Status.Certificate)
+			publishedCertificate := append([]byte(nil), (*created.Status.Certificate)...)
+
+			currentTime = time.Date(2026, 7, 8, 9, 10, 11, 0, time.UTC)
+			replacement := *created
+			replacement.Metadata.Labels = &map[string]string{"clock": "advanced"}
+			updated, status := handler.ReplaceCertificateSigningRequest(ctx, orgID, name, replacement)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, &publishedCertificate, updated.Status.Certificate)
+			require.NotNil(t, updated.Status.IssuedAt)
+			require.Equal(t, "2025-03-04T05:06:07.123456Z", updated.Status.IssuedAt.Format(time.RFC3339Nano))
+			retrieved, status := handler.GetCertificateSigningRequest(ctx, orgID, name)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, "advanced", (*retrieved.Metadata.Labels)["clock"])
+			require.Equal(t, &publishedCertificate, retrieved.Status.Certificate)
+			require.NotNil(t, retrieved.Status.IssuedAt)
+			require.Equal(t, "2025-03-04T05:06:07.123456Z", retrieved.Status.IssuedAt.Format(time.RFC3339Nano))
+			require.Same(t, time.UTC, retrieved.Status.IssuedAt.Location())
+		})
+	}
+}
+
 func TestListCertificateSigningRequests(t *testing.T) {
 	h, fakeStore, _, _, _ := newTestHandler(t)
 	csr := domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}
@@ -467,11 +543,15 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
 		Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 	}
-	fakeStore.items[cn] = &csr
+	_, err := fakeStore.Create(context.Background(), uuid.New(), &csr)
+	require.NoError(t, err)
+	createdAt := *csr.Metadata.CreationTimestamp
 
 	result, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, csr)
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.NotNil(t, result)
+	require.NotNil(t, result.Metadata.CreationTimestamp)
+	require.Equal(t, createdAt, *result.Metadata.CreationTimestamp)
 
 	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequestFromUntrusted should clear them before replacing", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler(t)
@@ -485,12 +565,18 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 			},
 			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &csr
+		_, err := fakeStore.Create(context.Background(), orgId, &csr)
+		require.NoError(t, err)
+		createdAt := *csr.Metadata.CreationTimestamp
+		incoming := csr
+		incoming.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 
-		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, csr)
+		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, incoming)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
 		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 
 	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
@@ -505,12 +591,18 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 			},
 			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &csr
+		_, err := fakeStore.Create(context.Background(), orgId, &csr)
+		require.NoError(t, err)
+		createdAt := *csr.Metadata.CreationTimestamp
+		incoming := csr
+		incoming.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 
-		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, csr)
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, incoming)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 }
 
@@ -541,11 +633,15 @@ func TestReplaceCertificateSigningRequestOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
 			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
 		}
-		fakeStore.items[cn] = &existing
+		_, err := fakeStore.Create(context.Background(), uuid.New(), &existing)
+		require.NoError(t, err)
+		createdAt := *existing.Metadata.CreationTimestamp
 
 		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, existing)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, owner, lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.NotNil(t, fakeStore.items[cn].Metadata.CreationTimestamp)
+		require.Equal(t, createdAt, *fakeStore.items[cn].Metadata.CreationTimestamp)
 	})
 }
 

@@ -5,14 +5,12 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeEnrollmentService struct {
-	enrollmentrequest.Service
 	ers map[string]*domain.EnrollmentRequest
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,18 +18,19 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -38,7 +40,8 @@ import (
 type ServiceHandler struct {
 	store              enrollmentrequeststore.Store
 	deviceStore        devicestore.Store
-	csrStore           certificatesigningrequeststore.Store
+	csrService         csrservice.Service
+	enrollmentConfig   *enrollmentconfig.ServiceHandler
 	ca                 *crypto.CAClient
 	kvStore            kvstore.KVStore
 	events             events.Service
@@ -47,25 +50,21 @@ type ServiceHandler struct {
 	agentGate          *semaphore.Weighted
 	ehPolicySvc        enrollmenthookpolicy.Service
 	notifySecretsStore enrollmenthooknotifysecrets.Store
-
-	agentEndpoint string
-	uiUrl         string
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrService csrservice.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
 	return &ServiceHandler{
 		store:              store,
 		deviceStore:        deviceStore,
-		csrStore:           csrStore,
+		csrService:         csrService,
+		enrollmentConfig:   enrollmentconfig.NewServiceHandler(csrService, ca, agentEndpoint, uiUrl),
 		ca:                 ca,
 		kvStore:            kvStore,
 		events:             events,
 		log:                log,
 		tpmCAPaths:         tpmCAPaths,
 		agentGate:          semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint:      agentEndpoint,
-		uiUrl:              uiUrl,
 		ehPolicySvc:        ehPolicySvc,
 		notifySecretsStore: notifySecretsStore,
 	}
@@ -373,6 +372,16 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	leaf, _ := signer.PeerCertificateFromCtx(ctx)
+	credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
+	if recoverName {
+		var err error
+		credentialName, err = h.findCertificateName(ctx, orgId, leaf)
+		if err != nil {
+			return nil, domain.StatusInternalServerError(err.Error())
+		}
+	}
+	er.Status.EnrollmentCertificateName = credentialName
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -442,6 +451,7 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	er.Status.EnrollmentCertificateName = nil
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -467,7 +477,44 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.CreateOrUpdate(ctx, orgId, &er)
+	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, func(mutation *store.Mutation[domain.EnrollmentRequest]) error {
+		current := mutation.Resource()
+		if current == nil {
+			leaf, _ := signer.PeerCertificateFromCtx(ctx)
+			credentialName, recoverName := extractCertificateName(leaf, orgId, h.ca.Cfg.DeviceEnrollmentSignerName)
+			if recoverName {
+				resolvedName, err := h.findCertificateName(ctx, orgId, leaf)
+				if err != nil {
+					return err
+				}
+				credentialName = resolvedName
+			}
+			er.Status.EnrollmentCertificateName = credentialName
+			candidate, err := store.CloneJSON(&er)
+			if err != nil {
+				return err
+			}
+			mutation.SetResource(candidate)
+			return nil
+		}
+		if er.Metadata.ResourceVersion != nil {
+			version, err := strconv.ParseInt(*er.Metadata.ResourceVersion, 10, 64)
+			if err != nil {
+				return flterrors.ErrIllegalResourceVersionFormat
+			}
+			if strconv.FormatInt(version, 10) != lo.FromPtrOr(current.Metadata.ResourceVersion, "0") {
+				return flterrors.ErrResourceVersionConflict
+			}
+		}
+		current.Spec = er.Spec
+		if er.Metadata.Labels != nil {
+			current.Metadata.Labels = er.Metadata.Labels
+		}
+		if er.Metadata.Annotations != nil {
+			current.Metadata.Annotations = er.Metadata.Annotations
+		}
+		return nil
+	})
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
@@ -589,7 +636,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	}
 
 	// Update the enrollment request status using the specific approval callback
-	result, oldER, err := h.store.UpdateStatus(ctx, orgId, enrollmentReq)
+	result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
 	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
@@ -597,7 +644,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 
-	result, oldER, err := h.store.UpdateStatus(ctx, orgId, &er)
+	result, oldER, err := h.updateStatus(ctx, orgId, &er)
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
@@ -700,38 +747,5 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 }
 
 func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	caCert, err := h.ca.GetCABundle()
-	if err != nil {
-		return nil, domain.StatusInternalServerError("failed to get CA certificate")
-	}
-
-	clientCert := []byte{}
-	if params.Csr != nil {
-		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-		}
-
-		csr, err := h.csrStore.Get(ctx, orgId, *params.Csr)
-		if err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, params.Csr)
-		}
-
-		if csr.Status != nil && csr.Status.Certificate != nil {
-			clientCert = *csr.Status.Certificate
-		}
-	}
-
-	return &domain.EnrollmentConfig{
-		EnrollmentService: domain.EnrollmentService{
-			Authentication: domain.EnrollmentServiceAuth{
-				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
-				ClientKeyData:         "",
-			},
-			Service: domain.EnrollmentServiceService{
-				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
-				Server:                   h.agentEndpoint,
-			},
-			EnrollmentUiEndpoint: h.uiUrl,
-		},
-	}, domain.StatusOK()
+	return h.enrollmentConfig.GetEnrollmentConfig(ctx, orgId, params)
 }

@@ -67,6 +67,7 @@ type ApplyFunc[A any] func(m ResourceMutation[A]) error
 // MutateHooks customizes wrap and persist for a resource type.
 // GenericStore.Mutate owns only the load/apply/retry control loop.
 type MutateHooks[A any] struct {
+	MaxRetries *int
 	// Wrap turns a loaded API object into the typed mutation. Wrap(nil) is the create path.
 	// Required.
 	Wrap func(*A) ResourceMutation[A]
@@ -99,9 +100,13 @@ func CloneJSON[A any](v *A) (*A, error) {
 }
 
 // RetryUpdate runs fn until it returns retry=false or retryIterations is exhausted.
-func RetryUpdate(fn func() (bool, error)) error {
+func RetryUpdate(fn func() (bool, error), maxRetries ...int) error {
+	attempts := retryIterations
+	if len(maxRetries) > 0 {
+		attempts = maxRetries[0] + 1
+	}
 	var err error
-	for i := 0; i < retryIterations; i++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		retry, fnErr := fn()
 		err = fnErr
 		if !retry {

@@ -22,9 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// nowFunc allows overriding for unit tests
-var nowFunc = time.Now
-
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
 	tpmVerifier   *tpmcsr.Verifier
@@ -33,13 +30,14 @@ type ServiceHandler struct {
 	log           logrus.FieldLogger
 	agentEndpoint string
 	uiUrl         string
+	now           func() time.Time
 }
 
 // NewServiceHandler creates a new certificatesigningrequest ServiceHandler instance.
 // agentEndpoint/uiUrl are only used by GenerateEnrollmentCredential (they're embedded in the
 // returned crypto.EnrollmentCredential); pass "" if a caller never needs enrollment credentials.
 func NewServiceHandler(store certificatesigningrequeststore.Store, tpmVerifier *tpmcsr.Verifier, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
-	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
+	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl, now: time.Now}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -80,7 +78,7 @@ func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *
 	})
 	domain.RemoveStatusCondition(&csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)
 
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set approval condition")
 	}
 }
@@ -96,6 +94,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
+	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
@@ -103,13 +102,21 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 
 	csr.Status.Certificate = &certPEM
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if enrollment {
+		csr.Status.IssuedAt = lo.ToPtr(h.now().UTC())
+	}
+	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
+		csr.Status.Certificate = nil
+		csr.Status.IssuedAt = nil
+		return
+	} else {
+		*csr = *published
 	}
 }
 
-func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
-	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
+	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit, opts...)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
@@ -381,11 +388,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newConditions := newCSR.Status.Conditions
 
 	// Updating the approval should only update the conditions.
+	newCSR.Metadata.CreationTimestamp = oldCSR.Metadata.CreationTimestamp
 	newCSR.Spec = oldCSR.Spec
 	newCSR.Status = oldCSR.Status
 	newCSR.Status.Conditions = newConditions
 
-	result, err := h.store.UpdateStatus(ctx, orgId, newCSR)
+	result, err := h.updateStatus(ctx, orgId, newCSR)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -422,7 +430,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go
 func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningRequest) {
-	now := nowFunc()
+	now := time.Now()
 	for i := range newCSR.Status.Conditions {
 		// preserve existing lastTransitionTime if the condition with this type/status already exists,
 		// otherwise set to now.
@@ -500,7 +508,7 @@ func (h *ServiceHandler) setCSRFailedCondition(ctx context.Context, orgId uuid.U
 		Message: message,
 	})
 
-	if _, err := h.store.UpdateStatus(ctx, orgId, csr); err != nil {
+	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set failure condition")
 	}
 }

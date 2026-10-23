@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -48,6 +49,24 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 }
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
+
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply func(*store.Mutation[domain.EnrollmentRequest]) error) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
+	before := f.items[name]
+	mutation := &store.Mutation[domain.EnrollmentRequest]{}
+	mutation.SetResource(before)
+	if err := apply(mutation); err != nil {
+		if errors.Is(err, store.ErrMutateSkipWrite) {
+			return mutation.Resource(), before, false, nil
+		}
+		return nil, before, false, err
+	}
+	if before == nil {
+		result, err := f.Create(ctx, orgId, mutation.Resource())
+		return result, nil, true, err
+	}
+	result, _, err := f.Update(ctx, orgId, mutation.Resource())
+	return result, before, false, err
+}
 
 func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
@@ -100,16 +119,6 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	}
 	delete(f.items, name)
 	return true, nil
-}
-
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.items[name] = req
-	return req, old, nil
 }
 
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
@@ -838,4 +847,36 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 		require.ErrorIs(t, getErr, flterrors.ErrResourceNotFound)
 		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
 	})
+}
+
+func TestGetEnrollmentConfigRestored(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       domain.GetEnrollmentConfigParams
+		expectedCode int32
+	}{
+		{
+			name:         "When no CSR is requested it should return the CA without a client certificate",
+			expectedCode: statusSuccessCode,
+		},
+		{
+			name:         "When the CSR name is invalid it should reject the request without config",
+			params:       domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("invalid name!")},
+			expectedCode: statusBadRequestCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, _, _, _ := newTestHandler(t)
+			result, status := handler.GetEnrollmentConfig(context.Background(), uuid.New(), test.params)
+			require.Equal(t, test.expectedCode, status.Code)
+			if test.expectedCode == statusBadRequestCode {
+				require.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
+			require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
+		})
+	}
 }
