@@ -232,23 +232,49 @@ func TestHandleGenerateDelta(t *testing.T) {
 	})
 
 	t.Run("When generation is already terminal it should re-emit the terminal event", func(t *testing.T) {
-		req := require.New(t)
-		key := deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}
-		store := &fakeGenerationService{generations: map[deltastore.GenerationKey]*model.DeltaGeneration{
-			key: {
-				OrgID:           org,
-				ImageRepository: repo,
-				SourceDigest:    src,
-				TargetDigest:    tgt,
-				Status:          model.DeltaGenerationSucceeded,
+		tests := []struct {
+			name       string
+			status     string
+			wantStatus domain.DeltaGenerationProgressDetailsGenerationStatus
+		}{
+			{
+				name:       "When generation already succeeded it should re-emit the terminal event",
+				status:     model.DeltaGenerationSucceeded,
+				wantStatus: domain.DeltaGenerationProgressSucceeded,
 			},
-		}}
-		emitter := &recordingEventEmitter{}
-		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, emitter.Emit)
+			{
+				name:       "When generation already failed it should re-emit the terminal event",
+				status:     model.DeltaGenerationFailed,
+				wantStatus: domain.DeltaGenerationProgressFailed,
+			},
+			{
+				name:       "When generation was already rejected it should re-emit the terminal event",
+				status:     model.DeltaGenerationRejected,
+				wantStatus: domain.DeltaGenerationProgressRejected,
+			},
+		}
 
-		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(emitter.events, 1)
-		assertGenerationCompleteEvent(t, org, emitter.events[0], key, domain.DeltaGenerationProgressSucceeded)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := require.New(t)
+				key := deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}
+				store := &fakeGenerationService{generations: map[deltastore.GenerationKey]*model.DeltaGeneration{
+					key: {
+						OrgID:           org,
+						ImageRepository: repo,
+						SourceDigest:    src,
+						TargetDigest:    tgt,
+						Status:          tt.status,
+					},
+				}}
+				emitter := &recordingEventEmitter{}
+				c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, emitter.Emit)
+
+				req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+				req.Len(emitter.events, 1)
+				assertGenerationCompleteEvent(t, org, emitter.events[0], key, tt.wantStatus)
+			})
+		}
 	})
 
 	t.Run("When existence check fails it should fail generation and emit terminal event", func(t *testing.T) {
