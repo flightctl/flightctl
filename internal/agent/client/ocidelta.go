@@ -99,10 +99,11 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 	}
 	args = append(args, deltaRef)
 
-	_, stderr, exitCode := d.exec.ExecuteWithContext(ctx, ociDeltaCmd, args...)
+	stdout, stderr, exitCode := d.exec.ExecuteWithContext(ctx, ociDeltaCmd, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
+	d.log.Infof("DISCOVERY_DELTA event=oci-delta-import-completed targetRef=%s stdout=%q", targetRef, strings.TrimSpace(stdout))
 	return nil
 }
 

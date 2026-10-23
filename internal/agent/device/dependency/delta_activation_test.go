@@ -143,7 +143,7 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 			},
 		},
 		{
-			name:    "When a CRI-O target is digest-pinned it should verify without recopying",
+			name:    "When a CRI-O target is digest-pinned it should refresh before verifying canonical visibility",
 			runtime: client.CRIRuntimeCRIO,
 			image:   refreshImage,
 			setupExpectations: func(t *testing.T, exec *executer.MockExecuter, image string) {
@@ -176,10 +176,6 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 				importDelta := exec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
 				).Return("", "", 0)
-				reconstructedVisible := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "crictl", "images", image,
-				).Return("IMAGE TAG IMAGE ID SIZE\nquay.io/acme/app "+podmanDeltaTargetDigest+" sha256:3333333333333333333333333333333333333333333333333333333333333333 1MB\n", "", 0)
-
 				pullEnv := make([]any, len(os.Environ()))
 				for i := range pullEnv {
 					pullEnv[i] = gomock.Any()
@@ -201,7 +197,7 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 				).Return(targetIndex, "", 0)
 				gomock.InOrder(
 					targetMissing, deltaManifest, targetManifest, localSources, runtimeInfo,
-					copyDelta, importDelta, reconstructedVisible, refreshCanonical,
+					copyDelta, importDelta, refreshCanonical,
 					inspectCanonical, verifySelector, observeSelector, verifyObservedDigest,
 				)
 			},

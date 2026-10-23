@@ -1117,7 +1117,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
 
-	importRef, digestPinned, err := applicationDeltaImportReference(target.image)
+	importRef, _, err := applicationDeltaImportReference(target.image)
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
@@ -1132,8 +1132,17 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		}
 	}
 
-	if (digestPinned || runtimeInfo.Name == client.CRIRuntimeContainerd) && !cri.ImageExists(ctx, target.image, opts...) {
-		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
+	// CRI-O may not resolve the canonical digest until the registry refresh.
+	// activateCRIRefreshedImage verifies the requested reference after pulling it.
+	if runtimeInfo.Name == client.CRIRuntimeContainerd {
+		if !cri.ImageExists(ctx, target.image, opts...) {
+			inventory, inventoryErr := cri.ImageInventory(ctx, opts...)
+			m.log.Infof(
+				"DISCOVERY_DELTA event=post-import-cri-image-check target=%s importRef=%s runtime=%s visible=false inventory=%q inventoryError=%q",
+				target.image, importRef, runtimeInfo.Name, inventory, inventoryErr,
+			)
+			return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
+		}
 	}
 
 	if err := m.activateCRIRefreshedImage(ctx, cri, skopeo, target, *runtimeInfo, candidate, deltaOpts, opts...); err != nil {

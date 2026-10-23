@@ -33,6 +33,12 @@ func TestDelta(t *testing.T) {
 var auxSvcs *auxiliary.Services
 
 var _ = BeforeSuite(func() {
+	if os.Getenv("FLIGHTCTL_E2E_SKIP_DELTA_WORKER_REMAP") == "1" {
+		auxiliary.ApplyDeltaWorkerRegistryRemap = func(_ context.Context, registryURL string) error {
+			GinkgoWriter.Printf("[delta investigation] skipping worker registry remap for %s; generation is disabled\n", registryURL)
+			return nil
+		}
+	}
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
@@ -72,6 +78,22 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
+	if CurrentSpecReport().Failed() {
+		logs, err := harness.GetFlightctlAgentLogs()
+		if err != nil {
+			GinkgoWriter.Printf("[delta investigation] failed to read current agent invocation logs: %v\n", err)
+		} else {
+			GinkgoWriter.Printf("[delta investigation] agent discovery trace:\n")
+			for _, line := range strings.Split(logs, "\n") {
+				if strings.Contains(line, "DISCOVERY_DELTA") ||
+					strings.Contains(line, "Applied OCI delta for application image") ||
+					strings.Contains(line, "Recorded application delta result: application=delta-helm") {
+					GinkgoWriter.Printf("%s\n", line)
+				}
+			}
+		}
+	}
+
 	harness.PrintAgentLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
 
@@ -84,8 +106,12 @@ var _ = AfterEach(func() {
 })
 
 func clearDeltaCache(ctx context.Context) error {
-	if err := clearDeltaGenerations(); err != nil {
-		return err
+	if os.Getenv("FLIGHTCTL_E2E_SKIP_DELTA_GENERATION_CLEAR") == "1" {
+		GinkgoWriter.Printf("[delta investigation] skipping delta generation table cleanup; this spec disables generation\n")
+	} else {
+		if err := clearDeltaGenerations(); err != nil {
+			return err
+		}
 	}
 	if err := clearDeltaHintKeys(ctx); err != nil {
 		return err
@@ -113,6 +139,10 @@ func clearDeltaGenerations() error {
 }
 
 func clearDeltaHintKeys(ctx context.Context) error {
+	if os.Getenv("FLIGHTCTL_E2E_SKIP_DELTA_HINT_CLEAR") == "1" {
+		GinkgoWriter.Printf("[delta investigation] skipping Redis delta hint cleanup; this diagnostic asserts no rendered hints\n")
+		return nil
+	}
 	client, cleanup, err := e2eredis.GetRedisClient()
 	if err != nil {
 		return fmt.Errorf("redis client: %w", err)
