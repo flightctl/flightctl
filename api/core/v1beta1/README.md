@@ -2,6 +2,52 @@
 
 This document is intended to provide context to the API definition.
 
+## Known condition reasons
+
+The standalone `*ConditionReason` schemas in `openapi.yaml` are discovery
+catalogs for generated clients, not constraints on `ConditionBase.reason` or
+`Condition.reason`. Both fields remain plain strings. These catalogs are
+non-exhaustive: clients must accept and preserve unknown strings, including when
+reading conditions from newer servers or agents. Existing exported Go constants
+and runtime values are unchanged; generated catalog constants are additive.
+
+| Catalog | Resource and condition | Known values |
+| --- | --- | --- |
+| EnrollmentApprovalConditionReason | EnrollmentRequest Approved; CertificateSigningRequest Approved/Denied | ManuallyApproved (EnrollmentRequest); Approved, Denied (CertificateSigningRequest) |
+| CertificateSigningRequestFailureConditionReason | CertificateSigningRequest Failed | SigningFailed |
+| TpmConditionReason | EnrollmentRequest and CertificateSigningRequest TPMVerified | TPMVerificationFailed (both); TPMVerificationSucceeded (CertificateSigningRequest); TPMChallengeRequired, TPMChallengeFailed, TPMChallengeSucceeded (EnrollmentRequest) |
+| RepositoryConditionReason | Repository Accessible | Accessible, Inaccessible |
+| ResourceSyncConditionReason | ResourceSync Accessible | accessible, repository resource not found, failed to clone repository, path not found in repository |
+| ResourceSyncConditionReason | ResourceSync ResourceParsed; Synced | success, fail; Synced also uses NewHashDetected |
+| ValidationConditionReason | Fleet Valid; Device SpecValid | Valid, Invalid |
+| FleetRolloutConditionReason | Fleet RolloutInProgress | Inactive, Active, Suspended, Waiting |
+| DeviceUpdateConditionReason | Device Updating (update states); legacy Bootstrapping has no current condition type mapping | Bootstrapping, Preparing, ReadyToUpdate, ApplyingUpdate, Rebooting, Updated, Canceled, Error, RollingBack, Retrying |
+| DeviceDecommissionConditionReason | Device DeviceDecommissioning | Started, Completed, Error |
+| DeviceOwnershipConditionReason | Device MultipleOwners | MultipleOwners (the false condition may have an empty reason) |
+| DeviceLabelsConditionReason | Device LabelsSynced | Reconciled, ReconciliationFailed |
+| LabelSyncMappingConditionReason | LabelSyncMapping Ready | Pending, Degraded, Success |
+| DeltaPreparingConditionReason | Fleet FleetDeltaPreparing; Device DeviceDeltaPreparing | DeltaGenerationInProgress |
+| EnrollmentHooksConditionReason | Device EnrollmentHooks | NotifyPending, Pending, Failed, Succeeded, Continued, ManualOverride |
+| EnrollmentHookPolicyConditionReason | EnrollmentHookPolicy Ready | ValidationPassed |
+
+The inventory follows the service handlers (enrollment, TPM verification, CSR
+signing, repository checks, label reconciliation and policy validation),
+`internal/tasks` (resource sync, fleet validation/selection and device rendering),
+`internal/rollout/device_selection/condition_emitter.go`,
+`internal/delta_worker/service/status.go`, label mapping store scans, CLI approval
+and denial, and agent update, bootstrap, lifecycle and enrollment hook paths.
+`TPMChallengeRequired` is emitted with `TPMVerified=False` during enrollment.
+ResourceSync's legacy lowercase and space-containing reasons are deliberately
+preserved. Bootstrapping, Canceled and Retrying are declared core constants;
+they are included for discovery even though current condition producers do not
+emit them.
+
+Reasons accepted through condition/status APIs and enrollment hook reports can
+be supplied by clients or agents and are passed through, rather than drawn from
+a closed set. Error details are generally carried in `message`, not synthesized
+into additional catalog values. Event reasons, operation `Status.reason`, audit
+reasons and Image Builder reason catalogs are separate APIs and are not included.
+
 ## Device.Status
 
 ### Conditions

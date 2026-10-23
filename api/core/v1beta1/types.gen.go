@@ -95,6 +95,11 @@ const (
 	AuthStaticRoleAssignmentTypeStatic AuthStaticRoleAssignmentType = "static"
 )
 
+// Defines values for CertificateSigningRequestFailureConditionReason.
+const (
+	CertificateSigningRequestFailureConditionReasonSigningFailed CertificateSigningRequestFailureConditionReason = "SigningFailed"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -149,6 +154,11 @@ const (
 	DeltaGenerationProgressSucceeded  DeltaGenerationProgressDetailsGenerationStatus = "succeeded"
 )
 
+// Defines values for DeltaPreparingConditionReason.
+const (
+	DeltaPreparingConditionReasonDeltaGenerationInProgress DeltaPreparingConditionReason = "DeltaGenerationInProgress"
+)
+
 // Defines values for DependencyChangeDetectedDetailsDetailType.
 const (
 	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
@@ -157,6 +167,13 @@ const (
 // Defines values for DependencySyncProbeFailedDetailsDetailType.
 const (
 	DependencySyncProbeFailed DependencySyncProbeFailedDetailsDetailType = "DependencySyncProbeFailed"
+)
+
+// Defines values for DeviceDecommissionConditionReason.
+const (
+	DeviceDecommissionConditionReasonCompleted DeviceDecommissionConditionReason = "Completed"
+	DeviceDecommissionConditionReasonError     DeviceDecommissionConditionReason = "Error"
+	DeviceDecommissionConditionReasonStarted   DeviceDecommissionConditionReason = "Started"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -188,6 +205,12 @@ const (
 	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
 	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
 	DeviceIntegrityStatusVerified    DeviceIntegrityStatusSummaryType = "Verified"
+)
+
+// Defines values for DeviceLabelsConditionReason.
+const (
+	DeviceLabelsConditionReasonReconciled           DeviceLabelsConditionReason = "Reconciled"
+	DeviceLabelsConditionReasonReconciliationFailed DeviceLabelsConditionReason = "ReconciliationFailed"
 )
 
 // Defines values for DeviceLifecycleHookType.
@@ -230,6 +253,11 @@ const (
 	DeviceOwnershipChanged DeviceOwnershipChangedDetailsDetailType = "DeviceOwnershipChanged"
 )
 
+// Defines values for DeviceOwnershipConditionReason.
+const (
+	DeviceOwnershipConditionReasonMultipleOwners DeviceOwnershipConditionReason = "MultipleOwners"
+)
+
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
@@ -251,6 +279,20 @@ const (
 	DeviceSummaryStatusUnknown           DeviceSummaryStatusType = "Unknown"
 )
 
+// Defines values for DeviceUpdateConditionReason.
+const (
+	DeviceUpdateConditionReasonApplyingUpdate DeviceUpdateConditionReason = "ApplyingUpdate"
+	DeviceUpdateConditionReasonBootstrapping  DeviceUpdateConditionReason = "Bootstrapping"
+	DeviceUpdateConditionReasonCanceled       DeviceUpdateConditionReason = "Canceled"
+	DeviceUpdateConditionReasonError          DeviceUpdateConditionReason = "Error"
+	DeviceUpdateConditionReasonPreparing      DeviceUpdateConditionReason = "Preparing"
+	DeviceUpdateConditionReasonReadyToUpdate  DeviceUpdateConditionReason = "ReadyToUpdate"
+	DeviceUpdateConditionReasonRebooting      DeviceUpdateConditionReason = "Rebooting"
+	DeviceUpdateConditionReasonRetrying       DeviceUpdateConditionReason = "Retrying"
+	DeviceUpdateConditionReasonRollingBack    DeviceUpdateConditionReason = "RollingBack"
+	DeviceUpdateConditionReasonUpdated        DeviceUpdateConditionReason = "Updated"
+)
+
 // Defines values for DeviceUpdatedStatusType.
 const (
 	DeviceUpdatedStatusOutOfDate DeviceUpdatedStatusType = "OutOfDate"
@@ -268,6 +310,28 @@ const (
 const (
 	EncodingBase64 EncodingType = "base64"
 	EncodingPlain  EncodingType = "plain"
+)
+
+// Defines values for EnrollmentApprovalConditionReason.
+const (
+	EnrollmentApprovalConditionReasonApproved         EnrollmentApprovalConditionReason = "Approved"
+	EnrollmentApprovalConditionReasonDenied           EnrollmentApprovalConditionReason = "Denied"
+	EnrollmentApprovalConditionReasonManuallyApproved EnrollmentApprovalConditionReason = "ManuallyApproved"
+)
+
+// Defines values for EnrollmentHookPolicyConditionReason.
+const (
+	EnrollmentHookPolicyConditionReasonValidationPassed EnrollmentHookPolicyConditionReason = "ValidationPassed"
+)
+
+// Defines values for EnrollmentHooksConditionReason.
+const (
+	EnrollmentHooksConditionReasonContinued      EnrollmentHooksConditionReason = "Continued"
+	EnrollmentHooksConditionReasonFailed         EnrollmentHooksConditionReason = "Failed"
+	EnrollmentHooksConditionReasonManualOverride EnrollmentHooksConditionReason = "ManualOverride"
+	EnrollmentHooksConditionReasonNotifyPending  EnrollmentHooksConditionReason = "NotifyPending"
+	EnrollmentHooksConditionReasonPending        EnrollmentHooksConditionReason = "Pending"
+	EnrollmentHooksConditionReasonSucceeded      EnrollmentHooksConditionReason = "Succeeded"
 )
 
 // Defines values for EventReason.
@@ -384,6 +448,14 @@ const (
 	FleetRolloutCompleted FleetRolloutCompletedDetailsDetailType = "FleetRolloutCompleted"
 )
 
+// Defines values for FleetRolloutConditionReason.
+const (
+	FleetRolloutConditionReasonActive    FleetRolloutConditionReason = "Active"
+	FleetRolloutConditionReasonInactive  FleetRolloutConditionReason = "Inactive"
+	FleetRolloutConditionReasonSuspended FleetRolloutConditionReason = "Suspended"
+	FleetRolloutConditionReasonWaiting   FleetRolloutConditionReason = "Waiting"
+)
+
 // Defines values for FleetRolloutDeviceSelectedDetailsDetailType.
 const (
 	FleetRolloutDeviceSelected FleetRolloutDeviceSelectedDetailsDetailType = "FleetRolloutDeviceSelected"
@@ -450,6 +522,13 @@ const (
 // Defines values for LabelSyncMappingKind.
 const (
 	LabelSyncMappingKindLabelSyncMapping LabelSyncMappingKind = "LabelSyncMapping"
+)
+
+// Defines values for LabelSyncMappingConditionReason.
+const (
+	LabelSyncMappingConditionReasonDegraded LabelSyncMappingConditionReason = "Degraded"
+	LabelSyncMappingConditionReasonPending  LabelSyncMappingConditionReason = "Pending"
+	LabelSyncMappingConditionReasonSuccess  LabelSyncMappingConditionReason = "Success"
 )
 
 // Defines values for LabelSyncMappingSpecResourceType.
@@ -533,6 +612,12 @@ const (
 	RepoSpecTypeOci  RepoSpecType = "oci"
 )
 
+// Defines values for RepositoryConditionReason.
+const (
+	RepositoryConditionReasonAccessible   RepositoryConditionReason = "Accessible"
+	RepositoryConditionReasonInaccessible RepositoryConditionReason = "Inaccessible"
+)
+
 // Defines values for ResourceAlertSeverityType.
 const (
 	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
@@ -555,6 +640,17 @@ const (
 // Defines values for ResourceSyncCompletedDetailsDetailType.
 const (
 	ResourceSyncCompleted ResourceSyncCompletedDetailsDetailType = "ResourceSyncCompleted"
+)
+
+// Defines values for ResourceSyncConditionReason.
+const (
+	ResourceSyncConditionReasonAccessible         ResourceSyncConditionReason = "accessible"
+	ResourceSyncConditionReasonCloneFailed        ResourceSyncConditionReason = "failed to clone repository"
+	ResourceSyncConditionReasonFail               ResourceSyncConditionReason = "fail"
+	ResourceSyncConditionReasonNewHashDetected    ResourceSyncConditionReason = "NewHashDetected"
+	ResourceSyncConditionReasonPathNotFound       ResourceSyncConditionReason = "path not found in repository"
+	ResourceSyncConditionReasonRepositoryNotFound ResourceSyncConditionReason = "repository resource not found"
+	ResourceSyncConditionReasonSuccess            ResourceSyncConditionReason = "success"
 )
 
 // Defines values for ResourceSyncType.
@@ -656,6 +752,21 @@ const (
 // Defines values for TokenResponseTokenType.
 const (
 	Bearer TokenResponseTokenType = "Bearer"
+)
+
+// Defines values for TpmConditionReason.
+const (
+	TpmConditionReasonChallengeFailed       TpmConditionReason = "TPMChallengeFailed"
+	TpmConditionReasonChallengeRequired     TpmConditionReason = "TPMChallengeRequired"
+	TpmConditionReasonChallengeSucceeded    TpmConditionReason = "TPMChallengeSucceeded"
+	TpmConditionReasonVerificationFailed    TpmConditionReason = "TPMVerificationFailed"
+	TpmConditionReasonVerificationSucceeded TpmConditionReason = "TPMVerificationSucceeded"
+)
+
+// Defines values for ValidationConditionReason.
+const (
+	ValidationConditionReasonInvalid ValidationConditionReason = "Invalid"
+	ValidationConditionReasonValid   ValidationConditionReason = "Valid"
 )
 
 // Defines values for ListEventsParamsOrder.
@@ -1062,6 +1173,9 @@ type CertificateSigningRequest struct {
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
+// CertificateSigningRequestFailureConditionReason Non-exhaustive known reasons for the CertificateSigningRequest Failed condition. Clients must tolerate unknown reason strings.
+type CertificateSigningRequestFailureConditionReason string
+
 // CertificateSigningRequestList CertificateSigningRequestList is a list of CertificateSigningRequest.
 type CertificateSigningRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -1173,7 +1287,7 @@ type Condition struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -1194,7 +1308,7 @@ type ConditionBase struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -1323,6 +1437,9 @@ type DeltaGenerationStatus struct {
 	// Total Number of unique generation pairs in this prepare.
 	Total int64 `json:"total"`
 }
+
+// DeltaPreparingConditionReason Non-exhaustive known reasons for Fleet FleetDeltaPreparing and Device DeviceDeltaPreparing conditions. Clients must tolerate unknown reason strings.
+type DeltaPreparingConditionReason string
 
 // DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
 type DependencyChangeDetectedDetails struct {
@@ -1463,6 +1580,9 @@ type DeviceDecommission struct {
 	Target DeviceDecommissionTargetType `json:"target"`
 }
 
+// DeviceDecommissionConditionReason Non-exhaustive known reasons for the Device DeviceDecommissioning condition. Clients must tolerate unknown reason strings.
+type DeviceDecommissionConditionReason string
+
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
@@ -1555,6 +1675,9 @@ type DeviceKvm struct {
 	// Enabled Whether KVM virtualization is active and available on the device.
 	Enabled *bool `json:"enabled,omitempty"`
 }
+
+// DeviceLabelsConditionReason Non-exhaustive known reasons for the Device LabelsSynced condition. Clients must tolerate unknown reason strings.
+type DeviceLabelsConditionReason string
 
 // DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
 type DeviceLastSeen struct {
@@ -1669,6 +1792,9 @@ type DeviceOwnershipChangedDetails struct {
 
 // DeviceOwnershipChangedDetailsDetailType The type of detail for discriminator purposes.
 type DeviceOwnershipChangedDetailsDetailType string
+
+// DeviceOwnershipConditionReason Non-exhaustive known reasons for the Device MultipleOwners condition. The reason can also be empty when the condition is false. Clients must tolerate unknown reason strings.
+type DeviceOwnershipConditionReason string
 
 // DeviceResourceStatus Current status of the resources of the device.
 type DeviceResourceStatus struct {
@@ -1867,6 +1993,9 @@ type DeviceSystemInfoSummaryStatus struct {
 	Status SystemInfoSummaryStatusType `json:"status"`
 }
 
+// DeviceUpdateConditionReason Non-exhaustive known Device update reasons. Update states apply to the Updating condition; the legacy Bootstrapping constant has no current producer or condition type mapping. Clients must tolerate unknown reason strings.
+type DeviceUpdateConditionReason string
+
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {
 	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
@@ -1975,6 +2104,9 @@ type Duration = string
 // EncodingType Specifies the encoding type used for data representation.
 type EncodingType string
 
+// EnrollmentApprovalConditionReason Non-exhaustive known reasons for approval conditions. EnrollmentRequest Approved uses ManuallyApproved; CertificateSigningRequest Approved and Denied use Approved and Denied respectively. Clients must tolerate unknown reason strings.
+type EnrollmentApprovalConditionReason string
+
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
 	// EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
@@ -2019,6 +2151,9 @@ type EnrollmentHookPolicy struct {
 	// Status Status of an enrollment hook policy.
 	Status *EnrollmentHookPolicyStatus `json:"status,omitempty"`
 }
+
+// EnrollmentHookPolicyConditionReason Non-exhaustive known reasons for the EnrollmentHookPolicy Ready condition. Clients must tolerate unknown reason strings.
+type EnrollmentHookPolicyConditionReason string
 
 // EnrollmentHookPolicyList EnrollmentHookPolicyList is a list of EnrollmentHookPolicy resources.
 type EnrollmentHookPolicyList struct {
@@ -2097,6 +2232,9 @@ type EnrollmentHookStageSpec struct {
 	// FailurePolicy Determines behavior when a hook action fails.
 	FailurePolicy *FailurePolicyType `json:"failurePolicy,omitempty"`
 }
+
+// EnrollmentHooksConditionReason Non-exhaustive known reasons for the Device EnrollmentHooks condition. Clients must tolerate unknown reason strings.
+type EnrollmentHooksConditionReason string
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
@@ -2426,6 +2564,9 @@ type FleetRolloutCompletedDetails struct {
 
 // FleetRolloutCompletedDetailsDetailType The type of detail for discriminator purposes.
 type FleetRolloutCompletedDetailsDetailType string
+
+// FleetRolloutConditionReason Non-exhaustive known reasons for the Fleet RolloutInProgress condition. Clients must tolerate unknown reason strings.
+type FleetRolloutConditionReason string
 
 // FleetRolloutDeviceSelectedDetails defines model for FleetRolloutDeviceSelectedDetails.
 type FleetRolloutDeviceSelectedDetails struct {
@@ -2913,6 +3054,9 @@ type LabelSyncMapping struct {
 
 // LabelSyncMappingKind Kind is a string value representing this resource type.
 type LabelSyncMappingKind string
+
+// LabelSyncMappingConditionReason Non-exhaustive known reasons for the LabelSyncMapping Ready condition. Clients must tolerate unknown reason strings.
+type LabelSyncMappingConditionReason string
 
 // LabelSyncMappingList LabelSyncMappingList is a list of LabelSyncMapping resources.
 type LabelSyncMappingList struct {
@@ -3420,6 +3564,9 @@ type Repository struct {
 	Status *RepositoryStatus `json:"status,omitempty"`
 }
 
+// RepositoryConditionReason Non-exhaustive known reasons for the Repository Accessible condition. Clients must tolerate unknown reason strings.
+type RepositoryConditionReason string
+
 // RepositoryList RepositoryList is a list of Repositories.
 type RepositoryList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -3516,6 +3663,9 @@ type ResourceSyncCompletedDetails struct {
 
 // ResourceSyncCompletedDetailsDetailType The type of detail for discriminator purposes.
 type ResourceSyncCompletedDetailsDetailType string
+
+// ResourceSyncConditionReason Non-exhaustive known reasons for ResourceSync conditions. Accessible uses accessible and repository lookup, clone, or path failure strings; ResourceParsed uses success or fail; Synced also uses NewHashDetected. Existing spelling and casing are preserved. Clients must tolerate unknown reason strings.
+type ResourceSyncConditionReason string
 
 // ResourceSyncList defines model for ResourceSyncList.
 type ResourceSyncList struct {
@@ -3846,6 +3996,9 @@ type TokenResponse struct {
 // TokenResponseTokenType Token type.
 type TokenResponseTokenType string
 
+// TpmConditionReason Non-exhaustive known reasons for EnrollmentRequest and CertificateSigningRequest TPMVerified conditions. Challenge reasons apply to EnrollmentRequest; TPMVerificationSucceeded applies to CertificateSigningRequest. Clients must tolerate unknown reason strings.
+type TpmConditionReason string
+
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
@@ -3878,6 +4031,9 @@ type UserInfoResponse struct {
 	// Sub Subject identifier.
 	Sub *string `json:"sub,omitempty"`
 }
+
+// ValidationConditionReason Non-exhaustive known reasons for Fleet Valid and Device SpecValid conditions. Clients must tolerate unknown reason strings.
+type ValidationConditionReason string
 
 // Version defines model for Version.
 type Version struct {
