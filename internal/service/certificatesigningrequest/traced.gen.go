@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -68,10 +69,10 @@ func (_d *TracedService) GetCertificateSigningRequest(ctx context.Context, orgId
 	return cp1, s1
 }
 
-func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (cp1 *domain.CertificateSigningRequestList, s1 domain.Status) {
+func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (cp1 *domain.CertificateSigningRequestList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListCertificateSigningRequests")
 
-	cp1, s1 = _d.inner.ListCertificateSigningRequests(ctx, orgId, params)
+	cp1, s1 = _d.inner.ListCertificateSigningRequests(ctx, orgId, params, opts...)
 	endSpan(span, s1)
 	return cp1, s1
 }
