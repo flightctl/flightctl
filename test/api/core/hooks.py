@@ -289,6 +289,8 @@ def _fix_resume_request(body, **_):
 
 @register_body_mutator(path=r'/approval$', method="PUT")
 def _fix_approval(body, **_):
+    # approved:false is a no-op on this endpoint, so always exercise a real approval.
+    body["approved"] = True
     approved_condition = {
         "type": "Approved",
         "status": "True",

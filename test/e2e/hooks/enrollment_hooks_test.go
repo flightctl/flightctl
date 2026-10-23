@@ -46,7 +46,7 @@ var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel
 		Expect(waitForPathAbsenceAfterAgentPoll(harness, enrollmentHookAfterMarker)).To(Succeed())
 	})
 
-	It("does not run AfterEnrolling when an enrollment is denied", Label(enrollmentHookDevLabel, "90611", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
+	It("does not run AfterEnrolling when an enrollment denial attempt is a no-op", Label(enrollmentHookDevLabel, "90611", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
 		harness := e2e.GetWorkerHarness()
 
 		statusCode, err := createEnrollmentHookPolicy(harness, newEnrollmentHookPolicy("", v1beta1.FailurePolicyBlock))
@@ -56,7 +56,7 @@ var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel
 		enrollmentID, err := waitForEnrollmentRequest(harness)
 		Expect(err).ToNot(HaveOccurred())
 
-		statusCode, err = denyEnrollmentRequest(harness, enrollmentID)
+		statusCode, err = attemptEnrollmentDenial(harness, enrollmentID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(statusCode).To(Equal(http.StatusOK))
 		deviceStatus, err := waitForStatusCode(harness, enrollmentID, http.StatusNotFound, getDeviceStatusCode)
@@ -278,7 +278,7 @@ func approveEnrollmentRequest(harness *e2e.Harness, enrollmentID string, labels 
 	return response.StatusCode(), nil
 }
 
-func denyEnrollmentRequest(harness *e2e.Harness, enrollmentID string) (int, error) {
+func attemptEnrollmentDenial(harness *e2e.Harness, enrollmentID string) (int, error) {
 	if harness == nil || harness.Client == nil {
 		return 0, fmt.Errorf("harness or client is nil")
 	}
