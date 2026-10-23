@@ -103,6 +103,9 @@ const (
 	EventReasonApplicationLifecycleChanged     = v1beta1.EventReasonApplicationLifecycleChanged
 	EventReasonPrepareDeltas                   = v1beta1.EventReasonPrepareDeltas
 	EventReasonDeltaGenerationProgress         = v1beta1.EventReasonDeltaGenerationProgress
+	EventReasonDeltaGenerationSucceeded        = v1beta1.EventReasonDeltaGenerationSucceeded
+	EventReasonDeltaGenerationFailed           = v1beta1.EventReasonDeltaGenerationFailed
+	EventReasonDeltaGenerationRejected         = v1beta1.EventReasonDeltaGenerationRejected
 	EventReasonDeltaGenerationCompleted        = v1beta1.EventReasonDeltaGenerationCompleted
 	EventReasonEnrollmentHookSucceeded         = v1beta1.EventReasonEnrollmentHookSucceeded
 	EventReasonEnrollmentHookFailed            = v1beta1.EventReasonEnrollmentHookFailed
@@ -209,6 +212,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDependencySyncProbeFailed:       {},
 	EventReasonEnrollmentHookFailed:            {},
 	EventReasonEnrollmentHookNotifyFailed:      {},
+	EventReasonDeltaGenerationFailed:           {},
 }
 
 // GetEventType determines the event type based on the event reason

@@ -83,6 +83,27 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantTask:  0,
 			wantDelta: 0,
 		},
+		{
+			name:      "When DeltaGenerationSucceeded it should enqueue on neither producer",
+			reason:    domain.EventReasonDeltaGenerationSucceeded,
+			withDelta: true,
+			wantTask:  0,
+			wantDelta: 0,
+		},
+		{
+			name:      "When DeltaGenerationFailed it should enqueue on neither producer",
+			reason:    domain.EventReasonDeltaGenerationFailed,
+			withDelta: true,
+			wantTask:  0,
+			wantDelta: 0,
+		},
+		{
+			name:      "When DeltaGenerationRejected it should enqueue on neither producer",
+			reason:    domain.EventReasonDeltaGenerationRejected,
+			withDelta: true,
+			wantTask:  0,
+			wantDelta: 0,
+		},
 	}
 
 	for _, tt := range tests {

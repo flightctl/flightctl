@@ -107,7 +107,13 @@ When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Contro
 
 ### Delta preparation events
 
-`PrepareDeltas` and `DeltaGenerationProgress` events identify the desired update in their `details`:
+The following delta preparation and generation events identify the desired update in their `details`:
+
+- `PrepareDeltas`
+- `DeltaGenerationProgress`
+- `DeltaGenerationSucceeded`
+- `DeltaGenerationFailed`
+- `DeltaGenerationRejected`
 
 | Resource | Detail field | Meaning |
 |----------|--------------|---------|
@@ -121,6 +127,9 @@ Status and annotation updates do not change the spec generation.
 
 For standalone devices, `DeltaGenerationCompleted` resumes rendering only for the prepared spec generation.
 A delayed completion for an older generation does not resume rendering of a newer spec.
+`DeltaGenerationProgress` reports that a pair is in progress or has entered a phase.
+The terminal events use `DeltaGenerationSucceeded`, `DeltaGenerationFailed`, or `DeltaGenerationRejected`.
+`DeltaGenerationFailed` is a Warning event; the other delta generation events are Normal events.
 
 ### Encryption Events
 

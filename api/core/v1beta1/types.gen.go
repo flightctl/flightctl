@@ -274,7 +274,10 @@ const (
 const (
 	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
 	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
+	EventReasonDeltaGenerationFailed           EventReason = "DeltaGenerationFailed"
 	EventReasonDeltaGenerationProgress         EventReason = "DeltaGenerationProgress"
+	EventReasonDeltaGenerationRejected         EventReason = "DeltaGenerationRejected"
+	EventReasonDeltaGenerationSucceeded        EventReason = "DeltaGenerationSucceeded"
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
@@ -1276,7 +1279,7 @@ type CustomDeviceInfo map[string]string
 // DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
 type DeltaGenerationPhase string
 
-// DeltaGenerationProgressDetails Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+// DeltaGenerationProgressDetails Structured details for delta generation lifecycle events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
 type DeltaGenerationProgressDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`

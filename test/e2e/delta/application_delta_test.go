@@ -672,7 +672,7 @@ func expectNoNewApplicationDeltaGenerationEvent(harness *e2e.Harness, deviceID s
 	events, err := newResourceEvents(harness, v1beta1.DeviceKind, deviceID, baseline.device)
 	Expect(err).NotTo(HaveOccurred())
 	for _, event := range events {
-		if event.Reason != v1beta1.EventReasonDeltaGenerationProgress || event.Details == nil {
+		if !isDeltaGenerationLifecycleReason(event.Reason) || event.Details == nil {
 			continue
 		}
 		details, err := event.Details.AsDeltaGenerationProgressDetails()
@@ -705,7 +705,7 @@ func fleetRolloutStartedTemplateVersion(events []v1beta1.Event, fleetName string
 
 func hasSuccessfulApplicationDeltaGeneration(events []v1beta1.Event, target applicationDeltaGenerationTarget, fleetTemplateVersion string) (bool, error) {
 	for _, event := range events {
-		if event.Reason != v1beta1.EventReasonDeltaGenerationProgress {
+		if !isDeltaGenerationLifecycleReason(event.Reason) {
 			continue
 		}
 		if event.Details == nil {
