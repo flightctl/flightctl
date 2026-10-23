@@ -17,7 +17,7 @@ import (
 type junitTestCase = e2etestutils.JUnitTestCase
 
 var (
-	junitSpecName       = e2etestutils.JUnitSpecName
+	junitSpecName        = e2etestutils.JUnitSpecName
 	parseTimingsFromFile = e2etestutils.ParseTimingsFromFile
 )
 
@@ -80,6 +80,87 @@ func TestRepoFromEnv(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.expectOwner, owner)
 			require.Equal(t, tt.expectRepo, repo)
+		})
+	}
+}
+
+func TestFromDir(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_REPOSITORY", "")
+
+	t.Run("When local reports include nested directories it should aggregate timings without GitHub", func(t *testing.T) {
+		dir := t.TempDir()
+		makeJUnitReport(t, dir, []junitTestCase{
+			{Name: "[It] Suite Spec [sanity]", Time: 10},
+			{Name: "[BeforeSuite]", ClassName: "Suite", Time: 3},
+			{Name: "[It] Suite Skipped", Time: 10, Skipped: []struct{}{{}}},
+			{Name: "[It] Suite Zero", Time: 0},
+		})
+		nested := filepath.Join(dir, "artifact", "reports")
+		require.NoError(t, os.MkdirAll(nested, 0o755))
+		makeJUnitReport(t, nested, []junitTestCase{
+			{Name: "[It] Suite Spec [sanity]", Time: 30},
+			{Name: "[BeforeSuite]", ClassName: "Suite", Time: 5},
+		})
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("not XML"), 0o644))
+		output := filepath.Join(t.TempDir(), "timings.json")
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"--from-dir", dir, "--output", output})
+		require.NoError(t, cmd.Execute())
+		got, err := loadExistingCache(output)
+		require.NoError(t, err)
+		require.Equal(t, map[string]specTiming{
+			"Suite Spec":      {Avg: 20, StdDev: 10},
+			"__suite__:Suite": {Avg: 4, StdDev: 1},
+		}, got)
+	})
+
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, dir string) string
+		args     []string
+		errorMsg string
+	}{
+		{
+			name:     "When runs is explicitly set it should reject from-dir even at the default value",
+			args:     []string{"--runs", "10"},
+			errorMsg: "[from-dir runs]",
+		},
+		{
+			name: "When the directory does not exist it should return an error",
+			setup: func(t *testing.T, dir string) string {
+				return filepath.Join(dir, "missing")
+			},
+			errorMsg: "no such file or directory",
+		},
+		{
+			name: "When the path is a file it should return an error",
+			setup: func(t *testing.T, dir string) string {
+				return makeJUnitReport(t, dir, nil)
+			},
+			errorMsg: "must be a directory",
+		},
+		{
+			name: "When XML is malformed it should return an error without writing output",
+			setup: func(t *testing.T, dir string) string {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.xml"), []byte("not XML <<"), 0o644))
+				return dir
+			},
+			errorMsg: "parse xml",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if test.setup != nil {
+				dir = test.setup(t, dir)
+			}
+			output := filepath.Join(t.TempDir(), "timings.json")
+			cmd := newRootCmd()
+			cmd.SetArgs(append([]string{"--from-dir", dir, "--output", output}, test.args...))
+			require.ErrorContains(t, cmd.Execute(), test.errorMsg)
+			require.NoFileExists(t, output)
 		})
 	}
 }
