@@ -6,8 +6,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +22,6 @@ import (
 )
 
 const (
-	sshPortBase = 2233
 	// cockpitUser is the passwordless "onboarding" user created by
 	// create-onboarding-user.sh. The wizard's privileged apply operations
 	// (hostname/NTP/NetworkManager via D-Bus) are authorized by the polkit rule
@@ -28,16 +31,6 @@ const (
 	// the SSH tunnel and all system verification still use vmUser/vmPassword.
 	cockpitUser   = "onboarding"
 	wizardTimeout = 120 * time.Second
-
-	// SLIRP-matching static IPv4 values. The nested VM has a single NIC on QEMU
-	// user-mode (SLIRP) networking; the guest is fixed at 10.0.2.15 with gateway
-	// 10.0.2.2, and SSH (thus the cockpit/chromedp tunnel) reaches it there. Static
-	// IPv4 wizard tests must use these values so applying the profile preserves the
-	// guest address and does not sever the control channel mid-apply. The resulting
-	// NM profile is still ipv4.method=manual, so it exercises the static-IP path.
-	slirpStaticIP      = "10.0.2.15"
-	slirpStaticMask    = "255.255.255.0"
-	slirpStaticGateway = "10.0.2.2"
 )
 
 // Test credentials. These are not real secrets — they authenticate only to a
@@ -76,6 +69,81 @@ func randomPassword() string {
 	return hex.EncodeToString(buf)
 }
 
+var (
+	guestInetPattern     = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)/(\d+)`)
+	guestRoutePattern    = regexp.MustCompile(`default via (\d+\.\d+\.\d+\.\d+)`)
+	guestRouteSrcPattern = regexp.MustCompile(`\bsrc (\d+\.\d+\.\d+\.\d+)`)
+)
+
+// guestIPv4 is the address the guest NIC already has. A static profile must
+// reuse it so applying the profile does not drop SSH or Cockpit.
+type guestIPv4 struct {
+	Address string
+	Prefix  int
+	Mask    string
+	Gateway string
+}
+
+func (g guestIPv4) CIDR() string {
+	return fmt.Sprintf("%s/%d", g.Address, g.Prefix)
+}
+
+func parseGuestIPv4(addrOut, routeOut string) (guestIPv4, error) {
+	route := strings.TrimSpace(routeOut)
+	gw := guestRoutePattern.FindStringSubmatch(route)
+	if gw == nil {
+		return guestIPv4{}, fmt.Errorf("guest has no IPv4 default route: %q", routeOut)
+	}
+	src := ""
+	if m := guestRouteSrcPattern.FindStringSubmatch(route); m != nil {
+		src = m[1]
+	}
+	var address string
+	var prefix int
+	for _, match := range guestInetPattern.FindAllStringSubmatch(addrOut, -1) {
+		if src != "" && match[1] != src {
+			continue
+		}
+		parsed, err := strconv.Atoi(match[2])
+		if err != nil {
+			return guestIPv4{}, fmt.Errorf("parse guest prefix %q: %w", match[2], err)
+		}
+		address = match[1]
+		prefix = parsed
+		break
+	}
+	if address == "" {
+		return guestIPv4{}, fmt.Errorf("guest has no global IPv4 address: %q", addrOut)
+	}
+	mask, err := prefixMask(prefix)
+	if err != nil {
+		return guestIPv4{}, err
+	}
+	return guestIPv4{Address: address, Prefix: prefix, Mask: mask, Gateway: gw[1]}, nil
+}
+
+func prefixMask(prefix int) (string, error) {
+	if prefix < 0 || prefix > 32 {
+		return "", fmt.Errorf("invalid IPv4 prefix %d", prefix)
+	}
+	mask := net.CIDRMask(prefix, 32)
+	return net.IP(mask).String(), nil
+}
+
+// currentGuestIPv4 reads the guest's global IPv4 address and default gateway.
+// Nested SLIRP reports 10.0.2.15/24 via 10.0.2.2. A bridged guest reports its
+// DHCP lease.
+func currentGuestIPv4(h *e2e.Harness) guestIPv4 {
+	GinkgoHelper()
+	addrOut, err := h.VM.RunSSH([]string{"ip", "-4", "-o", "addr", "show", "scope", "global"}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to read guest IPv4 addresses")
+	routeOut, err := h.VM.RunSSH([]string{"ip", "-4", "route", "show", "default"}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to read guest default route")
+	cfg, err := parseGuestIPv4(addrOut.String(), routeOut.String())
+	Expect(err).ToNot(HaveOccurred())
+	return cfg
+}
+
 // newLoggedInBrowser creates a headless Chrome session and logs it in to the
 // Cockpit wizard as the onboarding user. The caller owns the returned browser
 // and must Close() it. Sharing this helper keeps tunnel-independent session
@@ -94,13 +162,24 @@ func newLoggedInBrowser(cockpitAddr string) *e2e.OnboardingBrowser {
 	return browser
 }
 
+// openCockpitTunnel forwards a local port to Cockpit on the guest. An empty
+// forwardHost targets the guest's loopback. A guest NIC address targets that
+// address so the wizard treats the session as a single-NIC connection.
+func openCockpitTunnel(h *e2e.Harness, forwardHost string) (string, func(), error) {
+	host, port, keyArgs, err := h.VM.GuestSSHEndpoint()
+	if err != nil {
+		return "", nil, err
+	}
+	if forwardHost == "" {
+		return e2e.StartCockpitTunnel(host, port, vmUser, vmPassword, keyArgs)
+	}
+	return e2e.StartCockpitTunnelViaInterface(host, port, vmUser, vmPassword, forwardHost, keyArgs)
+}
+
 // startBrowserSession creates an SSH tunnel to Cockpit and a headless Chrome
 // session logged in to the wizard. Returns the browser and a cleanup function.
 func startBrowserSession() (*e2e.OnboardingBrowser, func()) {
-	workerID := GinkgoParallelProcess()
-	sshPort := sshPortBase + workerID
-
-	cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnel(sshPort, vmUser, vmPassword)
+	cockpitAddr, tunnelCleanup, err := openCockpitTunnel(e2e.GetWorkerHarness(), "")
 	Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
 
 	// If newLoggedInBrowser aborts the spec (its Expect panics through Ginkgo's
@@ -321,13 +400,12 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 
 		By("Selecting NIC and configuring static IPv4")
 		Expect(browser.WizardSelectNIC()).To(Succeed())
-		// The nested VM has a single NIC on QEMU user-mode (SLIRP) networking with
-		// the guest fixed at 10.0.2.15 (gateway 10.0.2.2). SSH — and therefore the
-		// cockpit/chromedp tunnel — reaches the guest via that address, so the static
-		// config must preserve it; a foreign subnet would break the control channel
-		// mid-apply. The NM profile is still ipv4.method=manual, satisfying AC #4.
+		// Reuse the address the NIC already has. A different subnet would drop
+		// the SSH and Cockpit session when the profile is applied. On nested
+		// SLIRP that address is 10.0.2.15; on a bridge it is the DHCP lease.
+		nic := currentGuestIPv4(harness)
 		Expect(browser.WizardConfigureStaticIPv4(
-			slirpStaticIP, slirpStaticMask, slirpStaticGateway, "8.8.8.8",
+			nic.Address, nic.Mask, nic.Gateway, "8.8.8.8",
 		)).To(Succeed())
 
 		By("Navigating to Network Services and configuring NTP and proxy")
@@ -371,7 +449,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 			"nmcli", "-t", "-f", "ipv4.addresses", "con", "show", profileName,
 		}, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(out.String()).To(ContainSubstring(slirpStaticIP + "/24"))
+		Expect(out.String()).To(ContainSubstring(nic.CIDR()))
 
 		By("Verifying NTP configuration")
 		expectNTPServer(harness, "pool.ntp.org")
@@ -392,17 +470,16 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 	})
 
 	It("When reviewing it should display all collected config with the password masked", Label("90467"), func() {
+		nic := currentGuestIPv4(e2e.GetWorkerHarness())
 		browser, cleanup := startBrowserSession()
 		defer cleanup()
 
 		By("Configuring every domain so the review screen has all of them to display")
-		// Static IPv4 uses the SLIRP-matching values (see slirpStaticIP). This spec
-		// never applies — it only reads the Review screen — so the address would not sever
-		// the control channel here, but keeping the values consistent avoids surprises
-		// and gives the review a known IP to assert on.
+		// The review screen shows the address typed into the wizard. Use the
+		// guest's current address so the value matches a real NIC.
 		Expect(browser.WizardSelectNIC()).To(Succeed())
 		Expect(browser.WizardConfigureStaticIPv4(
-			slirpStaticIP, slirpStaticMask, slirpStaticGateway, "8.8.8.8",
+			nic.Address, nic.Mask, nic.Gateway, "8.8.8.8",
 		)).To(Succeed())
 
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Network Services
@@ -435,7 +512,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		// Hostname
 		Expect(reviewText).To(ContainSubstring("review-test"), "hostname should appear on review")
 		// Static IPv4 network config
-		Expect(reviewText).To(ContainSubstring(slirpStaticIP), "static IPv4 address should appear on review")
+		Expect(reviewText).To(ContainSubstring(nic.Address), "static IPv4 address should appear on review")
 		// NTP
 		Expect(reviewText).To(ContainSubstring("time.example.com"), "NTP server should appear on review")
 		// Proxy host and non-secret username (only the password is masked)
@@ -459,9 +536,8 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		originalHostname := strings.TrimSpace(origOut.String())
 
 		By("First attempt: selecting NIC (DHCP) and setting a hostname")
-		// The nested VM has a single SLIRP NIC; reconfiguring its IP would sever the
-		// SSH/cockpit control channel mid-apply (see slirpStaticIP). So the failure is
-		// driven by the required connectivity test, not by a broken network profile.
+		// Leave the NIC on DHCP. Replacing its address would drop the SSH and
+		// Cockpit session, so the failure comes from the connectivity check.
 		Expect(browser.WizardSelectNIC()).To(Succeed())
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Network Services
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Enrollment
@@ -618,11 +694,11 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 
 		By("Selecting NIC and configuring static IPv4 with dual DNS")
 		Expect(browser.WizardSelectNIC()).To(Succeed())
-		// Use the SLIRP-matching address so the static profile keeps the guest
-		// reachable (see slirpStaticIP). DNS values are arbitrary — they don't
-		// affect SSH reachability — so keep two distinct servers to exercise dual DNS.
+		// Reuse the address the NIC already has so the session survives apply.
+		// DNS values are arbitrary and do not affect SSH reachability.
+		nic := currentGuestIPv4(harness)
 		Expect(browser.WizardConfigureStaticIPv4(
-			slirpStaticIP, slirpStaticMask, slirpStaticGateway, "8.8.8.8",
+			nic.Address, nic.Mask, nic.Gateway, "8.8.8.8",
 		)).To(Succeed())
 		Expect(browser.WizardConfigureSecondaryDNS("8.8.4.4")).To(Succeed())
 
@@ -650,13 +726,13 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 			"nmcli", "-t", "-f", "ipv4.addresses", "con", "show", profileName,
 		}, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(out.String()).To(ContainSubstring(slirpStaticIP + "/24"))
+		Expect(out.String()).To(ContainSubstring(nic.CIDR()))
 
 		out, err = harness.VM.RunSSH([]string{
 			"nmcli", "-t", "-f", "ipv4.gateway", "con", "show", profileName,
 		}, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(out.String()).To(ContainSubstring(slirpStaticGateway))
+		Expect(out.String()).To(ContainSubstring(nic.Gateway))
 
 		out, err = harness.VM.RunSSH([]string{
 			"nmcli", "-t", "-f", "ipv4.dns", "con", "show", profileName,
@@ -782,10 +858,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 	})
 
 	It("When wizard has completed it should prevent re-running", Label("90454"), func() {
-		workerID := GinkgoParallelProcess()
-		sshPort := sshPortBase + workerID
-
-		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnel(sshPort, vmUser, vmPassword)
+		cockpitAddr, tunnelCleanup, err := openCockpitTunnel(e2e.GetWorkerHarness(), "")
 		Expect(err).ToNot(HaveOccurred())
 		defer tunnelCleanup()
 

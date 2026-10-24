@@ -123,6 +123,65 @@ func (p *VMPool) GetFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	return newVM, nil
 }
 
+// ensureSharedBaseDisk copies the golden image into the pool disk directory
+// once. Overlay backing files must live there so qemu (local session mode or a
+// remote hypervisor) can open them.
+func (p *VMPool) ensureSharedBaseDisk(workerID int) (string, error) {
+	sharedBaseDisk := filepath.Join(p.config.TempDir, "shared-base-disk.qcow2")
+	p.sharedDiskOnce.Do(func() {
+		p.sharedDiskError = installSharedBaseDisk(p.config.BaseDiskPath, sharedBaseDisk, workerID)
+	})
+	if p.sharedDiskError != nil {
+		return "", p.sharedDiskError
+	}
+	return sharedBaseDisk, nil
+}
+
+// installSharedBaseDisk publishes the golden image at dest. The copy is written
+// to a temporary file in the same directory and renamed into place, so another
+// test process does not truncate the file QEMU already has open. A dest whose
+// size matches the golden image is left in place. A new golden image of the
+// same size is not detected; remove dest to publish it.
+func installSharedBaseDisk(src, dest string, workerID int) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat golden image: %w", err)
+	}
+	destInfo, err := os.Stat(dest)
+	switch {
+	case err == nil && destInfo.Size() == srcInfo.Size():
+		fmt.Printf("🔄 [VMPool] Worker %d: Reusing shared base disk at %s\n", workerID, dest)
+		return nil
+	case err != nil && !os.IsNotExist(err):
+		return fmt.Errorf("failed to stat shared base disk: %w", err)
+	}
+
+	fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, dest)
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".shared-base-disk-*.partial")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary shared base disk: %w", err)
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("failed to close temporary shared base disk: %w", err)
+	}
+	defer os.Remove(tmpName)
+
+	cmd := exec.Command("cp", "--sparse=always", src, tmpName) //nolint:gosec
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create shared base disk: %w, output: %s", err, output)
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return fmt.Errorf("failed to set permissions on shared base disk: %w", err)
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		return fmt.Errorf("failed to publish shared base disk: %w", err)
+	}
+	fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
+	return nil
+}
+
 // createVMForWorker creates a new VM for the specified worker
 func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	vmName := fmt.Sprintf("flightctl-e2e-worker-%d", workerID)
@@ -140,28 +199,9 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		return nil, fmt.Errorf("failed to set permissions on worker directory: %w", err)
 	}
 
-	// Create a shared base disk in /tmp using sync.Once to prevent race conditions
-	// This saves massive disk space while working around libvirt session mode security restrictions
-	sharedBaseDisk := filepath.Join(p.config.TempDir, "shared-base-disk.qcow2")
-
-	// Use sync.Once to ensure the shared base disk is created exactly once
-	p.sharedDiskOnce.Do(func() {
-		fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
-		cmd := exec.Command("cp", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
-		if output, err := cmd.CombinedOutput(); err != nil {
-			p.sharedDiskError = fmt.Errorf("failed to create shared base disk: %w, output: %s", err, string(output))
-			return
-		}
-		if err := os.Chmod(sharedBaseDisk, 0644); err != nil {
-			p.sharedDiskError = fmt.Errorf("failed to set permissions on shared base disk: %w", err)
-			return
-		}
-		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
-	})
-
-	// Check if there was an error during shared disk creation
-	if p.sharedDiskError != nil {
-		return nil, p.sharedDiskError
+	sharedBaseDisk, err := p.ensureSharedBaseDisk(workerID)
+	if err != nil {
+		return nil, err
 	}
 
 	workerDiskPath := filepath.Join(workerDir, fmt.Sprintf("worker-%d-disk.qcow2", workerID))
@@ -183,15 +223,18 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 
 	fmt.Printf("✅ [VMPool] Worker %d: Overlay disk created successfully\n", workerID)
 
-	// Create VM using the worker-specific overlay disk
-	newVM, err := vm.NewVM(vm.TestVM{
+	// Create VM using the worker-specific overlay disk.
+	// Remote libvirt defaults apply only here, where the disk is on the shared path.
+	poolVM := vm.TestVM{
 		TestDir:       workerDir,
 		VMName:        vmName,
 		DiskImagePath: workerDiskPath, // Use worker-specific overlay disk
 		VMUser:        "user",
 		SSHPassword:   "user",
 		SSHPort:       p.config.SSHPortBase + workerID,
-	})
+	}
+	vm.ApplyPoolRemoteDefaults(&poolVM)
+	newVM, err := vm.NewVM(poolVM)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
@@ -321,12 +364,15 @@ func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInt
 
 	workerDiskPath := filepath.Join(workerDir, fmt.Sprintf("fresh-%d-disk.qcow2", workerID))
 
-	// Create a qcow2 overlay image with the original base disk as backing file
-	// (Regular VMs use an intermediate shared copy; fresh VMs use the original directly)
-	// Virtual size inherits from base disk, but actual disk usage is sparse (only written data)
+	// Back the overlay with the shared copy in the pool disk directory so qemu
+	// can open it. Virtual size inherits from that copy; usage stays sparse.
+	sharedBaseDisk, err := p.ensureSharedBaseDisk(workerID)
+	if err != nil {
+		return nil, err
+	}
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating fresh overlay disk at %s\n", workerID, workerDiskPath)
 	cmd := exec.Command("qemu-img", "create", "-f", "qcow2", //nolint:gosec
-		"-b", p.config.BaseDiskPath,
+		"-b", sharedBaseDisk,
 		"-F", "qcow2",
 		workerDiskPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -345,8 +391,9 @@ func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInt
 	// Increased from 1024 to 2048 to prevent OOM during image pull/extraction
 	memoryMiB := 2048
 
-	// Create VM using the fresh disk copy
-	newVM, err := vm.NewVM(vm.TestVM{
+	// Create VM using the fresh disk copy.
+	// Remote libvirt defaults apply only here, where the disk is on the shared path.
+	poolVM := vm.TestVM{
 		TestDir:       workerDir,
 		VMName:        vmName,
 		DiskImagePath: workerDiskPath,
@@ -355,7 +402,14 @@ func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInt
 		SSHPort:       p.config.SSHPortBase + workerID,
 		MemoryMiB:     memoryMiB,
 		TPMDevice:     tpmDevice,
-	})
+	}
+	vm.ApplyPoolRemoteDefaults(&poolVM)
+	// The new overlay has new sshd host keys. Drop a key saved for this VM name
+	// before the first SSH, or accept-new rejects the guest.
+	if err := poolVM.ForgetGuestHostKey(); err != nil {
+		return nil, err
+	}
+	newVM, err := vm.NewVM(poolVM)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
@@ -420,10 +474,9 @@ func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInt
 
 // createFreshVMForWorker creates a fresh VM without snapshot support.
 // Unlike regular VMs, fresh VMs:
-// - Use the original base disk as backing file (not the shared intermediate copy)
 // - Do NOT create a "pristine" snapshot
 // - Start with the agent running (ready for immediate enrollment)
-// Both regular and fresh VMs use qcow2 overlays for efficient disk usage.
+// Both regular and fresh VMs use a qcow2 overlay of the shared base disk.
 func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	newVM, err := p.createFreshVMBase(workerID, "")
 	if err != nil {
@@ -490,9 +543,14 @@ func CreateFreshVMWithTPM(workerID int, tempDir string, sshPortBase int, tpmDevi
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
@@ -694,13 +752,46 @@ func SetupVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.TestVMI
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
 	return vmPool.GetVMForWorker(workerID)
+}
+
+// resolveVMPoolTempDir returns the directory used for overlay disks and cloud-init
+// ISOs. When E2E_VM_DISK_DIR is set, that value is used instead of explicit.
+func resolveVMPoolTempDir(explicit string) (string, error) {
+	if d := strings.TrimSpace(os.Getenv(vm.EnvVMDiskDir)); d != "" {
+		return sanitizeVMPoolDiskDir(d)
+	}
+	return sanitizeVMPoolDiskDir(explicit)
+}
+
+// sanitizeVMPoolDiskDir requires an absolute path with no ".." components and
+// returns filepath.Clean of that path.
+func sanitizeVMPoolDiskDir(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("VM pool disk directory must be an absolute path: %q", path)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("VM pool disk directory must not contain '..' path segments: %q", path)
+		}
+	}
+	cleaned := filepath.Clean(path)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("VM pool disk directory must be an absolute path: %q", path)
+	}
+	return cleaned, nil
 }
 
 // SetupFreshVMForWorker is a convenience function that initializes the VM pool and returns a fresh VM.
@@ -712,9 +803,14 @@ func SetupFreshVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.Te
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
