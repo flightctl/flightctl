@@ -60,7 +60,7 @@ You can provision the enrollment endpoint and certificate to the device in the f
   Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, late binding requires virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject them into the provisioned device using mechanisms such as [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
 
 > [!NOTE]
-> The enrollment certificate is only used to secure the network connection for submitting an enrollment request. It is not involved in the actual verification or approval of the enrollment request. It is also no longer used with enrolled devices, as these rely on device-specific management certificates instead.
+> The enrollment certificate secures the network connection for submitting an enrollment request. The Service accepts it only while the Certificate Signing Request that issued it is approved. The certificate is not used with enrolled devices; those devices rely on device-specific management certificates.
 
 The following procedure describes the early binding method of building the agent configuration including the enrollment endpoint and certificate into the image.
 

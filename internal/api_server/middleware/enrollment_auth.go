@@ -1,13 +1,13 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -15,34 +15,42 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	fcsigner "github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
 	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
-	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/transport"
-	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 )
 
-type EnrollmentCSRStatusCache interface {
-	Get(ctx context.Context, orgId uuid.UUID, certificateDigest string) (domain.CertificateSigningRequestStatus, bool, error)
-	Set(ctx context.Context, orgId uuid.UUID, certificateDigest string, status domain.CertificateSigningRequestStatus) error
-}
-
 // EnrollmentAuthMiddleware handles certificate-based authentication for enrollment/bootstrap requests
 type EnrollmentAuthMiddleware struct {
 	ca          *crypto.CAClient
 	csrStatuses csrservice.Service
-	statusCache EnrollmentCSRStatusCache
+	statusCache *RedisEnrollmentCSRStatusCache
 	log         logrus.FieldLogger
 	cache       *ttlcache.Cache[string, *EnrollmentIdentity]
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	started     bool
+	stopOnce    sync.Once
 }
 
 // NewEnrollmentAuthMiddleware creates a new enrollment authentication middleware
-func NewEnrollmentAuthMiddleware(ca *crypto.CAClient, csrStatuses csrservice.Service, statusCache EnrollmentCSRStatusCache, log logrus.FieldLogger) *EnrollmentAuthMiddleware {
+func NewEnrollmentAuthMiddleware(ca *crypto.CAClient, csrStatuses csrservice.Service, statusCache *RedisEnrollmentCSRStatusCache, log logrus.FieldLogger) (*EnrollmentAuthMiddleware, error) {
+	if ca == nil {
+		return nil, errors.New("ca is required")
+	}
+	if csrStatuses == nil {
+		return nil, errors.New("csrStatuses is required")
+	}
+	if statusCache == nil {
+		return nil, errors.New("statusCache is required")
+	}
+	if log == nil {
+		return nil, errors.New("log is required")
+	}
 	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *EnrollmentIdentity](10 * time.Minute),
 	)
@@ -53,17 +61,47 @@ func NewEnrollmentAuthMiddleware(ca *crypto.CAClient, csrStatuses csrservice.Ser
 		statusCache: statusCache,
 		log:         log,
 		cache:       cache,
+	}, nil
+}
+
+// Start starts the cache background cleanup. It creates a child context that
+// can be independently canceled via Stop.
+func (m *EnrollmentAuthMiddleware) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.started {
+		return errors.New("enrollment auth middleware already started")
 	}
+
+	middlewareCtx, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
+	m.started = true
+
+	go m.cache.Start()
+	go func() {
+		<-middlewareCtx.Done()
+		m.cache.Stop()
+		m.log.Debug("Enrollment auth identity cache stopped")
+	}()
+
+	return nil
 }
 
-// Start starts the cache background cleanup
-func (m *EnrollmentAuthMiddleware) Start() {
-	m.cache.Start()
-}
-
-// Stop stops the cache background cleanup
+// Stop stops the cache background cleanup.
 func (m *EnrollmentAuthMiddleware) Stop() {
-	m.cache.Stop()
+	m.mu.Lock()
+	started := m.started
+	cancel := m.cancel
+	m.mu.Unlock()
+
+	if !started {
+		return
+	}
+	m.stopOnce.Do(func() {
+		if cancel != nil {
+			cancel()
+		}
+	})
 }
 
 // AuthenticateEnrollment is the middleware function that authenticates enrollment requests using certificates
@@ -108,7 +146,7 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			orgID = org.DefaultID
 		}
 
-		if !m.csrStatusAllowsEnrollment(ctx, orgID, peerCertificate) {
+		if !m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate) {
 			transport.WriteJSONError(w, r, "Enrollment certificate is not approved", http.StatusUnauthorized)
 			return
 		}
@@ -159,15 +197,7 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 	})
 }
 
-func (m *EnrollmentAuthMiddleware) csrStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) bool {
-	name, err := fcrypto.GetCertificateExtensionValueAsStr(peerCertificate, fcsigner.OIDEnrollmentCSRName)
-	if errors.Is(err, flterrors.ErrExtensionNotFound) {
-		name = ""
-	} else if err != nil {
-		m.log.WithError(err).Warn("Failed to extract enrollment CSR name from certificate")
-		return false
-	}
-
+func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) bool {
 	certificateDigest := crypto.CertificateDigest(peerCertificate.Raw)
 	status, found, err := m.statusCache.Get(ctx, orgId, certificateDigest)
 	if err != nil {
@@ -176,53 +206,21 @@ func (m *EnrollmentAuthMiddleware) csrStatusAllowsEnrollment(ctx context.Context
 		return domain.IsStatusConditionTrue(status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
 	}
 
-	csr, result := m.csrForCertificate(ctx, orgId, peerCertificate, name)
-	if result.Code != http.StatusOK || csr == nil || csr.Status == nil {
+	csr, err := csrservice.CertificateForLeaf(ctx, m.csrStatuses, orgId, peerCertificate)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to resolve enrollment certificate to CSR")
+		return false
+	}
+	if csr == nil || csr.Status == nil {
+		if err := m.statusCache.SetMissing(ctx, orgId, certificateDigest); err != nil {
+			m.log.WithError(err).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
+		}
 		return false
 	}
 	if err := m.statusCache.Set(ctx, orgId, certificateDigest, *csr.Status); err != nil {
 		m.log.WithError(err).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
 	}
 	return domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
-}
-
-func (m *EnrollmentAuthMiddleware) csrForCertificate(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate, name string) (*domain.CertificateSigningRequest, domain.Status) {
-	if name != "" {
-		return m.csrStatuses.GetCertificateSigningRequest(ctx, orgId, name)
-	}
-
-	certificateDigest := crypto.CertificateDigest(peerCertificate.Raw)
-	filter := "internal.certificateDigest=" + certificateDigest
-	var resolved *domain.CertificateSigningRequest
-	var continuation *string
-	for {
-		candidates, status := m.csrStatuses.ListCertificateSigningRequests(
-			ctx,
-			orgId,
-			domain.ListCertificateSigningRequestsParams{FieldSelector: &filter, Continue: continuation},
-			selector.WithPrivateSelectors(),
-		)
-		if status.Code != http.StatusOK {
-			return nil, status
-		}
-		for index, candidate := range candidates.Items {
-			if candidate.Status == nil || candidate.Status.Certificate == nil {
-				continue
-			}
-			issued, err := fcrypto.ParseCertificatePEM(*candidate.Status.Certificate)
-			if err != nil || !bytes.Equal(issued.Raw, peerCertificate.Raw) {
-				continue
-			}
-			if resolved != nil {
-				return nil, domain.StatusInternalServerError("ambiguous enrollment credential certificate")
-			}
-			resolved = &candidates.Items[index]
-		}
-		continuation = candidates.Metadata.Continue
-		if continuation == nil || *continuation == "" {
-			return resolved, domain.StatusOK()
-		}
-	}
 }
 
 // createCacheKey creates a cache key from the TLS connection

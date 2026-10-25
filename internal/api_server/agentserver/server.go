@@ -160,7 +160,23 @@ func (s *AgentServer) init(ctx context.Context) error {
 		return fmt.Errorf("creating organization provisioner: %w", err)
 	}
 
-	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.ca, s.enrollmentRequestSvc, s.deviceSvc)
+	statusCache, err := fcmiddleware.NewRedisEnrollmentCSRStatusCache(s.kvStore, fcmiddleware.DefaultEnrollmentCSRStatusCacheTTL)
+	if err != nil {
+		return err
+	}
+	s.enrollmentAuthMiddleware, err = fcmiddleware.NewEnrollmentAuthMiddleware(
+		s.ca,
+		s.csrSvc,
+		statusCache,
+		s.log,
+	)
+	if err != nil {
+		return err
+	}
+	s.agentGrpcServer, err = NewAgentGrpcServer(s.log, s.cfg, s.ca, s.enrollmentRequestSvc, s.deviceSvc, s.enrollmentAuthMiddleware)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -283,15 +299,6 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	s.agentAuthMiddleware = fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
 	go s.agentAuthMiddleware.Start()
 
-	// Create enrollment authentication middleware for enrollment/bootstrap operations
-	s.enrollmentAuthMiddleware = fcmiddleware.NewEnrollmentAuthMiddleware(
-		s.ca,
-		s.csrSvc,
-		fcmiddleware.NewRedisEnrollmentCSRStatusCache(s.kvStore, fcmiddleware.DefaultEnrollmentCSRStatusCacheTTL),
-		s.log,
-	)
-	go s.enrollmentAuthMiddleware.Start()
-
 	// Create identity mapping middleware (handles both user and agent identities)
 	s.identityMapper = service.NewIdentityMapper(s.organizationSvc, s.orgProvisioner, s.log)
 	s.identityMapper.Start()
@@ -412,6 +419,10 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 		// Negotiated API endpoints
 		r.Mount("/", negotiatedRouter)
 	})
+
+	if err := s.enrollmentAuthMiddleware.Start(ctx); err != nil {
+		return nil, err
+	}
 
 	return otelhttp.NewHandler(router, "agent-http-server", otelhttp.WithServerName(s.cfg.Service.AgentEndpointAddress)), nil
 }

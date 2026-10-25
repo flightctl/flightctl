@@ -30,13 +30,14 @@ import (
 type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
 	pb.UnimplementedEnrollmentServer
-	log            logrus.FieldLogger
-	cfg            *config.Config
-	ca             *crypto.CAClient
-	service        enrollmentrequestservice.Service
-	deviceSvc      deviceservice.Service
-	pendingStreams *sync.Map
-	server         *grpc.Server
+	log                      logrus.FieldLogger
+	cfg                      *config.Config
+	ca                       *crypto.CAClient
+	service                  enrollmentrequestservice.Service
+	deviceSvc                deviceservice.Service
+	enrollmentAuthMiddleware *middleware.EnrollmentAuthMiddleware
+	pendingStreams           *sync.Map
+	server                   *grpc.Server
 }
 
 // New returns a new instance of a flightctl server.
@@ -46,23 +47,31 @@ func NewAgentGrpcServer(
 	ca *crypto.CAClient,
 	svc enrollmentrequestservice.Service,
 	deviceSvc deviceservice.Service,
-) *AgentGrpcServer {
+	enrollmentAuthMiddleware *middleware.EnrollmentAuthMiddleware,
+) (*AgentGrpcServer, error) {
+	if enrollmentAuthMiddleware == nil {
+		return nil, errors.New("enrollmentAuthMiddleware is required")
+	}
 	agentServer := &AgentGrpcServer{
-		log:            log,
-		cfg:            cfg,
-		ca:             ca,
-		service:        svc,
-		deviceSvc:      deviceSvc,
-		pendingStreams: &sync.Map{},
+		log:                      log,
+		cfg:                      cfg,
+		ca:                       ca,
+		service:                  svc,
+		deviceSvc:                deviceSvc,
+		enrollmentAuthMiddleware: enrollmentAuthMiddleware,
+		pendingStreams:           &sync.Map{},
 	}
 	agentServer.prepareGRPCService()
-	return agentServer
+	return agentServer, nil
 }
 
 func (s *AgentGrpcServer) prepareGRPCService() {
 	s.server = grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()), // enables tracing
-		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
+		grpc.ChainStreamInterceptor(
+			grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware),
+			s.enrollmentCSRStatusStreamInterceptor,
+		),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle: 15 * time.Minute, // Close idle connections after 15 minutes
 			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes
