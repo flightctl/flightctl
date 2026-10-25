@@ -714,6 +714,68 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*devices.Items[0].Metadata.Name).To(Equal("delta-eligible"))
 		})
 
+		It("List with indexed enrollment credential field filters", func() {
+			createProjectedDevice := func(name, certificateName, policyName string, revoked bool) {
+				status := api.NewDeviceStatus()
+				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
+					CertificateName: lo.ToPtr(certificateName),
+					PolicyName:      lo.ToPtr(policyName),
+					Revoked:         lo.ToPtr(revoked),
+				}
+				_, err := devStore.Create(ctx, orgId, &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Status:   &status,
+				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			createProjectedDevice("credential-a-policy-a", "credential-a", "policy-a", true)
+			createProjectedDevice("credential-a-policy-b", "credential-a", "policy-b", false)
+			createProjectedDevice("credential-b-policy-b", "credential-b", "policy-b", false)
+
+			deviceNames := func(items []api.Device) []string {
+				names := make([]string, 0, len(items))
+				for _, device := range items {
+					names = append(names, *device.Metadata.Name)
+				}
+				return names
+			}
+
+			credentialList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.certificateName=credential-a", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(credentialList.Items)).To(ConsistOf("credential-a-policy-a", "credential-a-policy-b"))
+
+			policyList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.policyName=policy-b", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(policyList.Items)).To(ConsistOf("credential-a-policy-b", "credential-b-policy-b"))
+
+			revocationList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.revoked=true", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(revocationList.Items)).To(ConsistOf("credential-a-policy-a"))
+
+			for _, indexName := range []string{
+				"idx_devices_enrollment_credential_certificate_name",
+				"idx_devices_enrollment_credential_policy_name",
+				"idx_devices_enrollment_credential_revoked",
+			} {
+				Expect(db.Migrator().HasIndex(&model.Device{}, indexName)).To(BeTrue())
+			}
+		})
+
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)

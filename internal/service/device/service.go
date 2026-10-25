@@ -63,6 +63,7 @@ type Service interface {
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
 	ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
+	RevokeDeviceEnrollmentCredential(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
 	ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status)
 	// HealthcheckDevices records device heartbeats for the given names (batched by the healthchecker).

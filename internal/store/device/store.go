@@ -462,6 +462,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceEnrollmentCredentialIndexes(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -611,6 +615,30 @@ func (s *DeviceStore) createDeviceSystemInfoOsModeIndex(db *gorm.DB) error {
 	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_system_info_os_mode
 		ON devices ((status->'systemInfo'->>'osMode'))
 		WHERE deleted_at IS NULL`).Error
+}
+
+func (s *DeviceStore) createDeviceEnrollmentCredentialIndexes(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_certificate_name
+			ON devices ((service_conditions->'enrollmentCredential'->>'certificateName'))
+			WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_policy_name
+			ON devices ((service_conditions->'enrollmentCredential'->>'policyName'))
+			WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_revoked
+			ON devices ((service_conditions->'enrollmentCredential'->>'revoked'))
+			WHERE deleted_at IS NULL`,
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {

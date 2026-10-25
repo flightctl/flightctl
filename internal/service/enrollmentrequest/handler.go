@@ -152,10 +152,14 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
+	enrollmentCertificateName := enrollmentRequest.Status.EnrollmentCertificateName
+	enrollmentPolicyName := enrollmentRequest.Status.EnrollmentPolicyName
 	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  existingConditions,
-		Approval:    approval,
+		Certificate:               lo.ToPtr(string(certData)),
+		Conditions:                existingConditions,
+		Approval:                  approval,
+		EnrollmentCertificateName: enrollmentCertificateName,
+		EnrollmentPolicyName:      enrollmentPolicyName,
 	}
 
 	// Merge user-provided labels with agent-provided labels (only if not replacing)
@@ -187,6 +191,19 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 			Certificate: nil,
 			Conditions:  []domain.Condition{},
 		}
+	}
+}
+
+func deviceEnrollmentCredentialStatus(enrollmentRequest *domain.EnrollmentRequest) *domain.DeviceEnrollmentCredentialStatus {
+	if enrollmentRequest.Status == nil ||
+		enrollmentRequest.Status.EnrollmentCertificateName == nil ||
+		enrollmentRequest.Status.EnrollmentPolicyName == nil {
+		return nil
+	}
+	return &domain.DeviceEnrollmentCredentialStatus{
+		CertificateName: enrollmentRequest.Status.EnrollmentCertificateName,
+		PolicyName:      enrollmentRequest.Status.EnrollmentPolicyName,
+		Revoked:         lo.ToPtr(false),
 	}
 }
 
@@ -283,6 +300,8 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			OsMode: enrollmentRequest.Spec.OsMode,
 		}
 	}
+
+	deviceStatus.EnrollmentCredential = deviceEnrollmentCredentialStatus(enrollmentRequest)
 
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
