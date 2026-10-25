@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"net/http"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -126,6 +127,41 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 
 	// PUT /api/v1/enrollmentrequests/{name}
 	Context("Replace ER operations", func() {
+		DescribeTable("should preserve label replacement compatibility",
+			func(labels *map[string]string, expectedLabels map[string]string) {
+				er := CreateTestER()
+				er.Metadata.Labels = &map[string]string{"environment": "factory"}
+				erName := lo.FromPtr(er.Metadata.Name)
+
+				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				Expect(created).ToNot(BeNil())
+				Expect(created.Metadata.Labels).To(PointTo(Equal(map[string]string{"environment": "factory"})))
+
+				replacement := *created
+				replacement.Metadata.Labels = labels
+				replaced, status := suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, replacement)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(replaced).ToNot(BeNil())
+				Expect(replaced.Metadata.Labels).To(PointTo(Equal(expectedLabels)))
+				VerifyERStatusUnchanged(replaced, created)
+
+				final, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(final).ToNot(BeNil())
+				Expect(final.Metadata.Labels).To(PointTo(Equal(expectedLabels)))
+				VerifyERStatusUnchanged(final, created)
+			},
+			Entry("When labels are omitted it should clear existing labels",
+				(*map[string]string)(nil), map[string]string{}),
+			Entry("When labels are explicitly empty it should clear existing labels",
+				&map[string]string{}, map[string]string{}),
+			Entry("When labels point to a nil map it should preserve existing labels",
+				lo.ToPtr(map[string]string(nil)), map[string]string{"environment": "factory"}),
+			Entry("When labels are nonempty it should replace existing labels",
+				&map[string]string{"site": "warehouse"}, map[string]string{"site": "warehouse"}),
+		)
+
 		DescribeTable("should handle replace operations correctly", func(replaceFunc func(api.EnrollmentRequest) api.EnrollmentRequest, replacedMatcher types.GomegaMatcher, statusMatcher types.GomegaMatcher) {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)
@@ -211,6 +247,37 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				BeEquivalentTo(http.StatusBadRequest),
 			),
 		)
+
+		It("should reject a replacement with a stale resource version", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			By("creating initial EnrollmentRequest")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("replacing with the current resource version")
+			current := *created
+			current.Metadata.Labels = &map[string]string{"phase": "current"}
+			_, status = suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, current)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+
+			latest, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(latest.Metadata.ResourceVersion).NotTo(Equal(created.Metadata.ResourceVersion))
+
+			By("replacing with the stale resource version")
+			stale := *created
+			stale.Metadata.Labels = &map[string]string{"phase": "stale"}
+			_, status = suite.EnrollmentRequest.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, stale)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+
+			final, status := suite.EnrollmentRequest.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(final.Metadata.Labels).To(PointTo(Equal(map[string]string{"phase": "current"})))
+			Expect(final.Metadata.ResourceVersion).To(Equal(latest.Metadata.ResourceVersion))
+		})
 	})
 
 	// PUT /api/v1/enrollmentrequests/{name}/status
@@ -262,12 +329,14 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Expect(st.Code).To(statusMatcher)
 				if IsStatusSuccessful(&st) {
 					Expect(updated).ToNot(BeNil())
+					Expect(updated.Metadata.CreationTimestamp).To(Equal(setupResult.Metadata.CreationTimestamp))
 					Expect(updated).To(expectedERStatusMatcher, "Status should match expected after update")
 				}
 
 				By("verifying persistence by reading back")
 				final, st := suite.EnrollmentRequest.GetEnrollmentRequestStatus(ctx, suite.OrgID, erName)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(final.Metadata.CreationTimestamp).To(Equal(setupResult.Metadata.CreationTimestamp))
 				Expect(final).To(expectedERStatusMatcher, "Status should match expected after read back")
 			},
 			Entry("internal request should always succeed",
@@ -312,6 +381,30 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				HaveField("Status.Conditions", ContainElement(And(
 					HaveField("Reason", "PostApprovalUpdate"),
 					HaveField("Message", "Should be allowed after approval"),
+				))),
+				BeEquivalentTo(http.StatusOK),
+			),
+
+			Entry("a different creation timestamp should be ignored",
+				false, // Don't approve first
+				false, // Internal request
+				func(er api.EnrollmentRequest) api.EnrollmentRequest {
+					er.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+					er.Status = &api.EnrollmentRequestStatus{
+						Conditions: []api.Condition{
+							{
+								Type:    api.ConditionTypeEnrollmentRequestApproved,
+								Status:  api.ConditionStatusTrue,
+								Reason:  "DifferentCreationTimestamp",
+								Message: "Should be allowed",
+							},
+						},
+					}
+					return er
+				},
+				HaveField("Status.Conditions", ContainElement(And(
+					HaveField("Reason", "DifferentCreationTimestamp"),
+					HaveField("Message", "Should be allowed"),
 				))),
 				BeEquivalentTo(http.StatusOK),
 			),

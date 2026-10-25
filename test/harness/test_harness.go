@@ -73,6 +73,7 @@ type TestHarness struct {
 	ctrl          *gomock.Controller
 
 	vulnerabilityEnabled bool
+	oidcProvider         *api.OIDCProviderSpec
 
 	// Redis connection params (must be set via WithRedis for ephemeral Redis isolation)
 	redisHost     string
@@ -99,6 +100,12 @@ type TestHarness struct {
 }
 
 type TestHarnessOption func(h *TestHarness)
+
+func WithOIDCProvider(spec api.OIDCProviderSpec) TestHarnessOption {
+	return func(h *TestHarness) {
+		h.oidcProvider = &spec
+	}
+}
 
 // createAdminIdentity creates a test admin identity with full permissions
 func createAdminIdentity() *identity.MappedIdentity {
@@ -215,6 +222,9 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	serverCfg := *config.NewDefault()
+	if tempHarness.oidcProvider != nil {
+		serverCfg.Auth.OIDC = tempHarness.oidcProvider
+	}
 	testdb.ApplyIntegrationConnectionOverrides(&serverCfg)
 	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
@@ -409,8 +419,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, serverLog)
 	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", serverLog)
 	testHarness.Fleet = fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, serverLog)
-	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, ca, kvStore, eventsSvc, serverLog, []string{}, "", "", nil, nil)
-	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(testHarness.EnrollmentRequest), ca, eventsSvc, serverLog, "", "")
+
+	var tpmVerifier tpmcsr.Verifier
+	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, ca, eventsSvc, serverLog, "", "")
+	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, testHarness.CertificateSigningRequest, ca, kvStore, eventsSvc, serverLog, []string{}, "", "", nil, nil)
+	tpmVerifier = *tpmcsr.NewVerifier(testHarness.EnrollmentRequest)
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {

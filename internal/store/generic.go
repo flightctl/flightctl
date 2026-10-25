@@ -191,7 +191,7 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 		}
 		updated = mutation.Resource()
 		return false, nil
-	})
+	}, lo.FromPtrOr(hooks.MaxRetries, retryIterations-1))
 	return updated, before, created, err
 }
 
@@ -310,7 +310,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	resource.SetGeneration(lo.ToPtr(int64(1)))
 	resource.SetResourceVersion(lo.ToPtr(int64(1)))
 
-	result := s.getDB(ctx).Create(resource)
+	result := s.getDB(ctx).Clauses(clause.Returning{}).Create(resource)
 	if result.Error != nil {
 		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName || err == flterrors.ErrDuplicateOIDCProvider || err == flterrors.ErrDuplicateOAuth2Provider, err
