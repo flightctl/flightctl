@@ -1,21 +1,15 @@
 package enrollmentrequest
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/asn1"
-	"fmt"
-	"net/http"
+	"errors"
 
-	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
-	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
-	"github.com/flightctl/flightctl/internal/store/selector"
-	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 )
 
 type certificateExtensionValue struct {
@@ -88,33 +82,15 @@ func extractCertificateName(leaf *x509.Certificate, orgID uuid.UUID, enrollmentS
 // findCertificateName recovers an old leaf's unique enrollment credential CSR within its tenant;
 // ambiguity yields no reference, while lookup errors propagate to the caller.
 func (h *ServiceHandler) findCertificateName(ctx context.Context, orgID uuid.UUID, leaf *x509.Certificate) (*string, error) {
-	filter := "internal.certificateDigest=" + crypto.CertificateDigest(leaf.Raw)
-	var resolved *string
-	var continuation *string
-	for {
-		candidates, status := h.csrService.ListCertificateSigningRequests(ctx, orgID, domain.ListCertificateSigningRequestsParams{FieldSelector: &filter, Continue: continuation}, selector.WithPrivateSelectors())
-		if status.Code != http.StatusOK {
-			return nil, fmt.Errorf("listing enrollment credentials: %s", status.Message)
-		}
-		if len(candidates.Items) > 1 {
-			h.log.Warn("Multiple CSR certificate digest candidates")
-		}
-		for _, candidate := range candidates.Items {
-			if candidate.Status == nil || candidate.Status.Certificate == nil {
-				continue
-			}
-			issued, err := fcrypto.ParseCertificatePEM(*candidate.Status.Certificate)
-			if err != nil || !bytes.Equal(issued.Raw, leaf.Raw) {
-				continue
-			}
-			if resolved != nil {
-				return nil, nil
-			}
-			resolved = candidate.Metadata.Name
-		}
-		continuation = candidates.Metadata.Continue
-		if lo.FromPtr(continuation) == "" {
-			return resolved, nil
-		}
+	csr, err := csrservice.CertificateForLeaf(ctx, h.csrService, orgID, leaf)
+	if errors.Is(err, csrservice.ErrAmbiguousCertificate) {
+		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	if csr == nil {
+		return nil, nil
+	}
+	return csr.Metadata.Name, nil
 }
