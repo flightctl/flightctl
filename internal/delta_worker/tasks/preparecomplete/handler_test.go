@@ -41,6 +41,10 @@ type completionEventServiceStub struct{}
 
 func (completionEventServiceStub) CreateEvent(context.Context, uuid.UUID, *domain.Event) {}
 
+func (completionEventServiceStub) CreateEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
+}
+
 func (completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/contextutil"
@@ -402,6 +403,66 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	return result, domain.StatusOK()
+}
+
+func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, request domain.EnrollmentCertificateRevocationRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	reason := strings.TrimSpace(request.Reason)
+	if reason == "" {
+		return nil, domain.StatusBadRequest("reason is required and cannot be blank")
+	}
+	if len(reason) > 1024 {
+		return nil, domain.StatusBadRequest("reason must be at most 1024 bytes")
+	}
+
+	identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+	if !ok {
+		return nil, domain.StatusForbidden("an authenticated identity is required to revoke an enrollment credential")
+	}
+	actor := identity.GetUsername()
+	if strings.TrimSpace(actor) == "" {
+		return nil, domain.StatusForbidden("an authenticated identity with a username is required to revoke an enrollment credential")
+	}
+
+	current, err := h.store.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+	if current.Status != nil && current.Status.Revocation != nil {
+		return current, domain.StatusOK()
+	}
+	if !h.isEnrollmentCredential(current) {
+		return nil, domain.StatusBadRequest("only enrollment credentials may be revoked")
+	}
+	if current.Status == nil || current.Status.Certificate == nil || len(*current.Status.Certificate) == 0 {
+		return nil, domain.StatusConflict("only issued enrollment credentials may be revoked")
+	}
+
+	revocation := domain.EnrollmentCertificateRevocation{
+		Reason:    reason,
+		RevokedBy: actor,
+		RevokedAt: time.Now().UTC(),
+	}
+	var revoked *domain.CertificateSigningRequest
+	err = h.store.WithTransaction(ctx, func(txCtx context.Context) error {
+		var changed bool
+		var mutateErr error
+		revoked, _, changed, mutateErr = h.store.Revoke(txCtx, orgId, name, current, revocation)
+		if mutateErr != nil {
+			return mutateErr
+		}
+		if !changed {
+			return nil
+		}
+		event := domain.GetBaseEvent(txCtx, domain.CertificateSigningRequestKind, name,
+			domain.EventReasonEnrollmentCredentialRevoked, "Enrollment credential revoked.", nil)
+		event.Actor = actor
+		return h.events.CreateEventWithRetry(txCtx, orgId, event)
+	})
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+
+	return revoked, domain.StatusOK()
 }
 
 func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningRequest) (signer.SignRequest, bool, error) {
