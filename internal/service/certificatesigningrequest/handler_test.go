@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,11 +33,12 @@ import (
 )
 
 const (
-	statusSuccessCode    = int32(200)
-	statusCreatedCode    = int32(201)
-	statusBadRequestCode = int32(400)
-	statusNotFoundCode   = int32(404)
-	statusConflictCode   = int32(409)
+	statusSuccessCode     = int32(200)
+	statusCreatedCode     = int32(201)
+	statusBadRequestCode  = int32(400)
+	statusNotFoundCode    = int32(404)
+	statusConflictCode    = int32(409)
+	statusServerErrorCode = int32(500)
 )
 
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
@@ -165,6 +167,42 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 	return nil
 }
 
+func (f *fakeCertificateSigningRequestStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	snapshot := make(map[string]*domain.CertificateSigningRequest, len(f.items))
+	for name, csr := range f.items {
+		clone, err := store.CloneJSON(csr)
+		if err != nil {
+			return err
+		}
+		snapshot[name] = clone
+	}
+	if err := fn(ctx); err != nil {
+		f.items = snapshot
+		return err
+	}
+	return nil
+}
+
+func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	updated, before, _, err := f.Mutate(ctx, orgId, name, previous, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		current := mutation.Resource()
+		if current.Status == nil {
+			current.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
+		}
+		if current.Status.Revocation != nil {
+			return store.ErrMutateSkipWrite
+		}
+		current.Status.Revocation = &revocation
+		return nil
+	})
+	changed := err == nil && updated != nil && updated.Status != nil && updated.Status.Revocation != nil &&
+		(before == nil || before.Status == nil || before.Status.Revocation == nil)
+	return updated, before, changed, err
+}
+
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
 // verification tests (GetEnrollmentRequest only).
 type fakeEnrollmentRequestService struct {
@@ -189,8 +227,9 @@ func (f *fakeEnrollmentRequestService) GetEnrollmentRequest(ctx context.Context,
 // the removed HandleCertificateSigningRequestUpdatedEvents method.
 type fakeEventsService struct {
 	events.Service
-	created []*domain.Event
-	deleted []string
+	created        []*domain.Event
+	deleted        []string
+	createEventErr error
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
@@ -198,6 +237,11 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 		return
 	}
 	f.created = append(f.created, event)
+}
+
+func (f *fakeEventsService) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	f.CreateEvent(ctx, orgId, event)
+	return f.createEventErr
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -1176,6 +1220,243 @@ func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
 
 		_, status := h.UpdateCertificateSigningRequestApproval(context.Background(), uuid.New(), cn, approval)
 		require.Equal(t, int32(403), status.Code)
+	})
+}
+
+func TestRevokeCertificateSigningRequest(t *testing.T) {
+	t.Run("When revoking an issued enrollment CSR it should return immutable server-owned metadata", func(t *testing.T) {
+		h, _, _, fakeEvents, cfg := newTestHandler(t)
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "issued-enrollment-csr"
+		created, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.NotNil(t, created.Status.Certificate)
+
+		revoked, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Commissioning credential compromised",
+		})
+
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, revoked.Status.Revocation)
+		require.Equal(t, "Commissioning credential compromised", revoked.Status.Revocation.Reason)
+		require.Equal(t, "security-officer", revoked.Status.Revocation.RevokedBy)
+		require.False(t, revoked.Status.Revocation.RevokedAt.IsZero())
+		require.Nil(t, revoked.Status.Revocation.FlaggingCompletedAt)
+		require.Equal(t, created.Status.Certificate, revoked.Status.Certificate)
+		require.Equal(t, created.Status.IssuedAt, revoked.Status.IssuedAt)
+		var revocationEvents []domain.Event
+		for _, event := range fakeEvents.created {
+			if event.Reason == domain.EventReasonEnrollmentCredentialRevoked {
+				revocationEvents = append(revocationEvents, *event)
+			}
+		}
+		require.Len(t, revocationEvents, 1)
+		revocationEvent := revocationEvents[0]
+		require.Equal(t, domain.EventReasonEnrollmentCredentialRevoked, revocationEvent.Reason)
+		require.Equal(t, "security-officer", revocationEvent.Actor)
+		require.Equal(t, name, revocationEvent.InvolvedObject.Name)
+	})
+
+	t.Run("When revoking an already revoked CSR it should return the original revocation", func(t *testing.T) {
+		h, _, _, fakeEvents, cfg := newTestHandler(t)
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "already-revoked-enrollment-csr"
+		_, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		first, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Credential compromised",
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+		second, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Different reason",
+		})
+
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, first.Status.Revocation, second.Status.Revocation)
+		require.Equal(t, "Credential compromised", second.Status.Revocation.Reason)
+		revocationEventCount := 0
+		for _, event := range fakeEvents.created {
+			if event.Reason == domain.EventReasonEnrollmentCredentialRevoked {
+				revocationEventCount++
+			}
+		}
+		require.Equal(t, 1, revocationEventCount)
+	})
+
+	t.Run("When revocation event persistence fails it should roll back the revocation", func(t *testing.T) {
+		h, _, _, fakeEvents, cfg := newTestHandler(t)
+		fakeEvents.createEventErr = errors.New("event store unavailable")
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "event-failure-enrollment-csr"
+		created, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Credential compromised",
+		})
+
+		require.Equal(t, statusServerErrorCode, status.Code)
+		current, getStatus := h.GetCertificateSigningRequest(ctx, orgId, name)
+		require.Equal(t, statusSuccessCode, getStatus.Code)
+		require.Nil(t, current.Status.Revocation)
+		require.Equal(t, created.Status.Certificate, current.Status.Certificate)
+		var revocationEvents []*domain.Event
+		for _, event := range fakeEvents.created {
+			if event.Reason == domain.EventReasonEnrollmentCredentialRevoked {
+				revocationEvents = append(revocationEvents, event)
+			}
+		}
+		require.Len(t, revocationEvents, 1)
+	})
+
+	t.Run("When the reason is blank or oversized it should reject the request without revoking", func(t *testing.T) {
+		h, _, _, _, cfg := newTestHandler(t)
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "invalid-revocation-reason-csr"
+		created, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		for reason, message := range map[string]string{
+			"":                        "reason is required and cannot be blank",
+			"   ":                     "reason is required and cannot be blank",
+			strings.Repeat("x", 1025): "reason must be at most 1024 bytes",
+		} {
+			_, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+				Reason: reason,
+			})
+			require.Equal(t, statusBadRequestCode, status.Code)
+			require.Equal(t, message, status.Message)
+		}
+
+		current, status := h.GetCertificateSigningRequest(ctx, orgId, name)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Nil(t, current.Status.Revocation)
+		require.Equal(t, created.Status.Certificate, current.Status.Certificate)
+	})
+
+	t.Run("When the target is not an issued enrollment credential it should reject it without mutation", func(t *testing.T) {
+		h, fakeStore, _, _, cfg := newTestHandler(t)
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+
+		serviceClient := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("service-client-csr")},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceSvcClientSignerName,
+				Request:    csrPEM(t, "service-client-csr"),
+				Usages:     validUsages(),
+			},
+			Status: &domain.CertificateSigningRequestStatus{
+				Conditions:  []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue}},
+				Certificate: lo.ToPtr([]byte("issued-service-client-certificate")),
+			},
+		}
+		fakeStore.items["service-client-csr"] = &serviceClient
+
+		unissued := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("unissued-enrollment-csr")},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, "unissued-enrollment-csr"),
+				Usages:     validUsages(),
+			},
+			Status: &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
+		}
+		fakeStore.items["unissued-enrollment-csr"] = &unissued
+
+		managementRenewal := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("management-renewal-csr")},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceManagementRenewalSignerName,
+				Request:    csrPEM(t, "management-renewal-csr"),
+				Usages:     validUsages(),
+			},
+			Status: &domain.CertificateSigningRequestStatus{
+				Conditions:  []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue}},
+				Certificate: lo.ToPtr([]byte("issued-management-certificate")),
+			},
+		}
+		fakeStore.items["management-renewal-csr"] = &managementRenewal
+
+		for name, expectedStatus := range map[string]domain.Status{
+			"service-client-csr":      {Code: statusBadRequestCode, Message: "only enrollment credentials may be revoked"},
+			"management-renewal-csr":  {Code: statusBadRequestCode, Message: "only enrollment credentials may be revoked"},
+			"unissued-enrollment-csr": {Code: statusConflictCode, Message: "only issued enrollment credentials may be revoked"},
+		} {
+			_, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+				Reason: "Credential compromised",
+			})
+			require.Equal(t, expectedStatus.Code, status.Code)
+			require.Equal(t, expectedStatus.Message, status.Message)
+		}
+
+		require.Nil(t, serviceClient.Status.Revocation)
+		require.Nil(t, managementRenewal.Status.Revocation)
+		require.Nil(t, unissued.Status.Revocation)
+	})
+
+	t.Run("When no authenticated actor is present it should reject the request without revoking", func(t *testing.T) {
+		h, fakeStore, _, _, cfg := newTestHandler(t)
+		orgId := uuid.New()
+		name := "missing-actor-enrollment-csr"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+			Status: &domain.CertificateSigningRequestStatus{
+				Conditions:  []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue}},
+				Certificate: lo.ToPtr([]byte("issued-enrollment-certificate")),
+			},
+		}
+		fakeStore.items[name] = &csr
+
+		_, status := h.RevokeCertificateSigningRequest(context.Background(), orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Credential compromised",
+		})
+
+		require.Equal(t, int32(403), status.Code)
+		require.Nil(t, csr.Status.Revocation)
 	})
 }
 

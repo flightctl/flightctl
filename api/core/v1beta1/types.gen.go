@@ -313,6 +313,7 @@ const (
 	EventReasonDeviceVulnerabilityCVEWarning   EventReason = "DeviceVulnerabilityCVEWarning"
 	EventReasonEncryptionMigrationCompleted    EventReason = "EncryptionMigrationCompleted"
 	EventReasonEncryptionMigrationStarted      EventReason = "EncryptionMigrationStarted"
+	EventReasonEnrollmentCredentialRevoked     EventReason = "EnrollmentCredentialRevoked"
 	EventReasonEnrollmentHookFailed            EventReason = "EnrollmentHookFailed"
 	EventReasonEnrollmentHookManualOverride    EventReason = "EnrollmentHookManualOverride"
 	EventReasonEnrollmentHookNotifyFailed      EventReason = "EnrollmentHookNotifyFailed"
@@ -1111,6 +1112,9 @@ type CertificateSigningRequestStatus struct {
 
 	// IssuedAt Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
 	IssuedAt *time.Time `json:"issuedAt,omitempty"`
+
+	// Revocation Immutable server-owned enrollment credential revocation state.
+	Revocation *EnrollmentCertificateRevocation `json:"revocation,omitempty"`
 }
 
 // CheckRepositoryOciImageRequest Request to check if a specific OCI image is accessible in a registry.
@@ -1977,6 +1981,27 @@ type Duration = string
 
 // EncodingType Specifies the encoding type used for data representation.
 type EncodingType string
+
+// EnrollmentCertificateRevocation Immutable server-owned enrollment credential revocation state.
+type EnrollmentCertificateRevocation struct {
+	// FlaggingCompletedAt The time at which affected-device flagging completed.
+	FlaggingCompletedAt *time.Time `json:"flaggingCompletedAt,omitempty"`
+
+	// Reason The security reason supplied by the authenticated actor.
+	Reason string `json:"reason"`
+
+	// RevokedAt The time at which the enrollment credential was revoked.
+	RevokedAt time.Time `json:"revokedAt"`
+
+	// RevokedBy The authenticated actor that revoked the enrollment credential.
+	RevokedBy string `json:"revokedBy"`
+}
+
+// EnrollmentCertificateRevocationRequest Request to revoke an issued enrollment credential.
+type EnrollmentCertificateRevocationRequest struct {
+	// Reason The security reason for revoking the enrollment credential.
+	Reason string `json:"reason"`
+}
 
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
@@ -4191,6 +4216,9 @@ type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
 // UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
 type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
+
+// RevokeCertificateSigningRequestJSONRequestBody defines body for RevokeCertificateSigningRequest for application/json ContentType.
+type RevokeCertificateSigningRequestJSONRequestBody = EnrollmentCertificateRevocationRequest
 
 // ResumeDevicesJSONRequestBody defines body for ResumeDevices for application/json ContentType.
 type ResumeDevicesJSONRequestBody = DeviceResumeRequest

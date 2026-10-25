@@ -42,7 +42,7 @@ func NewEventStore(db *gorm.DB, log logrus.FieldLogger) Store {
 }
 
 func (s *EventStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
 }
 
 func (s *EventStore) InitialMigration(ctx context.Context) error {

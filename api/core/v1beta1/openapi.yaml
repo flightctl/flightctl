@@ -4072,6 +4072,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /certificatesigningrequests/{name}/revocation:
+    x-resource: certificatesigningrequests/revocation
+    post:
+      tags:
+        - certificatesigningrequest
+      description: Revoke an issued enrollment credential.
+      operationId: revokeCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the enrollment CertificateSigningRequest to revoke.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentCertificateRevocationRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /fleets:
     x-resource: fleets
     get:
@@ -9276,6 +9345,8 @@ components:
     CertificateSigningRequestStatus:
       description: Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
       properties:
+        revocation:
+          $ref: '#/components/schemas/EnrollmentCertificateRevocation'
         issuedAt:
           description: Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
           type: string
@@ -9292,6 +9363,42 @@ components:
             $ref: '#/components/schemas/Condition'
       required:
         - conditions
+      type: object
+    EnrollmentCertificateRevocationRequest:
+      description: Request to revoke an issued enrollment credential.
+      properties:
+        reason:
+          description: The security reason for revoking the enrollment credential.
+          type: string
+          minLength: 1
+          maxLength: 1024
+      required:
+        - reason
+      type: object
+    EnrollmentCertificateRevocation:
+      description: Immutable server-owned enrollment credential revocation state.
+      properties:
+        revokedAt:
+          description: The time at which the enrollment credential was revoked.
+          type: string
+          format: date-time
+        revokedBy:
+          description: The authenticated actor that revoked the enrollment credential.
+          type: string
+          minLength: 1
+        reason:
+          description: The security reason supplied by the authenticated actor.
+          type: string
+          minLength: 1
+          maxLength: 1024
+        flaggingCompletedAt:
+          description: The time at which affected-device flagging completed.
+          type: string
+          format: date-time
+      required:
+        - revokedAt
+        - revokedBy
+        - reason
       type: object
     Version:
       type: object
@@ -9361,6 +9468,7 @@ components:
             - DeviceVulnerabilityCVEResolved
             - DeviceVulnerabilityCVEWarning
             - DeviceOSImageChanged
+            - EnrollmentCredentialRevoked
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
             - DeviceMultipleOwnersDetected
