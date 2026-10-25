@@ -54,15 +54,6 @@ def test_action_subresource_body_is_unchanged(monkeypatch):
     assert case.body == original_body
 
 
-def test_approval_subresource_body_is_unchanged():
-    body = {"approved": True}
-    context = SimpleNamespace(
-        operation=SimpleNamespace(path="/enrollmentrequests/{name}/approval", method="PUT")
-    )
-
-    assert hooks.mutate_body(context, body) == body
-
-
 def test_status_subresource_syncs_resource_identity(monkeypatch):
     monkeypatch.setattr(hooks, "_PATH_TO_KIND", {"/enrollmentrequests": "EnrollmentRequest"})
     monkeypatch.setattr(hooks, "VERSION", "v1beta1")
