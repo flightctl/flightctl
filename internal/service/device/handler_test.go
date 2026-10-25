@@ -1130,6 +1130,106 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 	})
 }
 
+func TestRevokeDeviceEnrollmentCredential(t *testing.T) {
+	t.Run("When an automatically admitted device's credential is revoked it should preserve provenance and set the flag", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("automatic-device")},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{},
+				EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
+					CertificateName: lo.ToPtr("commissioning-credential"),
+					PolicyName:      lo.ToPtr("factory-policy"),
+					Revoked:         lo.ToPtr(false),
+				},
+			},
+		}, nil)
+		require.NoError(t, err)
+
+		status := svc.RevokeDeviceEnrollmentCredential(ctx, orgId, "automatic-device")
+
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		stored := st.device.devices["automatic-device"]
+		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("commissioning-credential"),
+			PolicyName:      lo.ToPtr("factory-policy"),
+			Revoked:         lo.ToPtr(true),
+		}, *stored.Status.EnrollmentCredential)
+		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		require.NotNil(t, condition)
+		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+		require.Equal(t, "EnrollmentCredentialRevoked", condition.Reason)
+		require.NotEmpty(t, condition.Message)
+	})
+}
+
+func TestReplaceDeviceStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
+	t.Run("When an agent replaces status it should preserve enrollment credential provenance", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		projection := domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("commissioning-credential"),
+			PolicyName:      lo.ToPtr("factory-policy"),
+			Revoked:         lo.ToPtr(true),
+		}
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("reported-device")},
+			Status:   &domain.DeviceStatus{Conditions: []domain.Condition{}, EnrollmentCredential: &projection},
+		}, nil)
+		require.NoError(t, err)
+
+		incomingStatus := domain.NewDeviceStatus()
+		result, status := svc.ReplaceDeviceStatus(ctx, orgId, "reported-device", domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("reported-device")},
+			Status:   &incomingStatus,
+		}, true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result.Status.EnrollmentCredential)
+		require.Equal(t, projection, *result.Status.EnrollmentCredential)
+		stored := st.device.devices["reported-device"]
+		require.NotNil(t, stored.Status.EnrollmentCredential)
+		require.Equal(t, projection, *stored.Status.EnrollmentCredential)
+	})
+}
+
+func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
+	t.Run("When an administrator replaces service-owned status it should preserve enrollment credential provenance", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		projection := domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("commissioning-credential"),
+			PolicyName:      lo.ToPtr("factory-policy"),
+			Revoked:         lo.ToPtr(true),
+		}
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("admin-status-device")},
+			Status:   &domain.DeviceStatus{Conditions: []domain.Condition{}, EnrollmentCredential: &projection},
+		}, nil)
+		require.NoError(t, err)
+
+		forgedStatus := domain.NewDeviceStatus()
+		forgedStatus.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("forged-credential"),
+			PolicyName:      lo.ToPtr("forged-policy"),
+			Revoked:         lo.ToPtr(false),
+		}
+		result, status := svc.ReplaceServiceOwnedStatus(ctx, orgId, "admin-status-device", domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("admin-status-device")},
+			Status:   &forgedStatus,
+		})
+
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, projection, *result.Status.EnrollmentCredential)
+		stored := st.device.devices["admin-status-device"]
+		require.Equal(t, projection, *stored.Status.EnrollmentCredential)
+	})
+}
+
 func TestUpdateServiceSideDeviceStatus(t *testing.T) {
 	_, _, svc := newTestHandler()
 	device := domain.Device{

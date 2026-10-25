@@ -201,6 +201,25 @@ func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, dev
 	return updated, before, err
 }
 
+func (s *fakeDeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if device.Status == nil {
+			return nil
+		}
+		if m.Device.Status == nil {
+			m.Device.Status = &domain.DeviceStatus{}
+		}
+		m.Device.Status.Conditions = device.Status.Conditions
+		m.Device.Status.DeltaGeneration = device.Status.DeltaGeneration
+		return nil
+	})
+	return updated, before, err
+}
+
 func (s *fakeDeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {

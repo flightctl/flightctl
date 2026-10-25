@@ -26,7 +26,7 @@ The following table lists the fields supported for filtering for each resource k
 |---------------------------------|-----------------------------------------------------|
 | **Catalog Item**                | `metadata.name`<br/>`metadata.catalog`<br/>`spec.category`<br/>`spec.type`<br/>`fleet` (only `in`) |
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status`<br/>`status.enrollmentCredential.certificateName`<br/>`status.enrollmentCredential.policyName`<br/>`status.enrollmentCredential.revoked` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate`<br/>`status.enrollmentCertificateName` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
@@ -35,6 +35,8 @@ The following table lists the fields supported for filtering for each resource k
 ### Examples
 
 For Enrollment Requests, use `status.enrollmentCertificateName` to select requests with an enrollment credential CSR reference and `!status.enrollmentCertificateName` to select requests without one. This optional reference does not prove that the CSR still exists, is unrevoked, has a known issuance time, or meets approval policy requirements. Consumers must resolve the referenced CSR's current state before using it.
+
+For automatically admitted Devices, use the server-owned enrollment credential provenance fields to trace devices by issuing credential, approving policy, or revoked credential without joining Enrollment Requests manually.
 
 For catalog items, use `fleet in (fleet-a,fleet-b)` on `GET /api/v1/catalogitems` to list items referenced by either fleet. The filter includes OS images, application images, and application volume images. You can specify up to 100 fleet names, each at most 253 characters long.
 
@@ -83,6 +85,16 @@ flightctl get devices --field-selector 'status.systemInfo.osMode=package'
 
 # Devices reporting the deprecated field (older agents)
 flightctl get devices --field-selector 'status.capabilities.osMode=package'
+```
+
+#### Example 5: Filter by enrollment credential provenance
+
+These commands retrieve devices admitted by a specific credential or policy, and devices whose admitting credential has been revoked:
+
+```bash
+flightctl get devices --field-selector 'status.enrollmentCredential.certificateName=factory-credential'
+flightctl get devices --field-selector 'status.enrollmentCredential.policyName=factory-policy'
+flightctl get devices --field-selector 'status.enrollmentCredential.revoked=true'
 ```
 
 ### Fields Discovery

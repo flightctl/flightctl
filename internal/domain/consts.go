@@ -286,7 +286,10 @@ const (
 
 // ========== Condition Reasons ==========
 
-const DeviceConditionBootstrapReason = v1beta1.DeviceConditionBootstrapReason
+const (
+	DeviceConditionBootstrapReason    = v1beta1.DeviceConditionBootstrapReason
+	EnrollmentCredentialRevokedReason = v1beta1.EnrollmentCredentialRevokedReason
+)
 
 // ========== Template Functions ==========
 
