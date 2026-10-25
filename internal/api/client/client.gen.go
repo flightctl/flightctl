@@ -165,6 +165,11 @@ type ClientInterface interface {
 
 	UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RevokeCertificateSigningRequestWithBody request with any body
+	RevokeCertificateSigningRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RevokeCertificateSigningRequest(ctx context.Context, name string, body RevokeCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ResumeDevicesWithBody request with any body
 	ResumeDevicesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -772,6 +777,30 @@ func (c *Client) UpdateCertificateSigningRequestApprovalWithBody(ctx context.Con
 
 func (c *Client) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateCertificateSigningRequestApprovalRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeCertificateSigningRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeCertificateSigningRequestRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeCertificateSigningRequest(ctx context.Context, name string, body RevokeCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeCertificateSigningRequestRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2881,6 +2910,53 @@ func NewUpdateCertificateSigningRequestApprovalRequestWithBody(server string, na
 	}
 
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRevokeCertificateSigningRequestRequest calls the generic RevokeCertificateSigningRequest builder with application/json body
+func NewRevokeCertificateSigningRequestRequest(server string, name string, body RevokeCertificateSigningRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRevokeCertificateSigningRequestRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewRevokeCertificateSigningRequestRequestWithBody generates requests for RevokeCertificateSigningRequest with any type of body
+func NewRevokeCertificateSigningRequestRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/certificatesigningrequests/%s/revocation", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -6722,6 +6798,11 @@ type ClientWithResponsesInterface interface {
 
 	UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
+	// RevokeCertificateSigningRequestWithBodyWithResponse request with any body
+	RevokeCertificateSigningRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeCertificateSigningRequestResponse, error)
+
+	RevokeCertificateSigningRequestWithResponse(ctx context.Context, name string, body RevokeCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeCertificateSigningRequestResponse, error)
+
 	// ResumeDevicesWithBodyWithResponse request with any body
 	ResumeDevicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error)
 
@@ -7648,6 +7729,43 @@ func (r UpdateCertificateSigningRequestApprovalResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateCertificateSigningRequestApprovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeCertificateSigningRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CertificateSigningRequest
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeCertificateSigningRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeCertificateSigningRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeCertificateSigningRequestResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -10632,6 +10750,23 @@ func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithRespons
 	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
 }
 
+// RevokeCertificateSigningRequestWithBodyWithResponse request with arbitrary body returning *RevokeCertificateSigningRequestResponse
+func (c *ClientWithResponses) RevokeCertificateSigningRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeCertificateSigningRequestResponse, error) {
+	rsp, err := c.RevokeCertificateSigningRequestWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeCertificateSigningRequestResponse(rsp)
+}
+
+func (c *ClientWithResponses) RevokeCertificateSigningRequestWithResponse(ctx context.Context, name string, body RevokeCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeCertificateSigningRequestResponse, error) {
+	rsp, err := c.RevokeCertificateSigningRequest(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeCertificateSigningRequestResponse(rsp)
+}
+
 // ResumeDevicesWithBodyWithResponse request with arbitrary body returning *ResumeDevicesResponse
 func (c *ClientWithResponses) ResumeDevicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error) {
 	rsp, err := c.ResumeDevicesWithBody(ctx, contentType, body, reqEditors...)
@@ -12667,6 +12802,81 @@ func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*
 	}
 
 	response := &UpdateCertificateSigningRequestApprovalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CertificateSigningRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeCertificateSigningRequestResponse parses an HTTP response from a RevokeCertificateSigningRequestWithResponse call
+func ParseRevokeCertificateSigningRequestResponse(rsp *http.Response) (*RevokeCertificateSigningRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

@@ -67,6 +67,7 @@ const (
 	EventReasonDeviceVulnerabilityCVEWarning      = v1beta1.EventReasonDeviceVulnerabilityCVEWarning
 	EventReasonDeviceOSImageChanged               = v1beta1.EventReasonDeviceOSImageChanged
 	EventReasonDeviceLabelReconciliationRequested = v1beta1.EventReasonDeviceLabelReconciliationRequested
+	EventReasonEnrollmentCredentialRevoked        = v1beta1.EventReasonEnrollmentCredentialRevoked
 	EventReasonEnrollmentRequestApprovalFailed    = v1beta1.EventReasonEnrollmentRequestApprovalFailed
 	EventReasonEnrollmentRequestApproved          = v1beta1.EventReasonEnrollmentRequestApproved
 	EventReasonFleetInvalid                       = v1beta1.EventReasonFleetInvalid

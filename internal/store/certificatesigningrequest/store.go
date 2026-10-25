@@ -26,7 +26,9 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -104,7 +106,11 @@ func certificateSigningRequestToModel(resource *domain.CertificateSigningRequest
 }
 
 func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
+}
+
+func (s *CertificateSigningRequestStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return store.WithTransaction(ctx, s.dbHandler, fn)
 }
 
 func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
@@ -299,4 +305,30 @@ func sameRetainedCertificate(a, b *[]byte) bool {
 		return a == nil && b == nil
 	}
 	return bytes.Equal(*a, *b)
+}
+
+func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(mutation *CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		current := mutation.Resource()
+		if current.Status == nil {
+			current.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		if current.Status.Revocation != nil {
+			return store.ErrMutateSkipWrite
+		}
+		current.Status.Revocation = &revocation
+		return nil
+	})
+	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+		if current, getErr := s.Get(ctx, orgId, name); getErr == nil &&
+			current.Status != nil && current.Status.Revocation != nil {
+			return current, current, false, nil
+		}
+	}
+	changed := err == nil && updated != nil && updated.Status != nil && updated.Status.Revocation != nil &&
+		(before == nil || before.Status == nil || before.Status.Revocation == nil)
+	return updated, before, changed, err
 }

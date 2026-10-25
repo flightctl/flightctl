@@ -53,6 +53,20 @@ func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, orgId, event)
 }
 
+// CreateEventWithRetry mocks base method.
+func (m *MockService) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEventWithRetry", ctx, orgId, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateEventWithRetry indicates an expected call of CreateEventWithRetry.
+func (mr *MockServiceMockRecorder) CreateEventWithRetry(ctx, orgId, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventWithRetry", reflect.TypeOf((*MockService)(nil).CreateEventWithRetry), ctx, orgId, event)
+}
+
 // HandleGenericResourceDeletedEvents mocks base method.
 func (m *MockService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource any, created bool, err error) {
 	m.ctrl.T.Helper()

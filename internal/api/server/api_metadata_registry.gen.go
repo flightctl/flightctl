@@ -15,6 +15,7 @@ const (
 	API_RESOURCE_CATALOGS_ITEMS = "catalogs/items"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS = "certificatesigningrequests"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
+	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_REVOCATION = "certificatesigningrequests/revocation"
 	API_RESOURCE_DEVICES = "devices"
 	API_RESOURCE_DEVICES_APPLICATIONS_CONSOLE = "devices/applications/console"
 	API_RESOURCE_DEVICES_APPLICATIONS_LIFECYCLE = "devices/applications/lifecycle"
@@ -343,6 +344,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "updateCertificateSigningRequestApproval",
 		Resource:    "certificatesigningrequests/approval",
 		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/certificatesigningrequests/{name}/revocation": {
+		OperationID: "revokeCertificateSigningRequest",
+		Resource:    "certificatesigningrequests/revocation",
+		Action:      "create",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},

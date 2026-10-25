@@ -77,6 +77,13 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantDelta: 0,
 		},
 		{
+			name:      "When EnrollmentCredentialRevoked it should enqueue on the TaskQueue producer",
+			reason:    domain.EventReasonEnrollmentCredentialRevoked,
+			withDelta: true,
+			wantTask:  1,
+			wantDelta: 0,
+		},
+		{
 			name:      "When DeltaGenerationProgress it should enqueue on neither producer",
 			reason:    domain.EventReasonDeltaGenerationProgress,
 			withDelta: true,
