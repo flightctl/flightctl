@@ -19,9 +19,6 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, reso
 			return err
 		}
 		current := mutation.EnrollmentRequest
-		if resource.Metadata.CreationTimestamp != nil && (current.Metadata.CreationTimestamp == nil || !resource.Metadata.CreationTimestamp.Equal(*current.Metadata.CreationTimestamp)) {
-			return flterrors.ErrResourceVersionConflict
-		}
 		status := *resource.Status
 		current.Status = &status
 		return nil

@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"net/http"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -328,12 +329,14 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Expect(st.Code).To(statusMatcher)
 				if IsStatusSuccessful(&st) {
 					Expect(updated).ToNot(BeNil())
+					Expect(updated.Metadata.CreationTimestamp).To(Equal(setupResult.Metadata.CreationTimestamp))
 					Expect(updated).To(expectedERStatusMatcher, "Status should match expected after update")
 				}
 
 				By("verifying persistence by reading back")
 				final, st := suite.EnrollmentRequest.GetEnrollmentRequestStatus(ctx, suite.OrgID, erName)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(final.Metadata.CreationTimestamp).To(Equal(setupResult.Metadata.CreationTimestamp))
 				Expect(final).To(expectedERStatusMatcher, "Status should match expected after read back")
 			},
 			Entry("internal request should always succeed",
@@ -378,6 +381,30 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				HaveField("Status.Conditions", ContainElement(And(
 					HaveField("Reason", "PostApprovalUpdate"),
 					HaveField("Message", "Should be allowed after approval"),
+				))),
+				BeEquivalentTo(http.StatusOK),
+			),
+
+			Entry("a different creation timestamp should be ignored",
+				false, // Don't approve first
+				false, // Internal request
+				func(er api.EnrollmentRequest) api.EnrollmentRequest {
+					er.Metadata.CreationTimestamp = lo.ToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+					er.Status = &api.EnrollmentRequestStatus{
+						Conditions: []api.Condition{
+							{
+								Type:    api.ConditionTypeEnrollmentRequestApproved,
+								Status:  api.ConditionStatusTrue,
+								Reason:  "DifferentCreationTimestamp",
+								Message: "Should be allowed",
+							},
+						},
+					}
+					return er
+				},
+				HaveField("Status.Conditions", ContainElement(And(
+					HaveField("Reason", "DifferentCreationTimestamp"),
+					HaveField("Message", "Should be allowed"),
 				))),
 				BeEquivalentTo(http.StatusOK),
 			),
