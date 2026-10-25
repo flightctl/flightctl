@@ -42,7 +42,7 @@ test/api/
     checks.py         -- Custom response checks: version header, body apiVersion, Vary header
   core/
     hooks.py          -- Core-specific hooks: CSR generation, authprovider spec,
-                         catalog items, fleet template, status conditions, approval
+                         catalog items, fleet template, status conditions
     v1alpha1/
       hooks.py        -- Version entry point (registers v1alpha1)
       schemathesis.toml

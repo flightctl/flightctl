@@ -1,13 +1,12 @@
 """Core API service hooks.
 
 Core-specific schemathesis hooks for enrollment requests, certificate signing
-requests, auth providers, device actions, and approval endpoints.
+requests, auth providers, and device actions.
 """
 
 import base64
 import re
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 import schemathesis
@@ -56,10 +55,6 @@ _VALID_EXTERNAL_ROLES = [
 def _ensure_nonempty(d, key, default):
     if not d.get(key):
         d[key] = default
-
-
-def _utcnow_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------------------------------------------------------------------
@@ -285,22 +280,6 @@ def _fix_resume_request(body, **_):
     for key in list(body.keys()):
         if key not in ("labelSelector", "fieldSelector"):
             del body[key]
-
-
-@register_body_mutator(path=r'/approval$', method="PUT")
-def _fix_approval(body, **_):
-    approved_condition = {
-        "type": "Approved",
-        "status": "True",
-        "lastTransitionTime": _utcnow_iso(),
-        "reason": "Approved",
-        "message": "Approved by schemathesis test",
-    }
-    status = body.get("status")
-    if not isinstance(status, dict):
-        body["status"] = {"conditions": [approved_condition]}
-    elif not status.get("conditions"):
-        status["conditions"] = [approved_condition]
 
 
 @register_body_mutator(path=r'/catalogs/[^/]+/items')
