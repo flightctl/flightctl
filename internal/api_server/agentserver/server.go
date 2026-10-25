@@ -284,7 +284,12 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	go s.agentAuthMiddleware.Start()
 
 	// Create enrollment authentication middleware for enrollment/bootstrap operations
-	s.enrollmentAuthMiddleware = fcmiddleware.NewEnrollmentAuthMiddleware(s.ca, s.log)
+	s.enrollmentAuthMiddleware = fcmiddleware.NewEnrollmentAuthMiddleware(
+		s.ca,
+		s.csrSvc,
+		fcmiddleware.NewRedisEnrollmentCSRStatusCache(s.kvStore, fcmiddleware.DefaultEnrollmentCSRStatusCacheTTL),
+		s.log,
+	)
 	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
