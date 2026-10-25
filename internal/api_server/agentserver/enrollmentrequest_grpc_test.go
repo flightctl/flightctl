@@ -2,21 +2,124 @@ package agentserver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	cacfg "github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+type agentServerFakeCSRService struct {
+	csrservice.Service
+	items []domain.CertificateSigningRequest
+	calls int
+}
+
+func (f *agentServerFakeCSRService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
+	f.calls++
+	return &domain.CertificateSigningRequestList{Items: f.items}, domain.StatusOK()
+}
+
+type agentServerFakeStatusKVStore struct {
+	kvstore.KVStore
+}
+
+func (f *agentServerFakeStatusKVStore) Get(ctx context.Context, key string) ([]byte, error) {
+	return nil, nil
+}
+
+func (f *agentServerFakeStatusKVStore) Set(ctx context.Context, key string, value []byte, expiration time.Duration) error {
+	return nil
+}
+
+func TestTPMChallengeWhenCSRIsDeniedItShouldRejectBeforeReadingStream(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	caClient, _, err := crypto.EnsureCA(cacfg.NewDefault(tempDir))
+	require.NoError(t, err)
+
+	csrName := "denied-enrollment-credential"
+	clientCert, err := caClient.MakeClientCertificate(ctx, filepath.Join(tempDir, "client.crt"), filepath.Join(tempDir, "client.key"), csrName, 1)
+	require.NoError(t, err)
+	peerCertificate := clientCert.Certs[0]
+	certificatePEM, err := fcrypto.EncodeCertificatePEM(peerCertificate)
+	require.NoError(t, err)
+
+	csrs := &agentServerFakeCSRService{
+		items: []domain.CertificateSigningRequest{{
+			Metadata: domain.ObjectMeta{Name: &csrName},
+			Status: &domain.CertificateSigningRequestStatus{
+				Certificate: &certificatePEM,
+				Conditions: []domain.Condition{{
+					Type:   domain.ConditionTypeCertificateSigningRequestDenied,
+					Status: domain.ConditionStatusTrue,
+				}},
+			},
+		}},
+	}
+	statusCache, err := fcmiddleware.NewRedisEnrollmentCSRStatusCache(&agentServerFakeStatusKVStore{}, time.Minute)
+	require.NoError(t, err)
+	enrollmentAuth, err := fcmiddleware.NewEnrollmentAuthMiddleware(caClient, csrs, statusCache, logrus.New())
+	require.NoError(t, err)
+	server := &AgentGrpcServer{
+		log:                      logrus.New(),
+		ca:                       caClient,
+		enrollmentAuthMiddleware: enrollmentAuth,
+	}
+	peerCtx := peer.NewContext(ctx, &peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				PeerCertificates: []*x509.Certificate{peerCertificate},
+				VerifiedChains:   [][]*x509.Certificate{{peerCertificate}},
+			},
+		},
+	})
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	stream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
+	stream.EXPECT().Context().Return(peerCtx)
+
+	handler := func(any, grpc.ServerStream) error {
+		require.FailNow(t, "denied CSR must not reach TPMChallenge handler")
+		return nil
+	}
+	err = server.enrollmentCSRStatusStreamInterceptor(
+		nil,
+		stream,
+		&grpc.StreamServerInfo{FullMethod: tpmChallengeFullMethod},
+		handler,
+	)
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unauthenticated, st.Code())
+	require.Equal(t, 1, csrs.calls)
+}
 
 const (
 	tcgCSR       = "AQABAAAABOUAAABGAAABAAAAAAsAAAAgAAAACgAAAAsAAAFjAAAAAAAAAYIAAABaAAAAAAAAAAAAAAAAAAAAWgAAAK8AAABIAAAAAHRlc3QtbW9kZWx0ZXN0LXNlcmlhbC0tLS0tQkVHSU4gQ0VSVElGSUNBVEUgUkVRVUVTVC0tLS0tCk1JSE5NSFlDQVFBd0ZERVNNQkFHQTFVRUF4TUpkR1Z6ZEMxdVlXMWxNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkkKemowREFRY0RRZ0FFZnFkU2NvemxhamgzOWI3TkU0Q0FYcndBejhQWmY0Q2xRcFEwOHlJRWk3ZlEwUFhMMlJEOQpRWEtTLzBZYjRpaWFCb2JqRkpNdEJTK0pyVzFBaTEyUjA2QUFNQW9HQ0NxR1NNNDlCQU1DQTBjQU1FUUNJQlBXCnJveDRmZFphRWdGakxUYjR6bUovcTNiRVhsNGFqQ3hTZmllZ2tKWGZBaUJHTmJROG1yOG1TK1pNTHczNTg2K1EKNWlPYXZ2RFBUNzlJN21NNUNPbERLQT09Ci0tLS0tRU5EIENFUlRJRklDQVRFIFJFUVVFU1QtLS0tLQowggF+MIIBJaADAgECAgEBMAoGCCqGSM49BAMCMDgxCzAJBgNVBAYTAlVTMQ0wCwYDVQQHEwRUZXN0MRowGAYDVQQKExFGbGlnaHRDVEwgVGVzdCBFSzAeFw0yNTA5MDkxOTIxMzFaFw0yNjA5MDkxOTIxMzFaMDgxCzAJBgNVBAYTAlVTMQ0wCwYDVQQHEwRUZXN0MRowGAYDVQQKExFGbGlnaHRDVEwgVGVzdCBFSzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGMuQrBs3F0wGnU32c9l2UXuh8QUHftT35o4D1h/qRUIwaHOM7MOA4Pm3LfratfCOuRvOQqhd+hYPKOl/Qqx0oGjIDAeMA4GA1UdDwEB/wQEAwIFIDAMBgNVHRMBAf8EAjAAMAoGCCqGSM49BAMCA0cAMEQCIBP7Ico5ahpUMhSxjxxD9t3n6Nhgx7Tov2+6VstXM0e8AiAHJl6Vo4P8Y7XcWbgJHpnsqyjC4GbB/iEdGnjVg3hejwBYACMACwAFAHIAAAAQABgACwADABAAIPsV2T9CN2yK4ueURPNPTXv+bzDw715PRwgRyeqjsaLzACBUB9ptls6+PyMGyPu2e3NotNWXLv4XnDxtVVJodwO89wBYACMACwAEAHIAAAAQABgACwADABAAIH6nUnKM5Wo4d/W+zROAgF68AM/D2X+ApUKUNPMiBIu3ACDQ0PXL2RD9QXKS/0Yb4iiaBobjFJMtBS+JrW1Ai12R0wCt/1RDR4AXACIAC6hf4o7Ig82q/rtDX2qA3KdpYN9tiXvDr6QFCqiv6r8PACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG9pQjbndGLG8Bd65Od6S/54EAIgAL/ci4Ojm0X6mZ/4Brd5CHG0WOql8ReqyR3htBTKdlx/oAIgALMlgj0FpEotydJ4K2cM52Sn7vZsvqJ1Dee8SKrVfC1/EAGAALACC8X+iqUANGlzVzCcEyGvO66M/J6VfgQ1iVzVm229nhyAAgm7CDS2BIyrPx+gnXuNLCrT1bsMbzyWsSNUqfGQv8CxYwRAIgMrkUGIjKwVIKw4KSfsrVdZiojsA6Cd7dmikjAEQfxHgCID6gbfkWUJ9h2FrP1YR33MjkzmDC5ylJ1jwWQaVb4l2n"
