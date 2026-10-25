@@ -596,6 +596,33 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
+
+	t.Run("When automatic approval provenance is committed it should project credential and policy onto the device", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _ := newTestHandler(t)
+		cn := "test-device-automatic-projection"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+			Status: &domain.EnrollmentRequestStatus{
+				Conditions:                []domain.Condition{},
+				EnrollmentCertificateName: lo.ToPtr("commissioning-credential"),
+				EnrollmentPolicyName:      lo.ToPtr("factory-policy"),
+			},
+		}
+		fakeStore.items[cn] = &er
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("commissioning-credential"),
+			PolicyName:      lo.ToPtr("factory-policy"),
+			Revoked:         lo.ToPtr(false),
+		}, *device.Status.EnrollmentCredential)
+	})
 }
 
 func TestEnrollmentRequestSnapshots(testingT *testing.T) {

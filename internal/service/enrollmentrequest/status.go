@@ -21,6 +21,7 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, reso
 		current := mutation.EnrollmentRequest
 		status := *resource.Status
 		status.EnrollmentCertificateName = current.Status.EnrollmentCertificateName
+		status.EnrollmentPolicyName = current.Status.EnrollmentPolicyName
 		current.Status = &status
 		return nil
 	})

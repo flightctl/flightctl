@@ -346,6 +346,10 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if dbDevice.Status.EnrollmentHooks != nil {
 		device.Status.EnrollmentHooks = dbDevice.Status.EnrollmentHooks
 	}
+
+	if dbDevice.Status.EnrollmentCredential != nil {
+		device.Status.EnrollmentCredential = dbDevice.Status.EnrollmentCredential
+	}
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID) ResourceUpdates {
