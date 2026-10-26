@@ -3,6 +3,7 @@ package certificatesigningrequest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -212,12 +213,18 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 	digest := proposed.CertificateDigest
 	if digest == nil && before.Status != nil && before.Status.Certificate != nil {
 		var stored model.CertificateSigningRequest
-		if err := s.getDB(ctx).Select("certificate_digest").
+		err := s.getDB(ctx).Select("certificate_digest").
 			Where("org_id = ? AND name = ? AND created_at = ?", orgId, name, *before.Metadata.CreationTimestamp).
-			Take(&stored).Error; err != nil {
+			Take(&stored).Error
+		switch {
+		case err == nil:
+			digest = preserveExistingCertificateDigest(stored.CertificateDigest, before, mutation.Resource())
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// The row was deleted or recreated concurrently. Let the CAS update below
+			// report the conflict instead of turning it into a not-found error.
+		default:
 			return false, store.ErrorFromGormError(err)
 		}
-		digest = preserveExistingCertificateDigest(stored.CertificateDigest, before, mutation.Resource())
 	}
 	updates := map[string]interface{}{
 		"status":             proposed.Status,
