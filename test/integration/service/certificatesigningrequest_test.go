@@ -1,13 +1,19 @@
 package service_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -443,3 +449,74 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 	})
 
 })
+
+var _ = Describe("Enrollment credential leaf resolution", func() {
+	var suite *ServiceTestSuite
+
+	BeforeEach(func() {
+		suite = NewServiceTestSuite()
+		suite.Setup()
+	})
+
+	AfterEach(func() {
+		suite.Teardown()
+	})
+
+	It("When organizations retain the same certificate it should resolve only within the requested tenant", func() {
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		otherOrgID := uuid.New()
+		Expect(suite.DB.Create(&model.Organization{ID: otherOrgID, ExternalID: otherOrgID.String(), DisplayName: "Other organization"}).Error).NotTo(HaveOccurred())
+
+		firstRequest := CreateTestCSR()
+		first, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, firstRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(first.Status.Certificate).NotTo(BeNil())
+		leaf, err := fcrypto.ParseCertificatePEM(*first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		secondRequest := CreateTestCSR()
+		second, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, otherOrgID, secondRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		second, err = setCSRStatusCertificate(provider, suite.Ctx, otherOrgID, *second.Metadata.Name, first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		resolved, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, suite.OrgID, leaf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(resolved.Metadata.Name)).To(Equal(lo.FromPtr(first.Metadata.Name)))
+
+		resolvedOther, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, otherOrgID, leaf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(resolvedOther.Metadata.Name)).To(Equal(lo.FromPtr(second.Metadata.Name)))
+	})
+
+	It("When multiple CSRs in one tenant retain the same certificate it should fail closed", func() {
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		firstRequest := CreateTestCSR()
+		first, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, firstRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(first.Status.Certificate).NotTo(BeNil())
+		leaf, err := fcrypto.ParseCertificatePEM(*first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		duplicateRequest := CreateTestCSR()
+		duplicate, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, duplicateRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		_, err = setCSRStatusCertificate(provider, suite.Ctx, suite.OrgID, *duplicate.Metadata.Name, first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		resolved, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, suite.OrgID, leaf)
+		Expect(resolved).To(BeNil())
+		Expect(errors.Is(err, csrservice.ErrAmbiguousCertificate)).To(BeTrue())
+	})
+})
+
+func setCSRStatusCertificate(provider csrstore.Store, ctx context.Context, orgID uuid.UUID, name string, certificate *[]byte) (*api.CertificateSigningRequest, error) {
+	updated, _, _, err := provider.Mutate(ctx, orgID, name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		mutation.CertificateSigningRequest.Status.Certificate = certificate
+		return nil
+	})
+	return updated, err
+}
