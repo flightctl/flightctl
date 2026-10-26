@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
-	"slices"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 )
@@ -26,9 +25,6 @@ func (s *SignerDeviceEnrollment) Name() string {
 }
 
 func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
-	if err := rejectEnrollmentIdentityExtension(request); err != nil {
-		return err
-	}
 	// We are about to expose CreateCertificateSigningRequest to agents.
 	// Currently, there is no code in the agent that handles this flow for issuing bootstrap certificates.
 	// For safety, we do not allow client certificates (issued by the system) to request bootstrap certificates at this time.
@@ -42,9 +38,6 @@ func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest
 }
 
 func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
-	if err := rejectEnrollmentIdentityExtension(request); err != nil {
-		return nil, err
-	}
 	cfg := s.ca.Config()
 
 	if request.ResourceName() == nil {
@@ -71,16 +64,5 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 		expiry = *request.ExpirationSeconds()
 	}
 
-	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry),
-		WithExtension(OIDEnrollmentCSRName, *request.ResourceName()))
-}
-
-func rejectEnrollmentIdentityExtension(request SignRequest) error {
-	csr := request.X509()
-	for _, extension := range slices.Concat(csr.Extensions, csr.ExtraExtensions) {
-		if extension.Id.Equal(OIDEnrollmentCSRName) {
-			return fmt.Errorf("%w: enrollment CSR identity extension is issuer-owned", flterrors.ErrCSRInvalid)
-		}
-	}
-	return nil
+	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry))
 }

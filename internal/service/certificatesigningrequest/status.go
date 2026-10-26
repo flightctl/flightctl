@@ -12,9 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
-func (h *ServiceHandler) isEnrollmentCredential(resource *domain.CertificateSigningRequest) bool {
+// isEnrollmentIssuanceEligible reports whether a CSR is signed by the configured
+// enrollment signer. Issuance metadata is strictly gated on that configuration.
+func (h *ServiceHandler) isEnrollmentIssuanceEligible(resource *domain.CertificateSigningRequest) bool {
 	name := h.ca.Cfg.DeviceEnrollmentSignerName
-	if name == "" {
+	if name == "" || resource == nil {
+		return false
+	}
+	return resource.Spec.SignerName == name
+}
+
+// isProtectedEnrollmentCredential reports whether the retained certificate is an
+// enrollment credential that must stay immutable. Legacy credentials whose
+// configured signer changed are recognized through the retained certificate's
+// signer extension.
+func (h *ServiceHandler) isProtectedEnrollmentCredential(resource *domain.CertificateSigningRequest) bool {
+	name := h.ca.Cfg.DeviceEnrollmentSignerName
+	if name == "" || resource == nil {
 		return false
 	}
 	if resource.Spec.SignerName == name {
@@ -40,7 +54,7 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, cand
 			return err
 		}
 		current := mutation.Resource()
-		enrollment := h.isEnrollmentCredential(current) || h.isEnrollmentCredential(candidate)
+		enrollment := h.isProtectedEnrollmentCredential(current) || h.isProtectedEnrollmentCredential(candidate)
 		issuing := candidate.Status.Certificate != nil && len(*candidate.Status.Certificate) > 0
 		if enrollment {
 			if issuing && (!reflect.DeepEqual(candidate.Spec, current.Spec) || candidate.Metadata.CreationTimestamp == nil) {

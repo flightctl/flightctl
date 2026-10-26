@@ -22,6 +22,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// nowFunc allows overriding for unit tests
+var nowFunc = time.Now
+
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
 	tpmVerifier   *tpmcsr.Verifier
@@ -93,7 +96,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	enrollment := csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName
+	enrollment := h.isEnrollmentIssuanceEligible(csr)
 	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
@@ -102,7 +105,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 
 	csr.Status.Certificate = &certPEM
 	if enrollment {
-		csr.Status.IssuedAt = lo.ToPtr(time.Now().UTC())
+		csr.Status.IssuedAt = lo.ToPtr(nowFunc().UTC())
 	}
 	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
@@ -177,7 +180,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		result.Status = &domain.CertificateSigningRequestStatus{}
 	}
 
-	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	if h.isEnrollmentIssuanceEligible(result) {
 		h.autoApprove(ctx, orgId, result)
 	}
 
@@ -257,7 +260,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
 
-	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	if h.isEnrollmentIssuanceEligible(result) {
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
@@ -289,6 +292,12 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	} else if certificateSigningRequestOwnershipConflict(existing, &csr) {
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
+	}
+
+	// Enrollment issuance evidence is server-owned. Preserve the persisted status
+	// so replacement cannot re-sign an issued credential or supply forged evidence.
+	if existing != nil && h.isProtectedEnrollmentCredential(existing) {
+		csr.Status = existing.Status
 	}
 
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
@@ -325,7 +334,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}
 
-	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	if h.isEnrollmentIssuanceEligible(result) {
 		h.autoApprove(ctx, orgId, result)
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
@@ -429,7 +438,7 @@ func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningR
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go
 func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningRequest) {
-	now := time.Now()
+	now := nowFunc()
 	for i := range newCSR.Status.Conditions {
 		// preserve existing lastTransitionTime if the condition with this type/status already exists,
 		// otherwise set to now.

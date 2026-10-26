@@ -164,9 +164,10 @@ type CertificateInfo struct {
 // - No traditional roles (enrollment requests are authenticated by certificate)
 // - Certificate-based issuer (not OIDC/AAP/K8s)
 type EnrollmentIdentity struct {
-	orgID          string
-	commonName     string
-	expirationDate time.Time
+	orgID             string
+	commonName        string
+	expirationDate    time.Time
+	enrollmentCSRName *string
 }
 
 // GetUsername returns the certificate common name as the username
@@ -215,6 +216,11 @@ func (e *EnrollmentIdentity) GetOrgID() string {
 // GetCommonName returns the certificate common name
 func (e *EnrollmentIdentity) GetCommonName() string {
 	return e.commonName
+}
+
+// GetEnrollmentCSRName returns the CSR resolved for the presented enrollment leaf.
+func (e *EnrollmentIdentity) GetEnrollmentCSRName() *string {
+	return e.enrollmentCSRName
 }
 
 // IsAgent returns false to identify this as an enrollment identity (not an agent)
