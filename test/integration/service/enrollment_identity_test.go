@@ -70,7 +70,7 @@ var _ = Describe("Enrollment credential identity", func() {
 	})
 
 	It("When enrollment issuance races it should preserve the first committed evidence", func() {
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		request := CreateTestCSR()
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())

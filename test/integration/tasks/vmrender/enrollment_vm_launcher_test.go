@@ -145,7 +145,8 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 
-		caClient, _, err := icrypto.EnsureCA(cacfg.NewDefault(GinkgoT().TempDir()))
+		caCfg := cacfg.NewDefault(GinkgoT().TempDir())
+		caClient, _, err := icrypto.EnsureCA(caCfg)
 		Expect(err).ToNot(HaveOccurred())
 
 		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStoreInst, "", log)
@@ -154,7 +155,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(depStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repoStore, eventsSvc, log)
 		var tpmVerifier tpmcsr.Verifier
-		csrSvc := csrservice.NewServiceHandler(csrstore.NewCertificateSigningRequestStore(db, log), &tpmVerifier, caClient, eventsSvc, log, "", "")
+		csrSvc := csrservice.NewServiceHandler(csrstore.NewCertificateSigningRequestStore(db, log, caCfg.DeviceEnrollmentSignerName), &tpmVerifier, caClient, eventsSvc, log, "", "")
 		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, csrSvc, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
 		tpmVerifier = *tpmcsr.NewVerifier(enrollmentSvc)
 

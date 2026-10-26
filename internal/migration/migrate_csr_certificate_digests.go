@@ -26,7 +26,7 @@ type csrCertificateDigestCursor struct {
 	Name  string
 }
 
-func migrateCSRCertificateDigests(ctx context.Context, db *gorm.DB) error {
+func migrateCSRCertificateDigests(ctx context.Context, db *gorm.DB, enrollmentSignerName string) error {
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.SchemaMigration{
 			Key: "csr_certificate_digests_v1", AppliedAt: time.Now(),
@@ -42,7 +42,7 @@ func migrateCSRCertificateDigests(ctx context.Context, db *gorm.DB) error {
 			var rows []csrCertificateDigestRow
 			query := tx.Table("certificate_signing_requests").
 				Select("org_id, name, status -> 'certificate' AS certificate").
-				Where("certificate_digest IS NULL AND status ? 'certificate' AND status->>'certificate' IS NOT NULL AND status->>'certificate' <> ''").
+				Where("certificate_digest IS NULL AND spec->>'signerName' = ? AND status ? 'certificate' AND status->>'certificate' IS NOT NULL AND status->>'certificate' <> ''", enrollmentSignerName).
 				Order("org_id, name").
 				Limit(csrCertificateDigestBatchSize)
 			if last != nil {
@@ -54,7 +54,7 @@ func migrateCSRCertificateDigests(ctx context.Context, db *gorm.DB) error {
 			if len(rows) == 0 {
 				return nil
 			}
-			if err := updateCSRCertificateDigestBatch(tx, rows); err != nil {
+			if err := updateCSRCertificateDigestBatch(tx, rows, enrollmentSignerName); err != nil {
 				return err
 			}
 			last = &csrCertificateDigestCursor{
@@ -65,7 +65,7 @@ func migrateCSRCertificateDigests(ctx context.Context, db *gorm.DB) error {
 	})
 }
 
-func updateCSRCertificateDigestBatch(tx *gorm.DB, rows []csrCertificateDigestRow) error {
+func updateCSRCertificateDigestBatch(tx *gorm.DB, rows []csrCertificateDigestRow, enrollmentSignerName string) error {
 	values := make([]string, 0, len(rows))
 	args := make([]any, 0, len(rows)*4)
 	for _, row := range rows {
@@ -84,12 +84,14 @@ func updateCSRCertificateDigestBatch(tx *gorm.DB, rows []csrCertificateDigestRow
 	if len(values) == 0 {
 		return nil
 	}
+	args = append(args, enrollmentSignerName)
 	result := tx.Exec(fmt.Sprintf(`
 		UPDATE certificate_signing_requests AS csr
 		SET certificate_digest = batch.digest
 		FROM (VALUES %s) AS batch(org_id, name, certificate, digest)
 		WHERE csr.org_id = batch.org_id
 			AND csr.name = batch.name
+			AND csr.spec->>'signerName' = ?
 			AND csr.status -> 'certificate' = batch.certificate`,
 		strings.Join(values, ", ")), args...)
 	if result.Error != nil {

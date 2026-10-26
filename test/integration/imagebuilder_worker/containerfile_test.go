@@ -169,7 +169,7 @@ var _ = Describe("Containerfile Generation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create service handler for enrollment credential generation
-		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
+		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"), caCfg.DeviceEnrollmentSignerName)
 		enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 		erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, nil, caClient, nil, eventsSvc, log, nil, "", "", nil, nil)
 		serviceHandler = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), caClient, eventsSvc, log, "https://api.example.com", "https://ui.example.com")

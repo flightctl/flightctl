@@ -57,9 +57,8 @@ func NewCertificateSigningRequestFromApiResource(resource *domain.CertificateSig
 			Owner:           clonePtr(resource.Metadata.Owner),
 			ResourceVersion: resourceVersion,
 		},
-		Spec:              MakeJSONField(resource.Spec),
-		Status:            MakeJSONField(status),
-		CertificateDigest: CertificateSigningRequestCertificateDigest(status.Certificate),
+		Spec:   MakeJSONField(resource.Spec),
+		Status: MakeJSONField(status),
 	}, nil
 }
 

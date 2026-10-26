@@ -17,7 +17,7 @@ var _ = Describe("Persisted certificate creation metadata", func() {
 	BeforeEach(func() {
 		suite = newCertificatePersistenceSuite()
 		database := suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return time.Date(2026, 10, 18, 12, 0, 0, 123456789, time.UTC) }})
-		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log)
+		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 	})
 
 	It("When creating a CSR it should return its stored timestamp and accept an immediate status update", func() {

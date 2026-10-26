@@ -31,7 +31,7 @@ var _ = Describe("Persisted creation timestamps", func() {
 		database = suite.DB.Session(&gorm.Session{NowFunc: func() time.Time {
 			return time.Date(2026, 10, 18, 12, 0, 0, 123456789, time.UTC)
 		}})
-		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log)
+		credentials = csrstore.NewCertificateSigningRequestStore(database, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		service = csrservice.NewServiceHandler(credentials, tpmcsr.NewVerifier(suite.EnrollmentRequest), suite.caClient,
 			events.NewServiceHandler(suite.EventStore, suite.workerClient, suite.Log), suite.Log, "", "")
 	})
