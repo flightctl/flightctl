@@ -1253,6 +1253,7 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		require.Nil(t, revoked.Status.Revocation.FlaggingCompletedAt)
 		require.Equal(t, created.Status.Certificate, revoked.Status.Certificate)
 		require.Equal(t, created.Status.IssuedAt, revoked.Status.IssuedAt)
+		require.Equal(t, created.Status.Conditions, revoked.Status.Conditions)
 		var revocationEvents []domain.Event
 		for _, event := range fakeEvents.created {
 			if event.Reason == domain.EventReasonEnrollmentCredentialRevoked {
@@ -1458,6 +1459,49 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		require.Equal(t, int32(403), status.Code)
 		require.Nil(t, csr.Status.Revocation)
 	})
+}
+
+func TestRevokeLegacySignerEnrollmentCredential(t *testing.T) {
+	h, fakeStore, _, _, _ := newTestHandler(t)
+	ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+		identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+	orgId := uuid.New()
+	name := "legacy-signer-enrollment-csr"
+	tempDir := t.TempDir()
+	clientCert, err := h.ca.MakeClientCertificate(ctx, filepath.Join(tempDir, "client.crt"), filepath.Join(tempDir, "client.key"), name, 1)
+	require.NoError(t, err)
+	certificatePEM, err := fcrypto.EncodeCertificatePEM(clientCert.Certs[0])
+	require.NoError(t, err)
+	issuedAt := time.Now().UTC()
+	conditions := []domain.Condition{{
+		Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+		Status: domain.ConditionStatusTrue,
+		Reason: "Approved",
+	}}
+	csr := domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec: domain.CertificateSigningRequestSpec{
+			SignerName: "legacy.example/changed",
+			Request:    csrPEM(t, name),
+			Usages:     validUsages(),
+		},
+		Status: &domain.CertificateSigningRequestStatus{
+			Certificate: &certificatePEM,
+			Conditions:  conditions,
+			IssuedAt:    &issuedAt,
+		},
+	}
+	fakeStore.items[name] = &csr
+
+	revoked, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+		Reason: "Legacy credential compromised",
+	})
+
+	require.Equal(t, statusSuccessCode, status.Code)
+	require.NotNil(t, revoked.Status.Revocation)
+	require.Equal(t, &certificatePEM, revoked.Status.Certificate)
+	require.Equal(t, &issuedAt, revoked.Status.IssuedAt)
+	require.Equal(t, conditions, revoked.Status.Conditions)
 }
 
 func TestVerifyTPMCSRRequest(t *testing.T) {
