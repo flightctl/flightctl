@@ -59,7 +59,7 @@ func (s *AgentGrpcServer) authorizeEnrollmentCertificate(ctx context.Context) er
 	if !present {
 		orgId = org.DefaultID
 	}
-	if !s.enrollmentAuthMiddleware.CSRStatusAllowsEnrollment(ctx, orgId, cert) {
+	if _, allowed := s.enrollmentAuthMiddleware.CSRStatusAllowsEnrollment(ctx, orgId, cert); !allowed {
 		return status.Error(codes.Unauthenticated, "Enrollment certificate is not approved")
 	}
 	return nil

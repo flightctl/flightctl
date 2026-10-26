@@ -14,6 +14,11 @@ import (
 const DefaultEnrollmentCSRStatusCacheTTL = 30 * time.Second
 const missingCSRStatusValue = "null"
 
+type enrollmentCSRStatusCacheEntry struct {
+	Name   *string                                 `json:"name,omitempty"`
+	Status *domain.CertificateSigningRequestStatus `json:"status,omitempty"`
+}
+
 type RedisEnrollmentCSRStatusCache struct {
 	kvStore kvstore.KVStore
 	ttl     time.Duration
@@ -29,28 +34,28 @@ func NewRedisEnrollmentCSRStatusCache(kvStore kvstore.KVStore, ttl time.Duration
 	return &RedisEnrollmentCSRStatusCache{kvStore: kvStore, ttl: ttl}, nil
 }
 
-func (c *RedisEnrollmentCSRStatusCache) Get(ctx context.Context, orgId uuid.UUID, certificateDigest string) (domain.CertificateSigningRequestStatus, bool, error) {
+func (c *RedisEnrollmentCSRStatusCache) Get(ctx context.Context, orgId uuid.UUID, certificateDigest string) (enrollmentCSRStatusCacheEntry, bool, error) {
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
 	value, err := c.kvStore.Get(ctx, key)
 	if err != nil {
-		return domain.CertificateSigningRequestStatus{}, false, err
+		return enrollmentCSRStatusCacheEntry{}, false, err
 	}
 	if len(value) == 0 {
-		return domain.CertificateSigningRequestStatus{}, false, nil
+		return enrollmentCSRStatusCacheEntry{}, false, nil
 	}
 	if string(value) == missingCSRStatusValue {
-		return domain.CertificateSigningRequestStatus{}, true, nil
+		return enrollmentCSRStatusCacheEntry{}, true, nil
 	}
 
-	var status domain.CertificateSigningRequestStatus
-	if err := json.Unmarshal(value, &status); err != nil {
-		return domain.CertificateSigningRequestStatus{}, false, err
+	var entry enrollmentCSRStatusCacheEntry
+	if err := json.Unmarshal(value, &entry); err != nil {
+		return enrollmentCSRStatusCacheEntry{}, false, err
 	}
-	return status, true, nil
+	return entry, true, nil
 }
 
-func (c *RedisEnrollmentCSRStatusCache) Set(ctx context.Context, orgId uuid.UUID, certificateDigest string, status domain.CertificateSigningRequestStatus) error {
-	value, err := json.Marshal(status)
+func (c *RedisEnrollmentCSRStatusCache) Set(ctx context.Context, orgId uuid.UUID, certificateDigest string, entry enrollmentCSRStatusCacheEntry) error {
+	value, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}

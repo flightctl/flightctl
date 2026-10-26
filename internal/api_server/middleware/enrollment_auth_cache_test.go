@@ -59,7 +59,7 @@ func newTestEnrollmentCSRStatusCache() (*RedisEnrollmentCSRStatusCache, *fakeEnr
 	return cache, kvStore
 }
 
-func TestRedisEnrollmentCSRStatusCacheWhenStatusIsStoredItShouldRoundTripWithTTL(t *testing.T) {
+func TestRedisEnrollmentCSRStatusCacheWhenNameAndStatusAreStoredItShouldRoundTripWithTTL(t *testing.T) {
 	orgId := uuid.New()
 	certificateDigest := "certificate-digest"
 	kv := &fakeEnrollmentStatusKVStore{
@@ -68,19 +68,21 @@ func TestRedisEnrollmentCSRStatusCacheWhenStatusIsStoredItShouldRoundTripWithTTL
 	}
 	cache, err := NewRedisEnrollmentCSRStatusCache(kv, time.Minute)
 	require.NoError(t, err)
+	name := "enrollment-credential"
 	status := domain.CertificateSigningRequestStatus{
 		Conditions: []domain.Condition{{
 			Type:   domain.ConditionTypeCertificateSigningRequestApproved,
 			Status: domain.ConditionStatusTrue,
 		}},
 	}
+	entry := enrollmentCSRStatusCacheEntry{Name: &name, Status: &status}
 
-	require.NoError(t, cache.Set(context.Background(), orgId, certificateDigest, status))
+	require.NoError(t, cache.Set(context.Background(), orgId, certificateDigest, entry))
 
 	cached, found, err := cache.Get(context.Background(), orgId, certificateDigest)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, status, cached)
+	require.Equal(t, entry, cached)
 
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
 	require.Equal(t, time.Minute, kv.ttls[key])
@@ -101,7 +103,7 @@ func TestRedisEnrollmentCSRStatusCacheWhenStatusIsMissingItShouldRoundTripWithTT
 	cached, found, err := cache.Get(context.Background(), orgId, certificateDigest)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, domain.CertificateSigningRequestStatus{}, cached)
+	require.Equal(t, enrollmentCSRStatusCacheEntry{}, cached)
 
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
 	require.Equal(t, []byte("null"), kv.values[key])
@@ -122,7 +124,7 @@ func TestRedisEnrollmentCSRStatusCacheWhenPayloadIsMalformedItShouldReturnError(
 	cached, found, err := cache.Get(context.Background(), orgId, certificateDigest)
 	require.Error(t, err)
 	require.False(t, found)
-	require.Equal(t, domain.CertificateSigningRequestStatus{}, cached)
+	require.Equal(t, enrollmentCSRStatusCacheEntry{}, cached)
 }
 
 func TestRedisEnrollmentCSRStatusCacheWhenKVStoreFailsItShouldReturnError(t *testing.T) {
@@ -137,5 +139,5 @@ func TestRedisEnrollmentCSRStatusCacheWhenKVStoreFailsItShouldReturnError(t *tes
 
 	_, _, err = getCache.Get(context.Background(), orgId, certificateDigest)
 	require.ErrorContains(t, err, "get failed")
-	require.ErrorContains(t, setCache.Set(context.Background(), orgId, certificateDigest, domain.CertificateSigningRequestStatus{}), "set failed")
+	require.ErrorContains(t, setCache.Set(context.Background(), orgId, certificateDigest, enrollmentCSRStatusCacheEntry{}), "set failed")
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fcsigner "github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -88,7 +89,6 @@ func TestAuthenticateEnrollment(t *testing.T) {
 	tests := []struct {
 		name                string
 		legacyCertificate   bool
-		namedCSRCondition   domain.ConditionType
 		hasItem             bool
 		itemCondition       domain.ConditionType
 		cachedCondition     domain.ConditionType
@@ -97,6 +97,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		wantCSRRequests     int
 		wantStatusCacheGets int
 		wantStatusCacheSets int
+		wantCSRName         string
 	}{
 		{
 			name:                "When CSR is denied it should reject",
@@ -124,17 +125,6 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantStatusCacheSets: 1,
 		},
 		{
-			name:                "When named CSR does not match certificate it should use certificate status",
-			namedCSRCondition:   domain.ConditionTypeCertificateSigningRequestApproved,
-			hasItem:             true,
-			itemCondition:       domain.ConditionTypeCertificateSigningRequestDenied,
-			requests:            1,
-			wantCode:            http.StatusUnauthorized,
-			wantCSRRequests:     1,
-			wantStatusCacheGets: 1,
-			wantStatusCacheSets: 1,
-		},
-		{
 			name:                "When legacy credential CSR is denied it should reject",
 			legacyCertificate:   true,
 			hasItem:             true,
@@ -146,7 +136,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantStatusCacheSets: 1,
 		},
 		{
-			name:                "When CSR is approved it should allow and cache status",
+			name:                "When CSR is approved it should allow, cache status, and carry the CSR name",
 			hasItem:             true,
 			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
 			requests:            2,
@@ -154,6 +144,27 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantCSRRequests:     1,
 			wantStatusCacheGets: 2,
 			wantStatusCacheSets: 1,
+			wantCSRName:         "enrollment-credential",
+		},
+		{
+			name:                "When approved CSR status is cached it should authenticate with the cached CSR name",
+			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			requests:            2,
+			wantCode:            http.StatusOK,
+			wantStatusCacheGets: 2,
+			wantCSRName:         "enrollment-credential",
+		},
+		{
+			name:                "When a legacy approved credential is resolved it should carry the resolved CSR name",
+			legacyCertificate:   true,
+			hasItem:             true,
+			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
+			requests:            1,
+			wantCode:            http.StatusOK,
+			wantCSRRequests:     1,
+			wantStatusCacheGets: 1,
+			wantStatusCacheSets: 1,
+			wantCSRName:         "enrollment-credential",
 		},
 	}
 
@@ -173,16 +184,8 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			require.NoError(t, err)
 
 			csrs := &fakeCSRService{}
-			if test.namedCSRCondition != "" {
-				namedCSR := enrollmentCSR(csrName, test.namedCSRCondition, nil)
-				csrs.namedCSR = &namedCSR
-			}
 			if test.hasItem {
-				itemName := csrName
-				if test.namedCSRCondition != "" {
-					itemName = "denied-enrollment-credential"
-				}
-				item := enrollmentCSR(itemName, test.itemCondition, &certificatePEM)
+				item := enrollmentCSR(csrName, test.itemCondition, &certificatePEM)
 				csrs.items = []domain.CertificateSigningRequest{item}
 			}
 
@@ -194,13 +197,22 @@ func TestAuthenticateEnrollment(t *testing.T) {
 						Status: domain.ConditionStatusTrue,
 					}},
 				}
-				require.NoError(t, statusCache.Set(ctx, org.DefaultID, crypto.CertificateDigest(peerCertificate.Raw), status))
+				entry := enrollmentCSRStatusCacheEntry{Name: &csrName, Status: &status}
+				require.NoError(t, statusCache.Set(ctx, org.DefaultID, crypto.CertificateDigest(peerCertificate.Raw), entry))
 				kv.sets = 0
 			}
 
 			middleware, err := NewEnrollmentAuthMiddleware(caClient, csrs, statusCache, logrus.New())
 			require.NoError(t, err)
 			handler := middleware.AuthenticateEnrollment(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				identity, ok := r.Context().Value(consts.IdentityCtxKey).(*EnrollmentIdentity)
+				require.True(t, ok)
+				if test.wantCSRName == "" {
+					require.Nil(t, identity.GetEnrollmentCSRName())
+				} else {
+					require.NotNil(t, identity.GetEnrollmentCSRName())
+					require.Equal(t, test.wantCSRName, *identity.GetEnrollmentCSRName())
+				}
 				w.WriteHeader(http.StatusOK)
 			}))
 
