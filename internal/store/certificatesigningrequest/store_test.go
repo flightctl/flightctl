@@ -103,3 +103,49 @@ func testCertificatePEM(t *testing.T) []byte {
 	require.NoError(t, err)
 	return certificatePEM
 }
+
+func TestPreserveExistingCertificateDigest(t *testing.T) {
+	digest := "certificate-digest"
+	unchangedCertificate := []byte("certificate")
+	changedCertificate := []byte("replacement")
+
+	tests := []struct {
+		name     string
+		existing *string
+		before   *[]byte
+		after    *[]byte
+		want     *string
+	}{
+		{
+			name:     "When the retained certificate is unchanged it should preserve the existing digest",
+			existing: &digest,
+			before:   &unchangedCertificate,
+			after:    &unchangedCertificate,
+			want:     &digest,
+		},
+		{
+			name:     "When the retained certificate changes it should not preserve the existing digest",
+			existing: &digest,
+			before:   &unchangedCertificate,
+			after:    &changedCertificate,
+		},
+		{
+			name:   "When no digest exists it should not fabricate one",
+			before: &unchangedCertificate,
+			after:  &unchangedCertificate,
+		},
+		{
+			name:     "When the certificate is absent it should not preserve a digest",
+			existing: &digest,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := &domain.CertificateSigningRequest{Status: &domain.CertificateSigningRequestStatus{Certificate: test.before}}
+			after := &domain.CertificateSigningRequest{Status: &domain.CertificateSigningRequestStatus{Certificate: test.after}}
+
+			require.Equal(t, test.want, preserveExistingCertificateDigest(test.existing, before, after))
+		})
+	}
+}
