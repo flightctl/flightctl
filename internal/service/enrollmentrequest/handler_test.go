@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -48,6 +49,27 @@ type fakeEnrollmentRequestStore struct {
 
 func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}}
+}
+
+type fakeCSRService struct {
+	csrservice.Service
+	items  map[string]*domain.CertificateSigningRequest
+	status domain.Status
+}
+
+func newFakeCSRService() *fakeCSRService {
+	return &fakeCSRService{items: map[string]*domain.CertificateSigningRequest{}}
+}
+
+func (f *fakeCSRService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
+	if f.status.Code != 0 {
+		return nil, f.status
+	}
+	csr, ok := f.items[name]
+	if !ok {
+		return nil, domain.StatusResourceNotFound(domain.CertificateSigningRequestKind, name)
+	}
+	return csr, domain.StatusOK()
 }
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
@@ -250,13 +272,19 @@ func newTestCA(t *testing.T) *crypto.CAClient {
 }
 
 func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService) {
+	handler, erStore, devStore, kv, ev, _ := newTestHandlerWithCSR(t)
+	return handler, erStore, devStore, kv, ev
+}
+
+func newTestHandlerWithCSR(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService, *fakeCSRService) {
 	erStore := newFakeEnrollmentRequestStore()
 	devStore := newFakeDeviceStore()
 	kv := &fakeKVStore{}
 	ev := &fakeEventsService{}
+	csrSvc := newFakeCSRService()
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, csrSvc, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev, csrSvc
 }
 
 func adminContext() context.Context {
@@ -651,18 +679,11 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 	})
 
 	t.Run("When automatic approval provenance is committed it should project credential and policy onto the device", func(t *testing.T) {
-		h, fakeStore, fakeDevices, _, _ := newTestHandler(t)
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
 		cn := "test-device-automatic-projection"
-		er := domain.EnrollmentRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
-			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
-			Status: &domain.EnrollmentRequestStatus{
-				Conditions:                []domain.Condition{},
-				EnrollmentCertificateName: lo.ToPtr("commissioning-credential"),
-				EnrollmentPolicyName:      lo.ToPtr("factory-policy"),
-			},
-		}
+		er := automaticProjectionRequest(t, cn)
 		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
 
 		orgId := uuid.New()
 		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
@@ -675,6 +696,78 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(false),
 		}, *device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the referenced enrollment credential is revoked it should project the revoked state", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-revoked-projection"
+		er := automaticProjectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		credential := issuedEnrollmentCredential("commissioning-credential")
+		credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{Reason: "Compromised", RevokedBy: "security-officer"}
+		csrs.items["commissioning-credential"] = credential
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
+			CertificateName: lo.ToPtr("commissioning-credential"),
+			PolicyName:      lo.ToPtr("factory-policy"),
+			Revoked:         lo.ToPtr(true),
+		}, *device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, _ := newTestHandlerWithCSR(t)
+		cn := "test-device-missing-credential"
+		er := automaticProjectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the referenced enrollment credential is unissued it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-unissued-credential"
+		er := automaticProjectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = &domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("commissioning-credential")}, Status: &domain.CertificateSigningRequestStatus{}}
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the enrollment request has no credential reference it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, _ := newTestHandlerWithCSR(t)
+		cn := "test-device-historical-projection"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+			Status:   &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}},
+		}
+		fakeStore.items[cn] = &er
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
 	})
 }
 
@@ -1046,5 +1139,31 @@ func TestGetEnrollmentConfigRestored(t *testing.T) {
 			require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
 			require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
 		})
+	}
+}
+
+func automaticProjectionRequest(t *testing.T, name string) domain.EnrollmentRequest {
+	return domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, name), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		Status: &domain.EnrollmentRequestStatus{
+			Conditions:                []domain.Condition{},
+			EnrollmentCertificateName: lo.ToPtr("commissioning-credential"),
+			EnrollmentPolicyName:      lo.ToPtr("factory-policy"),
+		},
+	}
+}
+
+func issuedEnrollmentCredential(name string) *domain.CertificateSigningRequest {
+	certificate := []byte("issued-enrollment-certificate")
+	return &domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status: &domain.CertificateSigningRequestStatus{
+			Certificate: &certificate,
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+				Status: domain.ConditionStatusTrue,
+			}},
+		},
 	}
 }
