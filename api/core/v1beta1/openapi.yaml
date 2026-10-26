@@ -9280,6 +9280,7 @@ components:
           description: Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
           type: string
           format: date-time
+          readOnly: true
         certificate:
           description: The issued signed certificate, immutable once populated.
           format: byte

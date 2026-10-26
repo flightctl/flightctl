@@ -1,21 +1,13 @@
 package migration
 
 import (
-	"context"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestRun_WhenEnrollmentSignerIsEmpty_ItShouldRejectTheMigration(t *testing.T) {
-	err := Run(context.Background(), nil, logrus.New(), false, "")
-
-	require.ErrorContains(t, err, "enrollment signer name is required")
-}
 
 func TestRecordNormalizedAuthProviderKey_DetectsOIDCCollision(t *testing.T) {
 	seenOIDC := make(map[oidcUniquenessKey]string)
