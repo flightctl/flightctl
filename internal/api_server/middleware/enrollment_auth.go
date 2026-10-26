@@ -146,7 +146,8 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			orgID = org.DefaultID
 		}
 
-		if !m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate) {
+		credentialName, allowed := m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate)
+		if !allowed {
 			transport.WriteJSONError(w, r, "Enrollment certificate is not approved", http.StatusUnauthorized)
 			return
 		}
@@ -175,9 +176,10 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 
 		// Create enrollment identity with basic certificate information
 		identity := &EnrollmentIdentity{
-			orgID:          orgID.String(),
-			commonName:     peerCertificate.Subject.CommonName,
-			expirationDate: peerCertificate.NotAfter,
+			orgID:             orgID.String(),
+			commonName:        peerCertificate.Subject.CommonName,
+			expirationDate:    peerCertificate.NotAfter,
+			enrollmentCSRName: credentialName,
 		}
 
 		// Cache the identity if we have a valid cache key
@@ -197,30 +199,39 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 	})
 }
 
-func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) bool {
+func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) (*string, bool) {
 	certificateDigest := crypto.CertificateDigest(peerCertificate.Raw)
-	status, found, err := m.statusCache.Get(ctx, orgId, certificateDigest)
+	entry, found, err := m.statusCache.Get(ctx, orgId, certificateDigest)
 	if err != nil {
 		m.log.WithError(err).Warnf("Failed to get cached CSR status for certificate digest %q", certificateDigest)
 	} else if found {
-		return domain.IsStatusConditionTrue(status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
+		if entry.Status == nil {
+			return nil, false
+		}
+		return entry.Name, domain.IsStatusConditionTrue(entry.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
 	}
 
-	csr, err := csrservice.CertificateForLeaf(ctx, m.csrStatuses, orgId, peerCertificate)
+	csr, err := csrservice.CSRForLeaf(ctx, m.csrStatuses, orgId, peerCertificate)
+	if errors.Is(err, csrservice.ErrEnrollmentCSRNotFound) {
+		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
+			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
+		}
+		return nil, false
+	}
 	if err != nil {
 		m.log.WithError(err).Warn("Failed to resolve enrollment certificate to CSR")
-		return false
+		return nil, false
 	}
-	if csr == nil || csr.Status == nil {
-		if err := m.statusCache.SetMissing(ctx, orgId, certificateDigest); err != nil {
-			m.log.WithError(err).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
+	if csr.Status == nil {
+		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
+			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
 		}
-		return false
+		return nil, false
 	}
-	if err := m.statusCache.Set(ctx, orgId, certificateDigest, *csr.Status); err != nil {
-		m.log.WithError(err).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
+	if cacheErr := m.statusCache.Set(ctx, orgId, certificateDigest, enrollmentCSRStatusCacheEntry{Name: csr.Metadata.Name, Status: csr.Status}); cacheErr != nil {
+		m.log.WithError(cacheErr).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
 	}
-	return domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
+	return csr.Metadata.Name, domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
 }
 
 // createCacheKey creates a cache key from the TLS connection
