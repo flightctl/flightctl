@@ -67,3 +67,8 @@ func (c *RedisEnrollmentCSRStatusCache) SetMissing(ctx context.Context, orgId uu
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
 	return c.kvStore.Set(ctx, key, []byte(missingCSRStatusValue), c.ttl)
 }
+
+func (c *RedisEnrollmentCSRStatusCache) Delete(ctx context.Context, orgId uuid.UUID, certificateDigest string) error {
+	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
+	return c.kvStore.Delete(ctx, key)
+}
