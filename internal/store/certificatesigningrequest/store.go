@@ -1,6 +1,7 @@
 package certificatesigningrequest
 
 import (
+	"bytes"
 	"context"
 	"reflect"
 
@@ -208,9 +209,19 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 	if err != nil {
 		return false, err
 	}
+	digest := proposed.CertificateDigest
+	if digest == nil && before.Status != nil && before.Status.Certificate != nil {
+		var stored model.CertificateSigningRequest
+		if err := s.getDB(ctx).Select("certificate_digest").
+			Where("org_id = ? AND name = ? AND created_at = ?", orgId, name, *before.Metadata.CreationTimestamp).
+			Take(&stored).Error; err != nil {
+			return false, store.ErrorFromGormError(err)
+		}
+		digest = preserveExistingCertificateDigest(stored.CertificateDigest, before, mutation.Resource())
+	}
 	updates := map[string]interface{}{
 		"status":             proposed.Status,
-		"certificate_digest": proposed.CertificateDigest,
+		"certificate_digest": digest,
 		"resource_version":   gorm.Expr("COALESCE(resource_version, 0) + 1"),
 	}
 	if !proposed.HasSameSpecAs(record) {
@@ -258,4 +269,27 @@ func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, o
 		return nil
 	})
 	return err
+}
+
+// preserveExistingCertificateDigest avoids erasing the private leaf selector when
+// a status-only mutation leaves the retained certificate unchanged but the
+// configured enrollment signer no longer matches the CSR's signer.
+func preserveExistingCertificateDigest(existing *string, before, after *domain.CertificateSigningRequest) *string {
+	if existing == nil || before == nil || after == nil || before.Status == nil || after.Status == nil {
+		return nil
+	}
+	if before.Status.Certificate == nil || after.Status.Certificate == nil {
+		return nil
+	}
+	if !sameRetainedCertificate(before.Status.Certificate, after.Status.Certificate) {
+		return nil
+	}
+	return existing
+}
+
+func sameRetainedCertificate(a, b *[]byte) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return bytes.Equal(*a, *b)
 }
