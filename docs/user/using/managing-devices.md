@@ -2278,8 +2278,6 @@ Each schedule supports:
 
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
-Schedule triggers follow the configured time zone, including daylight saving time transitions. The grace duration is measured as elapsed time from each trigger, and the allowed start window includes both endpoints.
-
 >[!TIP]
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
 
