@@ -19,7 +19,7 @@ var _ = Describe("CSR revocation mutations", func() {
 		suite := newCertificatePersistenceSuite()
 		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
 		defer cancel()
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		request := newStoredCSR()
 		created, err := provider.Create(ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())

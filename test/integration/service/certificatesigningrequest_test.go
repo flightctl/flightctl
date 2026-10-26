@@ -429,7 +429,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 				csrName := lo.FromPtr(csr.Metadata.Name)
 				csr.Spec.SignerName = suite.caClient.Cfg.DeviceSvcClientSignerName
 
-				provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+				provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 				_, err := provider.Create(suite.Ctx, suite.OrgID, &csr)
 				Expect(err).NotTo(HaveOccurred())
 				parsed, err := fcrypto.ParseCSR(csr.Spec.Request)
