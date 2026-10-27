@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/contextutil"
@@ -14,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
+	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -67,22 +69,29 @@ func ReplaceCertificateSigningRequestFromUntrusted(ctx context.Context, svc Serv
 	return svc.ReplaceCertificateSigningRequest(ctx, orgId, name, csr)
 }
 
-func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
+func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	if domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) || domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied) {
-		return
+		return csr, nil
 	}
 
-	domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
+	candidate, err := store.CloneJSON(csr)
+	if err != nil {
+		return csr, err
+	}
+	domain.SetStatusCondition(&candidate.Status.Conditions, domain.Condition{
 		Type:    domain.ConditionTypeCertificateSigningRequestApproved,
 		Status:  domain.ConditionStatusTrue,
 		Reason:  "Approved",
 		Message: "Auto-approved by enrollment signer",
 	})
-	domain.RemoveStatusCondition(&csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)
+	domain.RemoveStatusCondition(&candidate.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed)
 
-	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
+	updated, err := h.updateStatus(ctx, orgId, candidate, csr)
+	if err != nil {
 		h.log.WithError(err).Error("failed to set approval condition")
+		return csr, err
 	}
+	return updated, nil
 }
 
 func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
@@ -103,18 +112,94 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	csr.Status.Certificate = &certPEM
-	if enrollment {
-		csr.Status.IssuedAt = lo.ToPtr(nowFunc().UTC())
+	observed, cloneErr := store.CloneJSON(csr)
+	if cloneErr != nil {
+		h.log.WithError(cloneErr).Error("failed to snapshot CSR before issuing certificate")
+		return
 	}
-	if published, err := h.updateStatus(ctx, orgId, csr); err != nil {
+	var issuedAt *time.Time
+	if enrollment {
+		issuedAt = lo.ToPtr(nowFunc().UTC())
+	}
+	published, err := h.publishCertificate(ctx, orgId, observed, certPEM, issuedAt)
+	if err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
 		csr.Status.Certificate = nil
 		csr.Status.IssuedAt = nil
 		return
-	} else {
-		*csr = *published
 	}
+	*csr = *published
+}
+
+const maxCertificatePublishAttempts = 5
+
+// publishCertificate retries only the internal issuance continuation. It refuses
+// to follow a recreated CSR or a CSR whose approval/spec changed, and preserves
+// the first committed certificate when another issuer wins the race.
+func (h *ServiceHandler) publishCertificate(ctx context.Context, orgId uuid.UUID, observed *domain.CertificateSigningRequest, certificatePEM []byte, issuedAt *time.Time) (*domain.CertificateSigningRequest, error) {
+	if observed == nil || observed.Metadata.Name == nil || observed.Status == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	current := observed
+	var lastErr error
+	for attempt := 0; attempt < maxCertificatePublishAttempts; attempt++ {
+		if !sameCSRIdentity(observed, current) || !reflect.DeepEqual(observed.Spec, current.Spec) || !certificateIssuanceAllowed(current) {
+			return nil, flterrors.ErrResourceVersionConflict
+		}
+		updated, _, _, err := h.store.Mutate(ctx, orgId, *current.Metadata.Name, current, func(mutation *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
+			if err := mutation.RequireExisting(); err != nil {
+				return err
+			}
+			existing := mutation.Resource()
+			if existing.Status == nil {
+				existing.Status = &domain.CertificateSigningRequestStatus{}
+			}
+			if existing.Status.Certificate != nil && len(*existing.Status.Certificate) > 0 {
+				return store.ErrMutateSkipWrite
+			}
+			if !certificateIssuanceAllowed(existing) {
+				return flterrors.ErrResourceVersionConflict
+			}
+			existing.Status.Certificate = &certificatePEM
+			existing.Status.IssuedAt = issuedAt
+			return nil
+		})
+		if err == nil {
+			return updated, nil
+		}
+		lastErr = err
+		if !errors.Is(err, flterrors.ErrResourceVersionConflict) && !errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			return nil, err
+		}
+		refreshed, getErr := h.store.Get(ctx, orgId, *observed.Metadata.Name)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if !sameCSRIdentity(observed, refreshed) || !reflect.DeepEqual(observed.Spec, refreshed.Spec) || !certificateIssuanceAllowed(refreshed) {
+			return nil, err
+		}
+		if refreshed.Status != nil && refreshed.Status.Certificate != nil && len(*refreshed.Status.Certificate) > 0 {
+			return refreshed, nil
+		}
+		current = refreshed
+	}
+	return nil, lastErr
+}
+
+func certificateIssuanceAllowed(csr *domain.CertificateSigningRequest) bool {
+	if csr == nil || csr.Status == nil {
+		return false
+	}
+	return domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) &&
+		!domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied)
+}
+
+func sameCSRIdentity(a, b *domain.CertificateSigningRequest) bool {
+	if a == nil || b == nil || a.Metadata.CreationTimestamp == nil || b.Metadata.CreationTimestamp == nil {
+		return false
+	}
+	return lo.FromPtr(a.Metadata.Name) == lo.FromPtr(b.Metadata.Name) &&
+		a.Metadata.CreationTimestamp.Equal(*b.Metadata.CreationTimestamp)
 }
 
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
@@ -181,7 +266,9 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	}
 
 	if h.isEnrollmentIssuanceEligible(result) {
-		h.autoApprove(ctx, orgId, result)
+		if updated, err := h.autoApprove(ctx, orgId, result); err == nil {
+			result = updated
+		}
 	}
 
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
@@ -261,7 +348,9 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	}
 
 	if h.isEnrollmentIssuanceEligible(result) {
-		h.autoApprove(ctx, orgId, result)
+		if updated, err := h.autoApprove(ctx, orgId, result); err == nil {
+			result = updated
+		}
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
@@ -335,7 +424,9 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 	}
 
 	if h.isEnrollmentIssuanceEligible(result) {
-		h.autoApprove(ctx, orgId, result)
+		if updated, err := h.autoApprove(ctx, orgId, result); err == nil {
+			result = updated
+		}
 	}
 	if domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
@@ -401,7 +492,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newCSR.Status = oldCSR.Status
 	newCSR.Status.Conditions = newConditions
 
-	result, err := h.updateStatus(ctx, orgId, newCSR)
+	result, err := h.updateStatus(ctx, orgId, newCSR, oldCSR)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -509,6 +600,11 @@ func (h *ServiceHandler) callbackCertificateSigningRequestDeleted(ctx context.Co
 
 // setCSRFailedCondition sets the Failed condition on the provided CSR, persists the change, and logs any error during persistence.
 func (h *ServiceHandler) setCSRFailedCondition(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest, reason, message string) {
+	observed, err := store.CloneJSON(csr)
+	if err != nil {
+		h.log.WithError(err).Error("failed to snapshot CSR before setting failure condition")
+		return
+	}
 	domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
 		Type:    domain.ConditionTypeCertificateSigningRequestFailed,
 		Status:  domain.ConditionStatusTrue,
@@ -516,7 +612,7 @@ func (h *ServiceHandler) setCSRFailedCondition(ctx context.Context, orgId uuid.U
 		Message: message,
 	})
 
-	if _, err := h.updateStatus(ctx, orgId, csr); err != nil {
+	if _, err := h.updateStatus(ctx, orgId, csr, observed); err != nil {
 		h.log.WithError(err).Error("failed to set failure condition")
 	}
 }

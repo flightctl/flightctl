@@ -178,6 +178,7 @@ func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.
 		previous = nil
 	}
 	hooks := store.MutateHooks[domain.CertificateSigningRequest]{
+		MaxRetries: lo.ToPtr(0),
 		Wrap: func(current *domain.CertificateSigningRequest) store.ResourceMutation[domain.CertificateSigningRequest] {
 			return &CertificateSigningRequestMutation{CertificateSigningRequest: current}
 		},

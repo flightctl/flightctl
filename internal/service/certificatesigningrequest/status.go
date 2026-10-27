@@ -45,11 +45,11 @@ func (h *ServiceHandler) isProtectedEnrollmentCredential(resource *domain.Certif
 	return err == nil && retainedSigner == name
 }
 
-func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, candidate *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
+func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, candidate *domain.CertificateSigningRequest, previous *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	if candidate == nil || candidate.Metadata.Name == nil || candidate.Status == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, nil, func(mutation *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
+	updated, _, _, err := h.store.Mutate(ctx, orgId, *candidate.Metadata.Name, previous, func(mutation *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
 		}

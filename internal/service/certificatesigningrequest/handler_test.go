@@ -348,7 +348,7 @@ func (s *conflictOnceStore) Mutate(ctx context.Context, orgId uuid.UUID, name st
 		return nil, nil, false, err
 	}
 
-	return s.fakeCertificateSigningRequestStore.Mutate(ctx, orgId, name, nil, apply)
+	return nil, committed, false, flterrors.ErrResourceVersionConflict
 }
 
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.
@@ -706,6 +706,62 @@ func TestEnrollmentIssuanceClock(t *testing.T) {
 	}
 }
 
+type recreatedCertificatePublishStore struct {
+	*fakeCertificateSigningRequestStore
+	replacement *domain.CertificateSigningRequest
+	recreated   bool
+}
+
+func (s *recreatedCertificatePublishStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply csrstore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if s.recreated {
+		return s.fakeCertificateSigningRequestStore.Mutate(ctx, orgId, name, previous, apply)
+	}
+	s.recreated = true
+	delete(s.items, name)
+	s.items[name] = s.replacement
+	return nil, previous, false, flterrors.ErrResourceVersionConflict
+}
+
+func TestEnrollmentIssuanceWhenCSRIsRecreatedWithCertificate(t *testing.T) {
+	baseStore := newFakeCertificateSigningRequestStore()
+	caClient, cfg := newTestCA(t)
+	handler := NewServiceHandler(baseStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+	ctx := context.Background()
+	orgID := uuid.New()
+	name := "recreated-publish"
+	createdAt := time.Date(2025, 4, 5, 6, 7, 8, 0, time.UTC)
+	recreatedAt := createdAt.Add(time.Second)
+	replacementCertificate := []byte("replacement-certificate")
+	approved := []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue}}
+
+	original, err := baseStore.Create(ctx, orgID, &domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: &name, CreationTimestamp: &createdAt},
+		Spec: domain.CertificateSigningRequestSpec{
+			SignerName: cfg.DeviceEnrollmentSignerName,
+			Request:    csrPEM(t, name),
+			Usages:     validUsages(),
+		},
+	})
+	require.NoError(t, err)
+	original.Status = &domain.CertificateSigningRequestStatus{Conditions: approved}
+	candidate, err := store.CloneJSON(original)
+	require.NoError(t, err)
+
+	replacement := *original
+	replacement.Metadata.CreationTimestamp = &recreatedAt
+	replacement.Status = &domain.CertificateSigningRequestStatus{
+		Certificate: &replacementCertificate,
+		Conditions:  approved,
+	}
+	provider := &recreatedCertificatePublishStore{fakeCertificateSigningRequestStore: baseStore, replacement: &replacement}
+
+	handler.store = provider
+	handler.signApprovedCertificateSigningRequest(ctx, orgID, candidate)
+
+	require.Nil(t, candidate.Status.Certificate)
+	require.Equal(t, &replacementCertificate, baseStore.items[name].Status.Certificate)
+}
+
 func TestEnrollmentIssuanceSafeguards(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1054,7 +1110,7 @@ func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
 		h, fakeStore, _, _, cfg := newTestHandler(t)
 		cn := "test-csr-approve"
 		csr := domain.CertificateSigningRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), CreationTimestamp: lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))},
 			Spec:     domain.CertificateSigningRequestSpec{SignerName: cfg.DeviceSvcClientSignerName, Request: csrPEM(t, cn), Usages: validUsages()},
 			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
 		}
