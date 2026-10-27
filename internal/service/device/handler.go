@@ -641,6 +641,7 @@ func allowedAgentEnrollmentHooksOutcome(before, after *domain.Condition) bool {
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	var (
 		kvRenderedVersion       string
+		kvSpecUpdated           bool
 		err                     error
 		isAgent                 bool
 		processedAwaitReconnect bool
@@ -667,6 +668,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		}
 		switch n.Type {
 		case rendered.NotificationTypeSpecUpdated:
+			kvSpecUpdated = true
 			kvRenderedVersion = n.RenderedVersion
 		case rendered.NotificationTypeConsole:
 			if err := rendered.Bus.Instance().ClearConsoleNotification(ctx, orgId, name); err != nil {
@@ -698,9 +700,11 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		return nil, domain.StatusConflict(fmt.Sprintf("device is gated by enrollment hooks (reason: %s)", reason))
 	}
 	newVersion := result.Version()
-	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
+	if kvSpecUpdated && newVersion != "" && kvRenderedVersion != newVersion {
 		// If the rendered version in the KV store is different from the one we just fetched,
-		// we set the new version in the KV store.
+		// we set the new version in the KV store. An empty kvRenderedVersion means the key is
+		// missing (e.g. the KV store was restarted without persistence); it must be restored
+		// too, otherwise every long-poll returns immediately with the full rendered device.
 		if err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, newVersion); err != nil {
 			h.log.Errorf("GetRenderedDevice %s/%s: failed to set rendered version in kvstore: %v", orgId, name, err)
 		}
