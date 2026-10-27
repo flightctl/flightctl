@@ -1525,6 +1525,76 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("GetRenderedDevice when the KV rendered version is missing", func() {
+		var (
+			suite          *ServiceTestSuite
+			testKvStore    kvstore.KVStore
+			queuesProvider queues.Provider
+		)
+
+		BeforeEach(func() {
+			suite = NewServiceTestSuite()
+			suite.Setup()
+
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
+
+			var err error
+			if testKvStore == nil {
+				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, redisHost, redisPort, redisPassword)
+				Expect(err).ToNot(HaveOccurred())
+				processID := fmt.Sprintf("missing-kv-rendered-version-test-%s", uuid.New().String())
+				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
+				Expect(err).ToNot(HaveOccurred())
+				err = rendered.Bus.Initialize(suite.Ctx, testKvStore, queuesProvider, 10*time.Second, suite.Log)
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+
+		AfterEach(func() {
+			suite.Teardown()
+		})
+
+		It("restores the KV rendered version so the next long-poll returns 204", func() {
+			deviceName := "missing-kv-rendered-version-device"
+
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			provider := api.ConfigProviderSpec{}
+			Expect(provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Inline: []api.FileSpec{{Content: "cfg"}}})).To(Succeed())
+			renderedConfig, err := json.Marshal(&[]api.ConfigProviderSpec{provider})
+			Expect(err).ToNot(HaveOccurred())
+			knownVersion, err := setDeviceRendered(suite.Ctx, suite.DeviceStore, suite.OrgID, deviceName, string(renderedConfig), "", "hash1", "", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(knownVersion).ToNot(BeEmpty())
+
+			// Simulate a KV store restart without persistence: the rendered version key is gone
+			// while the agent is up to date with the version stored in the database.
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			Expect(testKvStore.Delete(suite.Ctx, renderedKey)).To(Succeed())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: lo.ToPtr(knownVersion)}
+
+			// The missing key is reported as a new version, so the first poll returns the device.
+			result, status := suite.Device.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+
+			kvVersion, err := testKvStore.Get(suite.Ctx, renderedKey)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(kvVersion)).To(Equal(knownVersion), "the missing KV rendered version should be restored")
+
+			// Next poll with unchanged spec must wait and return 204 instead of looping on 200.
+			result2, status2 := suite.Device.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status2.Code).To(Equal(int32(204)))
+			Expect(result2).To(BeNil())
+		})
+	})
+
 	Context("Device Resume Operations", func() {
 		Describe("ResumeDevice", func() {
 			It("should resume a single device successfully", func() {
