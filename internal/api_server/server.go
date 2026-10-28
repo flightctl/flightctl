@@ -188,6 +188,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	enrollmentCSRStatusCache, err := fcmiddleware.NewRedisEnrollmentCSRStatusCache(kvStore, fcmiddleware.DefaultEnrollmentCSRStatusCacheTTL)
+	if err != nil {
+		return err
+	}
 	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
 
 	s.log.Println("Initializing API server")
@@ -224,6 +228,7 @@ func (s *Server) Run(ctx context.Context) error {
 	var tpmVerifier tpmcsr.Verifier
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+	csrSvc = fcmiddleware.WrapCSRServiceWithRevocationCacheInvalidation(csrSvc, enrollmentCSRStatusCache, s.log)
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrSvc, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
 	tpmVerifier = *tpmcsr.NewVerifier(enrollmentRequestSvc)

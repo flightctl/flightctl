@@ -92,6 +92,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		hasItem             bool
 		itemCondition       domain.ConditionType
 		cachedCondition     domain.ConditionType
+		revoked             bool
 		requests            int
 		wantCode            int
 		wantCSRRequests     int
@@ -134,6 +135,25 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantCSRRequests:     1,
 			wantStatusCacheGets: 1,
 			wantStatusCacheSets: 1,
+		},
+		{
+			name:                "When CSR is revoked it should reject",
+			hasItem:             true,
+			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
+			revoked:             true,
+			requests:            1,
+			wantCode:            http.StatusUnauthorized,
+			wantCSRRequests:     1,
+			wantStatusCacheGets: 1,
+			wantStatusCacheSets: 1,
+		},
+		{
+			name:                "When revoked CSR status is cached it should reject without reading CSR service",
+			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			revoked:             true,
+			requests:            2,
+			wantCode:            http.StatusUnauthorized,
+			wantStatusCacheGets: 2,
 		},
 		{
 			name:                "When CSR is approved it should allow, cache status, and carry the CSR name",
@@ -186,6 +206,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			csrs := &fakeCSRService{}
 			if test.hasItem {
 				item := enrollmentCSR(csrName, test.itemCondition, &certificatePEM)
+				if test.revoked {
+					item.Status.Revocation = testRevocation()
+				}
 				csrs.items = []domain.CertificateSigningRequest{item}
 			}
 
@@ -196,6 +219,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 						Type:   test.cachedCondition,
 						Status: domain.ConditionStatusTrue,
 					}},
+				}
+				if test.revoked {
+					status.Revocation = testRevocation()
 				}
 				entry := enrollmentCSRStatusCacheEntry{Name: &csrName, Status: &status}
 				require.NoError(t, statusCache.Set(ctx, org.DefaultID, crypto.CertificateDigest(peerCertificate.Raw), entry))
@@ -258,6 +284,14 @@ func legacyEnrollmentCertificate(t *testing.T, ctx context.Context, caClient *cr
 	)
 	require.NoError(t, err)
 	return peerCertificate
+}
+
+func testRevocation() *domain.EnrollmentCertificateRevocation {
+	return &domain.EnrollmentCertificateRevocation{
+		Reason:    "Compromised",
+		RevokedBy: "security-officer",
+		RevokedAt: time.Now().UTC(),
+	}
 }
 
 func enrollmentCSR(name string, condition domain.ConditionType, certificatePEM *[]byte) domain.CertificateSigningRequest {

@@ -85,3 +85,16 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
+
+// (POST /api/v1/certificatesigningrequests/{name}/revocation)
+func (h *TransportHandler) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request apiv1beta1.EnrollmentCertificateRevocationRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := h.certificatesigningrequest.RevokeCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, request)
+	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}

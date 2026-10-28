@@ -117,17 +117,9 @@ func emitStandalonePrepareDeltas(ctx context.Context, eventsService events.Servi
 		return
 	}
 	event := domain.GetBaseEvent(ctx, domain.DeviceKind, name, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails)
-	if reliable, ok := eventsService.(interface {
-		CreateEventWithRetry(context.Context, uuid.UUID, *domain.Event) error
-	}); ok {
-		if err := reliable.CreateEventWithRetry(ctx, orgId, event); err != nil {
-			log.WithError(err).Error("failed to publish standalone PrepareDeltas event")
-		}
-		return
+	if err := eventsService.CreateEventWithRetry(ctx, orgId, event); err != nil {
+		log.WithError(err).Error("failed to publish standalone PrepareDeltas event")
 	}
-	// Test doubles and older event implementations do not expose the retrying
-	// extension; retain the generic event-service behavior for those callers.
-	eventsService.CreateEvent(ctx, orgId, event)
 }
 
 func ensureSpecUpdatedField(details *domain.ResourceUpdatedDetails, oldDevice, newDevice *domain.Device) *domain.ResourceUpdatedDetails {

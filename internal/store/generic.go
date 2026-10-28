@@ -68,7 +68,7 @@ func NewGenericStore[P extInt[M], M any, A any, AL any](
 }
 
 func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return DB(ctx, s.dbHandler)
 }
 
 // Mutate runs the shared read-modify-write loop: load (or use previous once),

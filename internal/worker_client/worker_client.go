@@ -165,6 +165,7 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonApplicationLifecycleChanged: {},
 	domain.EventReasonDeltaGenerationCompleted:    {},
 	domain.EventReasonEnrollmentRequestApproved:   {},
+	domain.EventReasonEnrollmentCredentialRevoked: {},
 }
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
