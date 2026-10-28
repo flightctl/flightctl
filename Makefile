@@ -350,7 +350,7 @@ flightctl-imagebuilder-api-container: packaging/images/$(OS)/Containerfile.image
 .PHONY: imagebuilder-vm-guest
 imagebuilder-vm-guest: .output/flightctl-vm/guest.disk .output/flightctl-vm/guest.rpms .output/flightctl-vm/guest.sha256
 
-flightctl-imagebuilder-worker-container: imagebuilder-vm-guest packaging/vm/build-runtime.sh packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
+flightctl-imagebuilder-worker-container: imagebuilder-vm-guest packaging/vm/build-runtime.sh packaging/vm/worker-entrypoint.sh packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \

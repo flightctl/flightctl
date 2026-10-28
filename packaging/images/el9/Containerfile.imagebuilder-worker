@@ -10,7 +10,7 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs openssh-clients glib2 zlib bzip2-libs openssl-libs ca-certificates tzdata
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs openssh-clients nss_wrapper glib2 zlib bzip2-libs openssl-libs ca-certificates tzdata
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
@@ -69,6 +69,7 @@ COPY .output/flightctl-vm/guest.sha256 /usr/share/flightctl-vm/guest.sha256
 RUN cd /usr/share/flightctl-vm && sed -i 's/guest.disk/guest.qcow2/' guest.sha256 && sha256sum --check guest.sha256 && \
     mkdir -p /var/lib/flightctl && chmod 0775 /var/lib/flightctl && \
     chgrp 0 /var/lib/flightctl && chmod 0644 /usr/share/flightctl-vm/guest.*
+COPY packaging/vm/worker-entrypoint.sh /usr/local/bin/flightctl-imagebuilder-worker-entrypoint
 ENV HOME=/var/lib/flightctl
 USER 1000:0
 
@@ -76,4 +77,5 @@ USER 1000:0
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 
 
+ENTRYPOINT ["/usr/local/bin/flightctl-imagebuilder-worker-entrypoint"]
 CMD ["./flightctl-imagebuilder-worker"]
