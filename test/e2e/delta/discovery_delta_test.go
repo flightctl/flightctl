@@ -325,7 +325,8 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	targetTag := applicationDeltaTargetTag(tag + "-delta")
 	registerApplicationImageCleanup(repositoryPath, targetTag)
 	deltaImage := applicationImageReference(registry, repositoryPath, targetTag)
-	workDir := "/tmp/flightctl-delta-discovery-" + tag
+	// Full image layouts can exceed a small /tmp tmpfs on the agent VM.
+	workDir := "/var/tmp/flightctl-delta-discovery-" + tag
 	logDiscoveredDeltaDebug("publishing source=%s target=%s delta=%s workDir=%s", sourceRef, targetRef, deltaImage, workDir)
 	commands := []string{
 		"set -eu",

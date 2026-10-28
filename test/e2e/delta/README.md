@@ -9,7 +9,7 @@ Ginkgo suite for control-plane OS delta generation and application delta usage. 
 
 The delta specs are serial because each spec's setup clears shared delta-generation database rows, Redis hints, and registry delta tags. With Ginkgo parallel processes, a non-serial spec could delete another spec's in-flight generation state or artifacts. Making these specs parallel requires replacing that global cleanup with per-spec or per-worker isolation; the VM pool itself supports parallel workers.
 
-Both groups use the auxiliary OCI registry and test fixtures. The non-Helm application specs also need a VM image with `oci-delta`, `skopeo`, and `crictl` available. The suite clears delta preparation/generation state and old delta/target tags before each spec while preserving the bundled fixture tags. Rebuild agent images after the base Containerfile change:
+Both groups use the auxiliary OCI registry and test fixtures. The non-Helm application specs also need a VM image with `oci-delta`, `skopeo`, and `crictl` available. Discovery stages full source and target images under `/var/tmp` on the VM because `/tmp` can be a small tmpfs. The staging directory is removed when the publishing command exits. The suite clears delta preparation/generation state and old delta/target tags before each spec while preserving the bundled fixture tags. Rebuild agent images after the base Containerfile change:
 
 ```bash
 make e2e-agent-images
