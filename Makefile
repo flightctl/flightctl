@@ -606,6 +606,7 @@ lint-openapi: .output/stamps/lint-openapi
 .PHONY: lint-helm
 lint-helm:
 	helm lint deploy/helm/flightctl --values deploy/helm/flightctl/lint-values.yaml
+	helm lint deploy/helm/flightctl-tenant
 	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/lint-values.yaml
 	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
 	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/examples/values-rhoai-to-flightctl.yaml
@@ -617,6 +618,17 @@ lint-helm:
 .PHONY: test-helm-catalog-collector
 test-helm-catalog-collector:
 	deploy/helm/flightctl-catalog-collector/tests/render_test.sh
+
+# Render tests for the Flight Control chart: namespace-scoped vs cluster-scoped
+# RBAC, auth-mode-dependent token reviews, and forbidden out-of-namespace lookups.
+.PHONY: test-helm-flightctl
+test-helm-flightctl:
+	go test ./deploy/helm/flightctl -count=1
+
+# Render tests for the per-project tenant RBAC bundle.
+.PHONY: test-helm-tenant
+test-helm-tenant:
+	go test ./deploy/helm/flightctl-tenant -count=1
 
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps

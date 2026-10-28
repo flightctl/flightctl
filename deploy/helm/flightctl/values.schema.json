@@ -19,6 +19,10 @@
           "description": "Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.",
           "enum": ["auto", "true", "false"]
         },
+        "namespaceScoped": {
+          "type": "boolean",
+          "description": "Render only namespaced resources so the chart can be installed without cluster-admin permissions. Requires global.baseDomain and disables cluster-scoped features such as SCCs, OAuthClient creation, and MultiCluster Engine extensions."
+        },
         "multiclusterEngineNamespace": {
           "type": "string",
           "description": "Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings."
@@ -214,6 +218,9 @@
                 },
                 "clientId": { "type": "string", "description": "OAuth client ID (will be set to flightctl-{releaseName})" },
                 "clientSecret": { "type": "string", "description": "OAuth client secret (leave empty for auto-generation)" },
+                "clientType": { "type": "string", "description": "OAuth client registration type. A serviceaccount client uses the flightctl-api ServiceAccount and its projected token.", "enum": ["oauthclient", "serviceaccount"] },
+                "clientSecretFile": { "type": "string", "description": "Path to the projected ServiceAccount token used as the OAuth client credential when clientType=serviceaccount." },
+                "scopes": { "type": "array", "description": "OAuth scopes to request. Service-account clients default to user:info user:check-access user:list-projects.", "items": { "type": "string" } },
                 "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
                 "tokenUrl": { "type": "string", "description": "OAuth token URL (leave empty to auto-detect from OpenShift cluster)" },
                 "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" },
@@ -589,6 +596,10 @@
       "description": "Delta-worker configuration",
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the delta worker"
+        },
         "image": {
           "type": "object",
           "additionalProperties": false,

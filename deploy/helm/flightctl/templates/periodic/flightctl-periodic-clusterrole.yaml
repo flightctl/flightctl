@@ -1,4 +1,7 @@
 {{ if .Values.periodic.clusterLevelSecretAccess }}
+{{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+{{- fail "periodic.clusterLevelSecretAccess requires cluster-admin permissions and cannot be enabled when global.namespaceScoped=true" }}
+{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

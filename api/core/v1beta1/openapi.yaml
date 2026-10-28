@@ -10232,6 +10232,21 @@ components:
         clientSecret:
           type: string
           description: The OAuth2 client secret.
+        clientType:
+          type: string
+          enum:
+            - oauthclient
+            - serviceaccount
+          description: >-
+            The OAuth client registration type. `oauthclient` uses a cluster-scoped OAuthClient and its client secret.
+            `serviceaccount` uses a namespaced ServiceAccount as the OAuth client; `clientId` must be
+            `system:serviceaccount:<namespace>:<name>` and the client credential is read from a projected
+            service-account token file.
+        clientSecretFile:
+          type: string
+          description: >-
+            Path to the service-account token used as the OAuth client credential when `clientType` is
+            `serviceaccount`. Defaults to `/var/run/secrets/kubernetes.io/serviceaccount/token`.
         enabled:
           type: boolean
           description: Whether this OpenShift provider is enabled.

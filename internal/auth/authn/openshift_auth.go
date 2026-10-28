@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,15 +21,17 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	k8sAuthenticationV1 "k8s.io/api/authentication/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// OpenShiftAuth implements OpenShift OAuth authentication using TokenReview validation
+// OpenShiftAuth implements OpenShift OAuth authentication using SelfSubjectReview validation
 type OpenShiftAuth struct {
 	metadata      api.ObjectMeta
 	spec          api.OpenShiftProviderSpec
 	k8sClient     k8sclient.K8SClient
 	tlsConfig     *tls.Config
-	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.UserInfo]
 	identityCache *ttlcache.Cache[string, common.Identity]
 	log           logrus.FieldLogger
 	cancel        context.CancelFunc
@@ -47,8 +51,24 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 	if spec.ClientId == nil || *spec.ClientId == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
-		return nil, fmt.Errorf("clientSecret is required")
+	clientType := ""
+	if spec.ClientType != nil {
+		clientType = string(*spec.ClientType)
+	}
+	switch clientType {
+	case "", string(api.Oauthclient):
+		if spec.ClientSecret == nil || *spec.ClientSecret == "" {
+			return nil, fmt.Errorf("clientSecret is required")
+		}
+	case string(api.Serviceaccount):
+		if spec.ClientSecretFile == nil || *spec.ClientSecretFile == "" {
+			spec.ClientSecretFile = lo.ToPtr("/var/run/secrets/kubernetes.io/serviceaccount/token")
+		}
+		if spec.Scopes == nil || len(*spec.Scopes) == 0 {
+			spec.Scopes = &[]string{"user:info", "user:check-access", "user:list-projects"}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported clientType %q", clientType)
 	}
 
 	if spec.ClusterControlPlaneUrl == nil || *spec.ClusterControlPlaneUrl == "" {
@@ -65,7 +85,7 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 		spec:          spec,
 		k8sClient:     k8sClient,
 		tlsConfig:     tlsConfig,
-		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.UserInfo](5 * time.Second)),
 		identityCache: ttlcache.New(ttlcache.WithTTL[string, common.Identity](5 * time.Minute)),
 		log:           log,
 	}
@@ -130,9 +150,36 @@ func hashToken(token string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// GetOpenShiftSpec returns the internal OpenShift spec with client secret intact (for internal use only)
+// GetOpenShiftSpec returns the internal OpenShift spec with the client secret
+// intact (for internal use only). For service-account clients the token is
+// reread on every call so credential rotation is picked up.
 func (o *OpenShiftAuth) GetOpenShiftSpec() api.OpenShiftProviderSpec {
-	return o.spec
+	spec := o.spec
+	if o.isServiceAccountClient() {
+		secret, err := o.readClientSecret()
+		if err != nil {
+			o.log.WithError(err).Warn("Failed to read OpenShift OAuth client token")
+			spec.ClientSecret = nil
+		} else {
+			spec.ClientSecret = &secret
+		}
+	}
+	return spec
+}
+
+func (o *OpenShiftAuth) isServiceAccountClient() bool {
+	return o.spec.ClientType != nil && *o.spec.ClientType == api.Serviceaccount
+}
+
+func (o *OpenShiftAuth) readClientSecret() (string, error) {
+	if o.spec.ClientSecretFile == nil || *o.spec.ClientSecretFile == "" {
+		return "", fmt.Errorf("clientSecretFile is required")
+	}
+	data, err := os.ReadFile(*o.spec.ClientSecretFile)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 // GetAuthToken extracts the Bearer token from the HTTP request
@@ -142,6 +189,11 @@ func (o *OpenShiftAuth) GetAuthToken(r *http.Request) (string, error) {
 
 // GetAuthConfig returns the OpenShift authentication configuration
 func (o *OpenShiftAuth) GetAuthConfig() (*api.AuthConfig, error) {
+	publicSpec := o.spec
+	if o.isServiceAccountClient() {
+		publicSpec.ClientSecret = nil
+		publicSpec.ClientSecretFile = nil
+	}
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
 		Kind:       api.AuthProviderKind,
@@ -149,7 +201,7 @@ func (o *OpenShiftAuth) GetAuthConfig() (*api.AuthConfig, error) {
 		Spec:       api.AuthProviderSpec{},
 	}
 
-	if err := provider.Spec.FromOpenShiftProviderSpec(o.spec); err != nil {
+	if err := provider.Spec.FromOpenShiftProviderSpec(publicSpec); err != nil {
 		return nil, fmt.Errorf("failed to marshal OpenShift auth provider spec: %w", err)
 	}
 
@@ -161,19 +213,13 @@ func (o *OpenShiftAuth) GetAuthConfig() (*api.AuthConfig, error) {
 	}, nil
 }
 
-// ValidateToken validates an OpenShift OAuth token using K8s TokenReview
+// ValidateToken validates an OpenShift OAuth token using the compatible identity endpoint.
 func (o *OpenShiftAuth) ValidateToken(ctx context.Context, token string) error {
-	review, err := o.loadTokenReview(ctx, token)
-	if err != nil {
-		return err
-	}
-	if !review.Status.Authenticated {
-		return fmt.Errorf("user is not authenticated")
-	}
-	return nil
+	_, err := o.loadUserInfo(ctx, token)
+	return err
 }
 
-// GetIdentity extracts user identity from TokenReview, gets projects, and fetches roles per project
+// GetIdentity extracts user identity, gets projects, and fetches roles per project.
 func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	// Check identity cache first
 	tokenHash := hashToken(token)
@@ -184,17 +230,13 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 
 	o.log.Debug("Identity cache miss")
 
-	review, err := o.loadTokenReview(ctx, token)
+	userInfo, err := o.loadUserInfo(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	if review == nil || !review.Status.Authenticated {
-		return nil, fmt.Errorf("user is not authenticated")
-	}
-
-	username := review.Status.User.Username
-	uid := review.Status.User.UID
+	username := userInfo.Username
+	uid := userInfo.UID
 
 	// Get projects (organizations) for the user
 	rawProjects, err := o.getProjectsForUser(ctx, token)
@@ -217,7 +259,7 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	// Get roles per project (use raw project name for cluster API)
 	orgRoles := make(map[string][]string)
 	for i, rawProject := range rawProjects {
-		roles, err := o.getRolesForUserInProject(ctx, rawProject, username, review.Status.User.Groups)
+		roles, err := o.getRolesForUserInProject(ctx, rawProject, username, userInfo.Groups)
 		if err != nil {
 			o.log.WithError(err).WithField("project", rawProject).Warn("Failed to get roles for project")
 			continue
@@ -228,7 +270,7 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	}
 
 	// Check if user is in system:cluster-admins group and grant global admin role
-	for _, group := range review.Status.User.Groups {
+	for _, group := range userInfo.Groups {
 		if group == "system:cluster-admins" {
 			if orgRoles["*"] == nil {
 				orgRoles["*"] = []string{}
@@ -267,45 +309,111 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	return openshiftIdentity, nil
 }
 
-// loadTokenReview calls K8s TokenReview API with caching
-func (o *OpenShiftAuth) loadTokenReview(ctx context.Context, token string) (*k8sAuthenticationV1.TokenReview, error) {
-	item := o.cache.Get(token)
+// loadSelfSubjectReview calls the K8s SelfSubjectReview API with caching
+func (o *OpenShiftAuth) loadSelfSubjectReview(ctx context.Context, token string) (*k8sAuthenticationV1.UserInfo, error) {
+	cacheKey := hashToken(token)
+	item := o.cache.Get(cacheKey)
 	if item != nil {
 		return item.Value(), nil
 	}
 
-	// Standard TokenReview without audiences; API server validates bound SA tokens
-	body, err := json.Marshal(k8sAuthenticationV1.TokenReview{
-		Spec: k8sAuthenticationV1.TokenReviewSpec{
-			Token: token,
-		},
+	// SelfSubjectReview is authorized for every authenticated user, so validating
+	// the caller's token does not require cluster-scoped tokenreviews permission.
+	body, err := json.Marshal(k8sAuthenticationV1.SelfSubjectReview{
+		TypeMeta: metav1.TypeMeta{APIVersion: "authentication.k8s.io/v1", Kind: "SelfSubjectReview"},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshaling TokenReview: %w", err)
+		return nil, fmt.Errorf("marshaling SelfSubjectReview: %w", err)
 	}
 
-	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/tokenreviews", body)
+	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/selfsubjectreviews", body, k8sclient.WithToken(token))
 	if err != nil {
-		o.log.WithError(err).Warn("TokenReview request failed")
+		// A scope-constrained OpenShift OAuth token cannot create SelfSubjectReview.
+		// The caller falls back to the OpenShift users/~ endpoint in that case.
+		if !apierrors.IsForbidden(err) {
+			o.log.WithError(err).Warn("SelfSubjectReview request failed")
+		}
 		return nil, err
 	}
 
-	review := &k8sAuthenticationV1.TokenReview{}
+	review := &k8sAuthenticationV1.SelfSubjectReview{}
 	if err := json.Unmarshal(res, review); err != nil {
-		o.log.WithError(err).Warn("TokenReview unmarshal failed")
+		o.log.WithError(err).Warn("SelfSubjectReview unmarshal failed")
 		return nil, err
 	}
 
-	// Debug log the TokenReview status (without logging the token)
+	userInfo := review.Status.UserInfo
+	if userInfo.Username == "" {
+		return nil, fmt.Errorf("user is not authenticated")
+	}
+	// Debug log the identity (without logging the token)
 	o.log.WithFields(logrus.Fields{
-		"authenticated": review.Status.Authenticated,
-		"user":          review.Status.User.Username,
-		"audiences":     review.Status.Audiences,
-		"error":         review.Status.Error,
-	}).Debug("TokenReview status")
+		"user": userInfo.Username,
+		"uid":  userInfo.UID,
+	}).Debug("SelfSubjectReview status")
 
-	o.cache.Set(token, review, ttlcache.DefaultTTL)
-	return review, nil
+	o.cache.Set(cacheKey, &userInfo, ttlcache.DefaultTTL)
+	return &userInfo, nil
+}
+
+type openShiftCurrentUser struct {
+	Metadata struct {
+		Name string `json:"name"`
+		UID  string `json:"uid"`
+	} `json:"metadata"`
+	Groups []string `json:"groups"`
+}
+
+// loadUserInfo returns the caller identity using the most compatible endpoint.
+// SelfSubjectReview works for ordinary Kubernetes credentials and OpenShift
+// tokens with the user:full scope. Scope-constrained OpenShift OAuth tokens are
+// rejected there and must use the OpenShift users/~ endpoint instead.
+func (o *OpenShiftAuth) loadUserInfo(ctx context.Context, token string) (*k8sAuthenticationV1.UserInfo, error) {
+	if o.isServiceAccountClient() {
+		return o.loadCurrentUser(ctx, token)
+	}
+	userInfo, err := o.loadSelfSubjectReview(ctx, token)
+	if err == nil {
+		return userInfo, nil
+	}
+	if !apierrors.IsForbidden(err) {
+		return nil, err
+	}
+	return o.loadCurrentUser(ctx, token)
+}
+
+func (o *OpenShiftAuth) loadCurrentUser(ctx context.Context, token string) (*k8sAuthenticationV1.UserInfo, error) {
+	cacheKey := hashToken(token)
+	if item := o.cache.Get(cacheKey); item != nil {
+		return item.Value(), nil
+	}
+
+	res, err := o.k8sClient.GetCurrentUser(ctx, token)
+	if err != nil {
+		o.log.WithError(err).Warn("OpenShift current user request failed")
+		return nil, err
+	}
+
+	var user openShiftCurrentUser
+	if err := json.Unmarshal(res, &user); err != nil {
+		o.log.WithError(err).Warn("OpenShift current user unmarshal failed")
+		return nil, err
+	}
+	if user.Metadata.Name == "" {
+		return nil, fmt.Errorf("user is not authenticated")
+	}
+
+	userInfo := &k8sAuthenticationV1.UserInfo{
+		Username: user.Metadata.Name,
+		UID:      user.Metadata.UID,
+		Groups:   user.Groups,
+	}
+	o.log.WithFields(logrus.Fields{
+		"user": userInfo.Username,
+		"uid":  userInfo.UID,
+	}).Debug("OpenShift current user status")
+	o.cache.Set(cacheKey, userInfo, ttlcache.DefaultTTL)
+	return userInfo, nil
 }
 
 // getProjectsForUser lists OpenShift projects accessible to the user

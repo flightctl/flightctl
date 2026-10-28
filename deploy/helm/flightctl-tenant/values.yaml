@@ -1,0 +1,27 @@
+# -- Namespace of the main Flight Control release. Used as the suffix in the
+# Flight Control role names so the control plane can normalize them.
+flightctlNamespace: flightctl
+# -- Helm release name of the main Flight Control installation. Used in the
+# project label instructions printed by the chart notes.
+flightctlReleaseName: flightctl
+# -- Role bindings to create in this project. Each entry selects one of the
+# Flight Control roles and lists the users, groups, or service accounts to bind.
+# roleBindings:
+#   - role: org-admin
+#     name: flightctl-org-admin
+#     subjects:
+#       - kind: User
+#         name: alice
+#       - kind: Group
+#         name: platform-admins
+#       - kind: ServiceAccount
+#         name: device-operator
+#         namespace: project-a
+roleBindings: []
+# -- Service accounts of the main Flight Control control plane that need to read
+# RoleBindings in this project for organization and role mapping.
+controlPlaneServiceAccounts:
+  - flightctl-api
+  - flightctl-imagebuilder-api
+  - flightctl-alertmanager-proxy
+  - flightctl-remote-access

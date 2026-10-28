@@ -17,13 +17,14 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	k8sAuthenticationV1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type K8sAuthN struct {
 	metadata      api.ObjectMeta
 	spec          api.K8sProviderSpec
 	k8sClient     k8sclient.K8SClient
-	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.UserInfo]
 	identityCache *ttlcache.Cache[string, common.Identity]
 	cancel        context.CancelFunc
 	mu            sync.Mutex
@@ -36,7 +37,7 @@ func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8
 		metadata:      metadata,
 		spec:          spec,
 		k8sClient:     k8sClient,
-		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.UserInfo](5 * time.Second)),
 		identityCache: ttlcache.New(ttlcache.WithTTL[string, common.Identity](30 * time.Second)),
 	}
 	return authN, nil
@@ -94,51 +95,47 @@ func (o *K8sAuthN) Stop() {
 	})
 }
 
-func (o *K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthenticationV1.TokenReview, error) {
-	item := o.cache.Get(token)
+func (o *K8sAuthN) loadSelfSubjectReview(ctx context.Context, token string) (*k8sAuthenticationV1.UserInfo, error) {
+	cacheKey := hashToken(token)
+	item := o.cache.Get(cacheKey)
 	if item != nil {
 		return item.Value(), nil
 	}
-	// Standard TokenReview without audiences; API server validates bound SA tokens
-	body, err := json.Marshal(k8sAuthenticationV1.TokenReview{
-		Spec: k8sAuthenticationV1.TokenReviewSpec{
-			Token: token,
-		},
+	// SelfSubjectReview is authorized for every authenticated user, so validating
+	// the caller's token does not require cluster-scoped tokenreviews permission.
+	body, err := json.Marshal(k8sAuthenticationV1.SelfSubjectReview{
+		TypeMeta: metav1.TypeMeta{APIVersion: "authentication.k8s.io/v1", Kind: "SelfSubjectReview"},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshaling resource: %w", err)
+		return nil, fmt.Errorf("marshaling SelfSubjectReview: %w", err)
 	}
-	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/tokenreviews", body)
+	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/selfsubjectreviews", body, k8sclient.WithToken(token))
 	if err != nil {
-		logrus.WithError(err).Warn("TokenReview request failed")
+		logrus.WithError(err).Warn("SelfSubjectReview request failed")
 		return nil, err
 	}
 
-	review := &k8sAuthenticationV1.TokenReview{}
+	review := &k8sAuthenticationV1.SelfSubjectReview{}
 	if err := json.Unmarshal(res, review); err != nil {
-		logrus.WithError(err).Warn("TokenReview unmarshal failed")
+		logrus.WithError(err).Warn("SelfSubjectReview unmarshal failed")
 		return nil, err
 	}
-	// Debug log the TokenReview status (without logging the token)
+	userInfo := review.Status.UserInfo
+	if userInfo.Username == "" {
+		return nil, fmt.Errorf("user is not authenticated")
+	}
+	// Debug log the identity (without logging the token)
 	logrus.WithFields(logrus.Fields{
-		"authenticated": review.Status.Authenticated,
-		"user":          review.Status.User.Username,
-		"audiences":     review.Status.Audiences,
-		"error":         review.Status.Error,
-	}).Debug("TokenReview status")
-	o.cache.Set(token, review, ttlcache.DefaultTTL)
-	return review, nil
+		"user": userInfo.Username,
+		"uid":  userInfo.UID,
+	}).Debug("SelfSubjectReview status")
+	o.cache.Set(cacheKey, &userInfo, ttlcache.DefaultTTL)
+	return &userInfo, nil
 }
 
 func (o *K8sAuthN) ValidateToken(ctx context.Context, token string) error {
-	review, err := o.loadTokenReview(ctx, token)
-	if err != nil {
-		return err
-	}
-	if !review.Status.Authenticated {
-		return fmt.Errorf("user is not authenticated")
-	}
-	return nil
+	_, err := o.loadSelfSubjectReview(ctx, token)
+	return err
 }
 
 func (o *K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
@@ -146,23 +143,23 @@ func (o *K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
 }
 
 func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
-	review, err := o.loadTokenReview(ctx, token)
+	userInfo, err := o.loadSelfSubjectReview(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
 	// Compute cache key: prefer UID, fallback to Username
-	cacheKey := review.Status.User.UID
+	cacheKey := userInfo.UID
 	if cacheKey == "" {
-		cacheKey = review.Status.User.Username
+		cacheKey = userInfo.Username
 	}
 
 	// Check identity cache first using computed key
 	if cacheKey != "" {
 		if item := o.identityCache.Get(cacheKey); item != nil {
 			logrus.WithFields(logrus.Fields{
-				"user":     review.Status.User.Username,
-				"uid":      review.Status.User.UID,
+				"user":     userInfo.Username,
+				"uid":      userInfo.UID,
 				"cacheKey": cacheKey,
 			}).Debug("K8s identity retrieved from cache")
 			return item.Value(), nil
@@ -176,7 +173,7 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 	var roles []string
 	if o.spec.RbacNs != nil && *o.spec.RbacNs != "" {
 		var err error
-		roles, err = o.k8sClient.ListRoleBindingsForUser(ctx, *o.spec.RbacNs, review.Status.User.Username, review.Status.User.Groups)
+		roles, err = o.k8sClient.ListRoleBindingsForUser(ctx, *o.spec.RbacNs, userInfo.Username, userInfo.Groups)
 		if err != nil {
 			logrus.WithError(err).WithField("namespace", *o.spec.RbacNs).Warn("Failed to list role bindings")
 			roles = []string{}
@@ -186,7 +183,7 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"user":          review.Status.User.Username,
+		"user":          userInfo.Username,
 		"organizations": organizations,
 		"roles":         roles,
 		"rbacNs":        o.spec.RbacNs,
@@ -208,7 +205,7 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 		rbacNs = *o.spec.RbacNs
 	}
 
-	k8sIdentity := common.NewK8sIdentity(review.Status.User.Username, review.Status.User.UID, reportedOrganizations, issuer, o.spec.ApiUrl, rbacNs)
+	k8sIdentity := common.NewK8sIdentity(userInfo.Username, userInfo.UID, reportedOrganizations, issuer, o.spec.ApiUrl, rbacNs)
 	k8sIdentity.SetSuperAdmin(isSuperAdmin)
 
 	// Cache the identity using the same key logic (skip if both UID and Username are empty)
