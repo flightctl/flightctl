@@ -326,6 +326,7 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	registerApplicationImageCleanup(repositoryPath, targetTag)
 	deltaImage := applicationImageReference(registry, repositoryPath, targetTag)
 	workDir := "/tmp/flightctl-delta-discovery-" + tag
+	logDiscoveredDeltaDebug("publishing source=%s target=%s delta=%s workDir=%s", sourceRef, targetRef, deltaImage, workDir)
 	commands := []string{
 		"set -eu",
 		fmt.Sprintf("work=%s", shellQuote(workDir)),
@@ -333,15 +334,29 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 		"rm -rf \"$work\"",
 		"mkdir -p \"$work/source\" \"$work/target\" \"$work/delta\"",
 		"trap 'rm -rf \"$work\"' EXIT",
+		"debug_layout_digest() {",
+		"  if skopeo inspect --raw \"$2\" > \"$work/debug-manifest.json\" && staged_digest=$(skopeo manifest-digest \"$work/debug-manifest.json\"); then",
+		fmt.Sprintf("    printf '%s staged %%s digest=%%s\\n' \"$1\" \"$staged_digest\"", discoveredDeltaDebugPrefix),
+		"  else",
+		fmt.Sprintf("    printf '%s staged %%s manifest inspection failed\\n' \"$1\"", discoveredDeltaDebugPrefix),
+		"  fi",
+		"}",
 		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/source:img",
 			shellQuote("docker://"+sourceRef)),
+		"debug_layout_digest source oci:$work/source:img",
 		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/target:img",
 			shellQuote("docker://"+targetRef)),
+		"debug_layout_digest target oci:$work/target:img",
 		"oci-delta create oci:$work/source:img oci:$work/target:img oci:$work/delta:img",
 		fmt.Sprintf("skopeo copy --preserve-digests --dest-tls-verify=false oci:$work/delta:img %s",
 			shellQuote("docker://"+deltaImage)),
 	}
-	_, err := harness.RunShellAsUserOnVM("root", strings.Join(commands, "\n"))
+	output, err := harness.RunShellAsUserOnVM("root", strings.Join(commands, "\n"))
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, discoveredDeltaDebugPrefix) {
+			GinkgoWriter.Println(line)
+		}
+	}
 	if err != nil {
 		return discoveredDeltaArtifact{}, fmt.Errorf("publish externally generated delta %s: %w", deltaImage, err)
 	}
@@ -353,7 +368,9 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	if err != nil {
 		return discoveredDeltaArtifact{}, err
 	}
-	return discoveredDeltaArtifact{reference: reference, digest: deltaDigest}, nil
+	artifact := discoveredDeltaArtifact{reference: reference, digest: deltaDigest}
+	logDiscoveredDeltaPublication(registry, repositoryPath, sourceRef, targetRef, artifact)
+	return artifact, nil
 }
 
 // registryRepositoryPath removes the registry host from a full repository reference.
@@ -511,10 +528,26 @@ func agentAppliedDiscoveredDelta(harness *e2e.Harness, target applicationDeltaTa
 
 // discoveredDeltaReferrer returns a condition that checks for a matching OCI referrer.
 func discoveredDeltaReferrer(harness *e2e.Harness, registry, repository, sourceDigest, targetDigest string) func() error {
+	var previousResult string
 	return func() error {
 		referrers, err := harness.FetchReferrers(registry, registryRepositoryPath(registry, repository), targetDigest)
 		if err != nil {
+			result := "error: " + err.Error()
+			if result != previousResult {
+				logDiscoveredDeltaDebug("lookup repository=%s target=%s source=%s %s", repository, targetDigest, sourceDigest, result)
+				previousResult = result
+			}
 			return err
+		}
+		observed := make([]string, 0, len(referrers))
+		for _, referrer := range referrers {
+			observed = append(observed, fmt.Sprintf("{digest=%s artifactType=%s source=%s}",
+				referrer.Digest, referrer.ArtifactType, referrer.Annotations[discoveredDeltaSourceAnnotation]))
+		}
+		result := fmt.Sprintf("count=%d referrers=[%s]", len(referrers), strings.Join(observed, ", "))
+		if result != previousResult {
+			logDiscoveredDeltaDebug("lookup repository=%s target=%s source=%s %s", repository, targetDigest, sourceDigest, result)
+			previousResult = result
 		}
 		for _, referrer := range referrers {
 			if referrer.ArtifactType != discoveredDeltaArtifactType {
@@ -525,7 +558,7 @@ func discoveredDeltaReferrer(harness *e2e.Harness, registry, repository, sourceD
 			}
 			return nil
 		}
-		return fmt.Errorf("repository %s has no OCI delta referrer for target %s and source %s", repository, targetDigest, sourceDigest)
+		return fmt.Errorf("repository %s has no OCI delta referrer for target %s and source %s; observed %s", repository, targetDigest, sourceDigest, result)
 	}
 }
 
