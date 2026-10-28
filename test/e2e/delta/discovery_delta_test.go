@@ -265,6 +265,8 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 		Expect(err).NotTo(HaveOccurred())
 		closerSource, err := buildApplicationDeltaTargetImage(harness, registry, tagPrefix+"-closer-source", applicationDeltaNginxRepo, target.image)
 		Expect(err).NotTo(HaveOccurred())
+		By("removing the target image cached while building the closer source")
+		removeDeviceImageIfPresent(harness, target.image)
 		composeV1, err := applicationDeltaComposeSpec([]string{sourceImage, closerSource.image})
 		Expect(err).NotTo(HaveOccurred())
 		v1Apps := []v1beta1.ApplicationProviderSpec{composeV1}
