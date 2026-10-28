@@ -110,6 +110,7 @@ const (
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
 	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
+	ConditionTypeDeviceEnrollmentCredentialRevoked    ConditionType = "EnrollmentCredentialRevoked"
 	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
 	ConditionTypeDeviceLabelsSynced                   ConditionType = "LabelsSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
@@ -1485,6 +1486,18 @@ type DeviceDeltaApplyStatus struct {
 	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
+// DeviceEnrollmentCredentialStatus Server-owned enrollment credential provenance for a device.
+type DeviceEnrollmentCredentialStatus struct {
+	// CertificateName Name of the enrollment credential CSR that admitted the device.
+	CertificateName *string `json:"certificateName,omitempty"`
+
+	// PolicyName Name of the enrollment approval policy that admitted the device.
+	PolicyName *string `json:"policyName,omitempty"`
+
+	// Revoked Whether the credential that admitted the device was revoked.
+	Revoked *bool `json:"revoked,omitempty"`
+}
+
 // DeviceEnrollmentHooksStatus Enrollment hooks state for a device.
 type DeviceEnrollmentHooksStatus struct {
 	// Snapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
@@ -1766,6 +1779,9 @@ type DeviceStatus struct {
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
+
+	// EnrollmentCredential Server-owned enrollment credential provenance for a device.
+	EnrollmentCredential *DeviceEnrollmentCredentialStatus `json:"enrollmentCredential,omitempty"`
 
 	// EnrollmentHooks Enrollment hooks state for a device.
 	EnrollmentHooks *DeviceEnrollmentHooksStatus `json:"enrollmentHooks,omitempty"`
@@ -2223,6 +2239,9 @@ type EnrollmentRequestStatus struct {
 
 	// EnrollmentCertificateName Optional tenant-local enrollment credential CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
 	EnrollmentCertificateName *string `json:"enrollmentCertificateName,omitempty"`
+
+	// EnrollmentPolicyName Optional enrollment approval policy that automatically approved the request.
+	EnrollmentPolicyName *string `json:"enrollmentPolicyName,omitempty"`
 }
 
 // EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.

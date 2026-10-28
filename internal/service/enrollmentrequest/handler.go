@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -152,10 +153,14 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
+	enrollmentCertificateName := enrollmentRequest.Status.EnrollmentCertificateName
+	enrollmentPolicyName := enrollmentRequest.Status.EnrollmentPolicyName
 	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  existingConditions,
-		Approval:    approval,
+		Certificate:               lo.ToPtr(string(certData)),
+		Conditions:                existingConditions,
+		Approval:                  approval,
+		EnrollmentCertificateName: enrollmentCertificateName,
+		EnrollmentPolicyName:      enrollmentPolicyName,
 	}
 
 	// Merge user-provided labels with agent-provided labels (only if not replacing)
@@ -188,6 +193,31 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 			Conditions:  []domain.Condition{},
 		}
 	}
+}
+
+func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) (*domain.DeviceEnrollmentCredentialStatus, error) {
+	if enrollmentRequest.Status == nil ||
+		enrollmentRequest.Status.EnrollmentCertificateName == nil ||
+		enrollmentRequest.Status.EnrollmentPolicyName == nil ||
+		h.csrService == nil {
+		return nil, nil
+	}
+	name := *enrollmentRequest.Status.EnrollmentCertificateName
+	csr, status := h.csrService.GetCertificateSigningRequest(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
+		return nil, nil
+	}
+	if status.Code != http.StatusOK {
+		return nil, fmt.Errorf("resolving enrollment credential %q: %s", name, status.Message)
+	}
+	if csr == nil || csr.Status == nil || csr.Status.Certificate == nil {
+		return nil, nil
+	}
+	return &domain.DeviceEnrollmentCredentialStatus{
+		CertificateName: enrollmentRequest.Status.EnrollmentCertificateName,
+		PolicyName:      enrollmentRequest.Status.EnrollmentPolicyName,
+		Revoked:         lo.ToPtr(csr.Status.Revocation != nil),
+	}, nil
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
@@ -283,6 +313,12 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			OsMode: enrollmentRequest.Spec.OsMode,
 		}
 	}
+
+	enrollmentCredential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
+	if err != nil {
+		return err
+	}
+	deviceStatus.EnrollmentCredential = enrollmentCredential
 
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)

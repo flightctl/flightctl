@@ -14,14 +14,22 @@ import (
 type selectorToTypeMap map[selector.SelectorName]selector.SelectorType
 
 var (
+	deviceEnrollmentCredentialSelectors = selectorToTypeMap{
+		selector.NewSelectorName("status.enrollmentCredential.certificateName"): selector.String,
+		selector.NewSelectorName("status.enrollmentCredential.policyName"):      selector.String,
+		selector.NewSelectorName("status.enrollmentCredential.revoked"):         selector.Bool,
+	}
 	deviceStatusSelectors = selectorToTypeMap{
-		selector.NewSelectorName("status.summary.status"):             selector.String,
-		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
-		selector.NewSelectorName("status.updated.status"):             selector.String,
-		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
-		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
-		selector.NewSelectorName("status.systemInfo.osMode"):          selector.String,
-		selector.NewSelectorName("status.systemInfo.deltaEligible"):   selector.Bool,
+		selector.NewSelectorName("status.summary.status"):                       selector.String,
+		selector.NewSelectorName("status.applicationsSummary.status"):           selector.String,
+		selector.NewSelectorName("status.updated.status"):                       selector.String,
+		selector.NewSelectorName("status.lifecycle.status"):                     selector.String,
+		selector.NewSelectorName("status.capabilities.osMode"):                  selector.String,
+		selector.NewSelectorName("status.systemInfo.osMode"):                    selector.String,
+		selector.NewSelectorName("status.systemInfo.deltaEligible"):             selector.Bool,
+		selector.NewSelectorName("status.enrollmentCredential.certificateName"): selector.String,
+		selector.NewSelectorName("status.enrollmentCredential.policyName"):      selector.String,
+		selector.NewSelectorName("status.enrollmentCredential.revoked"):         selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
@@ -62,6 +70,13 @@ func (m *Device) MapSelectorName(name selector.SelectorName) []selector.Selector
 }
 
 func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if typ, exists := deviceEnrollmentCredentialSelectors[name]; exists {
+		return &selector.SelectorField{
+			Type:      typ,
+			FieldName: fmt.Sprintf("service_conditions -> 'enrollmentCredential' ->> '%s'", strings.Split(name.String(), ".")[2]),
+			FieldType: "jsonb",
+		}, nil
+	}
 	if typ, exists := deviceStatusSelectors[name]; exists {
 		return makeJSONBSelectorField(name, typ)
 	}

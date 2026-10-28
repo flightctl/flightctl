@@ -88,10 +88,11 @@ type DeviceLabel struct {
 }
 
 type ServiceConditions struct {
-	Conditions      *[]domain.Condition           `json:"conditions,omitempty"`
-	DependencySync  *domain.DependencySyncStatus  `json:"dependencySync,omitempty"`
-	DeltaGeneration *domain.DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
-	DeltaEstimates  *DeviceDeltaEstimates         `json:"deltaEstimates,omitempty"`
+	Conditions           *[]domain.Condition                      `json:"conditions,omitempty"`
+	EnrollmentCredential *domain.DeviceEnrollmentCredentialStatus `json:"enrollmentCredential,omitempty"`
+	DependencySync       *domain.DependencySyncStatus             `json:"dependencySync,omitempty"`
+	DeltaGeneration      *domain.DeltaGenerationStatus            `json:"deltaGeneration,omitempty"`
+	DeltaEstimates       *DeviceDeltaEstimates                    `json:"deltaEstimates,omitempty"`
 }
 
 // DeviceDeltaEstimates stores control-plane size estimates separately from
@@ -192,6 +193,7 @@ func (d *Device) mergeServiceConditions(status *domain.DeviceStatus) {
 		if d.ServiceConditions.Data.DependencySync != nil {
 			status.DependencySync = d.ServiceConditions.Data.DependencySync
 		}
+		status.EnrollmentCredential = d.ServiceConditions.Data.EnrollmentCredential
 		status.DeltaGeneration = d.ServiceConditions.Data.DeltaGeneration
 		deltaEstimates = d.ServiceConditions.Data.DeltaEstimates
 	}
@@ -240,6 +242,10 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	if status.DeltaGeneration != nil {
 		serviceConditions.DeltaGeneration = status.DeltaGeneration
 		status.DeltaGeneration = nil
+	}
+	if status.EnrollmentCredential != nil {
+		serviceConditions.EnrollmentCredential = status.EnrollmentCredential
+		status.EnrollmentCredential = nil
 	}
 
 	var resourceVersion *int64
