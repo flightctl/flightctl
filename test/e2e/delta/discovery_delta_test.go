@@ -214,6 +214,9 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 		By("publishing a delta referrer and deleting one of its layers")
 		artifact, err := publishDiscoveredDeltaForTarget(harness, registry, tagPrefix, sourceImage, sourceDigest, target)
 		Expect(err).NotTo(HaveOccurred())
+		publishedTargetDigest, err := resolveApplicationImageDigest(harness, registry, applicationDeltaNginxRepo, applicationDeltaTargetTag(tagPrefix))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(publishedTargetDigest).To(Equal(target.targetDigest), "publishing a delta must preserve the full target image tag")
 		Eventually(discoveredDeltaReferrer(harness, registry, target.repository, sourceDigest, target.targetDigest),
 			util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
 		Expect(deleteDiscoveredDeltaLayer(registry, target.repository, artifact)).To(Succeed())
@@ -318,7 +321,8 @@ var _ = Describe("discovered delta", Label("delta", "discovery", "slow", "vm"), 
 // publishDiscoveredDelta creates and publishes an externally generated OCI delta.
 func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepository, sourceRef, targetRef string) (discoveredDeltaArtifact, error) {
 	repositoryPath := registryRepositoryPath(registry, targetRepository)
-	targetTag := applicationDeltaTargetTag(tag)
+	// Preserve the full target image tag so discovery and full-pull fallback can resolve it.
+	targetTag := applicationDeltaTargetTag(tag + "-delta")
 	registerApplicationImageCleanup(repositoryPath, targetTag)
 	deltaImage := applicationImageReference(registry, repositoryPath, targetTag)
 	workDir := "/tmp/flightctl-delta-discovery-" + tag
