@@ -341,10 +341,11 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 		fmt.Sprintf("    printf '%s staged %%s manifest inspection failed\\n' \"$1\"", discoveredDeltaDebugPrefix),
 		"  fi",
 		"}",
-		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/source:img",
+		// Keep the registry manifest bytes so delta identities also match Docker-format images.
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/source:img",
 			shellQuote("docker://"+sourceRef)),
 		"debug_layout_digest source oci:$work/source:img",
-		fmt.Sprintf("skopeo copy --src-tls-verify=false %s oci:$work/target:img",
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/target:img",
 			shellQuote("docker://"+targetRef)),
 		"debug_layout_digest target oci:$work/target:img",
 		"oci-delta create oci:$work/source:img oci:$work/target:img oci:$work/delta:img",
