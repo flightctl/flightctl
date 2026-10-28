@@ -112,25 +112,11 @@ func (o *AAPOAuth) Auth() (AuthInfo, error) {
 		return AuthInfo{}, err
 	}
 	authInfo.TokenToUse = TokenToUseAccessToken
-	// AAP returns expires_in in nanoseconds, convert to seconds
-	if authInfo.ExpiresIn != nil {
-		expiresInSeconds := *authInfo.ExpiresIn / 1_000_000_000
-		authInfo.ExpiresIn = &expiresInSeconds
-	}
 	return authInfo, nil
 }
 
 func (o *AAPOAuth) Renew(refreshToken string) (AuthInfo, error) {
-	authInfo, err := oauth2RefreshTokenFlow(refreshToken, o.getOAuth2Client)
-	if err != nil {
-		return authInfo, err
-	}
-	// AAP returns expires_in in nanoseconds, convert to seconds
-	if authInfo.ExpiresIn != nil {
-		expiresInSeconds := *authInfo.ExpiresIn / 1_000_000_000
-		authInfo.ExpiresIn = &expiresInSeconds
-	}
-	return authInfo, nil
+	return oauth2RefreshTokenFlow(refreshToken, o.getOAuth2Client)
 }
 
 func (o *AAPOAuth) Validate(args ValidateArgs) error {
