@@ -104,6 +104,19 @@ func TestVMYAMLWithHostVolumesWhenPathsAreEmptyItShouldOmitExtraDisks(t *testing
 	}
 }
 
+func TestVMFedoraNoCloudUserDataWhenPasswordIsSetItShouldDisableFaillock(t *testing.T) {
+	got := VMFedoraNoCloudUserData(t.Name())
+	if !strings.Contains(got, "path: /etc/security/faillock.conf") {
+		t.Fatal("cloud-init userData is missing faillock.conf")
+	}
+	if !strings.Contains(got, "deny = 0") {
+		t.Fatal("cloud-init userData does not disable faillock")
+	}
+	if !strings.Contains(got, "authselect disable-feature with-faillock") {
+		t.Fatal("cloud-init userData is missing the faillock authselect reset")
+	}
+}
+
 func TestVMFedoraNoCloudUserDataWithWhenExtraFilesAreSetItShouldKeepFaillockAndAppendEntries(t *testing.T) {
 	got := VMFedoraNoCloudUserDataWith(t.Name(), []VMCloudInitWriteFile{{
 		Path:        "/etc/sudoers.d/fedora",
