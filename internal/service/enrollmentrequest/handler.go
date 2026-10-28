@@ -370,6 +370,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	er.Status.EnrollmentCertificateName = enrollmentCSRNameFromContext(ctx)
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -439,6 +440,7 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
+	credentialName := enrollmentCSRNameFromContext(ctx)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -466,6 +468,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 
 	result, oldER, created, err := h.store.Mutate(ctx, orgId, name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
 		if mutation.EnrollmentRequest == nil {
+			er.Status.EnrollmentCertificateName = credentialName
 			mutation.EnrollmentRequest = &er
 			return nil
 		}

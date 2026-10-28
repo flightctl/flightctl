@@ -14,7 +14,7 @@ var _ = Describe("CSR status mutation validation", func() {
 	DescribeTable("When an existing CSR mutation has missing state it should reject it without changing persisted status",
 		func(clearResource bool) {
 			suite := newCertificatePersistenceSuite()
-			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+			provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 			request := newStoredCSR()
 			request.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
 				Type: domain.ConditionTypeCertificateSigningRequestDenied, Status: domain.ConditionStatusTrue,
@@ -59,7 +59,7 @@ var _ = Describe("CSR status mutation validation", func() {
 
 	It("When status is valid it should persist and return the new decision", func() {
 		suite := newCertificatePersistenceSuite()
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		request := newStoredCSR()
 		created, err := provider.Create(suite.Ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
@@ -89,7 +89,7 @@ var _ = Describe("CSR status mutation validation", func() {
 
 	It("When non-status fields are mutated it should persist them", func() {
 		suite := newCertificatePersistenceSuite()
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		request := newStoredCSR()
 		request.Metadata.Labels = &map[string]string{"original": "label"}
 		request.Metadata.Annotations = &map[string]string{"original": "annotation"}

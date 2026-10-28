@@ -11,6 +11,7 @@ import (
 	"errors"
 	"testing"
 
+	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -263,6 +264,23 @@ func adminContext() context.Context {
 	return context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
 }
 
+type testEnrollmentIdentity struct {
+	*authcommon.BaseIdentity
+	csrName *string
+}
+
+func (i *testEnrollmentIdentity) GetEnrollmentCSRName() *string {
+	return i.csrName
+}
+
+func enrollmentContext(csrName *string) context.Context {
+	enrollmentIdentity := &testEnrollmentIdentity{
+		BaseIdentity: authcommon.NewBaseIdentity("enrollment-agent", "enrollment-agent", nil),
+		csrName:      csrName,
+	}
+	return context.WithValue(context.Background(), consts.IdentityCtxKey, enrollmentIdentity)
+}
+
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.
 func csrPEM(t *testing.T, cn string) string {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -298,6 +316,7 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 			Kind:       "EnrollmentRequest",
 			Metadata:   domain.ObjectMeta{Name: lo.ToPtr(cn)},
 			Spec:       domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+			Status:     &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("forged-origin")},
 		}
 
 		result, status := h.CreateEnrollmentRequest(context.Background(), uuid.New(), er)
@@ -354,6 +373,23 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
+
+	t.Run("When enrollment authentication supplies a CSR name it should persist it", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "enrollment-identity-device"
+		credentialName := "enrollment-credential"
+		er := domain.EnrollmentRequest{
+			ApiVersion: "v1beta1",
+			Kind:       "EnrollmentRequest",
+			Metadata:   domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Spec:       domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		result, status := h.CreateEnrollmentRequest(enrollmentContext(&credentialName), uuid.New(), er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, &credentialName, result.Status.EnrollmentCertificateName)
+		require.Equal(t, &credentialName, fakeStore.items[cn].Status.EnrollmentCertificateName)
+	})
 }
 
 func TestListEnrollmentRequests(t *testing.T) {
@@ -386,6 +422,7 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		er := domain.EnrollmentRequest{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
 			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+			Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("forged-origin")},
 		}
 		fakeStore.items[cn] = &er
 
@@ -444,6 +481,22 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+
+	t.Run("When creating by replacement it should persist the authenticated CSR name", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-enrollment-identity"
+		credentialName := "enrollment-credential"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		result, status := h.ReplaceEnrollmentRequest(enrollmentContext(&credentialName), orgId, cn, er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, &credentialName, result.Status.EnrollmentCertificateName)
+		require.Equal(t, &credentialName, fakeStore.items[cn].Status.EnrollmentCertificateName)
 	})
 
 	t.Run("When the client supplies a stale resource version it should return conflict", func(t *testing.T) {

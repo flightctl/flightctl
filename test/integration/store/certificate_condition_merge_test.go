@@ -12,7 +12,7 @@ var _ = Describe("Technical certificate condition merging", func() {
 	var provider csrstore.Store
 	BeforeEach(func() {
 		suite = newCertificatePersistenceSuite()
-		provider = csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log)
+		provider = csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 	})
 
 	DescribeTable("When writing conditions on historical non-enrollment status it should merge conditions without normalizing business fields", func(change bool) {

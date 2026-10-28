@@ -6,15 +6,26 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
 	"github.com/samber/lo"
 )
+
+type enrollmentIdentityWithCSRName struct {
+	*authcommon.BaseIdentity
+	csrName *string
+}
+
+func (i *enrollmentIdentityWithCSRName) GetEnrollmentCSRName() *string {
+	return i.csrName
+}
 
 var _ = Describe("EnrollmentRequest Integration Tests", func() {
 	var suite *ServiceTestSuite
@@ -630,5 +641,29 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 		})
 
+	})
+
+	Context("Enrollment credential identity", func() {
+		BeforeEach(func() {
+			suite.Ctx = util.WithOrganizationID(suite.Ctx, suite.OrgID)
+		})
+
+		It("When enrollment authentication supplies a CSR name it should persist and protect it", func() {
+			credentialName := "enrollment-credential"
+			enrollmentIdentity := &enrollmentIdentityWithCSRName{
+				BaseIdentity: authcommon.NewBaseIdentity("enrollment-agent", "enrollment-agent", nil),
+				csrName:      &credentialName,
+			}
+			ctx := context.WithValue(suite.Ctx, consts.IdentityCtxKey, enrollmentIdentity)
+
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, CreateTestER())
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created.Status.EnrollmentCertificateName).To(Equal(&credentialName))
+
+			created.Status.EnrollmentCertificateName = lo.ToPtr("forged-origin")
+			updated, status := suite.EnrollmentRequest.ReplaceEnrollmentRequestStatus(suite.Ctx, suite.OrgID, *created.Metadata.Name, *created)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(updated.Status.EnrollmentCertificateName).To(Equal(&credentialName))
+		})
 	})
 })
