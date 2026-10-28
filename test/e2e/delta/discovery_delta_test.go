@@ -335,7 +335,7 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 		fmt.Sprintf("work=%s", shellQuote(workDir)),
 		fmt.Sprintf("delta=%s", shellQuote(deltaImage)),
 		"rm -rf \"$work\"",
-		"mkdir -p \"$work/source\" \"$work/target\" \"$work/delta\"",
+		"mkdir -p \"$work/images\" \"$work/delta\"",
 		"trap 'rm -rf \"$work\"' EXIT",
 		"debug_layout_digest() {",
 		"  if skopeo inspect --raw \"$2\" > \"$work/debug-manifest.json\" && staged_digest=$(skopeo manifest-digest \"$work/debug-manifest.json\"); then",
@@ -345,13 +345,14 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 		"  fi",
 		"}",
 		// Keep the registry manifest bytes so delta identities also match Docker-format images.
-		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/source:img",
+		// Share one blob store so common OS layers are staged only once.
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/images:source",
 			shellQuote("docker://"+sourceRef)),
-		"debug_layout_digest source oci:$work/source:img",
-		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/target:img",
+		"debug_layout_digest source oci:$work/images:source",
+		fmt.Sprintf("skopeo copy --preserve-digests --src-tls-verify=false %s oci:$work/images:target",
 			shellQuote("docker://"+targetRef)),
-		"debug_layout_digest target oci:$work/target:img",
-		"oci-delta create oci:$work/source:img oci:$work/target:img oci:$work/delta:img",
+		"debug_layout_digest target oci:$work/images:target",
+		"oci-delta create oci:$work/images:source oci:$work/images:target oci:$work/delta:img",
 		fmt.Sprintf("skopeo copy --preserve-digests --dest-tls-verify=false oci:$work/delta:img %s",
 			shellQuote("docker://"+deltaImage)),
 	}

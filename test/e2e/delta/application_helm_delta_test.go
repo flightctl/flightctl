@@ -77,6 +77,12 @@ func (targets helmDeltaTargets) images() helmDeltaImages {
 }
 
 func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
+	By("checking both Helm chart fixtures before migrating to MicroShift")
+	for _, version := range []string{"0.1.0", "0.2.0"} {
+		_, err := harness.ResolveImage(applicationRegistryEndpoint(), "flightctl/charts/test-app", version)
+		Expect(err).NotTo(HaveOccurred(), "required Helm chart test-app:%s must be uploaded to the auxiliary registry", version)
+	}
+
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate before MicroShift migration")
 	v12Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V12)
 	Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
