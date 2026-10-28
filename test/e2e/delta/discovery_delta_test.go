@@ -364,6 +364,9 @@ func publishDiscoveredDelta(harness *e2e.Harness, registry, tag, targetRepositor
 	if err != nil {
 		return discoveredDeltaArtifact{}, fmt.Errorf("resolve externally generated delta %s: %w", deltaImage, err)
 	}
+	if err := harness.IndexReferrer(registry, repositoryPath, targetTag); err != nil {
+		return discoveredDeltaArtifact{}, fmt.Errorf("index externally generated delta %s: %w", deltaImage, err)
+	}
 	reference, err := applicationImageDigestReference(deltaImage, deltaDigest)
 	if err != nil {
 		return discoveredDeltaArtifact{}, err

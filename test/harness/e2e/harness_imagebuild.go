@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -25,6 +26,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -705,6 +707,34 @@ func (h *Harness) FetchReferrersWithCredentials(registry, imageName, digest, use
 	}
 
 	return referrers, nil
+}
+
+// IndexReferrer republishes an existing manifest through ORAS so registries
+// without the Referrers API receive a referrers tag index. ORAS indexes the
+// manifest's subject digest and preserves other referrers for that subject.
+func (h *Harness) IndexReferrer(registry, imageName, tag string) error {
+	ref := fmt.Sprintf("%s/%s", registry, imageName)
+	repo, err := remote.NewRepository(ref)
+	if err != nil {
+		return fmt.Errorf("create repository reference for %s: %w", ref, err)
+	}
+	repo.Client = newRegistryClient("", "")
+	repo.SkipReferrersGC = true
+
+	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
+	defer cancel()
+	desc, err := repo.Resolve(ctx, tag)
+	if err != nil {
+		return fmt.Errorf("resolve manifest %s:%s: %w", ref, tag, err)
+	}
+	body, err := content.FetchAll(ctx, repo, desc)
+	if err != nil {
+		return fmt.Errorf("fetch verified manifest %s:%s: %w", ref, tag, err)
+	}
+	if err := repo.PushReference(ctx, desc, bytes.NewReader(body), tag); err != nil {
+		return fmt.Errorf("index referrers for %s:%s: %w", ref, tag, err)
+	}
+	return nil
 }
 
 // FetchSBOMContent fetches the SBOM content from the registry using the referrer descriptor.

@@ -42,4 +42,4 @@ make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm &&
 make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift' GINKGO_FOCUS="later application prepare requests an already generated image delta"
 ```
 
-The application specs run serially. Discovery delta artifact tags add `-delta` to the test tag, keeping the full target image tag available for discovery and full-pull fallback. The specs clean up test-owned target and delta tags; shared application fixture tags remain intact.
+The application specs run serially. Discovery delta artifact tags add `-delta` to the test tag, keeping the full target image tag available for discovery and full-pull fallback. After uploading a discovery delta, the publisher republishes its unchanged manifest through ORAS to maintain the referrers tag index on registries without the Referrers API. The index uses the delta's subject digest and preserves existing referrers for ranking tests. The specs clean up test-owned target and delta tags; shared application fixture tags remain intact.
