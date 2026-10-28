@@ -437,6 +437,10 @@ add-ons
 ModelCar
 READMEs
  - docs/user/installing/configuring-imagebuilder.md
+ hostPath
+ 9p
+ CPUs
+ VMs
  RLIMIT
  NOFILE
  buildah

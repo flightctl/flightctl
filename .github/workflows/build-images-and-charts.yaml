@@ -73,6 +73,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildah-
 
+      - name: Install imagebuilder VM preparation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage
+          if [ -e /dev/kvm ]; then sudo chmod 0666 /dev/kvm; fi
+
       - name: Build backend containers
         env:
           SOURCE_GIT_TAG: ${{ steps.compute-tag.outputs.git_tag }}

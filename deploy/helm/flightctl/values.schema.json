@@ -856,7 +856,7 @@
           }
         },
         "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
-        "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
+        "maxConcurrentBuilds": { "type": "integer", "minimum": 1, "description": "Maximum concurrent disposable build/export VMs" },
         "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
         "imageBuilderTimeout": { "type": "string", "description": "Inactivity timeout for image builds and exports" },
         "timeoutCheckTaskInterval": { "type": "string", "description": "Interval between image build and export timeout checks" },
@@ -870,10 +870,25 @@
         "yumReposSecretName": { "type": "string", "description": "Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d" },
         "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
         "rhsmCaSecretName": { "type": "string", "description": "Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca" },
-        "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
+        "vm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseImage", "accelerator", "memoryMiB", "cpus", "diskSizeGiB", "bootTimeout", "kvmResourceName"],
+          "properties": {
+            "baseImage": { "type": "string", "pattern": "^/", "description": "Immutable prepared guest disk inside the worker image" },
+            "accelerator": { "type": "string", "enum": ["kvm", "tcg"] },
+            "memoryMiB": { "type": "integer", "minimum": 512 },
+            "cpus": { "type": "integer", "minimum": 1 },
+            "diskSizeGiB": { "type": "integer", "minimum": 1 },
+            "bootTimeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" },
+            "executionTimeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" },
+            "scratchSizeLimit": { "type": "string", "pattern": "^[1-9][0-9]*(Ki|Mi|Gi|Ti)$" },
+            "kvmResourceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*/[a-zA-Z0-9][a-zA-Z0-9_.-]*$" }
+          }
+        },
         "serviceImages": {
           "type": "object",
-          "description": "Builder images (podman, bootc-image-builder, syft) and skip-TLS options",
+          "description": "In-guest bootc-image-builder and Syft images and skip-TLS options",
           "properties": {
             "pullSecretName": {
               "type": "string",
@@ -882,8 +897,8 @@
             "podman": {
               "type": "object",
               "properties": {
-                "image": { "type": "string", "description": "Podman builder image (leave empty to use default)" },
-                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Podman builder image" }
+                "image": { "type": "string", "description": "Deprecated and ignored; Podman is preinstalled in the guest disk" },
+                "skipTlsVerify": { "type": "boolean", "description": "Deprecated and ignored; no separate Podman image is pulled" }
               }
             },
             "bootcImageBuilder": {

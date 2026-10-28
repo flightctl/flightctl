@@ -1091,3 +1091,13 @@ encryption:
     {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/* Restricted security shared by the VM worker and its wait init containers. */}}
+{{- define "flightctl.imageBuilderRestrictedSecurityContext" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+{{- end -}}
