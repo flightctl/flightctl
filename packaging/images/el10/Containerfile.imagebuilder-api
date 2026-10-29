@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1790231490 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1793232637 as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-imagebuilder-api
 
-FROM registry.access.redhat.com/ubi10/ubi-micro:10.2-1787684489
+FROM registry.access.redhat.com/ubi10/ubi-micro:1792455566
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-imagebuilder-api-container" \
