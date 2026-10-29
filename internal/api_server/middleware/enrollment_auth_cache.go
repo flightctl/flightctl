@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -38,7 +39,7 @@ func (c *RedisEnrollmentCSRStatusCache) Get(ctx context.Context, orgId uuid.UUID
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
 	value, err := c.kvStore.Get(ctx, key)
 	if err != nil {
-		return enrollmentCSRStatusCacheEntry{}, false, err
+		return enrollmentCSRStatusCacheEntry{}, false, fmt.Errorf("getting cached enrollment CSR status: %w", err)
 	}
 	if len(value) == 0 {
 		return enrollmentCSRStatusCacheEntry{}, false, nil
@@ -49,7 +50,7 @@ func (c *RedisEnrollmentCSRStatusCache) Get(ctx context.Context, orgId uuid.UUID
 
 	var entry enrollmentCSRStatusCacheEntry
 	if err := json.Unmarshal(value, &entry); err != nil {
-		return enrollmentCSRStatusCacheEntry{}, false, err
+		return enrollmentCSRStatusCacheEntry{}, false, fmt.Errorf("decoding cached enrollment CSR status: %w", err)
 	}
 	return entry, true, nil
 }
@@ -57,13 +58,19 @@ func (c *RedisEnrollmentCSRStatusCache) Get(ctx context.Context, orgId uuid.UUID
 func (c *RedisEnrollmentCSRStatusCache) Set(ctx context.Context, orgId uuid.UUID, certificateDigest string, entry enrollmentCSRStatusCacheEntry) error {
 	value, err := json.Marshal(entry)
 	if err != nil {
-		return err
+		return fmt.Errorf("encoding enrollment CSR status for cache: %w", err)
 	}
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
-	return c.kvStore.Set(ctx, key, value, c.ttl)
+	if err := c.kvStore.Set(ctx, key, value, c.ttl); err != nil {
+		return fmt.Errorf("setting cached enrollment CSR status: %w", err)
+	}
+	return nil
 }
 
 func (c *RedisEnrollmentCSRStatusCache) SetMissing(ctx context.Context, orgId uuid.UUID, certificateDigest string) error {
 	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
-	return c.kvStore.Set(ctx, key, []byte(missingCSRStatusValue), c.ttl)
+	if err := c.kvStore.Set(ctx, key, []byte(missingCSRStatusValue), c.ttl); err != nil {
+		return fmt.Errorf("setting cached missing enrollment CSR status: %w", err)
+	}
+	return nil
 }
