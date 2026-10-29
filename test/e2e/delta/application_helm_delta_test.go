@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -77,6 +78,9 @@ func (targets helmDeltaTargets) images() helmDeltaImages {
 }
 
 func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
+	agentVersionBefore, err := harness.GetAgentVersion()
+	Expect(err).NotTo(HaveOccurred())
+
 	By("checking both Helm chart fixtures before migrating to MicroShift")
 	for _, version := range []string{"0.1.0", "0.2.0"} {
 		_, err := harness.ResolveImage(applicationRegistryEndpoint(), "flightctl/charts/test-app", version)
@@ -91,6 +95,18 @@ func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
 	Expect(harness.EnsureMicroshiftConfigs()).To(Succeed())
 	Expect(harness.WaitForMicroshiftReady(e2e.MicroshiftKubeconfigPath)).To(Succeed())
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate on the MicroShift-capable V12 OS")
+	agentVersionAfter, err := harness.GetAgentVersion()
+	Expect(err).NotTo(HaveOccurred())
+	GinkgoWriter.Printf("MicroShift migration agent versions: before=%s after=%s\n", agentVersionBefore, agentVersionAfter)
+}
+
+func prepareHelmApplicationDeltaDiscoveryDevice(harness *e2e.Harness, deviceID string) {
+	prepareHelmApplicationDeltaDevice(harness, deviceID)
+
+	By("enabling agent debug logging after the MicroShift migration")
+	Expect(harness.UpdateAgentConfigWith(func(cfg *agentcfg.Config) {
+		cfg.LogLevel = "debug"
+	})).To(Succeed())
 }
 
 // helmDeltaSourceImages returns the V1 image fixture for every Helm workload.
@@ -256,7 +272,7 @@ func runHelmApplicationDeltaDiscoveryTest(fleetOwned bool) {
 
 	By("enrolling a device and preparing MicroShift without a writable delta storage target")
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
-	prepareHelmApplicationDeltaDevice(harness, deviceID)
+	prepareHelmApplicationDeltaDiscoveryDevice(harness, deviceID)
 
 	registry := applicationRegistryEndpoint()
 	fleetName := ""
@@ -404,7 +420,7 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 	By("enrolling a device and preparing MicroShift without a writable delta storage target")
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 	fixture.deviceID = deviceID
-	prepareHelmApplicationDeltaDevice(harness, deviceID)
+	prepareHelmApplicationDeltaDiscoveryDevice(harness, deviceID)
 
 	registry := applicationRegistryEndpoint()
 	tagPrefix := applicationDeltaArtifactTag(harness) + "-helm-discovery-selection"
@@ -428,6 +444,8 @@ func prepareHelmApplicationDeltaDiscoverySelectionTest(mode helmDiscoverySelecti
 			return fixture, err
 		}
 		v1Images.sidecar = closerSource.image
+		By("removing the target image cached while building the closer source")
+		removeDeviceImageIfPresent(harness, target.image)
 	}
 	v1HelmValues, err := helmDeltaChartValues(v1Images)
 	if err != nil {
