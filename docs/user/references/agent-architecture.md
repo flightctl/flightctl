@@ -145,6 +145,8 @@ When `HOME` is unset, certificate lookup resolves the owning account's home dire
 
 After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
 
+For digest-pinned CRI-O images, the agent verifies the reconstructed image by its local image ID before refreshing the registry reference. The reconstructed manifest digest can differ from the requested registry digest. After refresh, the agent verifies the requested registry identity before reporting `Applied`.
+
 The refresh attaches the resolved target digest to the original repository name. Unqualified image names remain unqualified so the runtime can apply configured registry aliases.
 
 For OS updates, the agent reuses a desired image that is already booted or cached without verifying its digest against the registry. Only an image that needs fetching enters delta discovery or full-image prefetch. Without a usable delta, prefetch uses `PullIfNotPresent` before bootc stages the desired image. A failed required pull stops staging.
