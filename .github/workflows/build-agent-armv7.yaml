@@ -100,7 +100,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           # an older run finishing late must not overwrite the binaries of a newer main
-          if [ "$(gh api "repos/${GH_REPO}/commits/main" --jq .sha)" != "${GITHUB_SHA}" ]; then
+          MAIN_SHA=$(gh api "repos/${GH_REPO}/commits/main" --jq .sha)
+          if [ "${MAIN_SHA}" != "${GITHUB_SHA}" ]; then
             echo "main has moved on from ${GITHUB_SHA}, skipping the latest upload"
             exit 0
           fi
