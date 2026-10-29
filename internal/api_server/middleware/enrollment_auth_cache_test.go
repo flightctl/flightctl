@@ -123,6 +123,7 @@ func TestRedisEnrollmentCSRStatusCacheWhenPayloadIsMalformedItShouldReturnError(
 
 	cached, found, err := cache.Get(context.Background(), orgId, certificateDigest)
 	require.Error(t, err)
+	require.ErrorContains(t, err, "decoding cached enrollment CSR status")
 	require.False(t, found)
 	require.Equal(t, enrollmentCSRStatusCacheEntry{}, cached)
 }
@@ -138,6 +139,16 @@ func TestRedisEnrollmentCSRStatusCacheWhenKVStoreFailsItShouldReturnError(t *tes
 	require.NoError(t, err)
 
 	_, _, err = getCache.Get(context.Background(), orgId, certificateDigest)
+	require.ErrorContains(t, err, "getting cached enrollment CSR status")
+	require.ErrorIs(t, err, getKV.getErr)
 	require.ErrorContains(t, err, "get failed")
-	require.ErrorContains(t, setCache.Set(context.Background(), orgId, certificateDigest, enrollmentCSRStatusCacheEntry{}), "set failed")
+
+	err = setCache.Set(context.Background(), orgId, certificateDigest, enrollmentCSRStatusCacheEntry{})
+	require.ErrorContains(t, err, "setting cached enrollment CSR status")
+	require.ErrorIs(t, err, setKV.setErr)
+	require.ErrorContains(t, err, "set failed")
+
+	err = setCache.SetMissing(context.Background(), orgId, certificateDigest)
+	require.ErrorContains(t, err, "setting cached missing enrollment CSR status")
+	require.ErrorIs(t, err, setKV.setErr)
 }
