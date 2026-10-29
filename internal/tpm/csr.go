@@ -437,7 +437,7 @@ func uint32ToBytes(val uint32) [4]byte {
 // safeIntToUint32 safely converts an int to uint32, panicking if the value is out of range
 // This is safe to use after we've already validated the lengths are within maxFieldSize (1MB)
 func safeIntToUint32(val int) uint32 {
-	if val < 0 || val > int(^uint32(0)) {
+	if val < 0 || int64(val) > int64(^uint32(0)) {
 		panic(fmt.Sprintf("integer overflow: %d cannot be converted to uint32", val))
 	}
 	return uint32(val)
