@@ -923,6 +923,17 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 	})
 }
 
+func (h *Harness) LabelDeviceIntoFleet(deviceID, labelKey, fleetName string) {
+	GinkgoHelper()
+	if labelKey == "" {
+		Fail("labelKey must be non-empty")
+	}
+	nextRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(h.SetLabelsForDevice(deviceID, map[string]string{labelKey: fleetName})).To(Succeed())
+	Expect(h.WaitForDeviceNewRenderedVersion(deviceID, nextRenderedVersion)).To(Succeed())
+}
+
 func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {
 	if len(deviceIDs) != len(labelsList) {
 		return fmt.Errorf("mismatched lengths: deviceIDs (%d) and labelsList (%d)", len(deviceIDs), len(labelsList))
