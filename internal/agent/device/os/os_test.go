@@ -1010,7 +1010,7 @@ func expectImageExists(mockExec *executer.MockExecuter, image string, exists boo
 func expectListReferrers(mockExec *executer.MockExecuter, image, stdout, stderr string, exitCode int) {
 	expectPlatformIndex(mockExec, image, testSourceDigest)
 	referrerImage := delta.Repository(image) + "@" + testSourceDigest
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage, "--no-creds").
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", referrerImage, "--timeout", "2m0s", "--no-creds").
 		Return(stdout, stderr, exitCode)
 }
 

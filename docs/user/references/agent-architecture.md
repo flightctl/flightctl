@@ -137,6 +137,8 @@ Helm chart packages continue through the chart cache. Rendered workload images u
 
 Digest-pinned CRI workload images remain eligible for deltas. Source checks use registry digests recorded in CRI, including source images from another repository. Discovery selects the smallest locally usable artifact, with lexical reference order breaking ties.
 
+Referrer discovery queries the OCI Distribution Referrers API and collects paginated results. When the registry does not support that API, discovery reads the Referrers Tag Schema index. These requests use the image storage owner's registry configuration, credentials, mirrors, and certificates.
+
 After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
 
 The refresh attaches the resolved target digest to the original repository name. Unqualified image names remain unqualified so the runtime can apply configured registry aliases.

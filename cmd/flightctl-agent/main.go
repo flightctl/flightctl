@@ -64,6 +64,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "registry-referrers":
+		if err := runRegistryReferrers(args[1:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "registry-referrers error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "health":
 		flag.CommandLine = flag.NewFlagSet("health", flag.ExitOnError)
 		command := NewHealthCommand()
@@ -228,6 +234,7 @@ func printUsage() {
 	fmt.Println("  version      Display version information")
 	fmt.Println("  system-info  Display system information")
 	fmt.Println("  helm-render  Inject app labels into Helm-rendered manifests")
+	fmt.Println("  registry-referrers  Discover OCI referrers using registry APIs")
 	fmt.Println("  health       Perform health checks on agent")
 	fmt.Println("")
 	fmt.Println("Run '<command> --help' for command-specific flags.")
