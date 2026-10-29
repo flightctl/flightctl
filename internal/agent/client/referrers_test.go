@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -50,6 +54,9 @@ func TestListRegistryReferrers(t *testing.T) {
 		withoutCA        bool
 		certBase         string
 		emptyHomeCertDir bool
+		isolateHome      bool
+		unsetHome        bool
+		accountHomeCerts bool
 		plainHTTP        bool
 		mirror           bool
 		canceled         bool
@@ -114,12 +121,22 @@ func TestListRegistryReferrers(t *testing.T) {
 		},
 		{
 			name: "When user registry certificates exist it should use them", apiStatus: http.StatusOK,
-			certBase: homeDir + "/.config/containers/certs.d", wantCount: 1,
+			certBase: homeDir + "/.config/containers/certs.d", isolateHome: true, wantCount: 1,
 			wantPaths: []string{"/v2/test/image/referrers/" + subject},
 		},
 		{
 			name: "When the user certificate directory exists but is empty it should take precedence over system certificates", apiStatus: http.StatusOK,
-			emptyHomeCertDir: true, wantError: true,
+			emptyHomeCertDir: true, isolateHome: true, wantError: true,
+		},
+		{
+			name: "When HOME is unset it should discover referrers using system registry certificates", apiStatus: http.StatusOK,
+			unsetHome: true, isolateHome: true, wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When HOME is unset it should find registry certificates in the account home", apiStatus: http.StatusOK,
+			unsetHome: true, accountHomeCerts: true, isolateHome: true, wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
 		},
 		{
 			name: "When the registry is explicitly insecure it should allow plain HTTP", apiStatus: http.StatusOK, plainHTTP: true, wantCount: 1,
@@ -134,7 +151,21 @@ func TestListRegistryReferrers(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require := require.New(t)
-			t.Setenv("HOME", homeDir)
+			if tc.isolateHome {
+				home := homeDir
+				if tc.unsetHome {
+					home = ""
+				}
+				if runReferrersTestInSubprocess(t, home) {
+					return
+				}
+			}
+			if tc.unsetHome {
+				_, exists := os.LookupEnv("HOME")
+				require.False(exists)
+			} else {
+				t.Setenv("HOME", homeDir)
+			}
 			t.Setenv("REGISTRY_AUTH_FILE", tc.envAuthFile)
 			var paths []string
 			var pathsMu sync.Mutex
@@ -202,6 +233,12 @@ func TestListRegistryReferrers(t *testing.T) {
 				if certBase == "" {
 					certBase = "/etc/containers/certs.d"
 				}
+				if tc.accountHomeCerts {
+					account, err := user.Current()
+					require.NoError(err)
+					require.NotEmpty(account.HomeDir)
+					certBase = filepath.Join(account.HomeDir, ".config/containers/certs.d")
+				}
 				certDir := filepath.Join(certBase, host)
 				require.NoError(rw.MkdirAll(certDir, 0755))
 				require.NoError(rw.WriteFile(filepath.Join(certDir, "ca.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600))
@@ -241,6 +278,33 @@ func TestListRegistryReferrers(t *testing.T) {
 			require.Equal(tc.wantPaths, observedPaths)
 		})
 	}
+}
+
+// runReferrersTestInSubprocess isolates the cached containers home resolver.
+// It returns true in the parent after running this subtest in a fresh process.
+func runReferrersTestInSubprocess(t *testing.T, home string) bool {
+	t.Helper()
+	const childEnv = "FLIGHTCTL_REFERRERS_TEST_SUBPROCESS"
+	if os.Getenv(childEnv) == t.Name() {
+		return false
+	}
+	parts := strings.Split(t.Name(), "/")
+	for i, part := range parts {
+		parts[i] = "^" + regexp.QuoteMeta(part) + "$"
+	}
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run="+strings.Join(parts, "/")) //nolint:gosec // Re-execute this test binary with an anchored subtest filter.
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "HOME=") && !strings.HasPrefix(entry, childEnv+"=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	if home != "" {
+		cmd.Env = append(cmd.Env, "HOME="+home)
+	}
+	cmd.Env = append(cmd.Env, childEnv+"="+t.Name())
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "referrers subprocess failed:\n%s", output)
+	return true
 }
 
 func TestListRegistryReferrersRejectsUnpinnedSubject(t *testing.T) {

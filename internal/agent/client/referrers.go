@@ -17,6 +17,7 @@ import (
 	dockerconfig "github.com/containers/image/v5/pkg/docker/config"
 	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	"github.com/containers/image/v5/types"
+	"github.com/containers/storage/pkg/homedir"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -151,11 +152,12 @@ func fetchRegistryReferrers(ctx context.Context, repo *remote.Repository, subjec
 
 func registryTLSConfig(rw fileio.ReadWriter, host string, insecure bool) (*tls.Config, error) {
 	config := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure} //nolint:gosec // Explicit containers registries.conf policy.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("resolve registry certificate home: %w", err)
+	var certDirs []string
+	if home := homedir.Get(); home != "" {
+		certDirs = append(certDirs, filepath.Join(home, ".config/containers/certs.d"))
 	}
-	for _, base := range []string{filepath.Join(home, ".config/containers/certs.d"), "/etc/containers/certs.d", "/etc/docker/certs.d"} {
+	certDirs = append(certDirs, "/etc/containers/certs.d", "/etc/docker/certs.d")
+	for _, base := range certDirs {
 		dir := filepath.Join(base, host)
 		exists, err := rw.PathExists(dir, fileio.WithSkipContentCheck())
 		if errors.Is(err, fs.ErrPermission) {
