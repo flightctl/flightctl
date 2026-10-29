@@ -211,7 +211,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			if tc.discover {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})
 				require.NoError(err)
-				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
+				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index), time.Minute)
 			}
 
 			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, targetIndex, tc, outcome)

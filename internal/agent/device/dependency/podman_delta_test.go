@@ -202,7 +202,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 			if tc.hint == "" {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})
 				require.NoError(err)
-				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
+				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index), time.Minute)
 			}
 			if tc.selected != "" {
 				exit, stderr := 0, ""
@@ -278,12 +278,12 @@ func testApplicationTargetIndex(t *testing.T, platformDigest string) (string, st
 	return string(index), digest.FromBytes(index).String()
 }
 
-func expectPlatformReferrers(t *testing.T, exec *executer.MockExecuter, image, platformDigest, referrersJSON string) {
+func expectPlatformReferrers(t *testing.T, exec *executer.MockExecuter, image, platformDigest, referrersJSON string, timeout time.Duration) {
 	t.Helper()
 	targetIndex, _ := testApplicationTargetIndex(t, platformDigest)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
 	referrerImage := delta.Repository(image) + "@" + platformDigest
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", referrerImage, "--timeout", time.Minute.String()).Return(referrersJSON, "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", referrerImage, "--timeout", timeout.String()).Return(referrersJSON, "", 0)
 }
 
 func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
