@@ -310,7 +310,7 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 	for i := range pullEnv {
 		pullEnv[i] = gomock.Any()
 	}
-	referrers := exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", "quay.io/acme/app@"+digest, "--timeout", "2m0s").Return(`{"manifests":[]}`, "", 0)
+	referrers := exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", "quay.io/acme/app@"+digest, "--timeout", time.Minute.String()).Return(`{"manifests":[]}`, "", 0)
 	fullPull := exec.EXPECT().ExecuteWithContextFromDir(
 		gomock.Any(), "", "crictl", []string{"pull", image}, pullEnv...,
 	).Return("Image pulled", "", 0)

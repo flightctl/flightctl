@@ -283,7 +283,7 @@ func expectPlatformReferrers(t *testing.T, exec *executer.MockExecuter, image, p
 	targetIndex, _ := testApplicationTargetIndex(t, platformDigest)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
 	referrerImage := delta.Repository(image) + "@" + platformDigest
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", referrerImage, "--timeout", "2m0s").Return(referrersJSON, "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "flightctl-agent", "registry-referrers", "--image", referrerImage, "--timeout", time.Minute.String()).Return(referrersJSON, "", 0)
 }
 
 func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
