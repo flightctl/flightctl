@@ -21,10 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const (
-	tpmChallengeFullMethod         = pb.Enrollment_TPMChallenge_FullMethodName
-	watchEnrollmentHooksFullMethod = pb.Enrollment_WatchEnrollmentHooks_FullMethodName
-)
+const tpmChallengeFullMethod = pb.Enrollment_TPMChallenge_FullMethodName
 
 func (s *AgentGrpcServer) enrollmentCSRStatusStreamInterceptor(
 	srv any,
@@ -32,9 +29,7 @@ func (s *AgentGrpcServer) enrollmentCSRStatusStreamInterceptor(
 	info *grpc.StreamServerInfo,
 	handler grpc.StreamHandler,
 ) error {
-	if info != nil &&
-		(info.FullMethod == tpmChallengeFullMethod ||
-			info.FullMethod == watchEnrollmentHooksFullMethod) {
+	if info != nil && info.FullMethod == tpmChallengeFullMethod {
 		if err := s.authorizeEnrollmentCertificate(stream.Context()); err != nil {
 			return err
 		}

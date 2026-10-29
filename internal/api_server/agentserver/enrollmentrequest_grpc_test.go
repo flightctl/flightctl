@@ -56,106 +56,106 @@ func (f *agentServerFakeStatusKVStore) Set(ctx context.Context, key string, valu
 	return nil
 }
 
-func TestEnrollmentCSRStatusStreamInterceptorWhenCSRIsDeniedItShouldRejectProtectedMethods(t *testing.T) {
+func TestEnrollmentCSRStatusStreamInterceptorWhenCSRIsDeniedItShouldRejectTPMChallenge(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	caClient, _, err := crypto.EnsureCA(cacfg.NewDefault(tempDir))
+	require.NoError(t, err)
+
+	csrName := "denied-enrollment-credential"
+	clientCert, err := caClient.MakeClientCertificate(ctx, filepath.Join(tempDir, "client.crt"), filepath.Join(tempDir, "client.key"), csrName, 1)
+	require.NoError(t, err)
+	peerCertificate := clientCert.Certs[0]
+	certificatePEM, err := fcrypto.EncodeCertificatePEM(peerCertificate)
+	require.NoError(t, err)
+
+	csrs := &agentServerFakeCSRService{
+		items: []domain.CertificateSigningRequest{{
+			Metadata: domain.ObjectMeta{Name: &csrName},
+			Status: &domain.CertificateSigningRequestStatus{
+				Certificate: &certificatePEM,
+				Conditions: []domain.Condition{{
+					Type:   domain.ConditionTypeCertificateSigningRequestDenied,
+					Status: domain.ConditionStatusTrue,
+				}},
+			},
+		}},
+	}
+	statusCache, err := fcmiddleware.NewRedisEnrollmentCSRStatusCache(&agentServerFakeStatusKVStore{}, time.Minute)
+	require.NoError(t, err)
+	enrollmentAuth, err := fcmiddleware.NewEnrollmentAuthMiddleware(caClient, csrs, statusCache, logrus.New())
+	require.NoError(t, err)
+	server := &AgentGrpcServer{
+		log:                      logrus.New(),
+		ca:                       caClient,
+		enrollmentAuthMiddleware: enrollmentAuth,
+	}
+	peerCtx := peer.NewContext(ctx, &peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				PeerCertificates: []*x509.Certificate{peerCertificate},
+				VerifiedChains:   [][]*x509.Certificate{{peerCertificate}},
+			},
+		},
+	})
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	stream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
+	stream.EXPECT().Context().Return(peerCtx)
+
+	handler := func(any, grpc.ServerStream) error {
+		require.FailNow(t, "denied CSR must not reach TPMChallenge handler")
+		return nil
+	}
+	err = server.enrollmentCSRStatusStreamInterceptor(
+		nil,
+		stream,
+		&grpc.StreamServerInfo{FullMethod: tpmChallengeFullMethod},
+		handler,
+	)
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unauthenticated, st.Code())
+	require.Equal(t, 1, csrs.calls)
+}
+
+func TestEnrollmentCSRStatusStreamInterceptorWhenMethodUsesManagementAuthItShouldPassThrough(t *testing.T) {
 	tests := []struct {
 		name       string
 		fullMethod string
 	}{
 		{
-			name:       "When TPMChallenge is called it should reject before reading the stream",
-			fullMethod: tpmChallengeFullMethod,
+			name:       "When WatchEnrollmentHooks uses the management certificate it should pass through",
+			fullMethod: grpc_v1.Enrollment_WatchEnrollmentHooks_FullMethodName,
 		},
 		{
-			name:       "When WatchEnrollmentHooks is called it should reject before reading the stream",
-			fullMethod: watchEnrollmentHooksFullMethod,
+			name:       "When an unknown method is called it should pass through",
+			fullMethod: "/flightctl.v1.Enrollment/Unknown",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			tempDir := t.TempDir()
-			caClient, _, err := crypto.EnsureCA(cacfg.NewDefault(tempDir))
-			require.NoError(t, err)
+			server := &AgentGrpcServer{}
+			stream := &fakeWatchEnrollmentHooksStream{ctx: context.Background()}
+			called := false
 
-			csrName := "denied-enrollment-credential"
-			clientCert, err := caClient.MakeClientCertificate(ctx, filepath.Join(tempDir, "client.crt"), filepath.Join(tempDir, "client.key"), csrName, 1)
-			require.NoError(t, err)
-			peerCertificate := clientCert.Certs[0]
-			certificatePEM, err := fcrypto.EncodeCertificatePEM(peerCertificate)
-			require.NoError(t, err)
-
-			csrs := &agentServerFakeCSRService{
-				items: []domain.CertificateSigningRequest{{
-					Metadata: domain.ObjectMeta{Name: &csrName},
-					Status: &domain.CertificateSigningRequestStatus{
-						Certificate: &certificatePEM,
-						Conditions: []domain.Condition{{
-							Type:   domain.ConditionTypeCertificateSigningRequestDenied,
-							Status: domain.ConditionStatusTrue,
-						}},
-					},
-				}},
-			}
-			statusCache, err := fcmiddleware.NewRedisEnrollmentCSRStatusCache(&agentServerFakeStatusKVStore{}, time.Minute)
-			require.NoError(t, err)
-			enrollmentAuth, err := fcmiddleware.NewEnrollmentAuthMiddleware(caClient, csrs, statusCache, logrus.New())
-			require.NoError(t, err)
-			server := &AgentGrpcServer{
-				log:                      logrus.New(),
-				ca:                       caClient,
-				enrollmentAuthMiddleware: enrollmentAuth,
-			}
-			peerCtx := peer.NewContext(ctx, &peer.Peer{
-				AuthInfo: credentials.TLSInfo{
-					State: tls.ConnectionState{
-						PeerCertificates: []*x509.Certificate{peerCertificate},
-						VerifiedChains:   [][]*x509.Certificate{{peerCertificate}},
-					},
-				},
-			})
-
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			stream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
-			stream.EXPECT().Context().Return(peerCtx)
-
-			handler := func(any, grpc.ServerStream) error {
-				require.FailNow(t, "denied CSR must not reach stream handler")
-				return nil
-			}
-			err = server.enrollmentCSRStatusStreamInterceptor(
+			err := server.enrollmentCSRStatusStreamInterceptor(
 				nil,
 				stream,
 				&grpc.StreamServerInfo{FullMethod: tt.fullMethod},
-				handler,
+				func(any, grpc.ServerStream) error {
+					called = true
+					return nil
+				},
 			)
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			require.Equal(t, codes.Unauthenticated, st.Code())
-			require.Equal(t, 1, csrs.calls)
+
+			require.NoError(t, err)
+			require.True(t, called)
 		})
 	}
-}
-
-func TestEnrollmentCSRStatusStreamInterceptorWhenMethodIsNotEnrollmentProtectedItShouldPassThrough(t *testing.T) {
-	server := &AgentGrpcServer{}
-	stream := &fakeWatchEnrollmentHooksStream{ctx: context.Background()}
-	called := false
-
-	err := server.enrollmentCSRStatusStreamInterceptor(
-		nil,
-		stream,
-		&grpc.StreamServerInfo{FullMethod: "/flightctl.v1.Enrollment/Unknown"},
-		func(any, grpc.ServerStream) error {
-			called = true
-			return nil
-		},
-	)
-
-	require.NoError(t, err)
-	require.True(t, called)
 }
 
 const (
