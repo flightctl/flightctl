@@ -50,8 +50,12 @@ func ListRegistryReferrers(ctx context.Context, rw fileio.ReadWriter, image stri
 		sys.SystemRegistriesConfPath = rw.PathFor("/etc/containers/registries.conf")
 		sys.SystemRegistriesConfDirPath = rw.PathFor("/etc/containers/registries.conf.d")
 	}
-	if options.pullSecretPath != "" {
-		sys.AuthFilePath = rw.PathFor(options.pullSecretPath)
+	authFile := options.pullSecretPath
+	if authFile == "" && options.defaultAuth {
+		authFile = os.Getenv("REGISTRY_AUTH_FILE")
+	}
+	if authFile != "" {
+		sys.AuthFilePath = rw.PathFor(authFile)
 	} else if !options.defaultAuth {
 		sys.DockerAuthConfig = &types.DockerAuthConfig{}
 	}
@@ -153,6 +157,16 @@ func registryTLSConfig(rw fileio.ReadWriter, host string, insecure bool) (*tls.C
 	}
 	for _, base := range []string{filepath.Join(home, ".config/containers/certs.d"), "/etc/containers/certs.d", "/etc/docker/certs.d"} {
 		dir := filepath.Join(base, host)
+		exists, err := rw.PathExists(dir, fileio.WithSkipContentCheck())
+		if errors.Is(err, fs.ErrPermission) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("check registry certificate directory: %w", err)
+		}
+		if !exists {
+			continue
+		}
 		entries, err := rw.ReadDir(dir)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 			continue

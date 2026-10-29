@@ -21,6 +21,7 @@ import (
 )
 
 func TestListRegistryReferrers(t *testing.T) {
+	const homeDir = "/home/registry-user"
 	const subject = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const candidate = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const source = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -36,20 +37,25 @@ func TestListRegistryReferrers(t *testing.T) {
 	body, err := json.Marshal(index)
 	require.NoError(t, err)
 	tests := []struct {
-		name      string
-		apiStatus int
-		tagStatus int
-		paginate  bool
-		auth      bool
-		malformed bool
-		blocked   bool
-		withoutCA bool
-		plainHTTP bool
-		mirror    bool
-		canceled  bool
-		wantError bool
-		wantCount int
-		wantPaths []string
+		name             string
+		apiStatus        int
+		tagStatus        int
+		paginate         bool
+		auth             bool
+		pullSecret       string
+		envAuthFile      string
+		defaultAuth      bool
+		malformed        bool
+		blocked          bool
+		withoutCA        bool
+		certBase         string
+		emptyHomeCertDir bool
+		plainHTTP        bool
+		mirror           bool
+		canceled         bool
+		wantError        bool
+		wantCount        int
+		wantPaths        []string
 	}{
 		{
 			name: "When the native API supports pagination it should collect every page", apiStatus: http.StatusOK, paginate: true, wantCount: 2,
@@ -72,8 +78,28 @@ func TestListRegistryReferrers(t *testing.T) {
 			wantPaths: []string{"/v2/test/image/referrers/" + subject},
 		},
 		{
-			name: "When a registry requires authentication it should use the explicit pull secret", apiStatus: http.StatusOK, auth: true, wantCount: 1,
+			name: "When a registry requires authentication it should use the explicit pull secret", apiStatus: http.StatusOK, auth: true, pullSecret: "/auth.json", wantCount: 1,
 			wantPaths: []string{"/v2/test/image/referrers/" + subject, "/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When default authentication names an environment auth file it should use its credentials", apiStatus: http.StatusOK,
+			auth: true, defaultAuth: true, envAuthFile: "/auth.json", wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject, "/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When an explicit pull secret is provided it should override the environment auth file", apiStatus: http.StatusOK,
+			auth: true, defaultAuth: true, pullSecret: "/auth.json", envAuthFile: "/invalid-auth.json", wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject, "/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When default authentication is disabled it should ignore environment credentials", apiStatus: http.StatusOK,
+			auth: true, envAuthFile: "/auth.json", wantError: true,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When default authentication is disabled it should ignore an invalid environment auth file", apiStatus: http.StatusOK,
+			envAuthFile: "/invalid-auth.json", wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
 		},
 		{
 			name: "When the API returns malformed JSON it should reject the response", apiStatus: http.StatusOK, malformed: true, wantError: true,
@@ -81,6 +107,20 @@ func TestListRegistryReferrers(t *testing.T) {
 		},
 		{name: "When registries configuration blocks the image it should make no request", blocked: true, wantError: true},
 		{name: "When the registry CA is not trusted it should reject TLS", apiStatus: http.StatusOK, withoutCA: true, wantError: true},
+		{
+			name: "When only Docker system certificates exist it should use them", apiStatus: http.StatusOK,
+			certBase: "/etc/docker/certs.d", wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When user registry certificates exist it should use them", apiStatus: http.StatusOK,
+			certBase: homeDir + "/.config/containers/certs.d", wantCount: 1,
+			wantPaths: []string{"/v2/test/image/referrers/" + subject},
+		},
+		{
+			name: "When the user certificate directory exists but is empty it should take precedence over system certificates", apiStatus: http.StatusOK,
+			emptyHomeCertDir: true, wantError: true,
+		},
 		{
 			name: "When the registry is explicitly insecure it should allow plain HTTP", apiStatus: http.StatusOK, plainHTTP: true, wantCount: 1,
 			wantPaths: []string{"/v2/test/image/referrers/" + subject},
@@ -94,6 +134,8 @@ func TestListRegistryReferrers(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require := require.New(t)
+			t.Setenv("HOME", homeDir)
+			t.Setenv("REGISTRY_AUTH_FILE", tc.envAuthFile)
 			var paths []string
 			var pathsMu sync.Mutex
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -152,16 +194,28 @@ func TestListRegistryReferrers(t *testing.T) {
 				registryConfig += fmt.Sprintf("[[registry.mirror]]\nlocation = %q\n", host+"/mirror")
 			}
 			require.NoError(rw.WriteFile("/etc/containers/registries.conf", []byte(registryConfig), 0600))
+			if tc.emptyHomeCertDir {
+				require.NoError(rw.MkdirAll(filepath.Join(homeDir, ".config/containers/certs.d", host), 0755))
+			}
 			if !tc.plainHTTP && !tc.withoutCA {
-				certDir := filepath.Join("/etc/containers/certs.d", host)
+				certBase := tc.certBase
+				if certBase == "" {
+					certBase = "/etc/containers/certs.d"
+				}
+				certDir := filepath.Join(certBase, host)
 				require.NoError(rw.MkdirAll(certDir, 0755))
 				require.NoError(rw.WriteFile(filepath.Join(certDir, "ca.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600))
 			}
-			var opts []ClientOption
+			if tc.envAuthFile == "/invalid-auth.json" {
+				require.NoError(rw.WriteFile(tc.envAuthFile, []byte("invalid JSON"), 0600))
+			}
 			if tc.auth {
 				authJSON := fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host+"/test", base64.StdEncoding.EncodeToString([]byte("test-user:test-password")))
 				require.NoError(rw.WriteFile("/auth.json", []byte(authJSON), 0600))
-				opts = append(opts, WithPullSecret("/auth.json"))
+			}
+			opts := []ClientOption{WithPullSecret(tc.pullSecret)}
+			if tc.defaultAuth {
+				opts = append(opts, WithDefaultAuth())
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

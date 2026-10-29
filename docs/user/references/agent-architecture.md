@@ -139,6 +139,8 @@ Digest-pinned CRI workload images remain eligible for deltas. Source checks use 
 
 Referrer discovery queries the OCI Distribution Referrers API and collects paginated results. When the registry does not support that API, discovery reads the Referrers Tag Schema index. These requests use the image storage owner's registry configuration, credentials, mirrors, and certificates.
 
+Default authentication honors `REGISTRY_AUTH_FILE`; an explicit pull secret takes precedence, and anonymous requests ignore the environment setting. Certificate lookup selects the first existing registry certificate directory in the user's home, `/etc/containers/certs.d`, or `/etc/docker/certs.d`.
+
 After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
 
 The refresh attaches the resolved target digest to the original repository name. Unqualified image names remain unqualified so the runtime can apply configured registry aliases.
