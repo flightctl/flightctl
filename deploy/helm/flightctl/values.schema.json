@@ -7,7 +7,7 @@
     "global": {
       "type": "object",
       "description": "Global parameters common to all components and subcharts",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "enableOpenShiftExtensions": {
           "type": "string",
