@@ -595,21 +595,31 @@ func discoveredOSDeltaOutcome(harness *e2e.Harness, deviceID, targetDigest strin
 	}
 }
 
-// reportedApplicationImageDigest returns the locally observed digest for an application image.
+// reportedApplicationImageDigest waits for the locally observed digest for an application image.
+// Workloads report digests only once their runtime containers exist, so a freshly
+// started application can lag the device UpToDate status.
 func reportedApplicationImageDigest(harness *e2e.Harness, deviceID, appName, image string) (string, error) {
-	device := getDeltaDevice(harness, deviceID)
-	for i := range device.Status.Applications {
-		appStatus := device.Status.Applications[i]
-		if appStatus.Name != appName || appStatus.ImageDigests == nil {
-			continue
-		}
-		for _, imageDigest := range *appStatus.ImageDigests {
-			if imageDigest.Image == image && imageDigest.Digest != "" {
-				return imageDigest.Digest, nil
+	var digest string
+	Eventually(func() error {
+		device := getDeltaDevice(harness, deviceID)
+		for i := range device.Status.Applications {
+			appStatus := device.Status.Applications[i]
+			if appStatus.Name != appName || appStatus.ImageDigests == nil {
+				continue
+			}
+			for _, imageDigest := range *appStatus.ImageDigests {
+				if imageDigest.Image == image && imageDigest.Digest != "" {
+					digest = imageDigest.Digest
+					return nil
+				}
 			}
 		}
+		return fmt.Errorf("application %s has not reported image %s with a digest", appName, image)
+	}, util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
+	if digest == "" {
+		return "", fmt.Errorf("application %s has not reported image %s with a digest", appName, image)
 	}
-	return "", fmt.Errorf("application %s has not reported image %s with a digest", appName, image)
+	return digest, nil
 }
 
 // assertNoRenderedApplicationDeltaHints verifies rendered applications contain no control-plane hints.
