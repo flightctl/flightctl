@@ -75,11 +75,11 @@ func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
 }
 
 var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
-	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
+	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), Label("OCP-90808"), func() {
 		runHelmApplicationDeltaTest(false)
 	})
 
-	It("When a fleet updates a Helm application with multiple images it should apply each delta and remain healthy", Label("fleet"), func() {
+	It("When a fleet updates a Helm application with multiple images it should apply each delta and remain healthy", Label("fleet"), Label("OCP-90807"), func() {
 		runHelmApplicationDeltaTest(true)
 	})
 })

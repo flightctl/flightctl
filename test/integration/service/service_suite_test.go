@@ -133,7 +133,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.DeviceStore = devicestore.NewDeviceStore(s.DB, s.Log.WithField("pkg", "device-store"))
 	s.OrganizationStore = organizationstore.NewOrganizationStore(s.DB)
 	catalogStore := catalogstore.NewCatalogStore(s.DB, s.Log.WithField("pkg", "catalog-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.DB, s.Log.WithField("pkg", "repository-store"))

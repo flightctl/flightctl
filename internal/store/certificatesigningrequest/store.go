@@ -30,9 +30,10 @@ type Store interface {
 }
 
 type CertificateSigningRequestStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *store.GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
+	dbHandler            *gorm.DB
+	log                  logrus.FieldLogger
+	enrollmentSignerName string
+	genericStore         *store.GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
 }
 
 // CertificateSigningRequestMutation is the unit apply mutates. Handlers decide all field changes.
@@ -73,15 +74,31 @@ var _ store.ResourceMutation[domain.CertificateSigningRequest] = (*CertificateSi
 // Make sure we conform to the Store interface
 var _ Store = (*CertificateSigningRequestStore)(nil)
 
-func NewCertificateSigningRequestStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewCertificateSigningRequestStore(db *gorm.DB, log logrus.FieldLogger, enrollmentSignerName string) Store {
 	genericStore := store.NewGenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList](
 		db,
 		log,
-		model.NewCertificateSigningRequestFromApiResource,
+		func(resource *domain.CertificateSigningRequest) (*model.CertificateSigningRequest, error) {
+			return certificateSigningRequestToModel(resource, enrollmentSignerName)
+		},
 		(*model.CertificateSigningRequest).ToApiResource,
 		model.CertificateSigningRequestsToApiResource,
 	)
-	return &CertificateSigningRequestStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &CertificateSigningRequestStore{dbHandler: db, log: log, enrollmentSignerName: enrollmentSignerName, genericStore: genericStore}
+}
+
+// certificateSigningRequestToModel derives the private leaf digest only for enrollment CSRs.
+// Other signers are intentionally excluded so the digest index stays small.
+func certificateSigningRequestToModel(resource *domain.CertificateSigningRequest, enrollmentSignerName string) (*model.CertificateSigningRequest, error) {
+	modelResource, err := model.NewCertificateSigningRequestFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
+	if enrollmentSignerName == "" || modelResource.Spec == nil || modelResource.Spec.Data.SignerName != enrollmentSignerName || modelResource.Status == nil {
+		return modelResource, nil
+	}
+	modelResource.CertificateDigest = model.CertificateSigningRequestCertificateDigest(modelResource.Status.Data.Certificate)
+	return modelResource, nil
 }
 
 func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
@@ -93,6 +110,11 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
+	}
+	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest") {
+		if err := db.Exec("CREATE INDEX idx_csr_org_certificate_digest ON certificate_signing_requests (org_id, certificate_digest)").Error; err != nil {
+			return err
+		}
 	}
 
 	// Create GIN index for CertificateSigningRequest labels
@@ -177,18 +199,19 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 	if before.Metadata.CreationTimestamp == nil {
 		return false, flterrors.ErrResourceVersionConflict
 	}
-	record, err := model.NewCertificateSigningRequestFromApiResource(before)
+	record, err := certificateSigningRequestToModel(before, s.enrollmentSignerName)
 	if err != nil {
 		return false, err
 	}
 	record.OrgID = orgId
-	proposed, err := model.NewCertificateSigningRequestFromApiResource(mutation.Resource())
+	proposed, err := certificateSigningRequestToModel(mutation.Resource(), s.enrollmentSignerName)
 	if err != nil {
 		return false, err
 	}
 	updates := map[string]interface{}{
-		"status":           proposed.Status,
-		"resource_version": gorm.Expr("COALESCE(resource_version, 0) + 1"),
+		"status":             proposed.Status,
+		"certificate_digest": proposed.CertificateDigest,
+		"resource_version":   gorm.Expr("COALESCE(resource_version, 0) + 1"),
 	}
 	if !proposed.HasSameSpecAs(record) {
 		updates["spec"] = proposed.Spec

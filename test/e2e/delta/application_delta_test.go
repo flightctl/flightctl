@@ -33,7 +33,7 @@ var applicationDeltaNonHelmAppNames = []string{
 }
 
 var _ = Describe("application delta applications", Label("delta", "slow", "vm"), Serial, func() {
-	It("When a standalone device updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("standalone"), func() {
+	It("When a standalone device updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("standalone"), Label("OCP-90801"), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("enrolling a standalone device on the delta-capable base image")
@@ -132,7 +132,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
 
-	It("When a fleet updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("fleet"), func() {
+	It("When a fleet updates container, Compose, Quadlet, and VM applications it should apply their deltas and remain healthy", Label("fleet"), Label("OCP-90803"), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("enrolling a device on the delta-capable base image")
@@ -229,7 +229,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
 
-	It("When a nested application delta artifact is unavailable it should full-pull and report the fallback", Label("fallback", "standalone"), func() {
+	It("When a nested application delta artifact is unavailable it should full-pull and report the fallback", Label("fallback", "standalone"), Label("OCP-90804"), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("enrolling a standalone device on the delta-capable base image")
@@ -286,7 +286,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application fallback must not change OS delta status")
 	})
 
-	It("When a later application prepare requests an already generated image delta it should reuse and apply it", Label("prepare-reuse", "standalone"), func() {
+	It("When a later application prepare requests an already generated image delta it should reuse and apply it", Label("prepare-reuse", "standalone"), Label("OCP-90810"), func() {
 		harness := e2e.GetWorkerHarness()
 		deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 		prepareNonHelmApplicationDeltaDevice(harness, deviceID)

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"io"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -227,4 +228,30 @@ func TestEmbedTCGCSRInX509(t *testing.T) {
 
 	// Currently just returns the standard CSR
 	require.Equal(t, standardCSR, result)
+}
+
+func TestSafeIntToUint32(t *testing.T) {
+	tests := []struct {
+		name      string
+		val       int64
+		wantPanic bool
+	}{
+		{name: "When value is zero it should convert", val: 0},
+		{name: "When value is MaxInt32 it should convert", val: math.MaxInt32},
+		{name: "When value is MaxUint32 it should convert", val: math.MaxUint32},
+		{name: "When value is negative it should panic", val: -1, wantPanic: true},
+		{name: "When value exceeds MaxUint32 it should panic", val: math.MaxUint32 + 1, wantPanic: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.val > math.MaxInt {
+				t.Skip("value does not fit in int on this platform")
+			}
+			if tt.wantPanic {
+				require.Panics(t, func() { safeIntToUint32(int(tt.val)) })
+				return
+			}
+			require.Equal(t, uint32(tt.val), safeIntToUint32(int(tt.val)))
+		})
+	}
 }

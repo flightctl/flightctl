@@ -23,7 +23,7 @@ var _ = Describe("Condition updates across CSR name reuse", func() {
 		defer cancel()
 		createdAt := time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC)
 		recreatedAt := time.Date(2025, 3, 4, 5, 6, 7, 123457000, time.UTC)
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return createdAt }}), suite.Log)
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return createdAt }}), suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		request := newStoredCSR()
 		request.Spec.SignerName = "example.org/enrollment"
 		parsed, err := fcrypto.ParseCSR(request.Spec.Request)
@@ -74,7 +74,7 @@ var _ = Describe("Condition updates across CSR name reuse", func() {
 		}
 		_, err = provider.Delete(ctx, suite.OrgID, *original.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
-		replacementProvider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return recreatedAt }}), suite.Log)
+		replacementProvider := csrstore.NewCertificateSigningRequestStore(suite.DB.Session(&gorm.Session{NowFunc: func() time.Time { return recreatedAt }}), suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
 		replacement, err := replacementProvider.Create(ctx, suite.OrgID, &request)
 		Expect(err).NotTo(HaveOccurred())
 		replacement.Status.Certificate = lo.ToPtr(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newLeaf.Raw}))

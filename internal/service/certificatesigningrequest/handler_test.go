@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -218,6 +221,136 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningReque
 	return NewServiceHandler(csrStore, verifier, caClient, ev, logger, "", ""), csrStore, erSvc, ev, cfg
 }
 
+type fakeCertificateService struct {
+	Service
+	items  []domain.CertificateSigningRequest
+	status domain.Status
+}
+
+func (f *fakeCertificateService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams, opts ...selector.FieldSelectorOption) (*domain.CertificateSigningRequestList, domain.Status) {
+	return &domain.CertificateSigningRequestList{Items: f.items}, f.status
+}
+
+func TestCSRForLeaf(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	caClient, _, err := crypto.EnsureCA(cacfg.NewDefault(tempDir))
+	require.NoError(t, err)
+
+	csrName := "enrollment-credential"
+	clientCert, err := caClient.MakeClientCertificate(ctx, filepath.Join(tempDir, "client.crt"), filepath.Join(tempDir, "client.key"), csrName, 1)
+	require.NoError(t, err)
+	leaf := clientCert.Certs[0]
+	certificatePEM, err := fcrypto.EncodeCertificatePEM(leaf)
+	require.NoError(t, err)
+	matchingCSR := domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: &csrName},
+		Status: &domain.CertificateSigningRequestStatus{
+			Certificate: &certificatePEM,
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+				Status: domain.ConditionStatusTrue,
+			}},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		items      []domain.CertificateSigningRequest
+		status     domain.Status
+		wantCSR    *domain.CertificateSigningRequest
+		wantErrStr string
+	}{
+		{
+			name:    "When the certificate matches it should return the CSR",
+			items:   []domain.CertificateSigningRequest{matchingCSR},
+			status:  domain.StatusOK(),
+			wantCSR: &matchingCSR,
+		},
+		{
+			name:       "When no certificate matches it should return a not-found error",
+			status:     domain.StatusOK(),
+			wantErrStr: ErrEnrollmentCSRNotFound.Error(),
+		},
+		{
+			name:       "When multiple certificates match it should return an ambiguity error",
+			items:      []domain.CertificateSigningRequest{matchingCSR, matchingCSR},
+			status:     domain.StatusOK(),
+			wantErrStr: ErrAmbiguousCertificate.Error(),
+		},
+		{
+			name:       "When listing fails it should return the lookup error",
+			status:     domain.StatusInternalServerError("lookup failed"),
+			wantErrStr: "lookup failed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeCertificateService{items: test.items, status: test.status}
+
+			csr, err := CSRForLeaf(ctx, service, uuid.New(), leaf)
+
+			if test.wantErrStr != "" {
+				require.ErrorContains(t, err, test.wantErrStr)
+				require.Nil(t, csr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantCSR, csr)
+		})
+	}
+}
+
+// conflictOnceStore simulates another writer committing issuance evidence
+// between the service's read and its first status write.
+type conflictOnceStore struct {
+	*fakeCertificateSigningRequestStore
+	committedCertificate []byte
+	committedIssuedAt    time.Time
+	pendingConflicts     int
+}
+
+type failingMutationStore struct {
+	*fakeCertificateSigningRequestStore
+	err error
+}
+
+func (s *failingMutationStore) Mutate(context.Context, uuid.UUID, string, *domain.CertificateSigningRequest, csrstore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	return nil, nil, false, s.err
+}
+
+func (s *conflictOnceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply csrstore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if s.pendingConflicts == 0 {
+		return s.fakeCertificateSigningRequestStore.Mutate(ctx, orgId, name, previous, apply)
+	}
+	s.pendingConflicts--
+
+	stale, err := store.CloneJSON(s.items[name])
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := apply(&csrstore.CertificateSigningRequestMutation{CertificateSigningRequest: stale}); err != nil {
+		return nil, stale, false, err
+	}
+
+	committed, err := store.CloneJSON(s.items[name])
+	if err != nil {
+		return nil, nil, false, err
+	}
+	committed.Status.Certificate = &s.committedCertificate
+	committed.Status.IssuedAt = &s.committedIssuedAt
+	persisted, err := store.CloneJSON(committed)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if _, _, err := s.fakeCertificateSigningRequestStore.Update(ctx, orgId, persisted); err != nil {
+		return nil, nil, false, err
+	}
+
+	return nil, committed, false, flterrors.ErrResourceVersionConflict
+}
+
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.
 func csrPEM(t *testing.T, cn string) []byte {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -299,6 +432,44 @@ func TestValidateAllowedSignersForCSRService(t *testing.T) {
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+		})
+	}
+}
+
+func TestEnrollmentPredicates(t *testing.T) {
+	const signerName = "flightctl.io/enrollment"
+	tests := []struct {
+		name             string
+		configuredSigner string
+		resource         *domain.CertificateSigningRequest
+		wantEligible     bool
+		wantProtected    bool
+	}{
+		{
+			name:     "When the configured signer is empty it should reject both predicates",
+			resource: &domain.CertificateSigningRequest{},
+		},
+		{
+			name:             "When the configured signer matches it should treat the CSR as enrollment",
+			configuredSigner: signerName,
+			resource: &domain.CertificateSigningRequest{
+				Spec: domain.CertificateSigningRequestSpec{SignerName: signerName},
+			},
+			wantEligible:  true,
+			wantProtected: true,
+		},
+		{
+			name:             "When the resource is nil it should reject both predicates",
+			configuredSigner: signerName,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &ServiceHandler{ca: &crypto.CAClient{Cfg: &cacfg.Config{DeviceEnrollmentSignerName: test.configuredSigner}}}
+
+			require.Equal(t, test.wantEligible, handler.isEnrollmentIssuanceEligible(test.resource))
+			require.Equal(t, test.wantProtected, handler.isProtectedEnrollmentCredential(test.resource))
 		})
 	}
 }
@@ -469,6 +640,280 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 		_, status := h.CreateCertificateSigningRequest(context.Background(), uuid.New(), csr)
 		require.Equal(t, statusBadRequestCode, status.Code)
 	})
+}
+
+func TestEnrollmentIssuanceClock(t *testing.T) {
+	tests := []struct {
+		name string
+		now  time.Time
+	}{
+		{
+			name: "When server time is UTC it should publish exact issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC),
+		},
+		{
+			name: "When server time has an offset it should publish UTC issuance and preserve it on replacement",
+			now:  time.Date(2025, 3, 4, 7, 6, 7, 123456000, time.FixedZone("server", 2*60*60)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			nowFunc = func() time.Time { return test.now }
+			t.Cleanup(func() { nowFunc = time.Now })
+			handler, _, _, _, cfg := newTestHandler(t)
+			ctx := context.Background()
+			orgID := uuid.New()
+			name := "enrollment-clock"
+			request := domain.CertificateSigningRequest{
+				Metadata: domain.ObjectMeta{Name: &name},
+				Spec: domain.CertificateSigningRequestSpec{
+					SignerName: cfg.DeviceEnrollmentSignerName,
+					Request:    csrPEM(t, name),
+					Usages:     validUsages(),
+				},
+			}
+			created, status := handler.CreateCertificateSigningRequest(ctx, orgID, request)
+			require.Equal(t, statusCreatedCode, status.Code)
+			require.NotNil(t, created)
+			require.NotNil(t, created.Status)
+			require.NotNil(t, created.Status.IssuedAt)
+			require.Equal(t, test.now.UTC(), *created.Status.IssuedAt)
+			require.Same(t, time.UTC, created.Status.IssuedAt.Location())
+			require.NotNil(t, created.Status.Certificate)
+			require.NotEmpty(t, *created.Status.Certificate)
+			publishedCertificate := append([]byte(nil), (*created.Status.Certificate)...)
+			publishedAt := *created.Status.IssuedAt
+
+			nowFunc = func() time.Time { return test.now.Add(24 * time.Hour) }
+			replacement := *created
+			replacementStatus := *created.Status
+			replacementStatus.IssuedAt = lo.ToPtr(test.now.Add(2 * time.Hour))
+			replacement.Status = &replacementStatus
+			replacement.Metadata.Labels = &map[string]string{"clock": "advanced"}
+			updated, status := ReplaceCertificateSigningRequestFromUntrusted(ctx, handler, orgID, name, replacement)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, &publishedCertificate, updated.Status.Certificate)
+			require.NotNil(t, updated.Status.IssuedAt)
+			require.Equal(t, &publishedAt, updated.Status.IssuedAt)
+			retrieved, status := handler.GetCertificateSigningRequest(ctx, orgID, name)
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, "advanced", (*retrieved.Metadata.Labels)["clock"])
+			require.Equal(t, &publishedCertificate, retrieved.Status.Certificate)
+			require.NotNil(t, retrieved.Status.IssuedAt)
+			require.Equal(t, &publishedAt, retrieved.Status.IssuedAt)
+			require.Same(t, time.UTC, retrieved.Status.IssuedAt.Location())
+		})
+	}
+}
+
+type recreatedCertificatePublishStore struct {
+	*fakeCertificateSigningRequestStore
+	replacement *domain.CertificateSigningRequest
+	recreated   bool
+}
+
+func (s *recreatedCertificatePublishStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply csrstore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if s.recreated {
+		return s.fakeCertificateSigningRequestStore.Mutate(ctx, orgId, name, previous, apply)
+	}
+	s.recreated = true
+	delete(s.items, name)
+	s.items[name] = s.replacement
+	return nil, previous, false, flterrors.ErrResourceVersionConflict
+}
+
+func TestEnrollmentIssuanceWhenCSRIsRecreatedWithCertificate(t *testing.T) {
+	baseStore := newFakeCertificateSigningRequestStore()
+	caClient, cfg := newTestCA(t)
+	handler := NewServiceHandler(baseStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+	ctx := context.Background()
+	orgID := uuid.New()
+	name := "recreated-publish"
+	createdAt := time.Date(2025, 4, 5, 6, 7, 8, 0, time.UTC)
+	recreatedAt := createdAt.Add(time.Second)
+	replacementCertificate := []byte("replacement-certificate")
+	approved := []domain.Condition{{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue}}
+
+	original, err := baseStore.Create(ctx, orgID, &domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: &name, CreationTimestamp: &createdAt},
+		Spec: domain.CertificateSigningRequestSpec{
+			SignerName: cfg.DeviceEnrollmentSignerName,
+			Request:    csrPEM(t, name),
+			Usages:     validUsages(),
+		},
+	})
+	require.NoError(t, err)
+	original.Status = &domain.CertificateSigningRequestStatus{Conditions: approved}
+	candidate, err := store.CloneJSON(original)
+	require.NoError(t, err)
+
+	replacement := *original
+	replacement.Metadata.CreationTimestamp = &recreatedAt
+	replacement.Status = &domain.CertificateSigningRequestStatus{
+		Certificate: &replacementCertificate,
+		Conditions:  approved,
+	}
+	provider := &recreatedCertificatePublishStore{fakeCertificateSigningRequestStore: baseStore, replacement: &replacement}
+
+	handler.store = provider
+	handler.signApprovedCertificateSigningRequest(ctx, orgID, candidate)
+
+	require.Nil(t, candidate.Status.Certificate)
+	require.Equal(t, &replacementCertificate, baseStore.items[name].Status.Certificate)
+}
+
+func TestEnrollmentIssuanceSafeguards(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "When issuance evidence is committed concurrently it should preserve the committed certificate and issuance time",
+			run: func(t *testing.T) {
+				baseStore := newFakeCertificateSigningRequestStore()
+				committedAt := time.Date(2025, 4, 5, 6, 7, 8, 0, time.UTC)
+				conflictingStore := &conflictOnceStore{
+					fakeCertificateSigningRequestStore: baseStore,
+					committedCertificate:               []byte("first-committed-certificate"),
+					committedIssuedAt:                  committedAt,
+					pendingConflicts:                   1,
+				}
+				caClient, cfg := newTestCA(t)
+				handler := NewServiceHandler(conflictingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+				ctx := context.Background()
+				orgID := uuid.New()
+				name := "issuance-conflict"
+				request := domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: &name},
+					Spec: domain.CertificateSigningRequestSpec{
+						SignerName: cfg.DeviceEnrollmentSignerName,
+						Request:    csrPEM(t, name),
+						Usages:     validUsages(),
+					},
+					Status: &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
+						Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+						Status: domain.ConditionStatusTrue,
+					}}},
+				}
+				stored, err := baseStore.Create(ctx, orgID, &request)
+				require.NoError(t, err)
+				candidate, err := store.CloneJSON(stored)
+				require.NoError(t, err)
+
+				nowFunc = func() time.Time { return committedAt.Add(time.Hour) }
+				t.Cleanup(func() { nowFunc = time.Now })
+				handler.signApprovedCertificateSigningRequest(ctx, orgID, candidate)
+
+				require.Equal(t, &conflictingStore.committedCertificate, candidate.Status.Certificate)
+				require.NotNil(t, candidate.Status.IssuedAt)
+				require.Equal(t, committedAt, *candidate.Status.IssuedAt)
+				require.Equal(t, &conflictingStore.committedCertificate, baseStore.items[name].Status.Certificate)
+				require.NotNil(t, baseStore.items[name].Status.IssuedAt)
+				require.Equal(t, committedAt, *baseStore.items[name].Status.IssuedAt)
+			},
+		},
+		{
+			name: "When signing fails it should leave no certificate or issuance time",
+			run: func(t *testing.T) {
+				handler, fakeStore, _, _, cfg := newTestHandler(t)
+				ctx := context.Background()
+				orgID := uuid.New()
+				name := "signing-failure"
+				request := domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: &name},
+					Spec: domain.CertificateSigningRequestSpec{
+						SignerName: cfg.DeviceEnrollmentSignerName,
+						Request:    csrPEM(t, "mismatched-common-name"),
+						Usages:     validUsages(),
+					},
+				}
+
+				created, status := handler.CreateCertificateSigningRequest(ctx, orgID, request)
+				require.Equal(t, statusCreatedCode, status.Code)
+				require.Nil(t, created.Status.Certificate)
+				require.Nil(t, created.Status.IssuedAt)
+				require.True(t, domain.IsStatusConditionTrue(created.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed))
+
+				stored := fakeStore.items[name]
+				require.Nil(t, stored.Status.Certificate)
+				require.Nil(t, stored.Status.IssuedAt)
+				require.True(t, domain.IsStatusConditionTrue(stored.Status.Conditions, domain.ConditionTypeCertificateSigningRequestFailed))
+			},
+		},
+		{
+			name: "When status publication fails it should leave no certificate or issuance time",
+			run: func(t *testing.T) {
+				baseStore := newFakeCertificateSigningRequestStore()
+				publishErr := errors.New("publication failed")
+				failingStore := &failingMutationStore{fakeCertificateSigningRequestStore: baseStore, err: publishErr}
+				caClient, cfg := newTestCA(t)
+				handler := NewServiceHandler(failingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+				ctx := context.Background()
+				orgID := uuid.New()
+				name := "publication-failure"
+				request := domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: &name},
+					Spec: domain.CertificateSigningRequestSpec{
+						SignerName: cfg.DeviceEnrollmentSignerName,
+						Request:    csrPEM(t, name),
+						Usages:     validUsages(),
+					},
+					Status: &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
+						Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+						Status: domain.ConditionStatusTrue,
+					}}},
+				}
+				stored, err := baseStore.Create(ctx, orgID, &request)
+				require.NoError(t, err)
+				candidate, err := store.CloneJSON(stored)
+				require.NoError(t, err)
+
+				handler.signApprovedCertificateSigningRequest(ctx, orgID, candidate)
+
+				require.Nil(t, candidate.Status.Certificate)
+				require.Nil(t, candidate.Status.IssuedAt)
+				require.Nil(t, baseStore.items[name].Status.Certificate)
+				require.Nil(t, baseStore.items[name].Status.IssuedAt)
+			},
+		},
+		{
+			name: "When a non-enrollment signer issues a certificate it should not set issuance time",
+			run: func(t *testing.T) {
+				handler, fakeStore, _, _, cfg := newTestHandler(t)
+				ctx := context.Background()
+				orgID := uuid.New()
+				name := "server-svc-certificate"
+				request := domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: &name},
+					Spec: domain.CertificateSigningRequestSpec{
+						SignerName: cfg.ServerSvcSignerName,
+						Request:    csrPEM(t, "svc-test"),
+						Usages:     validUsages(),
+					},
+					Status: &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{{
+						Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+						Status: domain.ConditionStatusTrue,
+					}}},
+				}
+				stored, err := fakeStore.Create(ctx, orgID, &request)
+				require.NoError(t, err)
+				candidate, err := store.CloneJSON(stored)
+				require.NoError(t, err)
+
+				handler.signApprovedCertificateSigningRequest(ctx, orgID, candidate)
+
+				require.NotNil(t, candidate.Status.Certificate)
+				require.NotEmpty(t, *candidate.Status.Certificate)
+				require.Nil(t, candidate.Status.IssuedAt)
+				require.NotNil(t, fakeStore.items[name].Status.Certificate)
+				require.Nil(t, fakeStore.items[name].Status.IssuedAt)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, test.run)
+	}
 }
 
 func TestListCertificateSigningRequests(t *testing.T) {
@@ -665,7 +1110,7 @@ func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
 		h, fakeStore, _, _, cfg := newTestHandler(t)
 		cn := "test-csr-approve"
 		csr := domain.CertificateSigningRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), CreationTimestamp: lo.ToPtr(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))},
 			Spec:     domain.CertificateSigningRequestSpec{SignerName: cfg.DeviceSvcClientSignerName, Request: csrPEM(t, cn), Usages: validUsages()},
 			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
 		}
