@@ -80,6 +80,34 @@ service so the agent has a server to connect to. If you start the agent
 first, it keeps retrying until configuration is available. See the
 configuration sections below.
 
+## Installing the agent binary on ARMv7 (experimental)
+
+Use this procedure to install the agent on 32-bit ARM (ARMv7) devices where the RPM packages are not available. Each release publishes the `flightctl-agent-linux-armv7` binary and a `flightctl-agent-linux-armv7-sha256.txt` checksum file as release assets.
+
+> [!NOTE]
+> The ARMv7 agent is experimental and community-supported. There is no commitment to hardware validation or to compatibility across releases.
+
+1. Download the binary and the checksum file, where `<tag>` is a release tag such as `v1.4.0`, or `latest`:
+
+   ```bash
+   curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-agent-linux-armv7
+   curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-agent-linux-armv7-sha256.txt
+   ```
+
+2. Verify the checksum:
+
+   ```bash
+   echo "$(cat flightctl-agent-linux-armv7-sha256.txt)  flightctl-agent-linux-armv7" | sha256sum -c -
+   ```
+
+3. Install the binary:
+
+   ```bash
+   sudo install -m 0755 flightctl-agent-linux-armv7 /usr/local/bin/flightctl-agent
+   ```
+
+You must provide the systemd unit, Podman, and the agent configuration yourself. For the configuration, see [Configuring the agent](#configuring-the-agent).
+
 ## Configuring the agent
 
 When the `flightctl-agent` starts, it reads its configuration from `/etc/flightctl/config.yaml` as well as a number of drop-in directories:
