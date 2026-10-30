@@ -80,16 +80,7 @@ var _ = Describe("Device capability feature labels", func() {
 		GinkgoWriter.Printf("Expecting derived labels %v and absent keys %v\n", expectedPresent, expectedAbsent)
 
 		By("Waiting for the server to derive the labels from the reported systemInfo")
-		harness.WaitForDeviceContents(deviceID, "device labels are derived from systemInfo",
-			func(device *v1beta1.Device) bool {
-				labels := lo.FromPtr(device.Metadata.Labels)
-				for key, value := range expectedPresent {
-					if labels[key] != value {
-						return false
-					}
-				}
-				return true
-			}, TIMEOUT)
+		harness.WaitForDeviceLabels(deviceID, "device labels are derived from systemInfo", expectedPresent, TIMEOUT)
 
 		By("Verifying unreported capabilities do not produce a feature label")
 		device, err := harness.GetDevice(deviceID)
@@ -106,13 +97,7 @@ var _ = Describe("Device capability feature labels", func() {
 
 	It("When filtering by a derived label it should return only the matching devices", Label("sanity", "agent"), func() {
 		By("Waiting for the architecture label to be derived")
-		var architecture string
-		harness.WaitForDeviceContents(deviceID, "architecture label is derived",
-			func(device *v1beta1.Device) bool {
-				value, found := lo.FromPtr(device.Metadata.Labels)[capabilityArchitectureLabel]
-				architecture = value
-				return found && value != ""
-			}, TIMEOUT)
+		architecture := harness.WaitForDeviceReportedLabel(deviceID, capabilityArchitectureLabel, TIMEOUT)
 
 		By("Listing devices with a matching label selector")
 		matching := fmt.Sprintf("%s=%s,test-id=%s", capabilityArchitectureLabel, architecture, harness.GetTestIDFromContext())
@@ -137,17 +122,12 @@ var _ = Describe("Device capability feature labels", func() {
 		Expect(response.JSON200.Items).To(BeEmpty())
 	})
 
-	It("When an operator edits a derived label it should be rejected and operator labels stay editable", Label("agent"), func() {
+	It("When an operator edits a derived label it should be rejected and operator labels stay editable", Label("sanity", "agent"), func() {
 		By("Waiting for the architecture label to be derived")
-		harness.WaitForDeviceContents(deviceID, "architecture label is derived",
-			func(device *v1beta1.Device) bool {
-				value, found := lo.FromPtr(device.Metadata.Labels)[capabilityArchitectureLabel]
-				return found && value != ""
-			}, TIMEOUT)
+		derivedArchitecture := harness.WaitForDeviceReportedLabel(deviceID, capabilityArchitectureLabel, TIMEOUT)
 
 		device, err := harness.GetDevice(deviceID)
 		Expect(err).ToNot(HaveOccurred())
-		derivedArchitecture := lo.FromPtr(device.Metadata.Labels)[capabilityArchitectureLabel]
 
 		By("Attempting to overwrite the server-owned label")
 		spoofed := *device
