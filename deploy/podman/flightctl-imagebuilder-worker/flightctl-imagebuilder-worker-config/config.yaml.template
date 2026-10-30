@@ -8,11 +8,11 @@ database:
   sslmode: {{.db.external.sslmode}}
   {{- end}}
   {{- if or (eq .db.external.sslmode "verify-full") (eq .db.external.sslmode "verify-ca") }}
-  sslrootcert: /root/.flightctl/certs/db/ca.crt
+  sslrootcert: /var/lib/flightctl/.flightctl/certs/db/ca.crt
   {{- end }}
   {{- if .db.external.useClientCertAuth }}
-  sslcert: /root/.flightctl/certs/db/client.crt
-  sslkey: /root/.flightctl/certs/db/client.key
+  sslcert: /var/lib/flightctl/.flightctl/certs/db/client.crt
+  sslkey: /var/lib/flightctl/.flightctl/certs/db/client.key
   {{- end }}
 {{- else}}
   hostname: flightctl-db
@@ -28,9 +28,17 @@ service:
   baseUIUrl: https://{{.global.baseDomain}}:443
 imageBuilderWorker:
   logLevel: {{if .imagebuilderWorker.logLevel}}{{.imagebuilderWorker.logLevel}}{{else}}info{{end}}
-  maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}2{{end}}
+  maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}1{{end}}
+  vm:
+    baseImage: {{if .imagebuilderWorker.vm.baseImage}}{{.imagebuilderWorker.vm.baseImage}}{{else}}/usr/share/flightctl-vm/guest.qcow2{{end}}
+    accelerator: {{if .imagebuilderWorker.vm.accelerator}}{{.imagebuilderWorker.vm.accelerator}}{{else}}kvm{{end}}
+    memoryMiB: {{if .imagebuilderWorker.vm.memoryMiB}}{{.imagebuilderWorker.vm.memoryMiB}}{{else}}4096{{end}}
+    cpus: {{if .imagebuilderWorker.vm.cpus}}{{.imagebuilderWorker.vm.cpus}}{{else}}4{{end}}
+    diskSizeGiB: {{if .imagebuilderWorker.vm.diskSizeGiB}}{{.imagebuilderWorker.vm.diskSizeGiB}}{{else}}24{{end}}
+    bootTimeout: {{if .imagebuilderWorker.vm.bootTimeout}}{{.imagebuilderWorker.vm.bootTimeout}}{{else}}5m{{end}}
+    executionTimeout: {{if .imagebuilderWorker.vm.executionTimeout}}{{.imagebuilderWorker.vm.executionTimeout}}{{else}}2h{{end}}
   defaultTTL: {{if .imagebuilderWorker.defaultTTL}}{{.imagebuilderWorker.defaultTTL}}{{else}}168h{{end}}
-  imageBuilderTimeout: {{if .imagebuilderWorker.imageBuilderTimeout}}{{.imagebuilderWorker.imageBuilderTimeout}}{{else}}3m{{end}}
+  imageBuilderTimeout: {{if .imagebuilderWorker.imageBuilderTimeout}}{{.imagebuilderWorker.imageBuilderTimeout}}{{else}}10m{{end}}
   timeoutCheckTaskInterval: {{if .imagebuilderWorker.timeoutCheckTaskInterval}}{{.imagebuilderWorker.timeoutCheckTaskInterval}}{{else}}1m{{end}}
   {{- if .imagebuilderWorker.rpmRepoUrl}}
   rpmRepoUrl: {{.imagebuilderWorker.rpmRepoUrl}}
@@ -52,11 +60,6 @@ imageBuilderWorker:
   {{- end}}
   {{- if .imagebuilderWorker.serviceImages}}
   serviceImages:
-  {{- if .imagebuilderWorker.serviceImages.podman}}
-    podman:
-      image: {{.imagebuilderWorker.serviceImages.podman.image}}
-      skipTlsVerify: {{.imagebuilderWorker.serviceImages.podman.skipTlsVerify}}
-  {{- end}}
   {{- if .imagebuilderWorker.serviceImages.bootcImageBuilder}}
     bootcImageBuilder:
       image: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.image}}
@@ -171,6 +174,6 @@ encryption:
   keys:
   {{- range .keys }}
     - id: {{ .id }}
-      path: {{ .path }}
+      path: {{ .path | replace "/root/.flightctl" "/var/lib/flightctl/.flightctl" }}
   {{- end }}
 {{- end }}

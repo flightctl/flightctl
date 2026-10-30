@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,13 +18,13 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
+	"github.com/flightctl/flightctl/internal/imagebuilder_worker/vm"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/registry/remote"
@@ -35,13 +34,6 @@ import (
 //
 //go:embed templates/Containerfile.containerdisk.tmpl
 var containerdiskTemplate string
-
-const (
-	// exportStorageBaseDir is the base directory for temporary container storage used
-	// during image export. A unique subdirectory is created per job and removed when
-	// the job completes. Any leftovers from a crash are swept on worker startup.
-	exportStorageBaseDir = "/var/tmp/flightctl-exports"
-)
 
 var (
 	// errImageBuildNotReady is returned when ImageBuild is not ready yet (pending state)
@@ -330,14 +322,13 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-// privilegedPodmanWorker holds information about a running privileged podman worker container
-type privilegedPodmanWorker struct {
-	ContainerName       string
-	TmpDir              string
-	TmpOutDir           string
-	TmpContainerStorage string
-	Cleanup             func()
-	statusUpdater       *imageExportStatusUpdater
+// vmExportWorker holds information about a running export VM
+type vmExportWorker struct {
+	Session       *vm.Session
+	TmpDir        string
+	TmpOutDir     string
+	Cleanup       func()
+	statusUpdater *imageExportStatusUpdater
 }
 
 // statusWriter is a thread-safe writer that captures output to a buffer
@@ -370,16 +361,22 @@ func (c *Consumer) executeExport(
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
 ) (string, func(), error) {
+	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil || c.cfg.ImageBuilderWorker.VM == nil {
+		return "", nil, fmt.Errorf("VM configuration is required")
+	}
+	if c.cfg.ImageBuilderWorker.VM.Accelerator != "kvm" {
+		return "", nil, fmt.Errorf("ImageExport requires KVM")
+	}
 	// Build image reference string for logging and podman operations
 	registryHostname := exportSource.OciRepoSpec.Registry
 	bootcImageRef := fmt.Sprintf("%s/%s:%s", registryHostname, exportSource.ImageName, exportSource.ImageTag)
 
 	log.WithField("bootcImage", bootcImageRef).Info("Resolved bootc image reference")
 
-	// Step 2: Start bootc-image-builder container
+	// Step 2: Start the export VM
 	worker, err := c.startBootcImageBuilderContainer(ctx, orgID, imageExport, statusUpdater, log)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to start bootc-image-builder container: %w", err)
+		return "", nil, fmt.Errorf("failed to start export VM: %w", err)
 	}
 	defer worker.Cleanup()
 	// Create cleanup function to delete the temporary output directory
@@ -398,7 +395,7 @@ func (c *Consumer) executeExport(
 	}
 
 	// Step 2.6: Install CA certificate for source registry if configured
-	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log); err != nil {
+	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.Session, registryHostname, log); err != nil {
 		return "", cleanup, fmt.Errorf("failed to install CA cert for source registry: %w", err)
 	}
 
@@ -426,23 +423,18 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to run bootc-image-builder: %w", err)
 	}
 
-	// List output directory contents recursively after bootc conversion
-	log.Debug("Listing output directory contents after bootc conversion")
-	lsArgs := []string{"exec", worker.ContainerName, "ls", "-laR", "/output"}
-	lsCmd := exec.CommandContext(ctx, "podman", lsArgs...)
-	var lsOutput bytes.Buffer
-	lsCmd.Stdout = &lsOutput
-	lsCmd.Stderr = &lsOutput
-	if lsErr := lsCmd.Run(); lsErr == nil {
-		log.WithField("output_contents", lsOutput.String()).Debug("Output directory contents after bootc conversion")
-	} else {
-		log.WithError(lsErr).WithField("output", lsOutput.String()).Warn("Failed to list output directory contents")
-	}
-
 	// Step 6: Find the output file
 	outputFilePath, err := c.findOutputFile(worker.TmpOutDir, imageExport.Spec.Format, log)
 	if err != nil {
 		return "", cleanup, fmt.Errorf("failed to find output file: %w", err)
+	}
+	relativePath, err := filepath.Rel(worker.TmpOutDir, outputFilePath)
+	if err != nil {
+		return "", cleanup, err
+	}
+	outputFilePath, err = worker.Session.VerifyArtifact(ctx, relativePath)
+	if err != nil {
+		return "", cleanup, err
 	}
 
 	// Step 7: For qcow2-disk-container, build the container disk image and save to OCI directory
@@ -455,331 +447,95 @@ func (c *Consumer) executeExport(
 		log.WithField("ociDir", ociDirPath).Info("Container disk image built and saved to OCI directory")
 	}
 
+	if imageExport.Spec.Format == domain.ExportFormatTypeQCOW2DiskContainer {
+		if err := verifyGuestDirectory(ctx, worker.Session, worker.TmpOutDir, outputFilePath); err != nil {
+			return "", cleanup, err
+		}
+	}
+	if err := worker.Session.Close(); err != nil {
+		return "", cleanup, err
+	}
+	if err := validateGuestOutput(ctx, worker.TmpOutDir); err != nil {
+		return "", cleanup, err
+	}
 	log.WithField("outputFile", outputFilePath).Info("Export completed successfully")
 	return outputFilePath, cleanup, nil
 }
 
-// startBootcImageBuilderContainer starts the bootc-image-builder container directly with sleep infinity
-func (c *Consumer) startBootcImageBuilderContainer(
-	ctx context.Context,
-	orgID uuid.UUID,
-	imageExport *domain.ImageExport,
-	statusUpdater *imageExportStatusUpdater,
-	log logrus.FieldLogger,
-) (*privilegedPodmanWorker, error) {
-	if err := ctx.Err(); err != nil {
+// startBootcImageBuilderContainer starts an isolated export guest.
+func (c *Consumer) startBootcImageBuilderContainer(ctx context.Context, orgID uuid.UUID, imageExport *domain.ImageExport, statusUpdater *imageExportStatusUpdater, log logrus.FieldLogger) (*vmExportWorker, error) {
+	input, err := os.MkdirTemp("", "imageexport-*")
+	if err != nil {
 		return nil, err
 	}
-
-	// Get bootc-image-builder image from config
-	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
-		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
-	}
-	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
-
-	// Create temporary directories
-	tmpDir, err := os.MkdirTemp("", "imageexport-*")
+	output, err := os.MkdirTemp("", "imageexport-out-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary directory: %w", err)
+		_ = os.RemoveAll(input)
+		return nil, err
 	}
-
-	tmpOutDir, err := os.MkdirTemp("", "imageexport-out-*")
+	session, err := vm.Start(ctx, *c.cfg.ImageBuilderWorker.VM, input, output)
 	if err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
+		_ = os.RemoveAll(input)
+		_ = os.RemoveAll(output)
+		return nil, err
 	}
-
-	tmpContainerStorage, err := os.MkdirTemp(exportStorageBaseDir, "storage-*")
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(tmpOutDir)
-		return nil, fmt.Errorf("failed to create temporary container storage: %w", err)
+	cleanup := func() { _ = session.Close(); _ = os.RemoveAll(input) }
+	if _, err := c.stageGuestAssets(ctx, session, []string{c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()}); err != nil {
+		cleanup()
+		_ = os.RemoveAll(output)
+		return nil, err
 	}
-
-	// Container paths
-	containerOutDir := "/output"
-	containerStorageDir := "/var/lib/containers"
-
-	// Generate unique container name
-	imageExportName := lo.FromPtr(imageExport.Metadata.Name)
-	containerName := fmt.Sprintf("bootc-builder-%s-%s", orgID.String()[:8], imageExportName)
-
-	log.Info("Starting bootc-image-builder container")
-	startArgs := []string{
-		"run", "-d", "--rm",
-		"--name", containerName,
-		"--privileged",
-		"--net=host",
-		"--pull=newer",
-		"--entrypoint", "sleep",
-		"--security-opt", "label=type:unconfined_t",
-		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
-		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
-	}
-	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
-		startArgs = append(startArgs, "--tls-verify=false")
-	}
-	startArgs = append(startArgs, bootcImageBuilderImage, "infinity")
-
-	cmdParts := []string{"podman"}
-	cmdParts = append(cmdParts, startArgs...)
-	cmdStr := strings.Join(cmdParts, " ")
-	log.WithField("command", cmdStr).Debug("Executing podman command")
-
-	if out, err := exec.CommandContext(ctx, "podman", startArgs...).CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(tmpOutDir)
-		os.RemoveAll(tmpContainerStorage)
-		return nil, fmt.Errorf("failed to start bootc-image-builder container: %w, output: %s", err, string(out))
-	}
-
-	cleanup := func() {
-		log.Debug("Cleaning up bootc-image-builder container")
-		killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
-			log.WithError(err).Warn("Failed to kill bootc-image-builder container during cleanup")
-		}
-		if err := os.RemoveAll(tmpDir); err != nil {
-			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
-		}
-		// Don't remove tmpOutDir here - it's cleaned up separately after pushArtifact completes
-		if err := os.RemoveAll(tmpContainerStorage); err != nil {
-			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
-		}
-	}
-
-	return &privilegedPodmanWorker{
-		ContainerName:       containerName,
-		TmpDir:              tmpDir,
-		TmpOutDir:           tmpOutDir,
-		TmpContainerStorage: tmpContainerStorage,
-		Cleanup:             cleanup,
-		statusUpdater:       statusUpdater,
-	}, nil
+	return &vmExportWorker{Session: session, TmpDir: input, TmpOutDir: output, Cleanup: cleanup, statusUpdater: statusUpdater}, nil
 }
 
-// initializePodmanStorage initializes podman storage inside the container
-// Podman needs to create its storage database files and structure before it can be used.
-// Running podman info will initialize the storage structure using the storage.conf that's mounted.
-func (c *Consumer) initializePodmanStorage(ctx context.Context, worker *privilegedPodmanWorker, log logrus.FieldLogger) error {
-	log.Debug("Initializing podman storage inside bootc-image-builder container")
-
-	// Run podman info to initialize the storage structure and database files
-	// This creates the necessary internal files and directories that podman needs
-	// The storage.conf and containers.conf are already mounted, so podman will use them
-	execArgs := []string{"exec", worker.ContainerName, "podman", "info"}
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
-
-	var outputBuffer bytes.Buffer
-	writer := &imageExportStatusWriter{
-		buf:           &outputBuffer,
-		statusUpdater: worker.statusUpdater,
-	}
-
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-
-	if err := cmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.Debugf("podman info output:\n%s", output)
-		return fmt.Errorf("failed to initialize podman storage: %w. Output: %s", err, output)
-	}
-
-	log.Debug("Podman storage initialized successfully")
-
-	// Verify that the overlay directory was created by podman info
-	log.Debug("Verifying overlay directory was created")
-	overlayCheckArgs := []string{"exec", worker.ContainerName, "test", "-d", "/var/lib/containers/storage/overlay"}
-	overlayCheckCmd := exec.CommandContext(ctx, "podman", overlayCheckArgs...)
-	if err := overlayCheckCmd.Run(); err != nil {
-		// List the storage directory to see what was actually created
-		lsArgs := []string{"exec", worker.ContainerName, "ls", "-laR", "/var/lib/containers/storage"}
-		lsCmd := exec.CommandContext(ctx, "podman", lsArgs...)
-		var lsOutput bytes.Buffer
-		lsCmd.Stdout = &lsOutput
-		lsCmd.Stderr = &lsOutput
-		if lsErr := lsCmd.Run(); lsErr == nil {
-			log.WithField("storage_contents", lsOutput.String()).Error("overlay directory not found after podman info. Storage contents:")
-		}
-		return fmt.Errorf("overlay directory was not created by podman info: %w", err)
-	}
-
-	log.Debug("overlay directory verified - podman storage initialization successful")
-	return nil
+func (w *vmExportWorker) run(ctx context.Context, args ...string) error {
+	var output bytes.Buffer
+	return w.Session.Run(ctx, args, map[string]string{"REGISTRY_AUTH_FILE": containerAuthFile}, nil, &imageExportStatusWriter{buf: &output, statusUpdater: w.statusUpdater})
 }
 
-// loginToRegistryForExport logs into a registry using podman login with stdin
-// This is used for pull operations where authfile doesn't work reliably
-func (c *Consumer) loginToRegistryForExport(
-	ctx context.Context,
-	worker *privilegedPodmanWorker,
-	registryHostname string,
-	username string,
-	password string,
-	ociRepoSpec *coredomain.OciRepoSpec,
-	log logrus.FieldLogger,
-) error {
-	if username == "" || password == "" {
-		return nil
-	}
-
-	// Validate username: only block control characters that could break line-based protocols.
-	// Shell metacharacters (|, ;, &, etc.) are safe here because exec.CommandContext
-	// passes arguments directly via execve (no shell involved).
-	if strings.ContainsAny(username, "\x00\n\r") {
-		return fmt.Errorf("invalid username: contains control characters")
-	}
-	if len(username) > 256 {
-		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
-	}
-
-	// Validate registryHostname: only block control characters that could break line-based protocols.
-	// Shell metacharacters are safe here because exec.CommandContext uses execve (no shell).
-	if strings.ContainsAny(registryHostname, "\x00\n\r") {
-		return fmt.Errorf("invalid registry hostname: contains control characters")
-	}
-	if len(registryHostname) > 256 {
-		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
-	}
-
-	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
-
-	// Build podman login command arguments
-	loginArgs := []string{"login", "-u", username, "--password-stdin"}
-
-	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		loginArgs = append(loginArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for HTTP registry login")
-	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
-		loginArgs = append(loginArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
-	}
-
-	loginArgs = append(loginArgs, registryHostname)
-
-	// Run podman login inside the container with stdin
-	// Format: podman exec -i <container> podman login -u <username> --password-stdin [--tls-verify=false] <registry>
-	// username and registryHostname are validated above to prevent command injection
-	execArgs := []string{"exec", "-i", worker.ContainerName, "podman"}
-	execArgs = append(execArgs, loginArgs...)
-	loginCmd := exec.CommandContext(ctx, "podman", execArgs...)
-
-	// Write password to stdin
-	loginCmd.Stdin = strings.NewReader(password)
-
-	var outputBuffer bytes.Buffer
-	loginCmd.Stdout = &outputBuffer
-	loginCmd.Stderr = &outputBuffer
-
-	if err := loginCmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.WithError(err).Warnf("Failed to login to registry: %s", output)
-		return fmt.Errorf("failed to login to registry %q: %w. Output: %s", registryHostname, err, output)
-	}
-
-	log.Debugf("Successfully logged into registry %q", registryHostname)
-	return nil
+func (c *Consumer) initializePodmanStorage(ctx context.Context, worker *vmExportWorker, log logrus.FieldLogger) error {
+	return worker.run(ctx, "podman", "info")
 }
 
-// pullSourceImage pulls the source image into the worker container
-func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodmanWorker, bootcImageRef string, ociRepoSpec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
-	log.WithField("image", bootcImageRef).Info("Pulling source image")
-
-	// Build podman pull command
-	pullArgs := []string{"pull"}
-
-	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		pullArgs = append(pullArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for HTTP registry pull")
-	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
-		pullArgs = append(pullArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false due to SkipServerVerification for pull")
-	}
-
-	pullArgs = append(pullArgs, bootcImageRef)
-
-	// Run podman pull inside the container
-	execArgs := []string{"exec", worker.ContainerName, "podman"}
-	execArgs = append(execArgs, pullArgs...)
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
-
-	var outputBuffer bytes.Buffer
-	writer := &imageExportStatusWriter{
-		buf:           &outputBuffer,
-		statusUpdater: worker.statusUpdater,
-	}
-
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-
-	if err := cmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.Debugf("Pull output:\n%s", output)
-		return fmt.Errorf("failed to pull image %q: %w. Output: %s", bootcImageRef, err, output)
-	}
-
-	output := outputBuffer.String()
-	log.Debugf("Pull output:\n%s", output)
-	log.Info("Successfully pulled source image")
-	return nil
+func (c *Consumer) loginToRegistryForExport(ctx context.Context, worker *vmExportWorker, registryHostname, username, password string, spec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
+	return c.loginToRegistry(ctx, &podmanWorker{Session: worker.Session}, registryHostname, username, password, containerAuthFile, spec, log)
 }
 
-// runBootcImageBuilder runs bootc-image-builder entrypoint inside the existing container
-func (c *Consumer) runBootcImageBuilder(
-	ctx context.Context,
-	worker *privilegedPodmanWorker,
-	format domain.ExportFormatType,
-	bootcImageRef string,
-	log logrus.FieldLogger,
-) error {
-	// Map qcow2-disk-container to qcow2 for bootc-image-builder
-	// The container wrapping happens later in executeExport
-	bootcFormat := format
+func (c *Consumer) pullSourceImage(ctx context.Context, worker *vmExportWorker, imageRef string, spec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
+	args := []string{"podman", "pull", "--authfile", containerAuthFile}
+	if insecureRegistry(spec) {
+		args = append(args, "--tls-verify=false")
+	}
+	return worker.run(ctx, append(args, imageRef)...)
+}
+
+// runBootcImageBuilder confines privileged BIB execution and container storage to the guest.
+func (c *Consumer) runBootcImageBuilder(ctx context.Context, worker *vmExportWorker, format domain.ExportFormatType, imageRef string, log logrus.FieldLogger) error {
 	if format == domain.ExportFormatTypeQCOW2DiskContainer {
-		bootcFormat = domain.ExportFormatTypeQCOW2
+		format = domain.ExportFormatTypeQCOW2
 	}
-
-	log.WithFields(logrus.Fields{
-		"format":      format,
-		"bootcFormat": bootcFormat,
-		"image":       bootcImageRef,
-	}).Info("Running bootc-image-builder")
-
-	// Run bootc-image-builder entrypoint inside the existing container
-	// Format: podman exec -w /output <container> bootc-image-builder --type qcow2 --rootfs xfs "${BOOTC_IMAGE}"
-	// Use -w to set working directory to /output so files are saved there
-	execArgs := []string{
-		"exec",
-		"-w", "/output",
-		worker.ContainerName,
-		"bootc-image-builder",
-		"--type", string(bootcFormat),
-		"--rootfs", "xfs",
-		bootcImageRef,
+	image := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
+	pull := []string{"podman", "pull", "--authfile", serviceAuthFile}
+	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
+		pull = append(pull, "--tls-verify=false")
 	}
-
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
-
-	var outputBuffer bytes.Buffer
-	writer := &imageExportStatusWriter{
-		buf:           &outputBuffer,
-		statusUpdater: worker.statusUpdater,
+	if err := worker.run(ctx, append(pull, image)...); err != nil {
+		return err
 	}
-
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-
-	if err := cmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.Debugf("bootc-image-builder output:\n%s", output)
-		return fmt.Errorf("bootc-image-builder failed: %w. Output: %s", err, output)
+	if err := worker.run(ctx, "mkdir", "-p", "/var/lib/containers/output"); err != nil {
+		return err
 	}
-
-	output := outputBuffer.String()
-	log.Debugf("bootc-image-builder output:\n%s", output)
-	log.Info("bootc-image-builder completed successfully")
-	return nil
+	args := []string{"podman", "run", "--rm", "--privileged", "--security-opt", "label=type:unconfined_t", "--network", "host",
+		"-v", "/var/lib/containers/storage:/var/lib/containers/storage",
+		"-v", "/var/lib/containers/output:/output",
+		"-v", containerAuthFile + ":" + containerAuthFile + ":ro",
+		"-v", "/etc/containers/certs.d:/etc/containers/certs.d:ro",
+		"-e", "REGISTRY_AUTH_FILE=" + containerAuthFile,
+		image, "build", "--type", string(format), "--rootfs", "xfs", "--progress", "verbose", "--output", "/output", imageRef}
+	if err := worker.run(ctx, args...); err != nil {
+		return err
+	}
+	return worker.run(ctx, "cp", "-r", "/var/lib/containers/output/.", "/output")
 }
 
 // findOutputFile returns the path to the output file created by bootc-image-builder
@@ -813,96 +569,21 @@ func (c *Consumer) findOutputFile(outputDir string, format domain.ExportFormatTy
 
 // buildContainerDiskImage builds a container image wrapping the qcow2 disk for OpenShift Virt
 // and saves it to OCI directory format. Returns the path to the OCI directory.
-func (c *Consumer) buildContainerDiskImage(
-	ctx context.Context,
-	worker *privilegedPodmanWorker,
-	qcow2Path string,
-	log logrus.FieldLogger,
-) (string, error) {
-	log.Info("Building container disk image for OpenShift Virt")
-
-	// Get the directory containing the qcow2 file
-	qcow2Dir := filepath.Dir(qcow2Path)
-	qcow2Filename := filepath.Base(qcow2Path)
-
-	// Write Containerfile from embedded template to the qcow2 directory
-	containerfilePath := filepath.Join(qcow2Dir, "Containerfile")
-	if err := os.WriteFile(containerfilePath, []byte(containerdiskTemplate), 0600); err != nil {
-		return "", fmt.Errorf("failed to write Containerfile: %w", err)
+func (c *Consumer) buildContainerDiskImage(ctx context.Context, worker *vmExportWorker, qcow2Path string, log logrus.FieldLogger) (string, error) {
+	if err := writeGuestFile(ctx, worker.Session, "/output/qcow2/Containerfile", []byte(containerdiskTemplate)); err != nil {
+		return "", err
 	}
-	log.WithField("containerfile", containerfilePath).Debug("Wrote Containerfile for container disk")
-
-	// Container paths - the qcow2 directory is under /output in the container
-	// qcow2Dir on host maps to /output/qcow2 in container
-	containerBuildDir := "/output/qcow2"
-	containerOciDir := "/output/containerdisk-oci"
-	localImageName := "containerdisk:latest"
-
-	// Build the container image inside the worker container
-	// Pass DISK_IMAGE_FILE as build arg to specify the disk image filename
-	log.Info("Running podman build for container disk image")
-	buildArgs := []string{
-		"exec",
-		worker.ContainerName,
-		"podman", "build",
-		"-t", localImageName,
-		"--build-arg", fmt.Sprintf("DISK_IMAGE_FILE=%s", qcow2Filename),
-		"-f", filepath.Join(containerBuildDir, "Containerfile"),
-		containerBuildDir,
+	if err := worker.run(ctx, "podman", "build", "--isolation", "chroot", "--network", "host", "-t", "containerdisk:latest", "--build-arg", "DISK_IMAGE_FILE="+filepath.Base(qcow2Path), "-f", "/output/qcow2/Containerfile", "/output/qcow2"); err != nil {
+		return "", err
 	}
-
-	buildCmd := exec.CommandContext(ctx, "podman", buildArgs...)
-	var buildOutput bytes.Buffer
-	buildWriter := &imageExportStatusWriter{
-		buf:           &buildOutput,
-		statusUpdater: worker.statusUpdater,
+	if err := worker.run(ctx, "podman", "save", "--format", "oci-dir", "-o", "/output/containerdisk-oci", "containerdisk:latest"); err != nil {
+		return "", err
 	}
-	buildCmd.Stdout = buildWriter
-	buildCmd.Stderr = buildWriter
-
-	if err := buildCmd.Run(); err != nil {
-		output := buildOutput.String()
-		log.Debugf("podman build output:\n%s", output)
-		return "", fmt.Errorf("podman build failed: %w. Output: %s", err, output)
+	path := filepath.Join(worker.TmpOutDir, "containerdisk-oci")
+	if _, err := os.Stat(path); err != nil {
+		return "", err
 	}
-	log.Debug("Container disk image built successfully")
-
-	// Save the image to OCI directory format
-	log.Info("Saving container disk image to OCI directory format")
-	saveArgs := []string{
-		"exec",
-		worker.ContainerName,
-		"podman", "save",
-		"--format", "oci-dir",
-		"-o", containerOciDir,
-		localImageName,
-	}
-
-	saveCmd := exec.CommandContext(ctx, "podman", saveArgs...)
-	var saveOutput bytes.Buffer
-	saveWriter := &imageExportStatusWriter{
-		buf:           &saveOutput,
-		statusUpdater: worker.statusUpdater,
-	}
-	saveCmd.Stdout = saveWriter
-	saveCmd.Stderr = saveWriter
-
-	if err := saveCmd.Run(); err != nil {
-		output := saveOutput.String()
-		log.Debugf("podman save output:\n%s", output)
-		return "", fmt.Errorf("podman save failed: %w. Output: %s", err, output)
-	}
-
-	// Return the host path to the OCI directory
-	ociDirPath := filepath.Join(worker.TmpOutDir, "containerdisk-oci")
-
-	// Verify the OCI directory exists
-	if _, err := os.Stat(ociDirPath); err != nil {
-		return "", fmt.Errorf("OCI directory not found at expected path %q: %w", ociDirPath, err)
-	}
-
-	log.WithField("ociDir", ociDirPath).Info("Container disk image saved to OCI directory")
-	return ociDirPath, nil
+	return path, nil
 }
 
 // updateCondition updates the ImageExport condition and status

@@ -1,12 +1,10 @@
 package tasks
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -27,11 +25,9 @@ const (
 	cycloneDXMediaType = "application/vnd.cyclonedx+json"
 	// Syft always emits CycloneDX JSON; PURL transform and OCI referrer use the same shape.
 	syftSBOMOutputFormat = "cyclonedx-json"
-	// sbomExportTarName is written by inner podman save under the worker /output mount (host TmpOutDir).
+	// sbomExportTarName stays on guest-local storage while Syft scans it.
 	sbomExportTarName = "sbom-export.tar"
-	// workerSBOMExportTarInner is the path inner podman uses when saving the image tarball for Syft.
-	workerSBOMExportTarInner = "/output/sbom-export.tar"
-	// syftWorkDir is the mount point inside the Syft container for TmpOutDir (archive + SBOM output).
+	// syftWorkDir holds the guest-local image archive and scan output inside Syft.
 	syftWorkDir = "/work"
 )
 
@@ -45,95 +41,50 @@ type SBOMResult struct {
 // It runs Syft as a container, generates a CycloneDX SBOM, transforms PURLs,
 // and returns the path to the transformed SBOM file.
 // The manifestDigest parameter is the registry manifest digest captured during push.
-func (c *Consumer) generateSBOM(
-	ctx context.Context,
-	imageRef string,
-	manifestDigest string,
-	podmanWorker *podmanWorker,
-	log logrus.FieldLogger,
-) (*SBOMResult, error) {
-	if err := ctx.Err(); err != nil {
+func (c *Consumer) generateSBOM(ctx context.Context, imageRef, manifestDigest string, worker *podmanWorker, log logrus.FieldLogger) (*SBOMResult, error) {
+	guestDir := "/var/lib/containers/output"
+	if err := worker.Session.Run(ctx, []string{"mkdir", "-p", guestDir}, nil, nil, io.Discard); err != nil {
 		return nil, err
 	}
-
-	// Get Syft image config
+	if err := worker.runInWorker(ctx, log, "save image for SBOM", nil, "save", "-o", guestDir+"/"+sbomExportTarName, imageRef); err != nil {
+		return nil, err
+	}
 	syftImage := c.cfg.ImageBuilderWorker.EffectiveSyftImage()
-	skipTLS := c.cfg.ImageBuilderWorker.EffectiveSyftSkipTLSVerify()
-
-	sbomPath := filepath.Join(podmanWorker.TmpOutDir, "sbom.json")
-	exportHostPath := filepath.Join(podmanWorker.TmpOutDir, sbomExportTarName)
-	defer func() {
-		err := os.Remove(exportHostPath)
-		if err == nil || os.IsNotExist(err) {
-			return
-		}
-		log.WithError(err).WithField("path", exportHostPath).Debug("Failed to remove SBOM export tarball")
-	}()
-
-	_ = os.Remove(exportHostPath)
-	if err := podmanWorker.runInWorker(ctx, log, "podman save for SBOM", nil, "save", "-o", workerSBOMExportTarInner, imageRef); err != nil {
-		return nil, fmt.Errorf("exporting image for SBOM: %w", err)
+	pull := []string{"pull", "--authfile", serviceAuthFile}
+	if c.cfg.ImageBuilderWorker.EffectiveSyftSkipTLSVerify() {
+		pull = append(pull, "--tls-verify=false")
 	}
-
-	log.WithFields(logrus.Fields{
-		"syftImage": syftImage,
-		"skipTLS":   skipTLS,
-		"imageRef":  imageRef,
-	}).Info("Running Syft to generate SBOM")
-
-	dockerArchiveSrc := fmt.Sprintf("docker-archive:%s/%s", syftWorkDir, sbomExportTarName)
-	syftOutInner := fmt.Sprintf("%s/sbom.json", syftWorkDir)
-	syftSrcName, syftSrcVersion := syftSourceNameAndVersion(imageRef)
-
-	// Syft needs a read-write mount: it writes CycloneDX JSON alongside the archive.
-	args := []string{
-		"run", "--rm",
-		"-v", fmt.Sprintf("%s:%s:Z", podmanWorker.TmpOutDir, syftWorkDir),
+	if err := worker.runInWorker(ctx, log, "pull Syft", nil, append(pull, syftImage)...); err != nil {
+		return nil, err
 	}
-
-	if skipTLS {
-		args = append(args, "--tls-verify=false")
+	sourceName, sourceVersion := syftSourceNameAndVersion(imageRef)
+	args := []string{"run", "--rm", "-v", guestDir + ":" + syftWorkDir + ":Z", syftImage, "scan", "-v", "--source-name", sourceName}
+	if sourceVersion != "" {
+		args = append(args, "--source-version", sourceVersion)
 	}
-
-	// Forward Syft's real progress output to the status updater. A synthetic
-	// heartbeat would keep a genuinely stalled scan alive past its timeout.
-	args = append(args, syftImage, "scan", "-v", "--source-name", syftSrcName)
-	if syftSrcVersion != "" {
-		args = append(args, "--source-version", syftSrcVersion)
+	args = append(args, "docker-archive:"+syftWorkDir+"/"+sbomExportTarName, "-o", syftSBOMOutputFormat+"="+syftWorkDir+"/sbom.json")
+	if err := worker.runInWorker(ctx, log, "Syft scan", nil, args...); err != nil {
+		return nil, err
 	}
-	args = append(args,
-		dockerArchiveSrc,
-		"-o", fmt.Sprintf("%s=%s", syftSBOMOutputFormat, syftOutInner),
-	)
-
-	log.WithField("args", args).Debug("Executing Syft command")
-
-	cmd := exec.CommandContext(ctx, "podman", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &statusWriter{buf: &stdout, statusUpdater: podmanWorker.statusUpdater}
-	cmd.Stderr = &statusWriter{buf: &stderr, statusUpdater: podmanWorker.statusUpdater}
-
-	if err := cmd.Run(); err != nil {
-		log.WithError(err).WithFields(logrus.Fields{
-			"stdout": stdout.String(),
-			"stderr": stderr.String(),
-		}).Error("Syft SBOM generation failed")
-		return nil, fmt.Errorf("syft SBOM generation failed: %w (stderr: %s)", err, stderr.String())
+	if err := worker.Session.Run(ctx, []string{"cp", guestDir + "/sbom.json", "/output/sbom.json"}, nil, nil, io.Discard); err != nil {
+		return nil, err
 	}
-
-	log.Info("Syft SBOM generation completed")
-
-	// Transform PURLs and enrich metadata with the manifest digest from push
-	transformedPath, err := c.transformSBOM(ctx, sbomPath, podmanWorker.TmpOutDir, imageRef, manifestDigest, log)
+	path, err := worker.Session.VerifyArtifact(ctx, "sbom.json")
+	if err != nil {
+		return nil, err
+	}
+	if err := worker.Session.Close(); err != nil {
+		return nil, err
+	}
+	if err := validateGuestOutput(ctx, worker.TmpOutDir); err != nil {
+		return nil, err
+	}
+	transformed, err := c.transformSBOM(ctx, path, worker.TmpOutDir, imageRef, manifestDigest, log)
 	if err != nil {
 		log.WithError(err).Warn("SBOM transformation failed, using original SBOM")
-		transformedPath = sbomPath
+		transformed = path
 	}
-
-	return &SBOMResult{
-		SBOMPath:    transformedPath,
-		ImageDigest: manifestDigest,
-	}, nil
+	return &SBOMResult{SBOMPath: transformed, ImageDigest: manifestDigest}, nil
 }
 
 // transformSBOM applies PURL transformations and enriches metadata in the SBOM.

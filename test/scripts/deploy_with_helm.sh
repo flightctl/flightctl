@@ -24,7 +24,7 @@ usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false --set alertExporter.enabled=false --set alertmanager.enabled=false --set telemetryGateway.enabled=false" ; shift ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false --set alertExporter.enabled=false --set alertmanager.enabled=false --set telemetryGateway.enabled=false --set imageBuilderWorker.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
     --db-size)
       db_size=$2
@@ -45,6 +45,14 @@ while true; do
     *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Validate/bootstrap the VM device before loading images or installing the chart.
+VM_ARGS=(--set "imageBuilderWorker.enabled=${IMAGEBUILDER_WORKER_ENABLED:-true}" --set "imageBuilderWorker.vm.accelerator=${IMAGEBUILDER_VM_ACCELERATOR:-kvm}")
+if [[ -z "$ONLY_DB" ]]; then
+  "${SCRIPT_DIR}/install_kind_kvm.sh"
+else
+  VM_ARGS=(--set imageBuilderWorker.enabled=false)
+fi
 
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
@@ -117,6 +125,9 @@ if [ -z "$ONLY_DB" ]; then
     "${IMAGEBUILDER_WORKER_IMAGE}" \
     "${REMOTE_ACCESS_IMAGE}"
   do
+    if [[ "$image" == "$IMAGEBUILDER_WORKER_IMAGE" && ${IMAGEBUILDER_WORKER_ENABLED:-true} == false ]]; then
+      continue
+    fi
     kind_load_image "${image}:latest"
   done
 
@@ -177,7 +188,7 @@ helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${BASE_DOMAIN} \
                   ${SECRET_ACCESS_ARGS} \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} "${VM_ARGS[@]}" flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh

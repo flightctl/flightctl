@@ -5,7 +5,49 @@ The Flight Control ImageBuilder Worker builds OS images for devices. This docume
 ## Prerequisites
 
 - Flight Control deployed with ImageBuilder Worker enabled (`imageBuilderWorker.enabled: true`, which is the default)
+- An AMD64 worker node with hardware virtualization and KVM available
+- For Kubernetes: a cluster-installed KVM device plugin and permission to request its extended resource
 - For RHEL subscription content: RHEL entitlement certificates
+
+## VM execution
+
+ImageBuild, ImageExport, and SBOM scanning run inside a fresh disposable VM for each task. Root privileges and container execution stay inside the guest. Podman and buildah versions come from the prepared guest disk. The legacy `serviceImages.podman` image and TLS settings are ignored. The Kubernetes worker runs as a non-root user without extra capabilities, hostPath volumes, or a custom SCC.
+
+The worker image includes QEMU and a prepared guest disk. Each task gets a writable overlay and a separate container-storage disk. The guest pushes built images to the destination registry. Exported disk images and SBOM files return through a 9p share; the worker publishes them using the configured repository credentials.
+
+### Kubernetes settings
+
+A cluster administrator must install a KVM device plugin on nodes that provide hardware virtualization. The Flight Control chart requests the device resource and does not install that plugin. Set the resource name exposed by your plugin:
+
+```yaml
+imageBuilderWorker:
+  maxConcurrentBuilds: 1
+  vm:
+    accelerator: kvm
+    kvmResourceName: devices.anza-labs.dev/kvm
+    memoryMiB: 4096
+    cpus: 4
+    diskSizeGiB: 24
+    bootTimeout: 5m
+    executionTimeout: 2h
+    scratchSizeLimit: 64Gi
+```
+
+The chart schedules the VM worker on AMD64 nodes and requests one KVM device per concurrent task. By default, its CPU reservation matches the guest CPUs and its memory reservation includes 1 GiB for the outer worker. Increase these reservations through `imageBuilderWorker.resources` when your workload needs more capacity.
+
+The scratch limit covers disposable VM disks and artifacts waiting for upload. Increase it together with guest disk capacity or concurrency. Scratch data is not a persistent image cache.
+
+The default inactivity timeout is 10 minutes, allowing the guest up to 5 minutes to boot without build output. The separate two-hour execution deadline bounds the guest lifetime even when it continues producing output.
+
+Set `vm.accelerator=tcg` only for development ImageBuild tasks. TCG uses software emulation and requests no KVM resource. ImageExport requires KVM and rejects TCG. KVM device admission and execution must be validated on your target OpenShift cluster.
+
+For namespace-scoped installations, you can enable the VM worker after provisioning its runtime prerequisites. Keep `deltaWorker.enabled=false` in restricted namespaces because delta generation still requires elevated privileges.
+
+### Podman quadlets
+
+The system-managed worker uses `/dev/kvm` directly and does not run with `--privileged`. Its root filesystem is read-only, all capabilities are dropped, and privilege escalation is disabled. It retains UID 0 to read the existing root-owned signer and encryption files on the host.
+
+Writable home and scratch data use named Podman volumes. Scratch resides under `/var/tmp`; `/tmp` uses a small temporary filesystem. Configure guest sizing under `imagebuilderWorker.vm` in `/etc/flightctl/service-config.yaml`. Verify free space on the Podman volume storage before building large images.
 
 ## RPM Repository Configuration
 
@@ -223,13 +265,21 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.rhsmSecretName` | string | `""` | Kubernetes secret containing RHEL subscription manager configuration, mounted at `/etc/rhsm`. |
 | `imageBuilderWorker.rhsmCaSecretName` | string | `""` | Kubernetes secret containing RHSM CA certificates (e.g., `redhat-uep.pem`), mounted at `/etc/rhsm/ca`. Required for `dnf` to verify the SSL certificate of `cdn.redhat.com`. |
 | `imageBuilderWorker.logLevel` | string | `"info"` | Log level for the worker |
-| `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
+| `imageBuilderWorker.maxConcurrentBuilds` | int | `1` | Maximum number of concurrent disposable build/export VMs |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
-| `imageBuilderWorker.imageBuilderTimeout` | duration | `"3m"` | Inactivity timeout for image builds and exports |
+| `imageBuilderWorker.imageBuilderTimeout` | duration | `"10m"` | Inactivity timeout for image builds and exports |
 | `imageBuilderWorker.timeoutCheckTaskInterval` | duration | `"1m"` | Interval between image build and export timeout checks |
-| `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
-| `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder, Syft). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
-| `imageBuilderWorker.serviceImages.pullSecretName` | string | `""` | Kubernetes secret containing a key `auth.json` with registry credentials for pulling serviceImages. Mounted at `/root/.config/containers/auth.json`. Required when serviceImages are in an authenticated or air-gapped registry. |
+| `imageBuilderWorker.vm.baseImage` | string | `/usr/share/flightctl-vm/guest.qcow2` | Prepared guest disk supplied by the worker image. |
+| `imageBuilderWorker.vm.accelerator` | string | `kvm` | KVM for production; TCG permits development ImageBuild only. |
+| `imageBuilderWorker.vm.memoryMiB` | int | `4096` | Guest memory per concurrent task, in MiB. |
+| `imageBuilderWorker.vm.cpus` | int | `4` | Guest virtual CPUs per concurrent task. |
+| `imageBuilderWorker.vm.diskSizeGiB` | int | `24` | Disposable guest container-storage disk capacity, in GiB. |
+| `imageBuilderWorker.vm.bootTimeout` | duration | `5m` | Maximum guest boot time. |
+| `imageBuilderWorker.vm.executionTimeout` | duration | `2h` | Absolute guest lifetime, including boot and execution. |
+| `imageBuilderWorker.vm.scratchSizeLimit` | string | `64Gi` | Maximum writable workspace capacity in Kubernetes. |
+| `imageBuilderWorker.vm.kvmResourceName` | string | `devices.anza-labs.dev/kvm` | Device-plugin resource requested by Kubernetes. |
+| `imageBuilderWorker.serviceImages` | object | — | In-guest bootc-image-builder and Syft images. Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
+| `imageBuilderWorker.serviceImages.pullSecretName` | string | `""` | Kubernetes secret containing a key `auth.json` with registry credentials for pulling serviceImages. Mounted at `/var/lib/flightctl/.config/containers/auth.json`. Required when serviceImages are in an authenticated or air-gapped registry. |
 | `imageBuilderWorker.serviceImages.syft.image` | string | `""` | Syft image used for SBOM scans. If empty, the worker uses the built-in default image (see the Helm chart `README` parameter description for the current reference). |
 | `imageBuilderWorker.serviceImages.syft.skipTlsVerify` | bool | `false` | Set to `true` to skip TLS verification when pulling the Syft image. |
 | `imageBuilderWorker.sbom.enabled` | bool | `true` | After a successful image push, run SBOM generation (Syft) when `true`. |
@@ -244,9 +294,9 @@ Edit `/etc/flightctl/service-config.yaml`:
 ```yaml
 imagebuilderWorker:
   logLevel: info
-  maxConcurrentBuilds: 2
+  maxConcurrentBuilds: 1
   defaultTTL: 168h
-  imageBuilderTimeout: 3m       # Inactivity timeout for image builds and exports
+  imageBuilderTimeout: 10m       # Inactivity timeout for image builds and exports
   timeoutCheckTaskInterval: 1m  # Interval between timeout checks
   rpmRepoUrl: ""      # Custom RPM repository URL (optional)
   rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
@@ -255,9 +305,6 @@ imagebuilderWorker:
   dnfRetries: 0       # DNF retry count (0 = no retries)
   dnfSkipUnavailable: true  # Skip unavailable packages
   serviceImages:
-    podman:
-      image: ""             # Override Podman builder image (optional)
-      skipTlsVerify: false  # Set to true to skip TLS verification
     bootcImageBuilder:
       image: ""             # Override bootc-image-builder image (optional)
       skipTlsVerify: false  # Set to true to skip TLS verification
@@ -274,7 +321,7 @@ imagebuilderWorker:
 
 ### Skip TLS verification
 
-Set `imageBuilderWorker.serviceImages.podman.skipTlsVerify` and/or `imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify` to `true` (Helm values or Podman `service-config.yaml`) to skip TLS verification when pulling the corresponding builder image.
+Set `imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify` or `imageBuilderWorker.serviceImages.syft.skipTlsVerify` to `true` to skip TLS verification when pulling that image. With Podman, configure the corresponding field under `imagebuilderWorker` in `service-config.yaml`.
 
 ## SBOM generation
 
@@ -300,14 +347,14 @@ While SBOM steps run, the build can report the `GeneratingSBOM` condition reason
 
 ### Custom CA for builder image registries
 
-To use a custom CA for the registry that serves the Podman or bootc-image-builder image, mount the CA certificate so that podman in the worker can use it. Podman looks for registry CAs under `/etc/containers/certs.d/<registry>/ca.crt`, where `<registry>` is the registry host (and port if non-default), e.g. `my-registry.example.com` or `my-registry.example.com:5000`.
+To use a custom CA for the registry that serves the bootc-image-builder or Syft image, mount the CA certificate in the worker. The worker copies it into each task guest before pulling those images. Podman looks for registry CAs under `/etc/containers/certs.d/<registry>/ca.crt`, where `<registry>` is the registry host (and port if non-default), e.g. `my-registry.example.com` or `my-registry.example.com:5000`.
 
 - **Helm:** Add a volume from a Secret or ConfigMap that contains the CA file (e.g. key `ca.crt`), and a volumeMount on the imagebuilder worker Deployment that mounts it at `/etc/containers/certs.d/<registry>/ca.crt`. Use the same registry host value as in your builder image reference.
 - **Podman Quadlets:** Add a `Volume=` line to the imagebuilder worker container unit so the host path (or path where the CA file lives) is mounted at `/etc/containers/certs.d/<registry>/ca.crt` inside the container.
 
 ## Authenticating to a private registry for builder service images
 
-In air-gapped or authenticated-registry environments, the imagebuilder-worker must authenticate when pulling the builder service images (podman, bootc-image-builder, Syft) from a private registry. The worker pod's inner podman process does **not** inherit cluster-level `ImageTagMirrorSet` rules or `imagePullSecrets` — you must mount a registry credential file directly into the worker container.
+In air-gapped or authenticated-registry environments, the imagebuilder-worker must authenticate when pulling the builder service images (bootc-image-builder and Syft) from a private registry. The worker guest's Podman process does **not** inherit cluster-level `ImageTagMirrorSet` rules or `imagePullSecrets` — you must mount a registry credential file directly into the worker container.
 
 ### Credential file format
 
@@ -347,7 +394,7 @@ imageBuilderWorker:
     pullSecretName: "service-images-pull-secret"
 ```
 
-The secret is mounted read-only at `/root/.config/containers/auth.json` inside the worker pod, which is the default credential lookup path for podman running as root.
+The secret is mounted read-only at `/var/lib/flightctl/.config/containers/auth.json` inside the worker pod. The worker supplies those credentials to the task guest for service-image pulls.
 
 Apply the change:
 
@@ -379,7 +426,7 @@ Create `/etc/containers/systemd/flightctl-imagebuilder-worker.container.d/auth.c
 
 ```ini
 [Container]
-Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
+Volume=/etc/flightctl/service-images-auth.json:/var/lib/flightctl/.config/containers/auth.json:ro,z
 ```
 
 Reload and restart the service:
@@ -392,7 +439,7 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 > [!NOTE]
 > The credential file is mounted directly from the host. Keep it protected with mode `600`
 > and owned by `root`. Rotate credentials in place — there is no need to restart the service
-> as long as the file path is unchanged and the next `podman pull` occurs after the update.
+> as long as the file path is unchanged and the next task starts after the update.
 
 ## Disconnected environments: base OS image
 
@@ -402,8 +449,8 @@ In a disconnected OpenShift or Kubernetes cluster you may configure an
 `ImageTagMirrorSet` (or `ImageContentSourcePolicy`) to redirect pulls from
 upstream registries to a local mirror. This mechanism works for container images
 pulled by the cluster's CRI-O runtime, but it does **not** apply to the
-imagebuilder-worker's inner podman process. The worker runs `podman build` inside
-a privileged container; that podman instance has its own namespace and does not
+imagebuilder-worker's guest Podman process. The worker runs `podman build` inside
+a disposable VM; that Podman instance has its own configuration and does not
 inherit cluster-level mirror rules.
 
 ### How the base image is resolved
@@ -483,7 +530,6 @@ registry is reachable from both the prep machine and the cluster.
 | Artifact | Default upstream location | Role |
 |---|---|---|
 | FlightCtl imagebuilder images | `quay.io/flightctl/flightctl-imagebuilder-{api,worker}-el9` | Worker and API pods |
-| podman builder image | `quay.io/podman/stable:v5.7.1` | Inner `podman build` container |
 | bootc-image-builder image | `ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce…` | Converts bootc image to disk formats |
 | Syft image | `docker.io/anchore/syft:v1.44.0` | SBOM generation (disable if not needed) |
 | Base OS image | e.g. `quay.io/centos-bootc/centos-bootc:stream9` | `FROM` line in the generated Containerfile |
@@ -503,11 +549,6 @@ Mirror the builder service images and the base OS image with skopeo:
 
 ```bash
 INTERNAL=my-internal.registry.example.com:5000
-
-# Inner podman that runs the build
-skopeo copy \
-  docker://quay.io/podman/stable:v5.7.1 \
-  docker://${INTERNAL}/podman/stable:v5.7.1
 
 # bootc-image-builder (use the same digest as the binary default)
 skopeo copy \
@@ -574,8 +615,6 @@ imageBuilderWorker:
   rpmRepoUrl: "http://my-rpm-mirror.example.com:8080/flightctl-local.repo"
   serviceImages:
     pullSecretName: "service-images-pull-secret"   # omit if registry is unauthenticated
-    podman:
-      image: "my-internal.registry.example.com:5000/podman/stable:v5.7.1"
     bootcImageBuilder:
       image: "my-internal.registry.example.com:5000/centos-bootc/bootc-image-builder:latest"
     syft:
@@ -598,8 +637,6 @@ Add the following to `/etc/flightctl/service-config.yaml`:
 imagebuilderWorker:
   rpmRepoUrl: "http://my-rpm-mirror.example.com:8080/flightctl-local.repo"
   serviceImages:
-    podman:
-      image: "my-internal.registry.example.com:5000/podman/stable:v5.7.1"
     bootcImageBuilder:
       image: "my-internal.registry.example.com:5000/centos-bootc/bootc-image-builder:latest"
     syft:
@@ -693,7 +730,7 @@ reference ready to use in a Fleet template.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Stuck in `Pending` | Worker pod cannot pull podman or bootc-image-builder | Set `serviceImages` overrides to internal registry |
+| Stuck in `Pending` | Guest cannot pull bootc-image-builder or Syft | Set `serviceImages` overrides to internal registry |
 | `unauthorized` or `authentication required` pulling serviceImages | No registry credentials for private serviceImages registry | Create a secret and set `imageBuilderWorker.serviceImages.pullSecretName` (Helm) or mount `auth.json` (Quadlet) |
 | `FROM` pull fails | Base OS not in internal registry, or Repository URL wrong | Mirror base image; verify `spec.url` in source Repository |
 | `Package not found` | RPM repo URL unreachable from build pod | Set `rpmRepoUrl` to internal mirror |
@@ -760,96 +797,8 @@ reference ready to use in a Fleet template.
 - Incorrect secret format (certificates must be PEM encoded)
 - Missing certificate key file
 
-### Build Fails with "setting RLIMIT\_NOFILE limit … operation not permitted"
+### Build runtime resource limits
 
-**Problem**: Image build fails with an error similar to:
+Buildah and Podman run inside the VM, so their file descriptor limits come from the prepared guest configuration. If a build cannot raise `RLIMIT_NOFILE`, check the guest runtime settings and prepare an updated guest disk. Changing the outer Kubernetes node's limits does not configure the guest's limits.
 
-```text
-Error: building at STEP "RUN … dnf install -y … flightctl-agent …":
-setting "RLIMIT_NOFILE" limit to soft=1048576,hard=1048576
-(was soft=524288,hard=524288): operation not permitted
-```
-
-**Cause**: The build container (buildah) tries to raise the open-file-descriptor limit to
-1048576. This fails when the host's hard limit is lower (for example, 524288, which is the
-OpenShift default) and the container runtime does not grant `CAP_SYS_RESOURCE` to raise it.
-
-**Solution**: The ImageBuilder Worker reads its own current `RLIMIT_NOFILE` (soft and hard) at
-startup and passes it through to the nested podman worker container via
-`--ulimit nofile=<soft>:<hard>`, instead of hardcoding `1048576:1048576`. The nested container
-can therefore never end up with a higher limit than the worker process itself was granted, so
-raising the limit for builds is a matter of raising the **worker process's own**
-file-descriptor limit, as described below for each deployment type.
-
-On OpenShift, apply the following `MachineConfig` to the worker nodes:
-
-```yaml
-apiVersion: machineconfiguration.openshift.io/v1
-kind: MachineConfig
-metadata:
-  labels:
-    machineconfiguration.openshift.io/role: worker
-  name: 99-worker-raise-nofile
-spec:
-  config:
-    ignition:
-      version: 3.5.0
-    storage:
-      files:
-        - contents:
-            source: data:,%5BManager%5D%0ADefaultLimitNOFILE%3D1048576%3A1048576%0A
-          mode: 420
-          overwrite: true
-          path: /etc/systemd/system.conf.d/60-nofile.conf
-```
-
-This sets `DefaultLimitNOFILE=1048576:1048576` in systemd, which raises the limit for all
-processes on the node, including container runtimes.
-
-> [!NOTE]
-> `DefaultLimitNOFILE` is a system-wide default that applies to every service started by systemd
-> that does not have its own `LimitNOFILE=` directive in its unit file.
-
-On a Podman Quadlet (Linux host), the shipped `flightctl-imagebuilder-worker.container` unit
-already requests `nofile=1048576:1048576` for itself (both `Ulimit=` under `[Container]` and
-`LimitNOFILE=` under `[Service]`), so no action is needed by default. If you need a different
-value — for example, to go higher than 1048576, or because your host's own limit is lower and
-podman fails to even start the worker container — override it with a drop-in rather than
-editing the vendored unit file (edits there are lost on upgrade):
-
-```ini
-# /etc/containers/systemd/flightctl-imagebuilder-worker.container.d/limits.conf
-[Container]
-Ulimit=nofile=<soft>:<hard>
-
-[Service]
-LimitNOFILE=<hard>
-```
-
-Then reload and restart the service:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart flightctl-imagebuilder-worker.service
-```
-
-Verify the running service has the new limit:
-
-```bash
-systemctl show flightctl-imagebuilder-worker.service | grep LimitNOFILE
-```
-
-The output should show `LimitNOFILE=<hard>` and `LimitNOFILESoft=<soft>`.
-
-### File Descriptor Limits
-
-The ImageBuilder Worker never requests a higher `RLIMIT_NOFILE` for the nested build container
-than it was itself granted at startup, so raising the limit for builds means raising the
-**worker process's own** limit:
-
-- **Podman Quadlet**: set via `Ulimit=`/`LimitNOFILE=` in the `flightctl-imagebuilder-worker.container`
-  unit (`1048576:1048576` by default as of this release). Override with a drop-in as shown above.
-- **Kubernetes / OpenShift**: pod-level ulimits are not configurable through the Helm chart —
-  Kubernetes has no per-pod ulimit field. The limit comes entirely from the node/container
-  runtime defaults, and can only be raised at the node level, for example via the `MachineConfig`
-  shown above on OpenShift.
+For memory or storage failures, increase `imageBuilderWorker.vm.memoryMiB` or `imageBuilderWorker.vm.diskSizeGiB`. Increase the Kubernetes resource reservations and scratch capacity accordingly.

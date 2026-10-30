@@ -1,10 +1,16 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.7-1790174511 as vm-build
+USER 0
+RUN dnf install -y gcc gcc-c++ make glib2-devel zlib-devel ninja-build python3.12 python3.12-pip xz diffutils && dnf clean all
+COPY packaging/vm/build-runtime.sh /build-runtime.sh
+RUN /build-runtime.sh /vm-runtime
+
 FROM registry.access.redhat.com/ubi9/go-toolset:1.26.7-1790174511 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs openssl-libs tzdata
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs openssh-clients nss_wrapper glib2 zlib bzip2-libs openssl-libs ca-certificates tzdata
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
@@ -54,12 +60,22 @@ LABEL \
   name="flightctl-imagebuilder-worker" \
   summary="Flight Control ImageBuilder Worker for processing image build jobs"
 
-# Configure podman storage to use native overlay (requires Kernel 5.11+)
-RUN mkdir -p /etc/containers && \
-    echo "[storage]" > /etc/containers/storage.conf && \
-    echo 'driver = "overlay"' >> /etc/containers/storage.conf
+# QEMU and its firmware are built against this image's Enterprise Linux userspace.
+COPY --from=vm-build /vm-runtime/ /
+# Build this immutable, prepared disk with `make imagebuilder-vm-guest` first.
+COPY .output/flightctl-vm/guest.disk /usr/share/flightctl-vm/guest.qcow2
+COPY .output/flightctl-vm/guest.rpms /usr/share/flightctl-vm/guest.rpms
+COPY .output/flightctl-vm/guest.sha256 /usr/share/flightctl-vm/guest.sha256
+RUN cd /usr/share/flightctl-vm && sed -i 's/guest.disk/guest.qcow2/' guest.sha256 && sha256sum --check guest.sha256 && \
+    mkdir -p /var/lib/flightctl && chmod 0775 /var/lib/flightctl && \
+    chgrp 0 /var/lib/flightctl && chmod 0644 /usr/share/flightctl-vm/guest.*
+COPY packaging/vm/worker-entrypoint.sh /usr/local/bin/flightctl-imagebuilder-worker-entrypoint
+ENV HOME=/var/lib/flightctl
+USER 1000:0
+
 # Copy the worker binary
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 
 
+ENTRYPOINT ["/usr/local/bin/flightctl-imagebuilder-worker-entrypoint"]
 CMD ["./flightctl-imagebuilder-worker"]

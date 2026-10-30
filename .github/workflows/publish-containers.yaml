@@ -152,6 +152,10 @@ jobs:
         os: ${{ fromJson(needs.generate-tags.outputs.os_matrix) }}
         image: ${{ fromJson(needs.generate-tags.outputs.image_matrix) }}
         arch: ['amd64', 'arm64']
+        # The imagebuilder VM launcher currently supports x86_64 guests only.
+        exclude:
+          - image: imagebuilder-worker
+            arch: arm64
         include:
           - arch: amd64
             runner: ubuntu-24.04
@@ -168,6 +172,14 @@ jobs:
       # buildah needs pinned crun on ubuntu-24.04 (apt ships 1.14.1).
       - name: Setup dependencies
         uses: ./.github/actions/setup-dependencies
+
+      - name: Prepare imagebuilder VM guest
+        if: ${{ matrix.image == 'imagebuilder-worker' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage
+          if [ -e /dev/kvm ]; then sudo chmod 0666 /dev/kvm; fi
+          make imagebuilder-vm-guest
 
       - name: Prepare version variables
         id: version-vars
@@ -290,7 +302,11 @@ jobs:
             for image in ${SUPPORTED_IMAGES}; do
               FULL_IMAGE="${QUAY_ORG}/flightctl-${image}-${os}"
 
-              for arch in ${SUPPORTED_ARCHES}; do
+              image_arches="${SUPPORTED_ARCHES}"
+              if [ "$image" = imagebuilder-worker ]; then
+                image_arches=amd64
+              fi
+              for arch in ${image_arches}; do
                 echo "Loading ${os}-${image}-${arch}"
                 buildah pull "oci-archive:/tmp/image-archives/${os}-${image}-${arch}.tar"
               done
@@ -298,7 +314,7 @@ jobs:
               for tag in ${IMAGE_TAGS}; do
                 echo "Creating manifest list for ${FULL_IMAGE}:${tag}"
                 buildah manifest create "${FULL_IMAGE}:${tag}"
-                for arch in ${SUPPORTED_ARCHES}; do
+                for arch in ${image_arches}; do
                   buildah manifest add "${FULL_IMAGE}:${tag}" \
                     "oci-archive:/tmp/image-archives/${os}-${image}-${arch}.tar"
                 done

@@ -7,8 +7,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
+	"github.com/flightctl/flightctl/internal/imagebuilder_worker/vm"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service"
@@ -29,25 +30,20 @@ import (
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 const (
 	// agentConfigPath is the destination path for the agent config in the image
 	agentConfigPath = "/etc/flightctl/config.yaml"
 
-	// buildStorageBaseDir is the base directory for temporary container storage used
-	// during image builds. A unique subdirectory is created per job and removed when
-	// the job completes. Any leftovers from a crash are swept on worker startup.
-	buildStorageBaseDir = "/var/tmp/flightctl-builds"
-
-	// containerAuthFile is the path to the container auth file used for registry login.
-	// It lives in the worker container's /tmp (not in /build) to keep credentials
-	// out of the podman build context directory. All podman exec calls in the same
-	// container share this path regardless of XDG_RUNTIME_DIR or HOME.
-	containerAuthFile = "/tmp/auth.json"
+	// Registry credentials stay in guest-local files outside the build context.
+	// Separate source and destination files support different credentials on one registry.
+	containerAuthFile   = "/tmp/source-auth.json"
+	destinationAuthFile = "/tmp/destination-auth.json"
+	serviceAuthFile     = "/tmp/service-auth.json"
 )
 
 // containerfileTemplate is embedded from the templates directory for easier editing
@@ -203,15 +199,19 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	log.WithField("containerfile_length", len(containerfileResult.Containerfile)).Info("Containerfile generated successfully")
 	log.Debug("Generated Containerfile: ", containerfileResult.Containerfile)
 
-	// Step 2: Start podman worker container
+	// Step 2: Start task VM
 	podmanWorker, err := c.startPodmanWorker(buildCtx, orgID, imageBuild, statusUpdater, log)
 	if err != nil {
 		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
 			return nil // Cancellation handled
 		}
-		return fmt.Errorf("failed to start podman worker: %w", err)
+		return fmt.Errorf("failed to start build VM: %w", err)
 	}
 	defer podmanWorker.Cleanup()
+	handleExecutionError := func(err error) bool {
+		_ = podmanWorker.Session.Close()
+		return c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log)
+	}
 
 	// Step 2b: Install CA certificates for source and destination registries
 	// Done once at startup so all subsequent podman operations (login, build, push)
@@ -220,24 +220,24 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		ociSpec, err := c.getOciRepoSpec(buildCtx, orgID, repoRef, "ca-setup")
 		if err != nil {
 			err = fmt.Errorf("failed to get OCI spec for %q: %w", repoRef, err)
-			if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			if handleExecutionError(err) {
 				return nil
 			}
 			return err
 		}
-		if err := installCACertInWorker(buildCtx, ociSpec.CaCrt, podmanWorker.ContainerName, ociSpec.Registry, log); err != nil {
+		if err := installCACertInWorker(buildCtx, ociSpec.CaCrt, podmanWorker.Session, ociSpec.Registry, log); err != nil {
 			err = fmt.Errorf("failed to install CA cert for %q: %w", repoRef, err)
-			if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			if handleExecutionError(err) {
 				return nil
 			}
 			return err
 		}
 	}
 
-	// Step 3: Build with podman container in container
+	// Step 3: Build with Podman inside the guest
 	err = c.buildImageWithPodman(buildCtx, orgID, imageBuild, containerfileResult, podmanWorker, log)
 	if err != nil {
-		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+		if handleExecutionError(err) {
 			return nil // Cancellation handled
 		}
 		return fmt.Errorf("failed to build image with podman: %w", err)
@@ -246,7 +246,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	// Step 4: Push image to registry
 	imageRef, manifestDigest, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
-		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+		if handleExecutionError(err) {
 			return nil // Cancellation handled
 		}
 		return fmt.Errorf("failed to push image with podman: %w", err)
@@ -263,6 +263,12 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
 	if c.shouldRunSBOMPipeline() {
 		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, manifestDigest, podmanWorker, statusUpdater, log)
+	}
+	if err := buildCtx.Err(); err != nil {
+		if handleExecutionError(err) {
+			return nil
+		}
+		return err
 	}
 
 	// Mark as Completed
@@ -633,12 +639,11 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 // entitlementCertsPath is the standard RHEL entitlement certificates path
 const entitlementCertsPath = "/etc/pki/entitlement"
 
-// podmanWorker holds information about a running podman worker container
+// podmanWorker holds information about a running task VM
 type podmanWorker struct {
-	ContainerName       string
+	Session             *vm.Session
 	TmpDir              string
 	TmpOutDir           string
-	TmpContainerStorage string
 	Cleanup             func()
 	statusUpdater       *statusUpdater // Reference to status updater for output reporting
 	HasEntitlementCerts bool           // Whether entitlement certs are mounted (for RHEL subscription repos)
@@ -679,350 +684,98 @@ func validateImageRefComponents(imageName, imageTag string) error {
 	return nil
 }
 
-// runInWorker runs a podman command inside the worker container
-// It streams output to the status updater to track progress
-// envVars is a map of environment variable names to values (e.g., {"REGISTRY_AUTH_FILE": "/build/auth.json"})
+// runInWorker streams the guest Podman command output to the status updater.
 func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, phaseName string, envVars map[string]string, args ...string) error {
-	// We use "podman exec" to run inside the running container
-	execArgs := []string{"exec"}
-
-	// Add environment variables using -e flag
-	// Iterating over a nil map is safe in Go (no-op)
-	for key, value := range envVars {
-		execArgs = append(execArgs, "-e", fmt.Sprintf("%s=%s", key, value))
+	var output bytes.Buffer
+	writer := &statusWriter{buf: &output, statusUpdater: w.statusUpdater}
+	if err := w.Session.Run(ctx, append([]string{"podman"}, args...), envVars, nil, writer); err != nil {
+		return fmt.Errorf("%s failed: %w", phaseName, err)
 	}
-
-	execArgs = append(execArgs, w.ContainerName, "podman")
-	execArgs = append(execArgs, args...)
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
-
-	// Create a shared buffer for the final output
-	var outputBuffer bytes.Buffer
-
-	// Create our thread-safe writer
-	writer := &statusWriter{
-		buf:           &outputBuffer,
-		statusUpdater: w.statusUpdater,
-	}
-
-	// Assign the SAME writer to both stdout and stderr.
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-
-	// Run() handles the starting, streaming, and waiting automatically.
-	if err := cmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.Debugf("%s output:\n%s", phaseName, output)
-		return fmt.Errorf("%s failed: %w. Output: %s", phaseName, err, output)
-	}
-
-	output := outputBuffer.String()
-	log.Debugf("%s output:\n%s", phaseName, output)
 	return nil
 }
 
-// nofileUlimitArgs returns the podman "--ulimit nofile=<cur>:<max>" arguments
-// derived from the current process' RLIMIT_NOFILE, so the worker container
-// inherits a limit Kubernetes will actually allow. It returns nil if the
-// current limit cannot be read.
-func nofileUlimitArgs(log logrus.FieldLogger) []string {
-	var rLimit unix.Rlimit
-	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rLimit); err != nil {
-		log.WithError(err).Warn("Could not read RLIMIT_NOFILE; worker container will use default ulimits")
-		return nil
+// startPodmanWorker starts a disposable VM for one image build.
+func (c *Consumer) startPodmanWorker(ctx context.Context, orgID uuid.UUID, imageBuild *domain.ImageBuild, statusUpdater *statusUpdater, log logrus.FieldLogger) (*podmanWorker, error) {
+	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil || c.cfg.ImageBuilderWorker.VM == nil {
+		return nil, fmt.Errorf("VM configuration is required")
 	}
-	arg := formatNofileUlimit(rLimit)
-	log.Debugf("Passing ulimit %s to worker container", arg)
-	return []string{"--ulimit", arg}
-}
-
-// formatNofileUlimit renders rLimit as a podman "--ulimit" value. A hard limit of
-// RLIM_INFINITY is common on bare-metal/quadlet hosts (unlike the typical Kubernetes case
-// where soft and hard are equal); it is capped to the soft limit rather than passed through
-// as a literal 0xffffffffffffffff.
-func formatNofileUlimit(rLimit unix.Rlimit) string {
-	max := rLimit.Max
-	if max == unix.RLIM_INFINITY {
-		max = rLimit.Cur
-	}
-	return fmt.Sprintf("nofile=%d:%d", rLimit.Cur, max)
-}
-
-// startPodmanWorker starts a detached podman worker container for building images.
-// It returns the container name, worker info, and a cleanup function.
-func (c *Consumer) startPodmanWorker(
-	ctx context.Context,
-	orgID uuid.UUID,
-	imageBuild *domain.ImageBuild,
-	statusUpdater *statusUpdater,
-	log logrus.FieldLogger,
-) (*podmanWorker, error) {
-	// Check context before starting work
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	// Use podman image from config (defaults are applied during config loading)
-	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
-		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
-	}
-	podmanImage := c.cfg.ImageBuilderWorker.EffectivePodmanImage()
-
-	// Create temporary directories for the worker
-	tmpDir, err := os.MkdirTemp("", "imagebuild-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary directory: %w", err)
-	}
-
-	tmpOutDir, err := os.MkdirTemp("", "imagebuild-out-*")
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
-	}
-
-	// This creates a unique, throw-away directory for THIS specific build.
-	// It ensures no caching between jobs.
-	tmpContainerStorage, err := os.MkdirTemp(buildStorageBaseDir, "storage-*")
+	input, err := os.MkdirTemp("", "imagebuild-*")
 	if err != nil {
 		return nil, err
 	}
-	// 1. Create a clean storage.conf on the host
-	storageConfPath := filepath.Join(tmpDir, "storage.conf")
-	// This config forces overlay and has NO mount_program defined
-	storageConfContent := `[storage]
-driver = "overlay"
-graphroot = "/var/lib/containers"
-runroot = "/run/containers/storage"
-[storage.options]
-# Empty options here is the key. It removes "mount_program".
-mount_program = ""
-ignore_chown_errors = "true"
-`
-	//nolint:gosec // G306: 0644 permissions required - file is mounted into container and must be readable by processes inside
-	if err := os.WriteFile(storageConfPath, []byte(storageConfContent), 0644); err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, fmt.Errorf("failed to write storage.conf: %w", err)
+	output, err := os.MkdirTemp("", "imagebuild-out-*")
+	if err != nil {
+		_ = os.RemoveAll(input)
+		return nil, err
 	}
-
-	// Container paths
-	containerBuildDir := "/build"
-	containerOutDir := "/output"
-	containerStorageDir := "/var/lib/containers"
-
-	// Generate a unique container name so we can reference it easily
-	imageBuildName := lo.FromPtr(imageBuild.Metadata.Name)
-	containerName := fmt.Sprintf("build-worker-%s-%s", orgID.String()[:8], imageBuildName)
-
-	// Start the worker container in detached mode
-	log.Info("Starting worker container")
-	startArgs := []string{
-		"run", "-d", "--rm", // -d for detached, --rm to clean up when killed
-		"--name", containerName,
-		"--security-opt", "seccomp=unconfined",
-		"--security-opt", "label=disable",
-		"--storage-driver", "overlay",
-		"--net=host",
-		"--cgroups=disabled",
-		"--userns=host",
-		"-v", fmt.Sprintf("%s:%s:Z", tmpDir, containerBuildDir),
-		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
-		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
-		"-v", fmt.Sprintf("%s:/etc/containers/storage.conf:Z", storageConfPath),
-		"-v", "/dev/null:/dev/null:rw",
-		"-v", "/dev/zero:/dev/zero:rw",
-		"-v", "/dev/random:/dev/random:rw",
-		"-v", "/dev/urandom:/dev/urandom:rw",
-		"-v", "/dev/full:/dev/full:rw",
-		"-v", "/dev/tty:/dev/tty:rw", // Good practice for build logs
+	session, err := vm.Start(ctx, *c.cfg.ImageBuilderWorker.VM, input, output)
+	if err != nil {
+		_ = os.RemoveAll(input)
+		_ = os.RemoveAll(output)
+		return nil, err
 	}
-
-	// Auto-detect and mount entitlement certs if present (for RHEL subscription repos)
-	hasEntitlementCerts := false
-	if _, err := os.Stat(entitlementCertsPath); err == nil {
-		startArgs = append(startArgs, "-v", fmt.Sprintf("%s:%s:ro,Z", entitlementCertsPath, entitlementCertsPath))
-		hasEntitlementCerts = true
-		log.Debug("Mounting entitlement certificates (auto-detected)")
+	cleanup := func() { _ = session.Close(); _ = os.RemoveAll(input); _ = os.RemoveAll(output) }
+	worker := &podmanWorker{Session: session, TmpDir: input, TmpOutDir: output, Cleanup: cleanup, statusUpdater: statusUpdater}
+	var images []string
+	if c.shouldRunSBOMPipeline() {
+		images = []string{c.cfg.ImageBuilderWorker.EffectiveSyftImage()}
 	}
-
-	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
-		startArgs = append(startArgs, "--tls-verify=false")
+	worker.HasEntitlementCerts, err = c.stageGuestAssets(ctx, session, images)
+	if err != nil {
+		cleanup()
+		return nil, err
 	}
-
-	// Pass the current RLIMIT_NOFILE to the worker container so nested
-	// podman builds don't attempt to raise the limit beyond what Kubernetes
-	// permits for this pod, which would cause "operation not permitted".
-	startArgs = append(startArgs, nofileUlimitArgs(log)...)
-
-	startArgs = append(startArgs,
-		"--cap-add=SYS_ADMIN",
-		podmanImage,
-		"sleep", "infinity",
-	)
-
-	// Pretty print the command for debugging
-	cmdParts := []string{"podman"}
-	cmdParts = append(cmdParts, startArgs...)
-	cmdStr := strings.Join(cmdParts, " ")
-	log.WithField("command", cmdStr).Debug("Executing podman command")
-
-	if out, err := exec.CommandContext(ctx, "podman", startArgs...).CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(tmpOutDir)
-		os.RemoveAll(tmpContainerStorage)
-		return nil, fmt.Errorf("failed to start worker: %w, output: %s", err, string(out))
-	}
-
-	cleanup := func() {
-		log.Debug("Cleaning up worker container")
-		killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
-			log.WithError(err).Warn("Failed to kill worker container during cleanup")
-		}
-		if err := os.RemoveAll(tmpDir); err != nil {
-			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
-		}
-		if err := os.RemoveAll(tmpOutDir); err != nil {
-			log.WithError(err).WithField("path", tmpOutDir).Warn("Failed to remove temporary output directory")
-		}
-		if err := os.RemoveAll(tmpContainerStorage); err != nil {
-			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
-		}
-	}
-
-	return &podmanWorker{
-		ContainerName:       containerName,
-		TmpDir:              tmpDir,
-		TmpOutDir:           tmpOutDir,
-		TmpContainerStorage: tmpContainerStorage,
-		Cleanup:             cleanup,
-		statusUpdater:       statusUpdater,
-		HasEntitlementCerts: hasEntitlementCerts,
-	}, nil
+	return worker, nil
 }
 
-// installCACertInWorker installs a base64-encoded CA certificate into the worker
-// container's default podman cert directory at /etc/containers/certs.d/<registry>/ca.crt.
-func installCACertInWorker(ctx context.Context, caCrt *string, containerName string, registryHostname string, log logrus.FieldLogger) error {
+// installCACertInWorker trusts a registry CA inside this task's guest.
+func installCACertInWorker(ctx context.Context, caCrt *string, session *vm.Session, registryHostname string, log logrus.FieldLogger) error {
 	if caCrt == nil || *caCrt == "" {
 		return nil
 	}
-
 	ca, err := base64.StdEncoding.DecodeString(*caCrt)
 	if err != nil {
 		return fmt.Errorf("failed to decode CA certificate: %w", err)
 	}
-
-	certDir := fmt.Sprintf("/etc/containers/certs.d/%s", registryHostname)
-
-	mkdirCmd := exec.CommandContext(ctx, "podman", "exec", containerName, "mkdir", "-p", certDir)
-	if out, err := mkdirCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create cert dir in container: %w: %s", err, string(out))
+	if registryHostname == "" || strings.ContainsAny(registryHostname, "/\\\x00\n\r") || registryHostname == "." || registryHostname == ".." {
+		return fmt.Errorf("invalid registry hostname")
 	}
+	return writeGuestFile(ctx, session, filepath.Join("/etc/containers/certs.d", registryHostname, "ca.crt"), ca)
+}
 
-	certPath := fmt.Sprintf("%s/ca.crt", certDir)
-	teeCmd := exec.CommandContext(ctx, "podman", "exec", "-i", containerName, "tee", certPath)
-	teeCmd.Stdin = bytes.NewReader(ca)
-	if out, err := teeCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to write CA cert in container: %w: %s", err, string(out))
+func writeGuestFile(ctx context.Context, session *vm.Session, path string, data []byte) error {
+	if err := session.Run(ctx, []string{"mkdir", "-p", filepath.Dir(path)}, nil, nil, io.Discard); err != nil {
+		return err
 	}
-
-	log.WithFields(logrus.Fields{
-		"certPath":         certPath,
-		"registryHostname": registryHostname,
-	}).Debug("Installed CA certificate in worker container")
-
-	return nil
+	return session.Run(ctx, []string{"sh", "-c", `umask 077; cat > "$1"`, "write-file", path}, nil, bytes.NewReader(data), io.Discard)
 }
 
 // authFileEnv returns the env map that wires REGISTRY_AUTH_FILE to containerAuthFile
-// for podman build and push execs. Extracted for unit-testability.
+// for source image operations.
 func authFileEnv() map[string]string {
 	return map[string]string{
 		"REGISTRY_AUTH_FILE": containerAuthFile,
 	}
 }
 
-// buildLoginArgs returns the argument list for `podman exec … podman login` for
-// the given registry. It is a pure function with no side-effects, extracted for
-// unit-testability.
-func buildLoginArgs(containerName, username, registryHostname string, ociSpec *coredomain.OciRepoSpec) []string {
-	args := []string{"exec", "-i", containerName, "podman", "login",
-		"--authfile", containerAuthFile,
-		"-u", username, "--password-stdin"}
-
-	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		args = append(args, "--tls-verify=false")
-	} else if ociSpec != nil && ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
-		args = append(args, "--tls-verify=false")
-	}
-
-	args = append(args, registryHostname)
-	return args
-}
-
-// loginToRegistry writes registry credentials to containerAuthFile so that
-// build and push podman execs find them via REGISTRY_AUTH_FILE. It is called
-// for both the source registry (during build) and the destination registry (during push).
-func (c *Consumer) loginToRegistry(
-	ctx context.Context,
-	podmanWorker *podmanWorker,
-	registryHostname string,
-	username string,
-	password string,
-	ociSpec *coredomain.OciRepoSpec,
-	log logrus.FieldLogger,
-) error {
+// loginToRegistry keeps source and destination credentials in separate guest files.
+func (c *Consumer) loginToRegistry(ctx context.Context, worker *podmanWorker, registryHostname, username, password, authFile string, ociSpec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
 	if username == "" || password == "" {
 		return nil
 	}
-
-	// Validate username: only block control characters that could break line-based protocols.
-	// Shell metacharacters (|, ;, &, etc.) are safe here because exec.CommandContext
-	// passes arguments directly via execve (no shell involved).
-	if strings.ContainsAny(username, "\x00\n\r") {
-		return fmt.Errorf("invalid username: contains control characters")
+	if len(username) > 256 || strings.ContainsAny(username, "\x00\n\r") || len(registryHostname) > 256 || strings.ContainsAny(registryHostname, "\x00\n\r") {
+		return fmt.Errorf("invalid registry credentials")
 	}
-	if len(username) > 256 {
-		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
+	args := []string{"podman", "login", "--authfile", authFile, "-u", username, "--password-stdin"}
+	if insecureRegistry(ociSpec) {
+		args = append(args, "--tls-verify=false")
 	}
+	args = append(args, registryHostname)
+	return worker.Session.Run(ctx, args, nil, strings.NewReader(password), io.Discard)
+}
 
-	// Validate registryHostname: only block control characters that could break line-based protocols.
-	// Shell metacharacters are safe here because exec.CommandContext uses execve (no shell).
-	if strings.ContainsAny(registryHostname, "\x00\n\r") {
-		return fmt.Errorf("invalid registry hostname: contains control characters")
-	}
-	if len(registryHostname) > 256 {
-		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
-	}
-
-	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
-
-	loginArgs := buildLoginArgs(podmanWorker.ContainerName, username, registryHostname, ociSpec)
-
-	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		log.Debug("Using --tls-verify=false for HTTP registry login")
-	} else if ociSpec != nil && ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
-		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
-	}
-	// G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
-	loginCmd := exec.CommandContext(ctx, "podman", loginArgs...)
-
-	// Write password to stdin
-	loginCmd.Stdin = strings.NewReader(password)
-
-	var outputBuffer bytes.Buffer
-	loginCmd.Stdout = &outputBuffer
-	loginCmd.Stderr = &outputBuffer
-
-	if err := loginCmd.Run(); err != nil {
-		output := outputBuffer.String()
-		log.WithError(err).Warnf("Failed to login to registry: %s", output)
-		return fmt.Errorf("failed to login to registry %q: %w. Output: %s", registryHostname, err, output)
-	}
-
-	log.Debugf("Successfully logged into registry %q", registryHostname)
-	return nil
+func insecureRegistry(spec *coredomain.OciRepoSpec) bool {
+	return spec != nil && ((spec.Scheme != nil && *spec.Scheme == coredomain.OciRepoSchemeHttp) || (spec.SkipServerVerification != nil && *spec.SkipServerVerification))
 }
 
 // getOciRepoSpec retrieves and validates a repository as OCI type, returning its spec.
@@ -1079,7 +832,7 @@ func writeBuildContextFiles(tmpDir string, containerfileResult *ContainerfileRes
 	return nil
 }
 
-// buildImageWithPodman builds the image using podman in a container-in-container setup.
+// buildImageWithPodman builds the image using podman in a disposable guest.
 // It creates a manifest list, builds for AMD64 platform, and handles authentication.
 func (c *Consumer) buildImageWithPodman(
 	ctx context.Context,
@@ -1151,7 +904,7 @@ func (c *Consumer) buildImageWithPodman(
 			if !ok {
 				log.WithField("registry", sourceRegistryHostname).Warn("source registry password is stored as plaintext; expected an encrypted value")
 			}
-			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, string(decryptedPassword), containerAuthFile, ociSpec, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
 			}
 		}
@@ -1178,7 +931,7 @@ func (c *Consumer) buildImageWithPodman(
 	// Build arguments are passed via --build-arg for safer execution (no shell injection risk)
 	args := containerfileResult.BuildArgs
 	podmanBuildArgs := []string{
-		"build",
+		"build", "--isolation", "chroot", "--network", "host",
 		"--platform", platform,
 		"--manifest", imageRef,
 	}
@@ -1272,7 +1025,7 @@ func (c *Consumer) pushImageWithPodman(
 			if !ok {
 				log.WithField("registry", destRegistryHostname).Warn("destination registry password is stored as plaintext; expected an encrypted value")
 			}
-			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, string(decryptedPassword), destinationAuthFile, ociSpec, log); err != nil {
 				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
@@ -1300,18 +1053,20 @@ func (c *Consumer) pushImageWithPodman(
 	}
 
 	pushArgs = append(pushArgs, imageRef)
-	pushEnvVars := authFileEnv()
+	pushEnvVars := map[string]string{"REGISTRY_AUTH_FILE": destinationAuthFile}
 	if err := podmanWorker.runInWorker(ctx, log, "push", pushEnvVars, pushArgs...); err != nil {
 		return "", "", err
 	}
 
 	// Read the manifest digest from the digest file (host path maps to /output in worker)
-	hostDigestPath := filepath.Join(podmanWorker.TmpOutDir, digestFileName)
-	digestBytes, err := os.ReadFile(hostDigestPath)
+	digestBytes, err := podmanWorker.Session.ReadArtifact(ctx, digestFileName, 256)
 	if err != nil {
 		return "", "", fmt.Errorf("reading manifest digest file: %w", err)
 	}
 	manifestDigest := strings.TrimSpace(string(digestBytes))
+	if _, err := digest.Parse(manifestDigest); err != nil {
+		return "", "", fmt.Errorf("invalid manifest digest: %w", err)
+	}
 
 	log.WithFields(logrus.Fields{
 		"imageRef":       imageRef,

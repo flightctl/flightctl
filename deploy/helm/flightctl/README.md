@@ -10,30 +10,19 @@ A helm chart for FlightControl
 
 ### Pod Security Standards
 
-The `flightctl-imagebuilder-worker` component requires elevated privileges to build OS images using osbuild/bootc. It needs:
+The `flightctl-imagebuilder-worker` runs image builds, exports, and SBOM scanning in disposable QEMU guests. Its outer Pod runs as a non-root user with all capabilities dropped, a read-only root filesystem, and the `RuntimeDefault` seccomp profile. It requires no hostPath volumes or custom SCC.
 
-- Privileged container access
-- Host device access (`/dev`, `/sys`, `/lib/modules`)
-- Capabilities: `SYS_ADMIN`, `MKNOD`, `SYS_CHROOT`, `SETFCAP`
+The initial VM runtime supports AMD64 workers. Production export requires KVM. A cluster administrator must provision a KVM device plugin on virtualization-capable nodes before installation. Set `imageBuilderWorker.vm.kvmResourceName` to the extended device resource exposed by that plugin; the default is `devices.anza-labs.dev/kvm`. The chart requests one device per concurrent VM. The plugin is cluster infrastructure and is not installed by this chart.
 
-The `flightctl-delta-worker` component runs `oci-delta` to generate OS and application image deltas. The container must run as root and add `SYS_ADMIN`. A restricted policy assigns a non-root uid, and delta generation then fails while creating the delta.
+The `flightctl-delta-worker` still runs `oci-delta` as root with `SYS_ADMIN`. Disable it with `deltaWorker.enabled=false` in a restricted namespace. In cluster-scoped OpenShift installations, the chart creates its SCC when the delta worker is enabled.
 
-If your namespace enforces the "restricted" or "baseline" Pod Security Standard, you will see warnings during deployment. To suppress these warnings, configure the namespace labels:
+If you enable the delta worker in a namespace that enforces the restricted or baseline Pod Security Standard, that worker requires an appropriate policy exemption. ImageBuild and ImageExport do not require that exemption.
 
-```bash
-kubectl label namespace <namespace> \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/warn=privileged \
-  pod-security.kubernetes.io/audit=privileged
-```
-
-On OpenShift clusters, the chart automatically creates a security context constraint (SCC) for the `flightctl-imagebuilder-worker` and `flightctl-delta-worker` service accounts.
-
-If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation) instead. That mode does not create SCCs and requires the privileged workers to stay disabled.
+If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation).
 
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
-SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. Podman and bootc-image-builder use their own defaults when those image fields are empty.
+SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. bootc-image-builder uses its built-in default when its image field is empty. Podman and buildah are preinstalled in the prepared guest disk; the legacy `serviceImages.podman` settings are ignored.
 
 If you don't need image building capabilities, you can disable the imagebuilder-worker:
 
@@ -59,16 +48,14 @@ A namespace-scoped installation has these requirements:
 - Keep `worker.clusterLevelSecretAccess` and `periodic.clusterLevelSecretAccess` at `false`.
 - For Kubernetes authentication, leave `global.auth.k8s.rbacNs` empty or set it to a namespace you can manage. The chart creates namespaced RBAC in that namespace.
 - Enforce the restricted Pod Security Standard on the namespace. The chart does not create SCCs in namespace-scoped mode.
-- Disable the privileged image builder and delta workers unless a cluster administrator has granted their service accounts the required SCC:
+- Disable the privileged delta worker:
 
   ```yaml
-  imageBuilderWorker:
-    enabled: false
   deltaWorker:
     enabled: false
   ```
 
-  Removing the privileged worker requirements is future work (delta de-privileging and the VM sandbox). It is not part of namespace-scoped mode.
+- To enable ImageBuild and ImageExport, provision the KVM device plugin separately and configure its resource name under `imageBuilderWorker.vm`. The outer worker Pod meets the restricted security requirements. Validate KVM admission and execution on your target OpenShift cluster.
 
 The following example installs with AAP authentication and without cluster-scoped resources:
 
@@ -476,16 +463,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"imageBuilderTimeout":"3m","logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}},"timeoutCheckTaskInterval":"1m","yumReposSecretName":""}` | ImageBuilder Worker Configuration |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"imageBuilderTimeout":"10m","logLevel":"info","maxConcurrentBuilds":1,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}},"timeoutCheckTaskInterval":"1m","vm":{"accelerator":"kvm","baseImage":"/usr/share/flightctl-vm/guest.qcow2","bootTimeout":"5m","cpus":4,"diskSizeGiB":24,"executionTimeout":"2h","kvmResourceName":"devices.anza-labs.dev/kvm","memoryMiB":4096,"scratchSizeLimit":"64Gi"},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
 | imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker-el9"` | ImageBuilder Worker container image |
 | imageBuilderWorker.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder Worker container |
 | imageBuilderWorker.image.tag | string | `""` | ImageBuilder Worker image tag |
-| imageBuilderWorker.imageBuilderTimeout | string | `"3m"` | Inactivity timeout for image builds and exports |
+| imageBuilderWorker.imageBuilderTimeout | string | `"10m"` | Inactivity timeout for image builds and exports |
 | imageBuilderWorker.logLevel | string | `"info"` | Log level for the imagebuilder worker |
-| imageBuilderWorker.maxConcurrentBuilds | int | `2` | Maximum number of concurrent image builds |
-| imageBuilderWorker.privileged | bool | `true` | Enable privileged mode for container-in-container builds |
+| imageBuilderWorker.maxConcurrentBuilds | int | `1` | Maximum number of concurrent disposable build/export VMs |
 | imageBuilderWorker.replicas | int | `1` | Number of worker replicas |
 | imageBuilderWorker.resources | object | `{}` | Resource requests and limits |
 | imageBuilderWorker.rhsmCaSecretName | string | `""` | Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca |
@@ -495,15 +481,25 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.sbom.purlTransform.enabled | bool | `true` | Normalize RPM PURLs (namespace/distro/qualifiers) before push/upload for advisory matching. |
 | imageBuilderWorker.sbom.pushToRegistry | bool | `true` | Attach the SBOM to the pushed image as an OCI 1.1 referrer artifact on the destination registry. |
 | imageBuilderWorker.sbom.uploadToTrustify | bool | `true` | Upload the SBOM to Trustify when vulnerability reporting is enabled and Trustify is configured (same settings as `vulnerabilityReporting` elsewhere in this chart). |
-| imageBuilderWorker.serviceImages | object | `{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}}` | Builder images (podman, bootc-image-builder, syft) and skip-TLS options |
+| imageBuilderWorker.serviceImages | object | `{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}}` | In-guest bootc-image-builder and Syft images and skip-TLS options |
 | imageBuilderWorker.serviceImages.bootcImageBuilder.image | string | `""` | bootc-image-builder image (leave empty to use default). |
 | imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the bootc-image-builder image. |
-| imageBuilderWorker.serviceImages.podman.image | string | `""` | Podman builder image (leave empty to use default). |
-| imageBuilderWorker.serviceImages.podman.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Podman builder image. |
-| imageBuilderWorker.serviceImages.pullSecretName | string | `""` | Secret name containing registry credentials (auth.json) for pulling builder service images. Required when serviceImages are hosted in an authenticated or air-gapped registry. The secret must contain a key named `auth.json` in standard podman/Docker auth format. Mounted read-only at /root/.config/containers/auth.json inside the worker container. |
+| imageBuilderWorker.serviceImages.podman.image | string | `""` | Deprecated and ignored; Podman is preinstalled in the guest disk. |
+| imageBuilderWorker.serviceImages.podman.skipTlsVerify | bool | `false` | Deprecated and ignored; there is no separate Podman builder image pull. |
+| imageBuilderWorker.serviceImages.pullSecretName | string | `""` | Secret name containing registry credentials (auth.json) for pulling builder service images. Required when serviceImages are hosted in an authenticated or air-gapped registry. The secret must contain a key named `auth.json` in standard podman/Docker auth format. Mounted read-only at /var/lib/flightctl/.config/containers/auth.json inside the worker container. |
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.timeoutCheckTaskInterval | string | `"1m"` | Interval between image build and export timeout checks |
+| imageBuilderWorker.vm | object | `{"accelerator":"kvm","baseImage":"/usr/share/flightctl-vm/guest.qcow2","bootTimeout":"5m","cpus":4,"diskSizeGiB":24,"executionTimeout":"2h","kvmResourceName":"devices.anza-labs.dev/kvm","memoryMiB":4096,"scratchSizeLimit":"64Gi"}` | Disposable VM runtime; the worker image supplies the prepared guest disk. |
+| imageBuilderWorker.vm.accelerator | string | `"kvm"` | Accelerator: kvm for production; tcg permits development ImageBuild only |
+| imageBuilderWorker.vm.baseImage | string | `"/usr/share/flightctl-vm/guest.qcow2"` | Immutable prepared guest disk inside the worker image |
+| imageBuilderWorker.vm.bootTimeout | string | `"5m"` | Maximum guest boot time |
+| imageBuilderWorker.vm.cpus | int | `4` | Guest virtual CPUs, per concurrent task |
+| imageBuilderWorker.vm.diskSizeGiB | int | `24` | Disposable guest container-storage disk capacity in GiB |
+| imageBuilderWorker.vm.executionTimeout | string | `"2h"` | Absolute guest lifetime, including boot and task execution |
+| imageBuilderWorker.vm.kvmResourceName | string | `"devices.anza-labs.dev/kvm"` | Extended device resource supplied by a cluster-installed KVM device plugin |
+| imageBuilderWorker.vm.memoryMiB | int | `4096` | Guest memory in MiB, per concurrent task |
+| imageBuilderWorker.vm.scratchSizeLimit | string | `"64Gi"` | Maximum writable emptyDir capacity for guest disks and exported artifacts |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260121"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Valkey pod security context |
