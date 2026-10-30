@@ -137,7 +137,15 @@ Helm chart packages continue through the chart cache. Rendered workload images u
 
 Digest-pinned CRI workload images remain eligible for deltas. Source checks use registry digests recorded in CRI, including source images from another repository. Discovery selects the smallest locally usable artifact, with lexical reference order breaking ties.
 
+Referrer discovery queries the OCI Distribution Referrers API and collects paginated results. When the registry does not support that API, discovery reads the Referrers Tag Schema index. These requests use the image storage owner's registry configuration, credentials, mirrors, and certificates.
+
+Default authentication honors `REGISTRY_AUTH_FILE`; an explicit pull secret takes precedence, and anonymous requests ignore the environment setting. Certificate lookup selects the first existing registry certificate directory in the user's home, `/etc/containers/certs.d`, or `/etc/docker/certs.d`.
+
+When `HOME` is unset, certificate lookup resolves the owning account's home directory. If no home can be resolved, lookup continues with the system certificate directories.
+
 After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
+
+For digest-pinned CRI-O images, the agent verifies the reconstructed image by its local image ID before refreshing the registry reference. The reconstructed manifest digest can differ from the requested registry digest. After refresh, the agent verifies the requested registry identity before reporting `Applied`.
 
 The refresh attaches the resolved target digest to the original repository name. Unqualified image names remain unqualified so the runtime can apply configured registry aliases.
 

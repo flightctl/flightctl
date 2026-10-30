@@ -275,9 +275,9 @@ func platformDigestFromRawManifest(raw string, expectedDigest digest.Digest) (st
 	return selected.Digest.String(), nil
 }
 
-// ListReferrers returns the referrers index for image.
-// On Referrers-API 404, unknown subcommand, or manifest unknown, it inspects the
-// Referrers Tag Schema tag on the same repository.
+// ListReferrers lists referrers through the agent's ORAS helper. Run the helper
+// with the same executor as Skopeo so registry configuration and credentials
+// belong to the image's storage owner, including for rootless applications.
 func (s *Skopeo) ListReferrers(ctx context.Context, image string, opts ...ClientOption) (*OCIIndex, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
@@ -291,36 +291,26 @@ func (s *Skopeo) ListReferrers(ctx context.Context, image string, opts ...Client
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := []string{"list-referrers", dockerRef(image)}
-	args, err := s.appendAuthArgs(args, options)
-	if err != nil {
-		return nil, err
-	}
-
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, skopeoCmd, args...)
-	if exitCode == 0 {
-		return parseOCIIndex(stdout)
-	}
-	if !isReferrersFallback(stderr) {
-		return nil, fmt.Errorf("list referrers: %w", errors.FromStderr(stderr, exitCode))
-	}
-
 	name, digest := parseImageNameAndDigest(image)
 	if digest == "" {
+		var err error
 		digest, err = s.inspectDigest(ctx, image, options)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if name == "" || digest == "" {
-		return nil, fmt.Errorf("list referrers: cannot resolve Tag Schema for %q", image)
+		return nil, fmt.Errorf("list referrers: cannot resolve repository and digest for %q", image)
 	}
-
-	raw, err := s.inspectRaw(ctx, tagSchemaRef(name, digest), options)
+	args, err := s.appendAuthArgs([]string{"registry-referrers", "--image", name + "@" + digest, "--timeout", timeout.String()}, options)
 	if err != nil {
 		return nil, err
 	}
-	return parseOCIIndex(raw)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, "flightctl-agent", args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list referrers: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return parseOCIIndex(stdout)
 }
 
 // ListPlatformReferrers resolves image to the host platform manifest and lists
@@ -406,16 +396,4 @@ func parseImageNameAndDigest(image string) (name, digest string) {
 		return "", ""
 	}
 	return matches[1], matches[3]
-}
-
-func tagSchemaRef(name, digest string) string {
-	return name + ":" + strings.Replace(digest, ":", "-", 1)
-}
-
-func isReferrersFallback(stderr string) bool {
-	s := strings.ToLower(stderr)
-	return strings.Contains(s, "manifest unknown") ||
-		strings.Contains(s, "404") ||
-		strings.Contains(s, "unknown command") ||
-		strings.Contains(s, "unknown flag")
 }

@@ -128,10 +128,28 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 
 	It("When a standalone device OS spec changes with a writable delta target it should delay render then hint", Label("standalone"), Label("OCP-90797"), func() {
 		harness := e2e.GetWorkerHarness()
-		createWritableDeltaRepo(harness)
 
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 		waitDeviceUpToDate(harness, deviceId, "device UpToDate on current OS")
+
+		By("booting the registry base image so the delta source is available in the target repository")
+		baseImage := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.Base)
+		Expect(harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+			if device.Spec == nil {
+				device.Spec = &v1beta1.DeviceSpec{}
+			}
+			device.Spec.Os = &v1beta1.DeviceOsSpec{Image: baseImage}
+		})).To(Succeed())
+		harness.WaitForDeviceContents(deviceId, "device UpToDate on the registry base OS", func(device *v1beta1.Device) bool {
+			return device.Status != nil && device.Status.Os.Image == baseImage &&
+				device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
+		}, LONGTIMEOUT)
+		sourceDigest := getDeltaDevice(harness, deviceId).Status.Os.ImageDigest
+		Expect(sourceDigest).NotTo(BeEmpty())
+		_, err := harness.ResolveImage(applicationRegistryEndpoint(), util.DeviceImageRegistryPath, sourceDigest)
+		Expect(err).NotTo(HaveOccurred(), "booted OS source digest %s must be available in the delta target repository", sourceDigest)
+
+		createWritableDeltaRepo(harness)
 		requireDeltaGenerationSupport(harness, deviceId)
 
 		v2Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V2)
