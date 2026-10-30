@@ -277,6 +277,8 @@ dnf
 rpm.flightctl.io
 wildcards
 OAuth2
+OAuthClient
+OAuthClients
 RoleBindings
 ClusterRoles
 TokenReview
@@ -295,6 +297,8 @@ orgs
 LDAP
 SSO
 SCC
+SCCs
+namespaced
 agent_version
 backend
 behaviour

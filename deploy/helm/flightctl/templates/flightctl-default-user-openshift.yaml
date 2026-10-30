@@ -1,4 +1,5 @@
 {{- if and (eq (include "flightctl.getEffectiveAuthType" .) "openshift") .Values.global.auth.openshift.createAdminUser }}
+{{- $namespaceScoped := eq (include "flightctl.isNamespaceScoped" .) "true" }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -21,8 +22,8 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: flightctl-admin-{{ .Release.Namespace }}
+  kind: {{ if $namespaceScoped }}Role{{ else }}ClusterRole{{ end }}
+  name: {{ if $namespaceScoped }}flightctl-org-admin-{{ .Release.Namespace }}{{ else }}flightctl-admin-{{ .Release.Namespace }}{{ end }}
 subjects:
   - kind: ServiceAccount
     name: flightctl-admin

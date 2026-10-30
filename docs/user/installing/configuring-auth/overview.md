@@ -31,7 +31,7 @@ Generic OAuth2 protocol for providers that don't fully support OIDC. Supports dy
 
 #### 3. Kubernetes
 
-Validates Kubernetes service account tokens via TokenReview API. Maps to RoleBindings in the namespace where Flight Control is deployed. All users assigned to `default` organization.
+Validates Kubernetes service account tokens with the `SelfSubjectReview` API using the caller's token. Maps to RoleBindings in the namespace where Flight Control is deployed. All users assigned to `default` organization.
 
 → [Kubernetes Authentication Documentation](auth-kubernetes.md)
 

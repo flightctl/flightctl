@@ -1,0 +1,66 @@
+{{- $flightctlNamespace := required "flightctlNamespace is required" .Values.flightctlNamespace }}
+{{- $validRoles := list "org-admin" "operator" "viewer" "installer" }}
+{{- $validSubjectKinds := list "User" "Group" "ServiceAccount" }}
+{{- range $binding := .Values.roleBindings }}
+{{- if not (has $binding.role $validRoles) }}
+{{- fail (printf "roleBindings[].role must be one of %s; got %q" (join ", " $validRoles) $binding.role) }}
+{{- end }}
+{{- if not $binding.subjects }}
+{{- fail (printf "roleBindings[%s].subjects must not be empty" $binding.role) }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ default (printf "flightctl-%s-tenant" $binding.role) $binding.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "flightctl-tenant.standardLabels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-{{ $binding.role }}-{{ $flightctlNamespace }}
+subjects:
+{{- range $binding.subjects }}
+{{- if not (has .kind $validSubjectKinds) }}
+{{- fail (printf "roleBindings[].subjects[].kind must be one of %s; got %q" (join ", " $validSubjectKinds) .kind) }}
+{{- end }}
+  - kind: {{ .kind }}
+    name: {{ required "roleBindings[].subjects[].name is required" .name }}
+{{- if and (eq .kind "ServiceAccount") .namespace }}
+    namespace: {{ .namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
+---
+# Allows the Flight Control control plane to read RoleBindings in this project so
+# that it can mirror project access into Flight Control organizations and roles.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-auth-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl-tenant.standardLabels" . | nindent 4 }}
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-auth-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl-tenant.standardLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-auth-reader
+subjects:
+{{- range .Values.controlPlaneServiceAccounts }}
+  - kind: ServiceAccount
+    name: {{ . }}
+    namespace: {{ $flightctlNamespace }}
+{{- end }}

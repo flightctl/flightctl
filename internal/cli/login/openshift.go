@@ -3,6 +3,7 @@ package login
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/openshift/osincli"
@@ -41,6 +42,11 @@ func (o *OpenShift) SetInsecureSkipVerify(insecureSkipVerify bool) {
 }
 
 func (o *OpenShift) getOAuth2Client(callback string) (*osincli.Client, error) {
+	if o.isServiceAccountClient() {
+		// ServiceAccount OAuth redirects use the numeric loopback address and allow custom ports.
+		callback = strings.Replace(callback, "http://localhost:", "http://127.0.0.1:", 1)
+	}
+
 	codeVerifier, codeChallenge, err := generatePKCEVerifier()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate PKCE parameters: %w", err)
@@ -59,7 +65,7 @@ func (o *OpenShift) getOAuth2Client(callback string) (*osincli.Client, error) {
 		ErrorsInStatusCode:       true,
 		SendClientSecretInParams: true, // this makes sure we send the client id , the secret is not filled
 		RedirectUrl:              callback,
-		Scope:                    "user:full",
+		Scope:                    o.scopes(),
 		CodeVerifier:             codeVerifier,
 		CodeChallenge:            codeChallenge,
 		CodeChallengeMethod:      "S256",
@@ -83,6 +89,9 @@ func (o *OpenShift) getOAuth2Client(callback string) (*osincli.Client, error) {
 }
 
 func (o *OpenShift) Auth() (AuthInfo, error) {
+	if o.isServiceAccountClient() && o.Username != "" && o.Password != "" && !o.Web {
+		return AuthInfo{}, fmt.Errorf("service-account OAuth clients require browser login (--web); use oc login and token login instead")
+	}
 	// Use password flow if username/password provided and web flag not set
 	if o.Username != "" && o.Password != "" && !o.Web {
 		return o.authPasswordFlow()
@@ -97,12 +106,23 @@ func (o *OpenShift) Auth() (AuthInfo, error) {
 }
 
 func (o *OpenShift) authPasswordFlow() (AuthInfo, error) {
-	authInfo, err := oauth2PasswordFlow(*o.Spec.TokenUrl, *o.Spec.ClientId, o.Username, o.Password, "user:full", o.CAFile, o.InsecureSkipVerify)
+	authInfo, err := oauth2PasswordFlow(*o.Spec.TokenUrl, *o.Spec.ClientId, o.Username, o.Password, o.scopes(), o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
 		return AuthInfo{}, err
 	}
 	authInfo.TokenToUse = TokenToUseAccessToken
 	return authInfo, nil
+}
+
+func (o *OpenShift) isServiceAccountClient() bool {
+	return o.Spec.ClientType != nil && *o.Spec.ClientType == api.Serviceaccount
+}
+
+func (o *OpenShift) scopes() string {
+	if o.Spec.Scopes != nil && len(*o.Spec.Scopes) > 0 {
+		return strings.Join(*o.Spec.Scopes, " ")
+	}
+	return "user:full"
 }
 
 func (o *OpenShift) Renew(refreshToken string) (AuthInfo, error) {
@@ -121,6 +141,9 @@ func (o *OpenShift) Validate(args ValidateArgs) error {
 	}
 	if o.Spec.AuthorizationUrl == nil {
 		return fmt.Errorf("authorization URL is required")
+	}
+	if o.isServiceAccountClient() && !o.Web {
+		return fmt.Errorf("service-account OAuth clients require --web")
 	}
 	if !o.Web && (o.Username == "" || o.Password == "") {
 		return fmt.Errorf("username and password are required for password flow (use --web flag for web-based authentication)")
