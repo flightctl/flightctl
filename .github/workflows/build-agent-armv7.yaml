@@ -81,6 +81,10 @@ jobs:
     needs: verify
     permissions:
       contents: write
+    # publishes of the same ref run one at a time, so a late older run cannot overwrite newer assets
+    concurrency:
+      group: ${{ github.workflow }}-publish-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
       - name: Checkout
