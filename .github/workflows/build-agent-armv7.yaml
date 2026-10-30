@@ -1,0 +1,128 @@
+name: "Build Agent armv7"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "release-*"
+    tags:
+      - "v*"
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Agent binary for linux/arm (GOARM=7).
+      - name: Build
+        run: |
+          DISABLE_FIPS="true" GOOS=linux GOARCH=arm GOARM=7 make build-agent
+          mv bin/flightctl-agent flightctl-agent-linux-armv7
+          SHA=$(shasum -a 256 flightctl-agent-linux-armv7 | cut -d' ' -f1)
+          echo "${SHA}" > flightctl-agent-linux-armv7-sha256.txt
+
+      - name: Save binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-agent-linux-armv7
+          path: flightctl-agent-linux-armv7
+
+      - name: Save checksum
+        uses: actions/upload-artifact@v4
+        with:
+          path: flightctl-agent-linux-armv7-sha256.txt
+          name: flightctl-agent-linux-armv7-sha256.txt
+
+  verify:
+    name: Verify Binaries on linux
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Load binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-agent-linux-armv7
+
+      - name: Make Executable
+        run: chmod +x flightctl-agent-linux-armv7
+
+      # the binary is static (CGO_ENABLED=0), so user-mode QEMU on the runner is enough, no privileged container
+      - name: Setup QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+
+      - name: Verify
+        run: |
+          # Verify version output
+          qemu-arm-static ./flightctl-agent-linux-armv7 version
+
+  publish:
+    name: Publish Binaries
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    runs-on: ubuntu-24.04
+    needs: verify
+    permissions:
+      contents: write
+    # publishes of the same ref run one at a time, so a late older run cannot overwrite newer assets
+    concurrency:
+      group: ${{ github.workflow }}-publish-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load binary archives
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release
+
+      # if this is a push to the main branch, we update the latest release of binaries
+      - name: Publish latest
+        if: ${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # an older run finishing late must not overwrite the binaries of a newer main
+          MAIN_SHA=$(gh api "repos/${GH_REPO}/commits/main" --jq .sha)
+          if [ "${MAIN_SHA}" != "${GITHUB_SHA}" ]; then
+            echo "main has moved on from ${GITHUB_SHA}, skipping the latest upload"
+            exit 0
+          fi
+          if gh release view latest >/dev/null 2>&1; then
+            # if there is a release already we only update the binaries
+            # otherwise a new release will trigger an rpm build from packit
+            gh release upload latest --clobber release/*
+          else
+            # if the release did not exist, we should create it at least once
+            gh release create -p -n "Flight Control CLI pre-release" latest release/*
+          fi
+
+      # if this is a tag, we upload the release binaries, the release already exists
+      - name: Publish tag
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "${TAG}" release/*
