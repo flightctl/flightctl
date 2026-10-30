@@ -10,13 +10,60 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
+	fcsigner "github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const tpmChallengeFullMethod = pb.Enrollment_TPMChallenge_FullMethodName
+
+func (s *AgentGrpcServer) enrollmentCSRStatusStreamInterceptor(
+	srv any,
+	stream grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler,
+) error {
+	if info != nil && info.FullMethod == tpmChallengeFullMethod {
+		if err := s.authorizeEnrollmentCertificate(stream.Context()); err != nil {
+			return err
+		}
+	}
+	return handler(srv, stream)
+}
+
+func (s *AgentGrpcServer) authorizeEnrollmentCertificate(ctx context.Context) error {
+	cert, err := verifiedPeerCertificate(ctx)
+	if err != nil {
+		return err
+	}
+	if s.ca == nil || s.ca.Cfg == nil {
+		return status.Error(codes.Internal, "CA not configured")
+	}
+	signerName, err := fcsigner.GetSignerNameExtension(cert)
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "invalid client certificate: %v", err)
+	}
+	if signerName != s.ca.Cfg.DeviceEnrollmentSignerName {
+		return status.Error(codes.Unauthenticated, "unexpected client certificate signer")
+	}
+	orgId, present, err := fcsigner.GetOrgIDExtensionFromCert(cert)
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "failed to extract organization ID: %v", err)
+	}
+	if !present {
+		orgId = org.DefaultID
+	}
+	if _, allowed := s.enrollmentAuthMiddleware.CSRStatusAllowsEnrollment(ctx, orgId, cert); !allowed {
+		return status.Error(codes.Unauthenticated, "Enrollment certificate is not approved")
+	}
+	return nil
+}
 
 // classifyStreamRecvError converts stream.Recv() errors to appropriate gRPC status codes
 func classifyStreamRecvError(err error, contextMsg string) error {
