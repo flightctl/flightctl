@@ -27,20 +27,7 @@ func uniqueName(harness *e2e.Harness, prefix string) string {
 }
 
 func createLabelSyncMapping(harness *e2e.Harness, name string, key *string, expression string) *api.LabelSyncMapping {
-	labels := map[string]string{"test-id": harness.GetTestIDFromContext()}
-	mapping := api.LabelSyncMapping{
-		ApiVersion: api.LabelSyncMappingAPIVersion,
-		Kind:       api.LabelSyncMappingKind(api.LabelSyncMappingKindValue),
-		Metadata: api.ObjectMeta{
-			Name:   &name,
-			Labels: &labels,
-		},
-		Spec: api.LabelSyncMappingSpec{
-			Expression:   expression,
-			Key:          key,
-			ResourceType: api.LabelSyncMappingSpecResourceTypeDevice,
-		},
-	}
+	mapping := newLabelSyncMapping(harness, name, key, expression)
 
 	response, err := harness.Client.CreateLabelSyncMappingWithResponse(harness.Context, mapping)
 	Expect(err).NotTo(HaveOccurred())
@@ -54,6 +41,23 @@ func createLabelSyncMapping(harness *e2e.Harness, name string, key *string, expr
 	})
 
 	return response.JSON201
+}
+
+func newLabelSyncMapping(harness *e2e.Harness, name string, key *string, expression string) api.LabelSyncMapping {
+	labels := map[string]string{"test-id": harness.GetTestIDFromContext()}
+	return api.LabelSyncMapping{
+		ApiVersion: api.LabelSyncMappingAPIVersion,
+		Kind:       api.LabelSyncMappingKind(api.LabelSyncMappingKindValue),
+		Metadata: api.ObjectMeta{
+			Name:   &name,
+			Labels: &labels,
+		},
+		Spec: api.LabelSyncMappingSpec{
+			Expression:   expression,
+			Key:          key,
+			ResourceType: api.LabelSyncMappingSpecResourceTypeDevice,
+		},
+	}
 }
 
 func createDeviceWithStatus(harness *e2e.Harness, name string, labels map[string]string, architecture, operatingSystem string, customInfo map[string]string) *api.Device {
