@@ -211,7 +211,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			if tc.discover {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})
 				require.NoError(err)
-				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
+				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index), time.Minute)
 			}
 
 			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, targetIndex, tc, outcome)
@@ -319,11 +319,14 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage, 
 		case "ctr":
 			step = fmt.Sprint(args[5])
 		}
-		exit, stderr := 0, ""
+		stdout, stderr, exit := "", "", 0
+		if cmd == "oci-delta" && !tc.containerd {
+			stdout = podmanDeltaImageID + "\n"
+		}
 		if tc.failStep == step {
 			exit, stderr = 1, step+" failed"
 		}
-		steps = append(steps, exec.EXPECT().ExecuteWithContext(gomock.Any(), cmd, args...).Return("", stderr, exit))
+		steps = append(steps, exec.EXPECT().ExecuteWithContext(gomock.Any(), cmd, args...).Return(stdout, stderr, exit))
 	}
 	if tc.selected != "" || tc.remoteBudget {
 		sourceRef := tc.sourceRef
@@ -402,7 +405,11 @@ func expectCRIDeltaVisibilityAndRefresh(
 		if tc.failStep == "visibility" {
 			output = "IMAGE TAG ID"
 		}
-		args := criArgs("images", image)
+		importedImageRef := image
+		if !tc.containerd {
+			importedImageRef = podmanDeltaImageID
+		}
+		args := criArgs("images", importedImageRef)
 		steps = append(steps, exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(output, "", 0))
 	}
 	if tc.failStep != "visibility" || !requiresVisibility {
