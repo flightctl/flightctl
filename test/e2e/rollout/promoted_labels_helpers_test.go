@@ -215,7 +215,7 @@ func promotedWaitForMappingReady(harness *e2e.Harness, name string) {
 		g.Expect(response.JSON200.Status).NotTo(BeNil())
 		g.Expect(response.JSON200.Status.Conditions).NotTo(BeNil())
 		g.Expect(api.IsStatusConditionTrue(*response.JSON200.Status.Conditions, api.ConditionTypeLabelSyncMappingReady)).To(BeTrue())
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
+	}).WithTimeout(util.DURATION_TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
 }
 
 func promotedWaitForOwner(harness *e2e.Harness, deviceName, fleetName string) {

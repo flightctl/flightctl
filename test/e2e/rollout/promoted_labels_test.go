@@ -100,7 +100,8 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		device, err := harness.GetDevice(deviceName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(device.Metadata.Owner).To(BeNil())
-		Expect(device.Spec).To(BeNil())
+		_, err = harness.GetDeviceInlineConfig(device, configName)
+		Expect(err).To(HaveOccurred())
 
 		By("reporting status and waiting for promotion, fleet ownership, and rendered config")
 		promotedReplaceDeviceStatus(harness, deviceName, "amd64", "east")
@@ -118,18 +119,20 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 
 		By("checking that raw device status is unavailable to the template renderer")
 		invalidConfig := promotedInlineConfig(configName, `{{ .status.systemInfo.architecture }}`)
-		Expect(harness.CreateOrUpdateTestFleet(fleetName,
-			promotedFleetSpec(map[string]string{regionKey: "east"}, invalidConfig))).To(Succeed())
-		Eventually(func(g Gomega) {
-			device, err := harness.GetDevice(deviceName)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(device.Metadata.Annotations).NotTo(BeNil())
-			g.Expect(*device.Metadata.Annotations).To(HaveKey(api.DeviceAnnotationLastRolloutError))
-			g.Expect((*device.Metadata.Annotations)[api.DeviceAnnotationLastRolloutError]).To(ContainSubstring("status"))
-			inline, err := harness.GetDeviceInlineConfig(device, configName)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(inline.Inline[0].Content).To(Equal("east"))
-		}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
+		fleetBefore, err := harness.GetFleet(fleetName)
+		Expect(err).NotTo(HaveOccurred())
+		err = harness.CreateOrUpdateTestFleet(fleetName,
+			promotedFleetSpec(map[string]string{regionKey: "east"}, invalidConfig))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("template references unsupported field"))
+		fleetAfter, err := harness.GetFleet(fleetName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fleetAfter.Spec).To(Equal(fleetBefore.Spec))
+		device, err = harness.GetDevice(deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		inline, err := harness.GetDeviceInlineConfig(device, configName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(inline.Inline[0].Content).To(Equal("east"))
 	})
 
 	It("blocks rendering when a promoted label matches multiple fleets", func() {
@@ -153,7 +156,6 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		By("promoting a value that makes both fleets match")
 		promotedCreateDeviceWithStatus(harness, deviceName, map[string]string{}, "amd64", "east")
 		promotedWaitForLabels(harness, deviceName, map[string]string{architectureKey: "amd64"})
-		promotedWaitForMappingReady(harness, mappingName)
 
 		By("checking the public multiple-owner condition and lack of rendered config")
 		Eventually(func(g Gomega) {
@@ -162,7 +164,10 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 			g.Expect(device.Status).NotTo(BeNil())
 			g.Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
 			g.Expect(device.Metadata.Owner).To(BeNil())
-			g.Expect(device.Spec).To(BeNil())
+			_, err = harness.GetDeviceInlineConfig(device, "owner-a-config")
+			g.Expect(err).To(HaveOccurred())
+			_, err = harness.GetDeviceInlineConfig(device, "owner-b-config")
+			g.Expect(err).To(HaveOccurred())
 		}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
 	})
 
@@ -171,12 +176,6 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		rolloutTC = setupTestContext(harness.Context)
 		tc := rolloutTC
 
-		By("enrolling three devices for the first, next, and final batches")
-		Expect(tc.setupFleetAndDevices(harness.Context, 3, []map[string]string{
-			{labelSite: siteMadrid},
-			{labelSite: siteParis},
-			{labelSite: siteRome},
-		})).To(Succeed())
 		phaseKey := fmt.Sprintf("e2e.flightctl.io/phase-%s", promotedTestSuffix(harness))
 		mappingName := "phase-" + promotedTestSuffix(harness)
 		phaseExpression := func(parisValue string) string {
@@ -184,12 +183,18 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 				fmt.Sprintf(`status.systemInfo.architecture != "" ? (metadata.labels["site"] == "madrid" ? "first" : metadata.labels["site"] == "paris" ? %q : "remaining") : dyn(null)`, parisValue))
 		}
 
-		By("promoting a status-gated phase label before the rollout starts")
+		By("creating a status-gated phase mapping before device enrollment")
 		promotedCreateMapping(harness, mappingName, &phaseKey, phaseExpression("waiting"))
+		By("enrolling three devices for the first, next, and final batches")
+		Expect(tc.setupFleetAndDevices(harness.Context, 3, []map[string]string{
+			{labelSite: siteMadrid},
+			{labelSite: siteParis},
+			{labelSite: siteRome},
+		})).To(Succeed())
+		By("waiting for the initial promoted phase values")
 		promotedWaitForLabels(harness, tc.deviceIDs[0], map[string]string{phaseKey: "first"})
 		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "waiting"})
 		promotedWaitForLabels(harness, tc.deviceIDs[2], map[string]string{phaseKey: "remaining"})
-		promotedWaitForMappingReady(harness, mappingName)
 
 		batchSequence := api.BatchSequence{Sequence: &[]api.Batch{
 			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "first"}}, Limit: intLimit(1)},
@@ -199,6 +204,7 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		deviceSpec, err := tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
 		fleetSpec := createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
+		fleetSpec.RolloutPolicy.DefaultUpdateTimeout = lo.ToPtr("6m")
 
 		By("holding the first device in its batch while the next promoted value changes")
 		Expect(tc.harnesses[0].SimulateNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
@@ -207,7 +213,13 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		harness.WaitForBatchStart(fleetName, 0)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
 		promotedReplaceMapping(harness, mappingName, phaseExpression("second"))
-		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "second"})
+		Eventually(func(g Gomega) {
+			device, err := harness.GetDevice(tc.deviceIDs[1])
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(device.Metadata.Labels).NotTo(BeNil())
+			g.Expect(*device.Metadata.Labels).To(HaveKeyWithValue(phaseKey, "second"))
+		}).WithTimeout(util.DURATION_TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
+		promotedWaitForMappingReady(harness, mappingName)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
 		Expect(tc.harnesses[0].FixNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
 
@@ -229,11 +241,20 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(firstAfter.Spec).To(Equal(completedFirst.Spec))
 
 		By("starting a second rollout to detect stale batch IDs from the prior rollout")
-		Expect(tc.updateAppVersion(util.SleepAppTags.V3)).To(Succeed())
 		deviceSpec, err = tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
+		configs := []api.ConfigProviderSpec{promotedInlineConfig("rollout-marker", "second rollout")}
+		deviceSpec.Config = &configs
 		Expect(harness.CreateOrUpdateTestFleet(fleetName,
 			createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))).To(Succeed())
+		Eventually(func(g Gomega) {
+			fleet, err := harness.GetFleet(fleetName)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(fleet.Metadata.Annotations).NotTo(BeNil())
+			g.Expect((*fleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]).NotTo(Equal(firstVersion))
+		}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
+		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
+			WithArguments(fleetName).Should(e2e.HaveReason(api.RolloutActiveReason))
 		harness.WaitForBatchStart(fleetName, 3)
 		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
 		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
