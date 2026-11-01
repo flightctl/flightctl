@@ -3,7 +3,6 @@ package label_sync_mapping
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -18,8 +17,8 @@ func TestLabelSyncMapping(t *testing.T) {
 }
 
 func init() {
-	SetDefaultEventuallyTimeout(3 * time.Minute)
-	SetDefaultEventuallyPollingInterval(time.Second)
+	SetDefaultEventuallyTimeout(testutil.DURATION_TIMEOUT)
+	SetDefaultEventuallyPollingInterval(testutil.POLLING)
 }
 
 var _ = BeforeSuite(func() {

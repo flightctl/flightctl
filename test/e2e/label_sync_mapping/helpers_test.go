@@ -1,21 +1,29 @@
 package label_sync_mapping
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
+type mappingCleanupContextKey struct{}
+
+type mappingCleanupRegistry struct {
+	names map[string]struct{}
+}
+
 const (
-	apiEventuallyTimeout = 30 * time.Second
-	apiPollingInterval   = time.Second
+	apiEventuallyTimeout = testutil.TIMEOUT
+	apiPollingInterval   = testutil.POLLING
 )
 
 func uniqueName(harness *e2e.Harness, prefix string) string {
@@ -34,13 +42,46 @@ func createLabelSyncMapping(harness *e2e.Harness, name string, key *string, expr
 	Expect(response.StatusCode()).To(Equal(http.StatusCreated), string(response.Body))
 	Expect(response.JSON201).NotTo(BeNil())
 
-	DeferCleanup(func() {
-		response, err := harness.Client.DeleteLabelSyncMappingWithResponse(harness.Context, name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(response.StatusCode()).To(BeElementOf(http.StatusOK, http.StatusNotFound), string(response.Body))
-	})
+	registerMappingCleanup(harness, name)
 
 	return response.JSON201
+}
+
+func registerMappingCleanup(harness *e2e.Harness, name string) {
+	registry, ok := harness.Context.Value(mappingCleanupContextKey{}).(*mappingCleanupRegistry)
+	if !ok {
+		registry = &mappingCleanupRegistry{names: map[string]struct{}{}}
+		harness.SetTestContext(context.WithValue(harness.Context, mappingCleanupContextKey{}, registry))
+		DeferCleanup(func() {
+			names := make([]string, 0, len(registry.names))
+			for mappingName := range registry.names {
+				names = append(names, mappingName)
+			}
+			sort.Strings(names)
+
+			for _, mappingName := range names {
+				response, err := harness.Client.DeleteLabelSyncMappingWithResponse(harness.Context, mappingName)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(response.StatusCode()).To(BeElementOf(http.StatusOK, http.StatusNotFound), string(response.Body))
+			}
+			Eventually(func(g Gomega) {
+				for _, mappingName := range names {
+					response, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, mappingName)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(response.StatusCode()).To(Equal(http.StatusNotFound), string(response.Body))
+				}
+			}).Should(Succeed())
+		})
+	}
+	registry.names[name] = struct{}{}
+}
+
+func scopedScalarExpression(harness *e2e.Harness, expression string) string {
+	return fmt.Sprintf(`metadata.labels["test-id"] == %q ? (%s) : dyn(null)`, harness.GetTestIDFromContext(), expression)
+}
+
+func scopedMapExpression(harness *e2e.Harness, expression string) string {
+	return fmt.Sprintf(`metadata.labels["test-id"] == %q ? (%s) : {}`, harness.GetTestIDFromContext(), expression)
 }
 
 func newLabelSyncMapping(harness *e2e.Harness, name string, key *string, expression string) api.LabelSyncMapping {
@@ -111,6 +152,14 @@ func waitForDeviceLabels(harness *e2e.Harness, name string, expected map[string]
 }
 
 func waitForMappingReady(harness *e2e.Harness, name string) *api.LabelSyncMapping {
+	return waitForMappingCondition(harness, name, api.ConditionStatusTrue, "Success")
+}
+
+func waitForMappingDegraded(harness *e2e.Harness, name string) *api.LabelSyncMapping {
+	return waitForMappingCondition(harness, name, api.ConditionStatusFalse, "Degraded")
+}
+
+func waitForMappingCondition(harness *e2e.Harness, name string, status api.ConditionStatus, reason string) *api.LabelSyncMapping {
 	var mapping *api.LabelSyncMapping
 	Eventually(func(g Gomega) {
 		response, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, name)
@@ -122,7 +171,7 @@ func waitForMappingReady(harness *e2e.Harness, name string) *api.LabelSyncMappin
 
 		ready := false
 		for _, condition := range *response.JSON200.Status.Conditions {
-			if condition.Type == api.ConditionTypeLabelSyncMappingReady && condition.Status == api.ConditionStatusTrue {
+			if condition.Type == api.ConditionTypeLabelSyncMappingReady && condition.Status == status && condition.Reason == reason {
 				ready = true
 				break
 			}

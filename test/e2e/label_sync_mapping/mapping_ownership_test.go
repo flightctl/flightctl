@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Label sync mapping ownership", Label("integration", "mapping-ownership"), func() {
+var _ = Describe("Label sync mapping ownership", Serial, Label("integration", "sanity", "mapping-ownership"), func() {
 	It("protects exact owned keys through cleanup and recreation", func() {
 		harness := e2e.GetWorkerHarness()
 		suffix := uniqueName(harness, "ownership")
@@ -19,9 +19,12 @@ var _ = Describe("Label sync mapping ownership", Label("integration", "mapping-o
 		prefixKey := ownedKey + "-extra"
 		unrelatedKey := "e2e.flightctl.io/unrelated-" + suffix
 
-		created := createLabelSyncMapping(harness, mappingName, &ownedKey, "status.systemInfo.architecture")
-		createDeviceWithStatus(harness, deviceName, map[string]string{"operator": "preserved"}, "amd64", "linux", nil)
-		waitForDeviceLabels(harness, deviceName, map[string]string{ownedKey: "amd64"})
+		By("creating a mapping-owned label and reading its ownership metadata")
+		created := createLabelSyncMapping(harness, mappingName, &ownedKey, scopedScalarExpression(harness, "status.systemInfo.architecture"))
+		createDeviceWithStatus(harness, deviceName, map[string]string{"operator": "preserved", ownedKey: "amd64"}, "amd64", "linux", nil)
+		ownedDevice := waitForDeviceLabels(harness, deviceName, map[string]string{ownedKey: "amd64"})
+		Expect(ownedDevice.Metadata.Annotations).NotTo(BeNil())
+		Expect(*ownedDevice.Metadata.Annotations).To(HaveKey(api.DeviceAnnotationManagedLabels))
 		waitForMappingReady(harness, mappingName)
 
 		deviceProvenance, err := harness.Client.GetDeviceLabelSyncProvenanceWithResponse(harness.Context, deviceName)
@@ -40,6 +43,7 @@ var _ = Describe("Label sync mapping ownership", Label("integration", "mapping-o
 		Expect(ownersForKey(organizationProvenance.JSON200.Items, ownedKey)).To(ConsistOf(mappingName))
 		Expect(ownersForKey(organizationProvenance.JSON200.Items, prefixKey)).To(BeEmpty())
 
+		By("blocking a changed exact-key write while allowing unchanged and unrelated writes")
 		device := getDevice(harness, deviceName)
 		changedLabels := cloneLabels(device.Metadata.Labels)
 		changedLabels[ownedKey] = "forged"
@@ -62,6 +66,7 @@ var _ = Describe("Label sync mapping ownership", Label("integration", "mapping-o
 			unrelatedKey: "allowed",
 		})
 
+		By("deleting the mapping and verifying ownership and protection are released")
 		deleteLabelSyncMapping(harness, mappingName)
 		waitForDeviceLabels(harness, deviceName, map[string]string{
 			prefixKey:    "allowed",
@@ -78,7 +83,17 @@ var _ = Describe("Label sync mapping ownership", Label("integration", "mapping-o
 		Expect(organizationProvenance.JSON200).NotTo(BeNil())
 		Expect(ownersForKey(organizationProvenance.JSON200.Items, ownedKey)).To(BeEmpty())
 
-		recreated := createLabelSyncMapping(harness, mappingName, &ownedKey, "status.systemInfo.operatingSystem")
+		device = getDevice(harness, deviceName)
+		releasedLabels := cloneLabels(device.Metadata.Labels)
+		releasedLabels[ownedKey] = "operator-after-cleanup"
+		device.Metadata.Labels = &releasedLabels
+		releasedResponse, err := harness.Client.ReplaceDeviceWithResponse(harness.Context, deviceName, *device)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(releasedResponse.StatusCode()).To(Equal(http.StatusOK), string(releasedResponse.Body))
+		waitForDeviceLabels(harness, deviceName, map[string]string{ownedKey: "operator-after-cleanup"})
+
+		By("recreating the mapping with a new identity and restored protection")
+		recreated := createLabelSyncMapping(harness, mappingName, &ownedKey, scopedScalarExpression(harness, "status.systemInfo.operatingSystem"))
 		Expect(created.Metadata.CreationTimestamp).NotTo(BeNil())
 		Expect(recreated.Metadata.CreationTimestamp).NotTo(BeNil())
 		Expect(*recreated.Metadata.CreationTimestamp).NotTo(Equal(*created.Metadata.CreationTimestamp))

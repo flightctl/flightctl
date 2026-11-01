@@ -9,13 +9,15 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Label sync mapping API lifecycle", Label("integration", "mapping-api"), func() {
+var _ = Describe("Label sync mapping API lifecycle", Serial, Label("integration", "sanity", "mapping-api"), func() {
 	It("supports CRUD and patch while rejecting an invalid expression shape", func() {
 		harness := e2e.GetWorkerHarness()
 		mappingName := uniqueName(harness, "api-lifecycle")
 		mappingKey := "e2e.flightctl.io/" + mappingName
 
-		created := createLabelSyncMapping(harness, mappingName, &mappingKey, "status.systemInfo.architecture")
+		By("creating, reading, and listing a mapping")
+		createdExpression := scopedScalarExpression(harness, "status.systemInfo.architecture")
+		created := createLabelSyncMapping(harness, mappingName, &mappingKey, createdExpression)
 		Expect(created.Metadata.Name).NotTo(BeNil())
 		Expect(*created.Metadata.Name).To(Equal(mappingName))
 		Expect(created.Metadata.Generation).NotTo(BeNil())
@@ -25,7 +27,7 @@ var _ = Describe("Label sync mapping API lifecycle", Label("integration", "mappi
 		Expect(err).NotTo(HaveOccurred())
 		Expect(getResponse.StatusCode()).To(Equal(http.StatusOK), string(getResponse.Body))
 		Expect(getResponse.JSON200).NotTo(BeNil())
-		Expect(getResponse.JSON200.Spec.Expression).To(Equal("status.systemInfo.architecture"))
+		Expect(getResponse.JSON200.Spec.Expression).To(Equal(createdExpression))
 
 		listResponse, err := harness.Client.ListLabelSyncMappingsWithResponse(harness.Context, &api.ListLabelSyncMappingsParams{})
 		Expect(err).NotTo(HaveOccurred())
@@ -40,20 +42,23 @@ var _ = Describe("Label sync mapping API lifecycle", Label("integration", "mappi
 		}
 		Expect(found).To(BeTrue())
 
+		By("patching the expression and waiting for the new generation")
+		patchedExpression := scopedScalarExpression(harness, "status.systemInfo.operatingSystem")
 		patch := api.PatchRequest{{
 			Op:    api.PatchRequestOp("replace"),
 			Path:  "/spec/expression",
-			Value: "status.systemInfo.operatingSystem",
+			Value: patchedExpression,
 		}}
 		patchResponse, err := harness.Client.PatchLabelSyncMappingWithApplicationJSONPatchPlusJSONBodyWithResponse(harness.Context, mappingName, patch)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(patchResponse.StatusCode()).To(Equal(http.StatusOK), string(patchResponse.Body))
 		Expect(patchResponse.JSON200).NotTo(BeNil())
-		Expect(patchResponse.JSON200.Spec.Expression).To(Equal("status.systemInfo.operatingSystem"))
+		Expect(patchResponse.JSON200.Spec.Expression).To(Equal(patchedExpression))
 		Expect(patchResponse.JSON200.Metadata.Generation).NotTo(BeNil())
 		Expect(*patchResponse.JSON200.Metadata.Generation).To(BeNumerically(">", createdGeneration))
 		waitForMappingReady(harness, mappingName)
 
+		By("rejecting an expression whose shape does not match scalar mode")
 		invalidName := uniqueName(harness, "invalid-shape")
 		invalid := newLabelSyncMapping(harness, invalidName, &mappingKey, `{"not": "scalar"}`)
 		invalidResponse, err := harness.Client.CreateLabelSyncMappingWithResponse(harness.Context, invalid)
@@ -61,6 +66,7 @@ var _ = Describe("Label sync mapping API lifecycle", Label("integration", "mappi
 		Expect(invalidResponse.StatusCode()).To(Equal(http.StatusUnprocessableEntity), string(invalidResponse.Body))
 		Expect(invalidResponse.JSON422).NotTo(BeNil())
 
+		By("deleting the mapping asynchronously")
 		deleteLabelSyncMapping(harness, mappingName)
 		waitForMappingDeleted(harness, mappingName)
 	})
