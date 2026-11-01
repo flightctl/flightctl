@@ -1,7 +1,6 @@
 package label_sync_mapping
 
 import (
-	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -22,11 +21,9 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
-	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).NotTo(HaveOccurred())
-	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
