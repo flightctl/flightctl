@@ -143,6 +143,21 @@ func deleteLabelSyncMapping(harness *e2e.Harness, name string) {
 	Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
 }
 
+func replaceLabelSyncMapping(harness *e2e.Harness, name string, key *string, expression string) *api.LabelSyncMapping {
+	getResponse, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, name)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(getResponse.StatusCode()).To(Equal(http.StatusOK), string(getResponse.Body))
+	Expect(getResponse.JSON200).NotTo(BeNil())
+
+	getResponse.JSON200.Spec.Key = key
+	getResponse.JSON200.Spec.Expression = expression
+	replaceResponse, err := harness.Client.ReplaceLabelSyncMappingWithResponse(harness.Context, name, *getResponse.JSON200)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(replaceResponse.StatusCode()).To(Equal(http.StatusOK), string(replaceResponse.Body))
+	Expect(replaceResponse.JSON200).NotTo(BeNil())
+	return replaceResponse.JSON200
+}
+
 func listDevicesByLabel(harness *e2e.Harness, selector string) []api.Device {
 	response, err := harness.Client.ListDevicesWithResponse(harness.Context, &api.ListDevicesParams{LabelSelector: &selector})
 	Expect(err).NotTo(HaveOccurred())
