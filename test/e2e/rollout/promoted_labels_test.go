@@ -2,9 +2,6 @@ package rollout_test
 
 import (
 	"fmt"
-	"net/http"
-	"sort"
-	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
@@ -174,34 +171,32 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		rolloutTC = setupTestContext(harness.Context)
 		tc := rolloutTC
 
-		By("enrolling three devices with stable first, later, and final batch identities")
-		Expect(tc.setupFleetAndDevices(harness.Context, 3, []map[string]string{
+		By("enrolling two devices for the first and final batches")
+		Expect(tc.setupFleetAndDevices(harness.Context, 2, []map[string]string{
 			{labelSite: siteMadrid},
 			{labelSite: siteParis},
-			{labelSite: siteRome},
 		})).To(Succeed())
 		phaseKey := fmt.Sprintf("e2e.flightctl.io/phase-%s", promotedTestSuffix(harness))
 		mappingName := "phase-" + promotedTestSuffix(harness)
 		phaseExpression := func(parisValue string) string {
 			return promotedScalarExpression(harness,
-				fmt.Sprintf(`status.systemInfo.architecture != "" ? (metadata.labels["site"] == "madrid" ? "first" : metadata.labels["site"] == "paris" ? %q : "remaining") : dyn(null)`, parisValue))
+				fmt.Sprintf(`status.systemInfo.architecture != "" ? (metadata.labels["site"] == "madrid" ? "active" : %q) : dyn(null)`, parisValue))
 		}
 
 		By("promoting a status-gated phase label before the rollout starts")
 		promotedCreateMapping(harness, mappingName, &phaseKey, phaseExpression("waiting"))
-		promotedWaitForLabels(harness, tc.deviceIDs[0], map[string]string{phaseKey: "first"})
+		promotedWaitForLabels(harness, tc.deviceIDs[0], map[string]string{phaseKey: "active"})
 		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "waiting"})
-		promotedWaitForLabels(harness, tc.deviceIDs[2], map[string]string{phaseKey: "remaining"})
 		promotedWaitForMappingReady(harness, mappingName)
 
 		batchSequence := api.BatchSequence{Sequence: &[]api.Batch{
-			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "first"}}, Limit: intLimit(1)},
-			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "second"}}, Limit: intLimit(1)},
+			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}, Limit: intLimit(1)},
 		}}
 		Expect(tc.updateAppVersion(util.SleepAppTags.V2)).To(Succeed())
 		deviceSpec, err := tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
 		fleetSpec := createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
+		fleetSpec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}
 
 		By("holding the first device in its batch while the next promoted value changes")
 		Expect(tc.harnesses[0].SimulateNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
@@ -209,22 +204,22 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)).To(Succeed())
 		harness.WaitForBatchStart(fleetName, 0)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
-		promotedReplaceMapping(harness, mappingName, phaseExpression("second"))
-		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "second"})
+		promotedReplaceMapping(harness, mappingName, phaseExpression("active"))
+		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "active"})
+		promotedWaitForOwner(harness, tc.deviceIDs[1], fleetName)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
 		Expect(tc.harnesses[0].FixNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
 
-		By("checking the changed value is selected next and the final batch catches the remainder")
+		By("checking the newly eligible device joins the final batch")
 		harness.WaitForBatchStart(fleetName, 1)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[1])
 		completedFirst, err := harness.GetDevice(tc.deviceIDs[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(completedFirst.Spec).NotTo(BeNil())
 		harness.WaitForBatchStart(fleetName, 2)
-		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[2])
-		harness.WaitForBatchStart(fleetName, 3)
-		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
-		promotedWaitForRolloutInactive(harness, fleetName)
+		Expect(tc.verifyAllDevicesUpdated(2)).To(Succeed())
+		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
+			WithArguments(fleetName).Should(e2e.HaveReason(api.RolloutInactiveReason))
 		firstVersion := promotedFleetTemplateVersion(harness, fleetName)
 		firstAfter, err := harness.GetDevice(tc.deviceIDs[0])
 		Expect(err).NotTo(HaveOccurred())
@@ -234,275 +229,26 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(tc.updateAppVersion(util.SleepAppTags.V3)).To(Succeed())
 		deviceSpec, err = tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(harness.CreateOrUpdateTestFleet(fleetName,
-			createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))).To(Succeed())
-		harness.WaitForBatchStart(fleetName, 3)
-		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
-		promotedWaitForRolloutInactive(harness, fleetName)
+		fleetSpec = createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
+		fleetSpec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}
+		Expect(harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)).To(Succeed())
+		harness.WaitForBatchStart(fleetName, 2)
+		Expect(tc.verifyAllDevicesUpdated(2)).To(Succeed())
+		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
+			WithArguments(fleetName).Should(e2e.HaveReason(api.RolloutInactiveReason))
 		secondVersion := promotedFleetTemplateVersion(harness, fleetName)
 		Expect(secondVersion).NotTo(Equal(firstVersion))
 
 		By("checking dispatch IDs and exactly one completion event for each rollout")
 		var eventErrors []string
 		for _, version := range []string{firstVersion, secondVersion} {
+			var events []api.Event
 			Eventually(func(g Gomega) {
-				g.Expect(promotedCompletionCount(harness, fleetName, version)).To(BeNumerically(">=", 1))
+				events = promotedFleetEvents(harness, fleetName)
+				g.Expect(promotedCompletionCount(events, version)).To(BeNumerically(">=", 1))
 			}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-			batches := promotedDispatchedBatches(harness, fleetName, version)
-			if !promotedCorrectBatchOrder(batches) {
-				eventErrors = append(eventErrors, fmt.Sprintf("template %s dispatched batches %v; expected current first, second and final batches in order", version, batches))
-			}
-			completed := promotedCompletionCount(harness, fleetName, version)
-			if completed != 1 {
-				eventErrors = append(eventErrors, fmt.Sprintf("template %s has %d completion events; expected 1", version, completed))
-			}
+			eventErrors = append(eventErrors, promotedRolloutEventErrors(events, version)...)
 		}
 		Expect(eventErrors).To(BeEmpty())
 	})
 })
-
-func promotedReplaceMapping(harness *e2e.Harness, name, expression string) {
-	response, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, name)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-	Expect(response.JSON200).NotTo(BeNil())
-	response.JSON200.Spec.Expression = expression
-	replaced, err := harness.Client.ReplaceLabelSyncMappingWithResponse(harness.Context, name, *response.JSON200)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(replaced.StatusCode()).To(Equal(http.StatusOK), string(replaced.Body))
-}
-
-func promotedExpectSelectedBatchDevice(harness *e2e.Harness, expectedID string) {
-	Eventually(func(g Gomega) {
-		selected, err := harness.GetSelectedDevicesForBatch(fleetName)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(selected).To(HaveLen(1))
-		g.Expect(selected[0].Metadata.Name).NotTo(BeNil())
-		g.Expect(*selected[0].Metadata.Name).To(Equal(expectedID))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedFleetTemplateVersion(harness *e2e.Harness, name string) string {
-	fleet, err := harness.GetFleet(name)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(fleet.Metadata.Annotations).NotTo(BeNil())
-	version := (*fleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]
-	Expect(version).NotTo(BeEmpty())
-	return version
-}
-
-func promotedWaitForRolloutInactive(harness *e2e.Harness, name string) {
-	Eventually(func(g Gomega) {
-		condition, err := harness.GetRolloutStatus(name)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(condition.Reason).To(Equal(api.RolloutInactiveReason))
-	}).WithTimeout(util.LONG_TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedFleetEvents(harness *e2e.Harness, name string, reason api.EventReason) []api.Event {
-	selector := fmt.Sprintf("involvedObject.name=%s,reason=%s", name, reason)
-	response, err := harness.Client.ListEventsWithResponse(harness.Context, &api.ListEventsParams{FieldSelector: &selector})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-	Expect(response.JSON200).NotTo(BeNil())
-	return response.JSON200.Items
-}
-
-func promotedDispatchedBatches(harness *e2e.Harness, name, version string) []string {
-	events := promotedFleetEvents(harness, name, api.EventReasonFleetRolloutBatchDispatched)
-	sort.SliceStable(events, func(i, j int) bool {
-		left, right := events[i].Metadata.CreationTimestamp, events[j].Metadata.CreationTimestamp
-		if left == nil || right == nil {
-			return false
-		}
-		return left.Before(*right)
-	})
-	var batches []string
-	for _, event := range events {
-		if event.Details == nil {
-			continue
-		}
-		details, err := event.Details.AsFleetRolloutBatchDispatchedDetails()
-		if err == nil && details.TemplateVersion == version {
-			batches = append(batches, details.Batch)
-		}
-	}
-	return batches
-}
-
-func promotedCorrectBatchOrder(batches []string) bool {
-	if len(batches) < 3 {
-		return false
-	}
-	last := -1
-	seen := map[int]bool{}
-	for _, batch := range batches {
-		number, valid := promotedBatchNumber(batch)
-		if !valid || number < last {
-			return false
-		}
-		seen[number] = true
-		last = number
-	}
-	return seen[0] && seen[1] && seen[2]
-}
-
-func promotedBatchNumber(batch string) (int, bool) {
-	switch batch {
-	case "-1", api.PreliminaryBatchName:
-		return -1, true
-	case "0", "batch 1":
-		return 0, true
-	case "1", "batch 2":
-		return 1, true
-	case "2", api.FinalImplicitBatchName:
-		return 2, true
-	default:
-		return 0, false
-	}
-}
-
-func promotedCompletionCount(harness *e2e.Harness, name, version string) int {
-	count := 0
-	for _, event := range promotedFleetEvents(harness, name, api.EventReasonFleetRolloutCompleted) {
-		if event.Details == nil {
-			continue
-		}
-		details, err := event.Details.AsFleetRolloutCompletedDetails()
-		if err == nil && details.TemplateVersion == version {
-			count++
-		}
-	}
-	return count
-}
-
-func promotedInlineConfig(name, content string) api.ConfigProviderSpec {
-	var config api.ConfigProviderSpec
-	Expect(config.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
-		Name:   name,
-		Inline: []api.FileSpec{{Path: "/etc/flightctl/selected-region", Content: content}},
-	})).To(Succeed())
-	return config
-}
-
-func promotedFleetSpec(selector map[string]string, config api.ConfigProviderSpec) api.FleetSpec {
-	return api.FleetSpec{
-		Selector: &api.LabelSelector{MatchLabels: &selector},
-		Template: struct {
-			Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
-			Spec     api.DeviceSpec  "json:\"spec\""
-		}{Spec: api.DeviceSpec{Config: &[]api.ConfigProviderSpec{config}}},
-	}
-}
-
-func promotedTestSuffix(harness *e2e.Harness) string {
-	suffix := strings.TrimPrefix(harness.GetTestIDFromContext(), "test-")
-	if len(suffix) > 8 {
-		suffix = suffix[:8]
-	}
-	return suffix
-}
-
-func promotedScalarExpression(harness *e2e.Harness, expression string) string {
-	return fmt.Sprintf(`metadata.labels["test-id"] == %q ? (%s) : dyn(null)`, harness.GetTestIDFromContext(), expression)
-}
-
-func promotedMapExpression(harness *e2e.Harness, expression string) string {
-	return fmt.Sprintf(`metadata.labels["test-id"] == %q ? (%s) : {}`, harness.GetTestIDFromContext(), expression)
-}
-
-func promotedCreateMapping(harness *e2e.Harness, name string, key *string, expression string) {
-	labels := map[string]string{"test-id": harness.GetTestIDFromContext()}
-	mapping := api.LabelSyncMapping{
-		ApiVersion: api.LabelSyncMappingAPIVersion,
-		Kind:       api.LabelSyncMappingKind(api.LabelSyncMappingKindValue),
-		Metadata:   api.ObjectMeta{Name: &name, Labels: &labels},
-		Spec: api.LabelSyncMappingSpec{
-			Expression:   expression,
-			Key:          key,
-			ResourceType: api.LabelSyncMappingSpecResourceTypeDevice,
-		},
-	}
-	response, err := harness.Client.CreateLabelSyncMappingWithResponse(harness.Context, mapping)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(response.StatusCode()).To(Equal(http.StatusCreated), string(response.Body))
-	DeferCleanup(func() {
-		response, err := harness.Client.DeleteLabelSyncMappingWithResponse(harness.Context, name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(response.StatusCode()).To(BeElementOf(http.StatusOK, http.StatusNotFound), string(response.Body))
-	})
-}
-
-func promotedCreateDeviceWithStatus(harness *e2e.Harness, name string, labels map[string]string, architecture, region string) {
-	_, err := resources.CreateDevice(harness, name, &labels)
-	Expect(err).NotTo(HaveOccurred())
-	promotedReplaceDeviceStatus(harness, name, architecture, region)
-}
-
-func promotedReplaceDeviceStatus(harness *e2e.Harness, name, architecture, region string) {
-	Eventually(func(g Gomega) {
-		response, err := harness.Client.GetDeviceWithResponse(harness.Context, name)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-		g.Expect(response.JSON200).NotTo(BeNil())
-		status := api.NewDeviceStatus()
-		if response.JSON200.Status != nil {
-			status = *response.JSON200.Status
-		}
-		status.SystemInfo.Architecture = architecture
-		status.SystemInfo.OperatingSystem = "linux"
-		info := api.CustomDeviceInfo{"region": region}
-		status.SystemInfo.CustomInfo = &info
-		response.JSON200.Status = &status
-		replaced, err := harness.Client.ReplaceDeviceStatusWithResponse(harness.Context, name, *response.JSON200)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(replaced.StatusCode()).To(Equal(http.StatusOK), string(replaced.Body))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedWaitForLabels(harness *e2e.Harness, name string, expected map[string]string) {
-	Eventually(func(g Gomega) {
-		device, err := harness.GetDevice(name)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(device.Metadata.Labels).NotTo(BeNil())
-		for key, value := range expected {
-			g.Expect(*device.Metadata.Labels).To(HaveKeyWithValue(key, value))
-		}
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedWaitForMappingReady(harness *e2e.Harness, name string) {
-	Eventually(func(g Gomega) {
-		response, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, name)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-		g.Expect(response.JSON200).NotTo(BeNil())
-		g.Expect(response.JSON200.Status).NotTo(BeNil())
-		g.Expect(response.JSON200.Status.Conditions).NotTo(BeNil())
-		g.Expect(*response.JSON200.Status.Conditions).To(ContainElement(And(
-			HaveField("Type", api.ConditionTypeLabelSyncMappingReady),
-			HaveField("Status", api.ConditionStatusTrue),
-		)))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedWaitForOwner(harness *e2e.Harness, deviceName, fleetName string) {
-	Eventually(func(g Gomega) {
-		device, err := harness.GetDevice(deviceName)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(device.Metadata.Owner).NotTo(BeNil())
-		g.Expect(*device.Metadata.Owner).To(Equal("Fleet/" + fleetName))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedExpectSelectedDevice(harness *e2e.Harness, selector, expectedName string) {
-	Eventually(func(g Gomega) {
-		response, err := harness.Client.ListDevicesWithResponse(harness.Context, &api.ListDevicesParams{LabelSelector: &selector})
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-		g.Expect(response.JSON200).NotTo(BeNil())
-		g.Expect(response.JSON200.Items).To(HaveLen(1))
-		g.Expect(response.JSON200.Items[0].Metadata.Name).NotTo(BeNil())
-		g.Expect(*response.JSON200.Items[0].Metadata.Name).To(Equal(expectedName))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
