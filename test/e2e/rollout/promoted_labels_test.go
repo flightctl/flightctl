@@ -171,32 +171,34 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		rolloutTC = setupTestContext(harness.Context)
 		tc := rolloutTC
 
-		By("enrolling two devices for the first and final batches")
-		Expect(tc.setupFleetAndDevices(harness.Context, 2, []map[string]string{
+		By("enrolling three devices for the first, next, and final batches")
+		Expect(tc.setupFleetAndDevices(harness.Context, 3, []map[string]string{
 			{labelSite: siteMadrid},
 			{labelSite: siteParis},
+			{labelSite: siteRome},
 		})).To(Succeed())
 		phaseKey := fmt.Sprintf("e2e.flightctl.io/phase-%s", promotedTestSuffix(harness))
 		mappingName := "phase-" + promotedTestSuffix(harness)
 		phaseExpression := func(parisValue string) string {
 			return promotedScalarExpression(harness,
-				fmt.Sprintf(`status.systemInfo.architecture != "" ? (metadata.labels["site"] == "madrid" ? "active" : %q) : dyn(null)`, parisValue))
+				fmt.Sprintf(`status.systemInfo.architecture != "" ? (metadata.labels["site"] == "madrid" ? "first" : metadata.labels["site"] == "paris" ? %q : "remaining") : dyn(null)`, parisValue))
 		}
 
 		By("promoting a status-gated phase label before the rollout starts")
 		promotedCreateMapping(harness, mappingName, &phaseKey, phaseExpression("waiting"))
-		promotedWaitForLabels(harness, tc.deviceIDs[0], map[string]string{phaseKey: "active"})
+		promotedWaitForLabels(harness, tc.deviceIDs[0], map[string]string{phaseKey: "first"})
 		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "waiting"})
+		promotedWaitForLabels(harness, tc.deviceIDs[2], map[string]string{phaseKey: "remaining"})
 		promotedWaitForMappingReady(harness, mappingName)
 
 		batchSequence := api.BatchSequence{Sequence: &[]api.Batch{
-			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}, Limit: intLimit(1)},
+			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "first"}}, Limit: intLimit(1)},
+			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "second"}}, Limit: intLimit(1)},
 		}}
 		Expect(tc.updateAppVersion(util.SleepAppTags.V2)).To(Succeed())
 		deviceSpec, err := tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
 		fleetSpec := createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-		fleetSpec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}
 
 		By("holding the first device in its batch while the next promoted value changes")
 		Expect(tc.harnesses[0].SimulateNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
@@ -204,20 +206,21 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)).To(Succeed())
 		harness.WaitForBatchStart(fleetName, 0)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
-		promotedReplaceMapping(harness, mappingName, phaseExpression("active"))
-		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "active"})
-		promotedWaitForOwner(harness, tc.deviceIDs[1], fleetName)
+		promotedReplaceMapping(harness, mappingName, phaseExpression("second"))
+		promotedWaitForLabels(harness, tc.deviceIDs[1], map[string]string{phaseKey: "second"})
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[0])
 		Expect(tc.harnesses[0].FixNetworkFailure(tc.registryHost, tc.registryPort)).To(Succeed())
 
-		By("checking the newly eligible device joins the final batch")
+		By("checking the changed value is selected next and the final batch catches the remainder")
 		harness.WaitForBatchStart(fleetName, 1)
 		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[1])
 		completedFirst, err := harness.GetDevice(tc.deviceIDs[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(completedFirst.Spec).NotTo(BeNil())
 		harness.WaitForBatchStart(fleetName, 2)
-		Expect(tc.verifyAllDevicesUpdated(2)).To(Succeed())
+		promotedExpectSelectedBatchDevice(harness, tc.deviceIDs[2])
+		harness.WaitForBatchStart(fleetName, 3)
+		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
 		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
 			WithArguments(fleetName).Should(e2e.HaveReason(api.RolloutInactiveReason))
 		firstVersion := promotedFleetTemplateVersion(harness, fleetName)
@@ -229,11 +232,10 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(tc.updateAppVersion(util.SleepAppTags.V3)).To(Succeed())
 		deviceSpec, err = tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
-		fleetSpec = createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-		fleetSpec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "active"}}
-		Expect(harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)).To(Succeed())
-		harness.WaitForBatchStart(fleetName, 2)
-		Expect(tc.verifyAllDevicesUpdated(2)).To(Succeed())
+		Expect(harness.CreateOrUpdateTestFleet(fleetName,
+			createFleetSpec(batchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))).To(Succeed())
+		harness.WaitForBatchStart(fleetName, 3)
+		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
 		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
 			WithArguments(fleetName).Should(e2e.HaveReason(api.RolloutInactiveReason))
 		secondVersion := promotedFleetTemplateVersion(harness, fleetName)

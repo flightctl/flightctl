@@ -64,7 +64,8 @@ func promotedRolloutEventErrors(events []api.Event, version string) []string {
 	batchNumbers := map[string]int{
 		"-1": -1, api.PreliminaryBatchName: -1,
 		"0": 0, "batch 1": 0,
-		"1": 1, api.FinalImplicitBatchName: 1,
+		"1": 1, "batch 2": 1,
+		"2": 2, api.FinalImplicitBatchName: 2,
 	}
 	var batches []string
 	var errors []string
@@ -87,8 +88,8 @@ func promotedRolloutEventErrors(events []api.Event, version string) []string {
 		seen[number] = true
 		lastBatch = number
 	}
-	if !seen[0] || !seen[1] {
-		errors = append(errors, fmt.Sprintf("template %s dispatched %v; expected first and final batches", version, batches))
+	if !seen[0] || !seen[1] || !seen[2] {
+		errors = append(errors, fmt.Sprintf("template %s dispatched %v; expected first, second, and final batches", version, batches))
 	}
 	if count := promotedCompletionCount(events, version); count != 1 {
 		errors = append(errors, fmt.Sprintf("template %s has %d completion events; expected 1", version, count))
