@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
@@ -44,9 +45,22 @@ func promotedFleetTemplateVersion(harness *e2e.Harness, name string) string {
 	return version
 }
 
-func promotedFleetEvents(harness *e2e.Harness, name string) []api.Event {
+func promotedFleetEventCutoff(harness *e2e.Harness, name string) time.Time {
+	events := promotedFleetEvents(harness, name, time.Time{})
+	if len(events) == 0 {
+		return time.Time{}
+	}
+	Expect(events[0].Metadata.CreationTimestamp).NotTo(BeNil())
+	return *events[0].Metadata.CreationTimestamp
+}
+
+func promotedFleetEvents(harness *e2e.Harness, name string, after time.Time) []api.Event {
 	selector := "involvedObject.name=" + name
-	response, err := harness.Client.ListEventsWithResponse(harness.Context, &api.ListEventsParams{FieldSelector: &selector})
+	if !after.IsZero() {
+		selector += ",metadata.creationTimestamp>" + after.UTC().Format(time.RFC3339Nano)
+	}
+	order := api.Desc
+	response, err := harness.Client.ListEventsWithResponse(harness.Context, &api.ListEventsParams{FieldSelector: &selector, Order: &order})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
 	Expect(response.JSON200).NotTo(BeNil())

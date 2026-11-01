@@ -200,6 +200,8 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "first"}}, Limit: intLimit(1)},
 			{Selector: &api.LabelSelector{MatchLabels: &map[string]string{phaseKey: "second"}}, Limit: intLimit(1)},
 		}}
+		// Fleet names and template versions are reused, while events survive test cleanup.
+		eventCutoff := promotedFleetEventCutoff(harness, fleetName)
 		Expect(tc.updateAppVersion(util.SleepAppTags.V2)).To(Succeed())
 		deviceSpec, err := tc.createDeviceSpec()
 		Expect(err).NotTo(HaveOccurred())
@@ -267,7 +269,7 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		for _, version := range []string{firstVersion, secondVersion} {
 			var events []api.Event
 			Eventually(func(g Gomega) {
-				events = promotedFleetEvents(harness, fleetName)
+				events = promotedFleetEvents(harness, fleetName, eventCutoff)
 				g.Expect(promotedCompletionCount(events, version)).To(BeNumerically(">=", 1))
 			}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
 			eventErrors = append(eventErrors, promotedRolloutEventErrors(events, version)...)
