@@ -149,6 +149,7 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 			setupExpectations: func(t *testing.T, exec *executer.MockExecuter, image string) {
 				t.Helper()
 				const canonicalImageID = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+				const reconstructedImageID = "3333333333333333333333333333333333333333333333333333333333333333"
 				targetIndex, _ := testApplicationTargetIndex(t, podmanDeltaTargetDigest)
 				canonicalMetadata := fmt.Sprintf(
 					`{"status":{"id":%q,"repoDigests":[%q]}}`,
@@ -175,9 +176,9 @@ func TestWhenADeltaIsRefreshedItShouldActivateTheInstallationSelector(t *testing
 				).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
-				).Return("", "", 0)
+				).Return(reconstructedImageID+"\n", "", 0)
 				reconstructedVisible := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "crictl", "images", image,
+					gomock.Any(), "crictl", "images", reconstructedImageID,
 				).Return("IMAGE TAG IMAGE ID SIZE\nquay.io/acme/app "+podmanDeltaTargetDigest+" sha256:3333333333333333333333333333333333333333333333333333333333333333 1MB\n", "", 0)
 
 				pullEnv := make([]any, len(os.Environ()))

@@ -146,7 +146,7 @@ func TestOCIDeltaImport(t *testing.T) {
 			tt.setupMocks(mockExec)
 
 			delta := NewOCIDelta(logger, mockExec, time.Minute)
-			err := delta.Import(context.Background(), deltaRef, tt.targetRef)
+			_, err := delta.Import(context.Background(), deltaRef, tt.targetRef)
 			if tt.expectedError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "diff_id mismatch")
