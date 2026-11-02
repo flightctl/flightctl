@@ -375,7 +375,7 @@ func TestClusterScopedOpenShiftResourcesRemainByDefault(t *testing.T) {
 	require.NoError(t, err, output)
 
 	require.Len(t, findResources(resources, "OAuthClient", "flightctl-test"), 1)
-	require.Len(t, findResources(resources, "SecurityContextConstraints", "flightctl-imagebuilder-worker"), 1)
+	require.Empty(t, findResources(resources, "SecurityContextConstraints", "flightctl-imagebuilder-worker"))
 	require.Len(t, findResources(resources, "SecurityContextConstraints", "flightctl-delta-worker"), 1)
 	require.Len(t, findResources(resources, "ClusterRole", "flightctl-device-registration"), 1)
 	require.Len(t, findResources(resources, "ConsolePlugin", "flightctl-plugin"), 1)

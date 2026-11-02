@@ -115,7 +115,7 @@ runs:
       shell: bash
       env:
         KIND_CONFIG: ${{ inputs.kind-config }}
-      run: kind create cluster --config "${KIND_CONFIG}"
+      run: test/scripts/create_cluster.sh
 
     - name: Setup local DNS (replace external nip.io)
       shell: bash
@@ -166,6 +166,8 @@ runs:
         EXTRA_ARGS=""
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
+        EXTRA_ARGS+=" --set imageBuilderWorker.enabled=${IMAGEBUILDER_WORKER_ENABLED:-true}"
+        EXTRA_ARGS+=" --set imageBuilderWorker.vm.accelerator=${IMAGEBUILDER_VM_ACCELERATOR:-kvm}"
 
         # Build the helm command
         HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
@@ -227,7 +229,7 @@ runs:
           echo "gh run download ${RUN_ID} -n helm-chart-${IMAGE_TAG} -D artifacts"
           echo ""
           echo "# Create kind cluster and load images"
-          echo "kind create cluster --config ${KIND_CONFIG}"
+          echo "KIND_CONFIG=${KIND_CONFIG} test/scripts/create_cluster.sh"
           echo "kind load image-archive bin/flightctl-images-bundle.tar"
           echo ""
           echo "# Deploy"

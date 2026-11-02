@@ -344,7 +344,13 @@ flightctl-imagebuilder-api-container: packaging/images/$(OS)/Containerfile.image
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.imagebuilder-api -t flightctl-imagebuilder-api-$(OS):latest -t quay.io/flightctl/flightctl-imagebuilder-api-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-imagebuilder-worker-container: packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
+.output/flightctl-vm/guest.disk .output/flightctl-vm/guest.rpms .output/flightctl-vm/guest.sha256 &: hack/prepare-imagebuilder-vm-guest.sh
+	hack/prepare-imagebuilder-vm-guest.sh .output/flightctl-vm
+
+.PHONY: imagebuilder-vm-guest
+imagebuilder-vm-guest: .output/flightctl-vm/guest.disk .output/flightctl-vm/guest.rpms .output/flightctl-vm/guest.sha256
+
+flightctl-imagebuilder-worker-container: imagebuilder-vm-guest packaging/vm/build-runtime.sh packaging/vm/worker-entrypoint.sh packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \

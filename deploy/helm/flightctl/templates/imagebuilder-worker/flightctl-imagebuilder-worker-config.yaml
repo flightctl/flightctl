@@ -40,9 +40,17 @@ data:
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
     imageBuilderWorker:
         logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
-        maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
+        maxConcurrentBuilds: {{ default 1 .Values.imageBuilderWorker.maxConcurrentBuilds }}
+        vm:
+          baseImage: {{ .Values.imageBuilderWorker.vm.baseImage | quote }}
+          accelerator: {{ .Values.imageBuilderWorker.vm.accelerator | quote }}
+          memoryMiB: {{ .Values.imageBuilderWorker.vm.memoryMiB }}
+          cpus: {{ .Values.imageBuilderWorker.vm.cpus }}
+          diskSizeGiB: {{ .Values.imageBuilderWorker.vm.diskSizeGiB }}
+          bootTimeout: {{ .Values.imageBuilderWorker.vm.bootTimeout | quote }}
+          executionTimeout: {{ .Values.imageBuilderWorker.vm.executionTimeout | quote }}
         defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
-        imageBuilderTimeout: {{ default "3m" .Values.imageBuilderWorker.imageBuilderTimeout }}
+        imageBuilderTimeout: {{ default "10m" .Values.imageBuilderWorker.imageBuilderTimeout }}
         timeoutCheckTaskInterval: {{ default "1m" .Values.imageBuilderWorker.timeoutCheckTaskInterval }}
         {{- if .Values.imageBuilderWorker.rpmRepoUrl }}
         rpmRepoUrl: {{ .Values.imageBuilderWorker.rpmRepoUrl | quote }}
@@ -63,13 +71,9 @@ data:
         dnfSkipUnavailable: {{ .Values.imageBuilderWorker.dnfSkipUnavailable }}
         {{- end }}
         {{- with .Values.imageBuilderWorker.serviceImages }}
-        {{- $podman := .podman | default (dict "image" "" "skipTlsVerify" false) }}
         {{- $bootc := .bootcImageBuilder | default (dict "image" "" "skipTlsVerify" false) }}
         {{- $syft := .syft | default (dict "image" "" "skipTlsVerify" false) }}
         serviceImages:
-          podman:
-            image: {{ $podman.image | default "" | quote }}
-            skipTlsVerify: {{ $podman.skipTlsVerify | default false }}
           bootcImageBuilder:
             image: {{ $bootc.image | default "" | quote }}
             skipTlsVerify: {{ $bootc.skipTlsVerify | default false }}
@@ -144,5 +148,5 @@ data:
         {{- end }}
     {{- end }}
 {{ include "flightctl.profiling" . | nindent 4 }}
-{{- include "flightctl.encryptionConfig" . | nindent 4 }}
+{{- include "flightctl.encryptionConfig" . | replace "/root/.flightctl" "/var/lib/flightctl/.flightctl" | nindent 4 }}
 {{- end }}

@@ -37,30 +37,19 @@
 
 ### Pod Security Standards
 
-The `flightctl-imagebuilder-worker` component requires elevated privileges to build OS images using osbuild/bootc. It needs:
+The `flightctl-imagebuilder-worker` runs image builds, exports, and SBOM scanning in disposable QEMU guests. Its outer Pod runs as a non-root user with all capabilities dropped, a read-only root filesystem, and the `RuntimeDefault` seccomp profile. It requires no hostPath volumes or custom SCC.
 
-- Privileged container access
-- Host device access (`/dev`, `/sys`, `/lib/modules`)
-- Capabilities: `SYS_ADMIN`, `MKNOD`, `SYS_CHROOT`, `SETFCAP`
+The initial VM runtime supports AMD64 workers. Production export requires KVM. A cluster administrator must provision a KVM device plugin on virtualization-capable nodes before installation. Set `imageBuilderWorker.vm.kvmResourceName` to the extended device resource exposed by that plugin; the default is `devices.anza-labs.dev/kvm`. The chart requests one device per concurrent VM. The plugin is cluster infrastructure and is not installed by this chart.
 
-The `flightctl-delta-worker` component runs `oci-delta` to generate OS and application image deltas. The container must run as root and add `SYS_ADMIN`. A restricted policy assigns a non-root uid, and delta generation then fails while creating the delta.
+The `flightctl-delta-worker` still runs `oci-delta` as root with `SYS_ADMIN`. Disable it with `deltaWorker.enabled=false` in a restricted namespace. In cluster-scoped OpenShift installations, the chart creates its SCC when the delta worker is enabled.
 
-If your namespace enforces the "restricted" or "baseline" Pod Security Standard, you will see warnings during deployment. To suppress these warnings, configure the namespace labels:
+If you enable the delta worker in a namespace that enforces the restricted or baseline Pod Security Standard, that worker requires an appropriate policy exemption. ImageBuild and ImageExport do not require that exemption.
 
-```bash
-kubectl label namespace <namespace> \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/warn=privileged \
-  pod-security.kubernetes.io/audit=privileged
-```
-
-On OpenShift clusters, the chart automatically creates a security context constraint (SCC) for the `flightctl-imagebuilder-worker` and `flightctl-delta-worker` service accounts.
-
-If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation) instead. That mode does not create SCCs and requires the privileged workers to stay disabled.
+If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation).
 
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
-SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. Podman and bootc-image-builder use their own defaults when those image fields are empty.
+SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. bootc-image-builder uses its built-in default when its image field is empty. Podman and buildah are preinstalled in the prepared guest disk; the legacy `serviceImages.podman` settings are ignored.
 
 If you don't need image building capabilities, you can disable the imagebuilder-worker:
 
@@ -86,16 +75,14 @@ A namespace-scoped installation has these requirements:
 - Keep `worker.clusterLevelSecretAccess` and `periodic.clusterLevelSecretAccess` at `false`.
 - For Kubernetes authentication, leave `global.auth.k8s.rbacNs` empty or set it to a namespace you can manage. The chart creates namespaced RBAC in that namespace.
 - Enforce the restricted Pod Security Standard on the namespace. The chart does not create SCCs in namespace-scoped mode.
-- Disable the privileged image builder and delta workers unless a cluster administrator has granted their service accounts the required SCC:
+- Disable the privileged delta worker:
 
   ```yaml
-  imageBuilderWorker:
-    enabled: false
   deltaWorker:
     enabled: false
   ```
 
-  Removing the privileged worker requirements is future work (delta de-privileging and the VM sandbox). It is not part of namespace-scoped mode.
+- To enable ImageBuild and ImageExport, provision the KVM device plugin separately and configure its resource name under `imageBuilderWorker.vm`. The outer worker Pod meets the restricted security requirements. Validate KVM admission and execution on your target OpenShift cluster.
 
 The following example installs with AAP authentication and without cluster-scoped resources:
 

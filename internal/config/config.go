@@ -14,6 +14,7 @@ import (
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
+	"github.com/flightctl/flightctl/internal/imagebuilder_worker/vm"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -239,6 +240,7 @@ const (
 )
 
 type imageBuilderWorkerConfig struct {
+	VM                       *vm.Config           `json:"vm,omitempty"`
 	LogLevel                 string               `json:"logLevel,omitempty"`
 	MaxConcurrentBuilds      int                  `json:"maxConcurrentBuilds,omitempty"`
 	DefaultTTL               util.Duration        `json:"defaultTTL,omitempty"`
@@ -353,7 +355,8 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	dnfSkipUnavailable := true
 	return &imageBuilderWorkerConfig{
 		LogLevel:            "info",
-		MaxConcurrentBuilds: 2,
+		MaxConcurrentBuilds: 1,
+		VM:                  vm.DefaultConfig(),
 		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
 		ServiceImages: &serviceImagesConfig{
 			Podman:            &serviceImageConfig{Image: defaultPodmanImage},
@@ -361,7 +364,7 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 			Syft:              &serviceImageConfig{Image: defaultSyftImage},
 		},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
-		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
+		ImageBuilderTimeout:      util.Duration(10 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 		SBOM:                     NewDefaultSBOMConfig(),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
@@ -1869,6 +1872,11 @@ func validatePeriodicLabelMappingScanTask(cfg *Config) error {
 func validateImageBuilderWorker(cfg *imageBuilderWorkerConfig) error {
 	if cfg == nil {
 		return nil
+	}
+	if cfg.VM != nil {
+		if err := cfg.VM.Validate(); err != nil {
+			return fmt.Errorf("imageBuilderWorker: %w", err)
+		}
 	}
 	if time.Duration(cfg.ImageBuilderTimeout) <= 0 {
 		return fmt.Errorf("imageBuilderWorker.imageBuilderTimeout must be greater than 0")

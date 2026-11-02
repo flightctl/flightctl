@@ -54,3 +54,11 @@ __pycache__/
 .cache/ 
 
 deploy/scripts/local-ca/
+
+# Include only the sealed VM artifact in container build contexts.
+.output/**
+!.output/flightctl-vm/
+.output/flightctl-vm/**
+!.output/flightctl-vm/guest.disk
+!.output/flightctl-vm/guest.rpms
+!.output/flightctl-vm/guest.sha256

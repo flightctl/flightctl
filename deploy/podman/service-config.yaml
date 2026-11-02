@@ -154,9 +154,17 @@ prometheus:
 # ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.
 # imagebuilderWorker:
 #   logLevel: info
-#   maxConcurrentBuilds: 2
+#   maxConcurrentBuilds: 1
+#   vm:
+#     baseImage: /usr/share/flightctl-vm/guest.qcow2
+#     accelerator: kvm
+#     memoryMiB: 4096
+#     cpus: 4
+#     diskSizeGiB: 24
+#     bootTimeout: 5m
+#     executionTimeout: 2h
 #   defaultTTL: 168h
-#   imageBuilderTimeout: 3m
+#   imageBuilderTimeout: 10m
 #   timeoutCheckTaskInterval: 1m
 #   rpmRepoUrl: ""
 #   rpmRepoAdd: true
@@ -165,9 +173,6 @@ prometheus:
 #   dnfRetries: 0
 #   dnfSkipUnavailable: true
 #   serviceImages:
-#     podman:
-#       image: ""           # Override Podman builder image (optional)
-#       skipTlsVerify: false  # Set to true to skip TLS verification
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification

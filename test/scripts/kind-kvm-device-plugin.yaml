@@ -1,0 +1,70 @@
+# Development/e2e infrastructure only; never installed by the application chart.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-test-kvm-device-plugin
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: flightctl-test-kvm-device-plugin
+  namespace: kube-system
+  labels:
+    app: flightctl-test-kvm-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app: flightctl-test-kvm-device-plugin
+  template:
+    metadata:
+      labels:
+        app: flightctl-test-kvm-device-plugin
+    spec:
+      serviceAccountName: flightctl-test-kvm-device-plugin
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: plugin
+          image: ghcr.io/anza-labs/kvm-device-plugin:v0.2.4
+          imagePullPolicy: IfNotPresent
+          command:
+            - /kvm-device-plugin
+          args:
+            - --log-level=info
+            - --devices=10
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            exec:
+              command:
+                - /grpc_health_probe
+                - -addr
+                - unix:///var/lib/kubelet/device-plugins/kvm.sock
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /grpc_health_probe
+                - -addr
+                - unix:///var/lib/kubelet/device-plugins/kvm.sock
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins

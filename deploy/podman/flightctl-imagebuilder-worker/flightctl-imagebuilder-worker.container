@@ -10,19 +10,27 @@ Image={{ .ImagebuilderWorker.Image }}:{{ .ImagebuilderWorker.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
-Environment=HOME=/root
+# Host-mounted signer and encryption keys are root-owned. Keep root UID while
+# dropping every capability; all build/export privilege is confined to the guest.
+User=0
+Environment=HOME=/var/lib/flightctl
+Environment=TMPDIR=/var/tmp
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+AddDevice=/dev/kvm
+Tmpfs=/tmp:rw,size=64m,mode=1777
+Volume=flightctl-imagebuilder-home:/var/lib/flightctl
+Volume=flightctl-imagebuilder-scratch:/var/tmp
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Volume=/etc/flightctl/flightctl-imagebuilder-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
-Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
-Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
-Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
-Volume=/var/tmp/flightctl-builds:/var/tmp/flightctl-builds:rw,z
-Volume=/var/tmp/flightctl-exports:/var/tmp/flightctl-exports:rw,z
-Volume=flightctl-worker-storage:/var/lib/containers
+Volume=/etc/flightctl/flightctl-imagebuilder-worker/config.yaml:/var/lib/flightctl/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/var/lib/flightctl/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/var/lib/flightctl/.flightctl/certs/client-signer.key:ro,z
+Volume=/etc/flightctl/pki/ca-bundle.crt:/var/lib/flightctl/.flightctl/certs/ca-bundle.crt:ro,z
+Volume=/etc/flightctl/encryption:/var/lib/flightctl/.flightctl/encryption:ro,z
+Volume=/etc/flightctl/pki/db:/var/lib/flightctl/.flightctl/certs/db:ro,z
 # Optional: Mount a CA bundle for verifying the Trustify server certificate (used for SBOM
 # upload). Uncomment and point the source at your CA file, then set
 # vulnerabilityReporting.trustify.caFile in service-config.yaml to the target path.
@@ -36,13 +44,9 @@ Volume=flightctl-worker-storage:/var/lib/containers
 #   /etc/containers/systemd/flightctl-imagebuilder-worker.container.d/auth.conf
 # containing:
 #   [Container]
-#   Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
-PodmanArgs=--privileged
+#   Volume=/etc/flightctl/service-images-auth.json:/var/lib/flightctl/.config/containers/auth.json:ro,z
 
-# Sets this container's own RLIMIT_NOFILE, which the imagebuilder-worker process then
-# forwards to the nested podman build container (see "File Descriptor Limits" in
-# configuring-imagebuilder.md). 1048576 matches what buildah expects when raising its
-# own nofile limit during builds.
+# The guest owns the build runtime and its file descriptor limits.
 Ulimit=nofile=1048576:1048576
 
 [Service]

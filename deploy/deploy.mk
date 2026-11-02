@@ -66,6 +66,7 @@ deploy-helm:
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
 
+deploy-db-helm: export IMAGEBUILDER_WORKER_ENABLED := false
 deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
 

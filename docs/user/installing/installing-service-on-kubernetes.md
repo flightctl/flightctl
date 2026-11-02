@@ -465,7 +465,7 @@ Procedure:
     FC_BASE_DOMAIN=flightctl.example.com
     ```
 
-2. Create a values file for the namespace-scoped installation. This example uses AAP authentication and disables the privileged image builder and delta workers.
+2. Create a values file for the namespace-scoped installation. This example uses AAP authentication and disables image building and the privileged delta worker. Enable image building after provisioning the KVM device plugin described in [Configuring ImageBuilder Worker](configuring-imagebuilder.md).
 
     ```yaml
     global:

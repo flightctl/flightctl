@@ -20,21 +20,40 @@ spec:
         flightctl.service: flightctl-imagebuilder-worker
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
       serviceAccountName: flightctl-imagebuilder-worker
+      securityContext:
+        runAsNonRoot: true
+        {{- if ne (include "flightctl.enableOpenShiftExtensions" .) "true" }}
+        runAsUser: 1000
+        fsGroup: 1000
+        {{- end }}
+        seccompProfile:
+          type: RuntimeDefault
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      {{- $databaseWait := include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | fromYamlArray }}
+      {{- $migrationWait := include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | fromYamlArray }}
+      {{- $waitContainers := concat $databaseWait $migrationWait }}
+      {{- range $container := $waitContainers }}
+      {{- $_ := set $container "securityContext" ((include "flightctl.imageBuilderRestrictedSecurityContext" $ | fromYaml).securityContext) }}
+      {{- $_ := set $container "env" (append ($container.env | default list) (dict "name" "HOME" "value" "/tmp")) }}
+      {{- $_ := set $container "volumeMounts" (append ($container.volumeMounts | default list) (dict "name" "worker-scratch" "mountPath" "/tmp")) }}
+      {{- end }}
       initContainers:
-      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
-      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+        {{- toYaml $waitContainers | nindent 8 }}
       containers:
         - name: flightctl-imagebuilder-worker
           image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.imageBuilderWorker.image.image) }}:{{ default .Chart.AppVersion .Values.imageBuilderWorker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderWorker.image.pullPolicy }}
           env:
             - name: HOME
-              value: "/root"
+              value: "/var/lib/flightctl"
+            - name: TMPDIR
+              value: "/tmp"
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -66,48 +85,29 @@ spec:
                   key: client_secret
             {{- end }}
           volumeMounts:
-            - mountPath: /root/.flightctl/config.yaml
+            - mountPath: /var/lib/flightctl/.flightctl/config.yaml
               name: flightctl-imagebuilder-worker-config
               subPath: config.yaml
               readOnly: true
-            - mountPath: /root/.flightctl/certs/client-signer.crt
+            - mountPath: /var/lib/flightctl/.flightctl/certs/client-signer.crt
               name: flightctl-client-signer
               subPath: tls.crt
               readOnly: true
-            - mountPath: /root/.flightctl/certs/client-signer.key
+            - mountPath: /var/lib/flightctl/.flightctl/certs/client-signer.key
               name: flightctl-client-signer
               subPath: tls.key
               readOnly: true
-            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+            - mountPath: /var/lib/flightctl/.flightctl/certs/ca-bundle.crt
               name: flightctl-ca-bundle
               subPath: ca-bundle.crt
               readOnly: true
-            - mountPath: /root/.flightctl/encryption
+            - mountPath: /var/lib/flightctl/.flightctl/encryption
               name: flightctl-encryption-key
               readOnly: true
-            - mountPath: /var/tmp/flightctl-builds
-              name: flightctl-builds
-              readOnly: false
-            - mountPath: /var/tmp/flightctl-exports
-              name: flightctl-exports
-              readOnly: false
-            - mountPath: /var/lib/containers
-              name: worker-storage
-              readOnly: false
-            # 1. SYSFS: Mandatory. Bypasses K8s read-only masks so bootc can validate privileges.
-            - mountPath: /sys
-              name: host-sys
-            
-            # 2. DEVICES: Gives access to /dev/loop-control and loop devices provided by Kind.
-            - mountPath: /dev
-              name: host-dev
-
-            # 3. MODULES: Allows osbuild to verify/load the loop module.
-            - mountPath: /lib/modules
-              name: host-modules
-              readOnly: true
-
-            # 4. RHEL: Optional mounts for subscription-only repos
+            - mountPath: /var/lib/flightctl
+              name: worker-home
+            - mountPath: /tmp
+              name: worker-scratch
             {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
             - mountPath: /etc/pki/entitlement
               name: entitlement-certs
@@ -129,7 +129,7 @@ spec:
               readOnly: true
             {{- end }}
             {{- if .Values.imageBuilderWorker.serviceImages.pullSecretName }}
-            - mountPath: /root/.config/containers/auth.json
+            - mountPath: /var/lib/flightctl/.config/containers/auth.json
               name: service-images-pull-secret
               subPath: auth.json
               readOnly: true
@@ -137,19 +137,24 @@ spec:
 
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
             {{- include "flightctl.vulnerabilityTrustifyCaVolumeMounts" . | nindent 12 }}
-          {{- with .Values.imageBuilderWorker.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
+          {{- $worker := .Values.imageBuilderWorker }}
+          {{- $concurrency := int $worker.maxConcurrentBuilds }}
+          {{- $cpu := mul $concurrency (int $worker.vm.cpus) | toString }}
+          {{- $memory := printf "%dMi" (add (mul $concurrency (int $worker.vm.memoryMiB)) 1024) }}
+          {{- $resources := deepCopy ($worker.resources | default dict) }}
+          {{- $requests := merge ($resources.requests | default dict) (dict "cpu" $cpu "memory" $memory) }}
+          {{- $limits := merge ($resources.limits | default dict) (dict "cpu" $cpu "memory" $memory) }}
+          {{- if eq $worker.vm.accelerator "kvm" }}
+          {{- $_ := set $requests $worker.vm.kvmResourceName $concurrency }}
+          {{- $_ := set $limits $worker.vm.kvmResourceName $concurrency }}
           {{- end }}
+          resources:
+            requests:
+              {{- toYaml $requests | nindent 14 }}
+            limits:
+              {{- toYaml $limits | nindent 14 }}
           terminationMessagePath: /tmp/termination-log
-          securityContext:
-            privileged: {{ default true .Values.imageBuilderWorker.privileged }}
-            capabilities:
-              add:
-                - SYS_ADMIN
-                - MKNOD
-                - SYS_CHROOT
-                - SETFCAP
+          {{- include "flightctl.imageBuilderRestrictedSecurityContext" . | nindent 10 }}
 
       restartPolicy: Always
       volumes:
@@ -159,35 +164,19 @@ spec:
         - name: flightctl-client-signer
           secret:
             secretName: flightctl-client-signer-ca
+            defaultMode: 0440
         - name: flightctl-ca-bundle
           secret:
             secretName: flightctl-ca-bundle
         - name: flightctl-encryption-key
           secret:
             secretName: flightctl-encryption-key
-            defaultMode: 0400
-        - name: flightctl-builds
-          hostPath:
-            path: /var/tmp/flightctl-builds
-            type: DirectoryOrCreate
-        - name: flightctl-exports
-          hostPath:
-            path: /var/tmp/flightctl-exports
-            type: DirectoryOrCreate
-        - name: worker-storage
+            defaultMode: 0440
+        - name: worker-home
           emptyDir: {}
-        - name: host-sys
-          hostPath:
-            path: /sys
-            type: Directory
-        - name: host-dev
-          hostPath:
-            path: /dev
-            type: Directory
-        - name: host-modules
-          hostPath:
-            path: /lib/modules
-            type: Directory
+        - name: worker-scratch
+          emptyDir:
+            sizeLimit: {{ .Values.imageBuilderWorker.vm.scratchSizeLimit }}
         {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
         - name: entitlement-certs
           secret:
@@ -212,6 +201,7 @@ spec:
         - name: service-images-pull-secret
           secret:
             secretName: {{ .Values.imageBuilderWorker.serviceImages.pullSecretName }}
+            defaultMode: 0440
         {{- end }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
         {{- include "flightctl.vulnerabilityTrustifyCaVolumes" . | nindent 8 }}

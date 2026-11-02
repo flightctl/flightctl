@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
 
 // mockRepositoryStore is a mock implementation of repositoryservice.Service for testing
@@ -438,146 +436,22 @@ func TestContainerfileTemplate_OnboardingARG(t *testing.T) {
 	require.Contains(t, containerfileTemplate, "$PACKAGES", "Template should use $PACKAGES variable for install")
 }
 
-func TestNofileUlimitArgs_ReflectsCurrentRlimit(t *testing.T) {
-	var want unix.Rlimit
-	err := unix.Getrlimit(unix.RLIMIT_NOFILE, &want)
-	require.NoError(t, err)
-
-	args := nofileUlimitArgs(log.InitLogs())
-
-	require.Equal(t, []string{"--ulimit", formatNofileUlimit(want)}, args)
-}
-
-func TestFormatNofileUlimit(t *testing.T) {
-	tests := []struct {
-		name  string
-		limit unix.Rlimit
-		want  string
-	}{
-		{
-			name:  "finite hard limit",
-			limit: unix.Rlimit{Cur: 1024, Max: 4096},
-			want:  "nofile=1024:4096",
-		},
-		{
-			name:  "soft equals hard (typical Kubernetes case)",
-			limit: unix.Rlimit{Cur: 1048576, Max: 1048576},
-			want:  "nofile=1048576:1048576",
-		},
-		{
-			name:  "infinite hard limit is capped to the soft limit",
-			limit: unix.Rlimit{Cur: 1024, Max: unix.RLIM_INFINITY},
-			want:  "nofile=1024:1024",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, formatNofileUlimit(tt.limit))
-		})
-	}
-}
-
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {
-	err := installCACertInWorker(context.Background(), nil, "fake-container", "registry.example.com", log.InitLogs())
+	err := installCACertInWorker(context.Background(), nil, nil, "registry.example.com", log.InitLogs())
 	require.NoError(t, err)
 }
 
 func TestInstallCACertInWorker_EmptyCaCrt(t *testing.T) {
 	empty := ""
-	err := installCACertInWorker(context.Background(), &empty, "fake-container", "registry.example.com", log.InitLogs())
+	err := installCACertInWorker(context.Background(), &empty, nil, "registry.example.com", log.InitLogs())
 	require.NoError(t, err)
 }
 
 func TestInstallCACertInWorker_InvalidBase64(t *testing.T) {
 	invalid := "not-valid-base64!!!"
-	err := installCACertInWorker(context.Background(), &invalid, "fake-container", "registry.example.com", log.InitLogs())
+	err := installCACertInWorker(context.Background(), &invalid, nil, "registry.example.com", log.InitLogs())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to decode CA certificate")
-}
-
-func TestInstallCACertInWorker_ValidBase64FailsWithoutContainer(t *testing.T) {
-	caPEM := "-----BEGIN CERTIFICATE-----\nTESTCA\n-----END CERTIFICATE-----"
-	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
-	err := installCACertInWorker(context.Background(), &encoded, "nonexistent-container", "registry.example.com", log.InitLogs())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to create cert dir in container")
-}
-
-func TestBuildLoginArgs(t *testing.T) {
-	httpScheme := coredomain.OciRepoSchemeHttp
-	skipVerify := true
-
-	tests := []struct {
-		name          string
-		containerName string
-		username      string
-		registry      string
-		ociSpec       *coredomain.OciRepoSpec
-		wantContains  []string
-		wantAbsent    []string
-	}{
-		{
-			name:          "When HTTPS registry it omits tls-verify flag",
-			containerName: "worker-container",
-			username:      "user1",
-			registry:      "registry.example.com",
-			ociSpec:       &coredomain.OciRepoSpec{},
-			wantContains:  []string{"exec", "-i", "worker-container", "podman", "login", "--authfile", containerAuthFile, "-u", "user1", "--password-stdin", "registry.example.com"},
-			wantAbsent:    []string{"--tls-verify=false"},
-		},
-		{
-			name:          "When HTTP registry it includes tls-verify=false",
-			containerName: "worker-container",
-			username:      "user1",
-			registry:      "registry.example.com",
-			ociSpec:       &coredomain.OciRepoSpec{Scheme: &httpScheme},
-			wantContains:  []string{"--tls-verify=false", "registry.example.com"},
-			wantAbsent:    nil,
-		},
-		{
-			name:          "When SkipServerVerification it includes tls-verify=false",
-			containerName: "worker-container",
-			username:      "user1",
-			registry:      "registry.example.com",
-			ociSpec:       &coredomain.OciRepoSpec{SkipServerVerification: &skipVerify},
-			wantContains:  []string{"--tls-verify=false", "registry.example.com"},
-			wantAbsent:    nil,
-		},
-		{
-			name:          "When nil ociSpec it omits tls-verify flag",
-			containerName: "worker-container",
-			username:      "user1",
-			registry:      "registry.example.com",
-			ociSpec:       nil,
-			wantContains:  []string{"exec", "-i", "worker-container", "registry.example.com"},
-			wantAbsent:    []string{"--tls-verify=false"},
-		},
-		{
-			name:          "When registry ends up last in args",
-			containerName: "c1",
-			username:      "admin",
-			registry:      "quay.io",
-			ociSpec:       &coredomain.OciRepoSpec{},
-			wantContains:  []string{"quay.io"},
-			wantAbsent:    nil,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			args := buildLoginArgs(tc.containerName, tc.username, tc.registry, tc.ociSpec)
-
-			for _, want := range tc.wantContains {
-				require.Contains(t, args, want)
-			}
-			for _, absent := range tc.wantAbsent {
-				require.NotContains(t, args, absent)
-			}
-
-			// Registry hostname must always be the last argument.
-			require.Equal(t, tc.registry, args[len(args)-1])
-		})
-	}
 }
 
 func TestAuthFileEnv(t *testing.T) {

@@ -581,33 +581,51 @@ imageBuilderWorker:
     pullPolicy: ""
   # -- Log level for the imagebuilder worker
   logLevel: info
-  # -- Maximum number of concurrent image builds
-  maxConcurrentBuilds: 2
+  # -- Maximum number of concurrent disposable build/export VMs
+  maxConcurrentBuilds: 1
   # -- Default TTL for image build resources
   defaultTTL: 168h
   # -- Inactivity timeout for image builds and exports
-  imageBuilderTimeout: 3m
+  imageBuilderTimeout: 10m
   # -- Interval between image build and export timeout checks
   timeoutCheckTaskInterval: 1m
-  # -- Enable privileged mode for container-in-container builds
-  privileged: true
+  # -- Disposable VM runtime; the worker image supplies the prepared guest disk.
+  vm:
+    # -- Immutable prepared guest disk inside the worker image
+    baseImage: /usr/share/flightctl-vm/guest.qcow2
+    # -- Accelerator: kvm for production; tcg permits development ImageBuild only
+    accelerator: kvm
+    # -- Guest memory in MiB, per concurrent task
+    memoryMiB: 4096
+    # -- Guest virtual CPUs, per concurrent task
+    cpus: 4
+    # -- Disposable guest container-storage disk capacity in GiB
+    diskSizeGiB: 24
+    # -- Maximum guest boot time
+    bootTimeout: 5m
+    # -- Absolute guest lifetime, including boot and task execution
+    executionTimeout: 2h
+    # -- Maximum writable emptyDir capacity for guest disks and exported artifacts
+    scratchSizeLimit: 64Gi
+    # -- Extended device resource supplied by a cluster-installed KVM device plugin
+    kvmResourceName: devices.anza-labs.dev/kvm
   # -- Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d
   yumReposSecretName: ""
   # -- Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
-  # -- Builder images (podman, bootc-image-builder, syft) and skip-TLS options
+  # -- In-guest bootc-image-builder and Syft images and skip-TLS options
   serviceImages:
     # -- Secret name containing registry credentials (auth.json) for pulling builder service images.
     # Required when serviceImages are hosted in an authenticated or air-gapped registry.
     # The secret must contain a key named `auth.json` in standard podman/Docker auth format.
-    # Mounted read-only at /root/.config/containers/auth.json inside the worker container.
+    # Mounted read-only at /var/lib/flightctl/.config/containers/auth.json inside the worker container.
     pullSecretName: ""
     podman:
-      # -- Podman builder image (leave empty to use default).
+      # -- Deprecated and ignored; Podman is preinstalled in the guest disk.
       image: ""
-      # -- Set to true to skip TLS verification when pulling the Podman builder image.
+      # -- Deprecated and ignored; there is no separate Podman builder image pull.
       skipTlsVerify: false
     bootcImageBuilder:
       # -- bootc-image-builder image (leave empty to use default).

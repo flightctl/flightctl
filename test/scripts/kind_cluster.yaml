@@ -8,6 +8,11 @@ kubeadmConfigPatches:
       "service-node-port-range": "3000-32767"
 nodes:
 - role: control-plane
+  # BEGIN OPTIONAL KVM MOUNT: create_cluster.sh omits this on hosts without KVM.
+  extraMounts:
+  - hostPath: /dev/kvm
+    containerPath: /dev/kvm
+  # END OPTIONAL KVM MOUNT
   extraPortMappings:
   - containerPort: 3443 # flightctl API
     hostPort: 3443

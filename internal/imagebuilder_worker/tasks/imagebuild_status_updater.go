@@ -307,6 +307,7 @@ func (u *statusUpdater) UpdateImageReference(imageReference, manifestDigest stri
 // This marks that progress has been made and LastSeen should be updated
 // Exported for testing purposes.
 func (u *statusUpdater) ReportOutput(output []byte) {
+	output = append([]byte(nil), output...)
 	select {
 	case u.outputChan <- output:
 	case <-u.ctx.Done():

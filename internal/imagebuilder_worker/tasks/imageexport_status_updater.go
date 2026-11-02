@@ -275,6 +275,7 @@ func (u *imageExportStatusUpdater) setManifestDigest(manifestDigest string) {
 
 // reportOutput sends task output to the central output handler
 func (u *imageExportStatusUpdater) reportOutput(output []byte) {
+	output = append([]byte(nil), output...)
 	select {
 	case u.outputChan <- output:
 	case <-u.ctx.Done():
