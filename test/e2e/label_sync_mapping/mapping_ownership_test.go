@@ -51,6 +51,14 @@ var _ = Describe("Label sync mapping ownership", Serial, Label("integration", "s
 
 		By("blocking a changed exact-key write while allowing unchanged and unrelated writes")
 		device := getDevice(harness, deviceName)
+		unchangedLabels := cloneLabels(device.Metadata.Labels)
+		unchangedLabels[ownedKey] = "amd64"
+		device.Metadata.Labels = &unchangedLabels
+		unchangedResponse, err := harness.Client.ReplaceDeviceWithResponse(harness.Context, deviceName, *device)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(unchangedResponse.StatusCode()).To(Equal(http.StatusOK), string(unchangedResponse.Body))
+
+		device = getDevice(harness, deviceName)
 		changedLabels := cloneLabels(device.Metadata.Labels)
 		changedLabels[ownedKey] = "forged"
 		device.Metadata.Labels = &changedLabels
