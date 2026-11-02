@@ -1,7 +1,6 @@
 package label_selectors
 
 import (
-	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -17,11 +16,9 @@ func TestLabelSelectors(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
-	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
