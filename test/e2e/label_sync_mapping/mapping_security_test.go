@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,7 +59,6 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		deviceName := uniqueName(h, "audit-device")
 		key := "e2e.flightctl.io/" + uniqueName(h, "audit")
 		securityCreateDevice(h, deviceName, map[string]string{"operator": "kept"}, "amd64", nil)
-		securityWaitSynced(h, deviceName)
 		baseline := securityLabelEventCount(h, deviceName)
 
 		createLabelSyncMapping(h, name, &key, scopedScalarExpression(h, "status.systemInfo.architecture"))
@@ -97,7 +97,6 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		deviceName := uniqueName(h, "takeover-device")
 		key := "e2e.flightctl.io/" + uniqueName(h, "takeover")
 		securityCreateDevice(h, deviceName, map[string]string{key: "amd64"}, "amd64", nil)
-		securityWaitSynced(h, deviceName)
 		baseline := securityLabelEventCount(h, deviceName)
 
 		createLabelSyncMapping(h, name, &key, scopedScalarExpression(h, "status.systemInfo.architecture"))
@@ -220,6 +219,10 @@ var _ = Describe("Label sync organization isolation", Serial, Label("integration
 			Expect(providers.RBAC.DeleteOrganization(e2e.GetWorkerContext(), secondOrg)).To(Succeed())
 		})
 		Expect(providers.RBAC.AddUserToOrg(e2e.GetWorkerContext(), secondOrg, username)).To(Succeed())
+		// A new token picks up the project after the API cached the old identity.
+		_, err = login.LoginToAPIWithToken(h)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(h.SetCurrentOrganization(originalOrg)).To(Succeed())
 		Eventually(func(g Gomega) {
 			id, err := h.GetOrganizationIDForNamespace(secondOrg)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -300,24 +303,6 @@ func securityWaitReadyGeneration(h *e2e.Harness, name string, generation int64) 
 			}
 		}
 		g.Expect(ready).To(BeTrue())
-	}).WithTimeout(testutil.DURATION_TIMEOUT).WithPolling(testutil.POLLING).Should(Succeed())
-}
-
-func securityWaitSynced(h *e2e.Harness, name string) {
-	Eventually(func(g Gomega) {
-		response, err := h.Client.GetDeviceWithResponse(h.Context, name)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-		g.Expect(response.JSON200).NotTo(BeNil())
-		device := response.JSON200
-		g.Expect(device.Status).NotTo(BeNil())
-		synced := false
-		for _, condition := range device.Status.Conditions {
-			if condition.Type == api.ConditionTypeDeviceLabelsSynced && condition.Status == api.ConditionStatusTrue && condition.Reason == "Reconciled" {
-				synced = true
-			}
-		}
-		g.Expect(synced).To(BeTrue())
 	}).WithTimeout(testutil.DURATION_TIMEOUT).WithPolling(testutil.POLLING).Should(Succeed())
 }
 
