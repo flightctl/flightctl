@@ -29,6 +29,8 @@ kubectl label namespace <namespace> \
 
 On OpenShift clusters, the chart automatically creates a security context constraint (SCC) for the `flightctl-imagebuilder-worker` and `flightctl-delta-worker` service accounts.
 
+If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation) instead. That mode does not create SCCs and requires the privileged workers to stay disabled.
+
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
 SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. Podman and bootc-image-builder use their own defaults when those image fields are empty.
@@ -39,6 +41,77 @@ If you don't need image building capabilities, you can disable the imagebuilder-
 imageBuilderWorker:
   enabled: false
 ```
+
+### Namespace-scoped installation
+
+By default, the chart creates cluster-scoped resources such as ClusterRoles, ClusterRoleBindings, OpenShift security context constraints (SCCs), and an OAuthClient. Set `global.namespaceScoped=true` to render only namespaced resources and skip cluster-scoped lookups. This limits the chart's resource scope; the installer still needs authorization to create and delegate all rendered RBAC permissions.
+
+A namespace-scoped installation has these requirements:
+
+- You must have project-admin permissions in the existing target project. The chart creates namespaced Roles and RoleBindings.
+- An authorized RBAC administrator must grant the installer the permissions declared by the rendered Roles, including `flightctl.io` permissions, or explicit namespaced `escalate` and `bind` privileges. Stock OpenShift project-admin permissions do not include the custom Flight Control permissions, so project-admin access alone cannot install these Roles.
+- Set `global.baseDomain` to the domain used by the Flight Control routes. The chart cannot discover the OpenShift base domain without a cluster-scoped lookup.
+- For OpenShift authentication, have an administrator authorized to update Namespace labels apply `io.flightctl/instance=<main_flightctl_release_name>` to the main project. Stock project-admin permissions do not authorize this operation.
+- Leave `global.internalNamespace` empty for a single-project installation. A separate internal namespace requires project-admin access to both namespaces.
+- If your identity provider uses a private CA, set `global.auth.caCert`. The chart cannot read the cluster ingress CA in namespace-scoped mode.
+- Choose authentication: `k8s` supports token login, and `openshift` with `global.auth.openshift.clientType=serviceaccount` supports browser login without an OAuthClient. External providers (`oidc`, `aap`, or `oauth2`) require their provider configuration. The default OpenShift `clientType=oauthclient` requires an externally provisioned OAuthClient in namespace-scoped mode.
+- Set `global.enableMulticlusterExtensions=false`. MultiCluster Engine integration requires cluster-admin permissions.
+- Keep `worker.clusterLevelSecretAccess` and `periodic.clusterLevelSecretAccess` at `false`.
+- For Kubernetes authentication, leave `global.auth.k8s.rbacNs` empty or set it to a namespace you can manage. The chart creates namespaced RBAC in that namespace.
+- Enforce the restricted Pod Security Standard on the namespace. The chart does not create SCCs in namespace-scoped mode.
+- Disable the privileged image builder and delta workers unless a cluster administrator has granted their service accounts the required SCC:
+
+  ```yaml
+  imageBuilderWorker:
+    enabled: false
+  deltaWorker:
+    enabled: false
+  ```
+
+  Removing the privileged worker requirements is future work (delta de-privileging and the VM sandbox). It is not part of namespace-scoped mode.
+
+The following example installs with AAP authentication and without cluster-scoped resources:
+
+```yaml
+global:
+  namespaceScoped: true
+  baseDomain: flightctl.example.com
+  exposeServicesMethod: route
+  auth:
+    type: aap
+    aap:
+      apiUrl: https://aap.example.com
+      externalApiUrl: https://aap.example.com
+      authorizationUrl: https://aap.example.com/o/authorize
+      tokenUrl: https://aap.example.com/o/token
+      clientId: flightctl
+      clientSecret: <client_secret>
+  enableMulticlusterExtensions: "false"
+imageBuilderWorker:
+  enabled: false
+deltaWorker:
+  enabled: false
+```
+
+If you use `global.auth.type=k8s`, no cluster-scoped TokenReview permissions are needed. The API validates the caller's token with `SelfSubjectReview`, which Kubernetes allows for every authenticated user.
+
+If you use `global.auth.type=openshift`, the default `clientType=oauthclient` requires a cluster-scoped OAuthClient. Set `clientType=serviceaccount` to use the `flightctl-api` ServiceAccount as the OAuth client instead; the chart annotates it with the UI and CLI redirect URIs and requests `user:info user:check-access user:list-projects`. The token proxy injects the projected ServiceAccount token as the client secret, so the secret is not exposed to clients. This requires OpenShift support for service-account OAuth clients; verify on your target version. For CLI-only access, `flightctl login -t $(oc whoami -t)` with `global.auth.type=k8s` avoids the OAuthClient entirely.
+
+### Multi-project tenants
+
+A namespace-scoped main chart manages a single project by default. To manage additional projects, install the tenant chart in each project. The installer needs project-admin permissions and authorization to create and delegate the rendered Flight Control permissions, as described above:
+
+```console
+helm install flightctl-tenant oci://quay.io/flightctl/charts/flightctl-tenant \
+  --namespace <project> \
+  --set flightctlNamespace=<main_flightctl_namespace> \
+  --set flightctlReleaseName=<main_flightctl_release_name> \
+  --values tenant-values.yaml
+```
+
+The tenant chart creates the standard Flight Control Roles and RoleBindings in that project and grants the main control plane read access to RoleBindings there. A project administrator can grant the RoleBinding reader access without cluster-admin permissions because they already hold those permissions. Have an administrator authorized to update Namespace labels apply `io.flightctl/instance=<main_flightctl_release_name>` so the OpenShift auth provider includes the project. See the [tenant chart README](../flightctl-tenant/README.md) for values and examples.
+
+Use namespace-scoped mode for new installations. Changing an existing cluster-scoped release to `global.namespaceScoped=true` makes Helm remove the old cluster-scoped resources, which requires cluster-admin permissions.
 
 ## Installation
 
@@ -329,7 +402,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
 | deltaGeneration.timeout | string | `"30m"` | Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
-| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
+| deltaWorker | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
+| deltaWorker.enabled | bool | `true` | Enable the delta worker |
 | deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
 | deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
 | deltaWorker.image.tag | string | `""` | Delta-worker image tag |
@@ -368,14 +442,17 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.openshift.authorizationUrl | string | `""` | OAuth authorization URL (leave empty to auto-detect from OpenShift cluster) |
 | global.auth.openshift.clientId | string | `""` | OAuth client ID (will be set to flightctl-{releaseName}) |
 | global.auth.openshift.clientSecret | string | `""` | OAuth client secret (leave empty for auto-generation) |
+| global.auth.openshift.clientSecretFile | string | `""` | Path to the projected ServiceAccount token used as the OAuth client credential when clientType=serviceaccount |
+| global.auth.openshift.clientType | string | `"oauthclient"` | OAuth client registration type: 'oauthclient' or 'serviceaccount'. A serviceaccount client uses the flightctl-api ServiceAccount and its projected token, so no cluster-scoped OAuthClient is needed. |
 | global.auth.openshift.clusterControlPlaneUrl | string | `"https://kubernetes.default.svc"` | OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection) |
 | global.auth.openshift.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
 | global.auth.openshift.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.openshift.issuer | string | `""` | OAuth issuer URL (defaults to authorizationUrl if not specified) |
 | global.auth.openshift.organizationNamePrefix | string | `""` | Optional prefix for org (project) names from this provider (e.g. "ocp-"). Incoming names are exposed as prefix + name. |
 | global.auth.openshift.projectLabelFilter | string | `""` | Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>) |
+| global.auth.openshift.scopes | list | `[]` | OAuth scopes to request. Service-account clients default to user:info user:check-access user:list-projects. |
 | global.auth.openshift.tokenUrl | string | `""` | OAuth token URL (leave empty to auto-detect from OpenShift cluster) |
-| global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |
+| global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. In namespace-scoped installs, 'k8s' authentication uses SelfSubjectReview and needs no cluster-scoped RBAC. For 'openshift' browser login, clientType 'serviceaccount' needs no OAuthClient; clientType 'oauthclient' requires an externally provisioned OAuthClient in namespace-scoped installs. |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTlsSecretName | string | `""` | Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.enableMulticlusterExtensions | string | `"auto"` | Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'. |
@@ -390,6 +467,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
+| global.namespaceScoped | bool | `false` | Render only namespaced resources and skip cluster-scoped lookups. The installer must be authorized to create and delegate the rendered RBAC permissions. Requires global.baseDomain and disables cluster-scoped features such as SCCs, OAuthClient creation, and MultiCluster Engine extensions. |
 | global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate for synchronous builtin certificates, or configure it after the generated Secret exists for asynchronous certificates. - true: use externalCertificate; with cert-manager, configure it after the generated Secret exists. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |

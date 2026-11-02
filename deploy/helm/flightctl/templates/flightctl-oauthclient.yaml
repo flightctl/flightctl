@@ -1,4 +1,4 @@
-{{- if eq (include "flightctl.getEffectiveAuthType" .) "openshift" }}
+{{- if and (eq (include "flightctl.getEffectiveAuthType" .) "openshift") (ne (include "flightctl.isNamespaceScoped" .) "true") (ne (include "flightctl.isOpenShiftServiceAccountClient" .) "true") }}
 apiVersion: oauth.openshift.io/v1
 kind: OAuthClient
 metadata:

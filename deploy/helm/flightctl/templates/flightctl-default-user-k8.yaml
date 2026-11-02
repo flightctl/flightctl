@@ -21,7 +21,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: {{ if eq (include "flightctl.isNamespaceScoped" .) "true" }}Role{{ else }}ClusterRole{{ end }}
   name: flightctl-admin-{{ .Release.Namespace }}
 subjects:
   - kind: ServiceAccount

@@ -41,6 +41,21 @@ func (m *MockK8SClient) EXPECT() *MockK8SClientMockRecorder {
 	return m.recorder
 }
 
+// GetCurrentUser mocks base method.
+func (m *MockK8SClient) GetCurrentUser(ctx context.Context, token string) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCurrentUser", ctx, token)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCurrentUser indicates an expected call of GetCurrentUser.
+func (mr *MockK8SClientMockRecorder) GetCurrentUser(ctx, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCurrentUser", reflect.TypeOf((*MockK8SClient)(nil).GetCurrentUser), ctx, token)
+}
+
 // GetSecret mocks base method.
 func (m *MockK8SClient) GetSecret(ctx context.Context, namespace, name string) (*v1.Secret, error) {
 	m.ctrl.T.Helper()

@@ -13,15 +13,38 @@
 {{- define "flightctl.enableMulticlusterExtensions" }}
   {{- $enabled := "false" }}
   {{- if eq .Values.global.enableMulticlusterExtensions "true" }}
+    {{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+      {{- fail "global.enableMulticlusterExtensions requires cluster-admin permissions and cannot be enabled when global.namespaceScoped=true" }}
+    {{- end }}
     {{- $enabled = "true" }}
   {{- else if eq .Values.global.enableMulticlusterExtensions "auto" }}
-    {{- /* Check if the MultiClusterEngine CRD exists */}}
-    {{- if .Capabilities.APIVersions.Has "multicluster.openshift.io/v1" -}}
-      {{- $enabled = "true" }}
+    {{- if ne (include "flightctl.isNamespaceScoped" .) "true" }}
+      {{- /* Check if the MultiClusterEngine CRD exists */}}
+      {{- if .Capabilities.APIVersions.Has "multicluster.openshift.io/v1" -}}
+        {{- $enabled = "true" }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- $enabled }}
 {{- end }}
+
+{{- /*
+Whether the chart renders only namespaced resources so that a project admin can
+install it without cluster-admin permissions.
+Usage: {{- $namespaceScoped := eq (include "flightctl.isNamespaceScoped" .) "true" }}
+*/}}
+{{- define "flightctl.isNamespaceScoped" -}}
+{{- if .Values.global.namespaceScoped }}true{{ else }}false{{ end -}}
+{{- end -}}
+
+{{- /* Namespace that holds the namespaced RBAC objects created by the chart. */}}
+{{- define "flightctl.rbacNamespace" -}}
+{{- if eq (include "flightctl.getEffectiveAuthType" .) "k8s" -}}
+{{- default .Release.Namespace .Values.global.auth.k8s.rbacNs -}}
+{{- else -}}
+{{- .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
 
 {{- define "flightctl.initialLabelSyncMappingsConfigMapName" -}}
 flightctl-initial-label-sync-mappings
@@ -53,7 +76,7 @@ flightctl-initial-label-sync-mappings-migration
     {{- $baseDomain = .Values.global.baseDomain }}
   {{- else }}
     {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
-    {{- if eq $isOpenShift "true"}}
+    {{- if and (eq $isOpenShift "true") (ne (include "flightctl.isNamespaceScoped" .) "true")}}
       {{- /* For OpenShift deployments, try to lookup the base domain */}}
       {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
       {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
@@ -67,6 +90,9 @@ flightctl-initial-label-sync-mappings-migration
     {{- end }}
   {{- end }}
   {{- if empty $baseDomain }}
+    {{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+      {{- fail "global.baseDomain is required when global.namespaceScoped=true because cluster-scoped lookups are disabled" }}
+    {{- end }}
     {{- fail "Unable to determine base domain. Please set global.baseDomain or deploy on OpenShift" }}
   {{- end }}
   {{- $baseDomain }}
@@ -95,6 +121,9 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 
 {{- define "flightctl.getOpenShiftOAuthServerUrl" }}
   {{- /* Returns the OpenShift OAuth server URL by looking up the oauth-openshift route */}}
+  {{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+    {{- fail "global.namespaceScoped=true cannot look up the oauth-openshift route. Set global.auth.openshift.authorizationUrl, tokenUrl, and issuer explicitly" }}
+  {{- end }}
   {{- $oauthRoute := (lookup "route.openshift.io/v1" "Route" "openshift-authentication" "oauth-openshift") }}
   {{- if and $oauthRoute $oauthRoute.spec $oauthRoute.spec.host }}
     {{- printf "https://%s" $oauthRoute.spec.host }}
@@ -135,9 +164,15 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- define "flightctl.getOpenShiftOAuthClientId" }}
   {{- if .Values.global.auth.openshift.clientId }}
     {{- printf .Values.global.auth.openshift.clientId }}
+  {{- else if eq (include "flightctl.isOpenShiftServiceAccountClient" .) "true" }}
+    {{- printf "system:serviceaccount:%s:flightctl-api" .Release.Namespace }}
   {{- else }}
     {{- printf "flightctl-%s" .Release.Name }}
   {{- end }}
+{{- end }}
+
+{{- define "flightctl.isOpenShiftServiceAccountClient" }}
+  {{- if eq .Values.global.auth.openshift.clientType "serviceaccount" }}true{{ else }}false{{ end }}
 {{- end }}
 
 {{- define "flightctl.getOpenShiftProjectLabelFilter" }}
@@ -156,6 +191,9 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
   {{- if .Values.global.auth.openshift.clientSecret }}
     {{- .Values.global.auth.openshift.clientSecret }}
   {{- else }}
+    {{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+      {{- fail "global.namespaceScoped=true cannot create or look up a cluster-scoped OAuthClient. Set global.auth.openshift.clientSecret for an OAuthClient created by a cluster administrator, or use OIDC/AAP authentication" }}
+    {{- end }}
     {{- $existingOAuthClient := (lookup "oauth.openshift.io/v1" "OAuthClient" "" (include "flightctl.getOpenShiftOAuthClientId" .)) }}
     {{- if $existingOAuthClient }}
       {{- if $existingOAuthClient.secret }}
@@ -878,7 +916,20 @@ auth:
         tokenUrl: {{ include "flightctl.getOpenShiftOAuthTokenUrl" . }}
         issuer: {{ include "flightctl.getOpenShiftOAuthIssuer" . }}
         clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
+        {{- if ne (include "flightctl.isOpenShiftServiceAccountClient" .) "true" }}
         clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
+        {{- else }}
+        clientType: serviceaccount
+        clientSecretFile: {{ default "/var/run/secrets/kubernetes.io/serviceaccount/token" .Values.global.auth.openshift.clientSecretFile }}
+        {{- end }}
+        {{- if .Values.global.auth.openshift.scopes }}
+        scopes: {{ .Values.global.auth.openshift.scopes | toYaml | nindent 8 }}
+        {{- else if eq (include "flightctl.isOpenShiftServiceAccountClient" .) "true" }}
+        scopes:
+          - user:info
+          - user:check-access
+          - user:list-projects
+        {{- end }}
         projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
         roleSuffix: {{ .Release.Namespace }}
         {{- if .Values.global.auth.openshift.organizationNamePrefix }}
@@ -945,7 +996,7 @@ auth:
     {{- $caCrt = .Values.global.auth.caCert }}
   {{- else }}
     {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
-    {{- if eq $isOpenShift "true"}}
+    {{- if and (eq $isOpenShift "true") (ne (include "flightctl.isNamespaceScoped" .) "true")}}
       {{- /* For OpenShift deployments, try to lookup the ingress CA cert */}}
       {{- $authType := include "flightctl.getEffectiveAuthType" . }}
       {{- if eq $authType "openshift" }}

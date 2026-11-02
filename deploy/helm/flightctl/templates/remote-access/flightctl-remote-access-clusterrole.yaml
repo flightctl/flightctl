@@ -1,15 +1,16 @@
 {{- if .Values.remoteAccess.enabled -}}
+{{- $namespaceScoped := eq (include "flightctl.isNamespaceScoped" .) "true" }}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: {{ if $namespaceScoped }}Role{{ else }}ClusterRole{{ end }}
 metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-remote-access
   name: flightctl-remote-access-{{ .Release.Namespace }}
+  {{- if $namespaceScoped }}
+  namespace: {{ include "flightctl.rbacNamespace" . }}
+  {{- end }}
 rules:
-  - apiGroups: ["authentication.k8s.io"]
-    resources: ["tokenreviews"]
-    verbs: ["create"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
     verbs: ["get", "list"]

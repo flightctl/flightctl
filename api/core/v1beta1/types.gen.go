@@ -497,6 +497,12 @@ const (
 	OciRepoSpecTypeOci OciRepoSpecType = "oci"
 )
 
+// Defines values for OpenShiftProviderSpecClientType.
+const (
+	Oauthclient    OpenShiftProviderSpecClientType = "oauthclient"
+	Serviceaccount OpenShiftProviderSpecClientType = "serviceaccount"
+)
+
 // Defines values for OpenShiftProviderSpecProviderType.
 const (
 	Openshift OpenShiftProviderSpecProviderType = "openshift"
@@ -3211,6 +3217,12 @@ type OpenShiftProviderSpec struct {
 	// ClientSecret The OAuth2 client secret.
 	ClientSecret *string `json:"clientSecret,omitempty"`
 
+	// ClientSecretFile Path to the service-account token used as the OAuth client credential when `clientType` is `serviceaccount`. Defaults to `/var/run/secrets/kubernetes.io/serviceaccount/token`.
+	ClientSecretFile *string `json:"clientSecretFile,omitempty"`
+
+	// ClientType The OAuth client registration type. `oauthclient` uses a cluster-scoped OAuthClient and its client secret. `serviceaccount` uses a namespaced ServiceAccount as the OAuth client; `clientId` must be `system:serviceaccount:<namespace>:<name>` and the client credential is read from a projected service-account token file.
+	ClientType *OpenShiftProviderSpecClientType `json:"clientType,omitempty"`
+
 	// ClusterControlPlaneUrl The OpenShift cluster control plane URL.
 	ClusterControlPlaneUrl *string `json:"clusterControlPlaneUrl,omitempty"`
 
@@ -3241,6 +3253,9 @@ type OpenShiftProviderSpec struct {
 	// TokenUrl The OAuth2 token endpoint URL.
 	TokenUrl *string `json:"tokenUrl,omitempty"`
 }
+
+// OpenShiftProviderSpecClientType The OAuth client registration type. `oauthclient` uses a cluster-scoped OAuthClient and its client secret. `serviceaccount` uses a namespaced ServiceAccount as the OAuth client; `clientId` must be `system:serviceaccount:<namespace>:<name>` and the client credential is read from a projected service-account token file.
+type OpenShiftProviderSpecClientType string
 
 // OpenShiftProviderSpecProviderType The type of authentication provider.
 type OpenShiftProviderSpecProviderType string
