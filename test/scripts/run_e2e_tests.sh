@@ -387,10 +387,7 @@ CMD+=(--timeout "${GINKGO_TIMEOUT}" --race -vv -nodes="${GINKGO_PROCS}")
 if [[ "${GINKGO_KEEP_GOING}" == "true" || "${GINKGO_KEEP_GOING}" == "1" ]]; then
     CMD+=(--keep-going)
 fi
-if [[ "${GINKGO_FLAKE_ATTEMPTS}" -gt 1 ]]; then
-    CMD+=(--flake-attempts="${GINKGO_FLAKE_ATTEMPTS}")
-fi
-CMD+=(--show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
+CMD+=(--flake-attempts="${GINKGO_FLAKE_ATTEMPTS}" --show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
 
 # Add progress polling flags for parallel execution
 if [[ "${GINKGO_PROCS}" -gt 1 ]]; then
