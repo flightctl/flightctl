@@ -175,7 +175,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				expectPodmanDeltaSource(exec, attempts)
 			}
 			if tt.delta.Hint == "" && (!tt.disableDeltaClient || tt.deltaFactory != nil) {
-				expectPlatformReferrers(t, exec, image, podmanDeltaTargetDigest, `{"manifests":[]}`)
+				expectPlatformReferrers(t, exec, image, podmanDeltaTargetDigest, `{"manifests":[]}`, time.Minute)
 			}
 			tt.setup(exec)
 
@@ -1190,7 +1190,7 @@ func TestPrepareTaskCachedDigestChecks(t *testing.T) {
 			require.False(task.targetPresent)
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(differentDigest, "", 0)
 			require.ErrorIs(manager.checkReady(context.Background()), errors.ErrPrefetchNotReady)
-			expectPlatformReferrers(t, mockExec, image, differentDigest, `{"manifests": []}`)
+			expectPlatformReferrers(t, mockExec, image, differentDigest, `{"manifests": []}`, 2*time.Minute)
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			require.NoError(manager.pull(context.Background(), target, task))
 		})
@@ -1935,7 +1935,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 					if platformDigest == "" {
 						platformDigest = oldDigest
 					}
-					expectPlatformReferrers(t, mockExec, image, platformDigest, `{"manifests": []}`)
+					expectPlatformReferrers(t, mockExec, image, platformDigest, `{"manifests": []}`, time.Minute)
 				}
 				assertInvalidated := func() {
 					if tt.absent && tt.remoteDigest == newDigest {
