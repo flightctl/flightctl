@@ -87,9 +87,9 @@ func (d *OCIDelta) ApplyFromDirectory(ctx context.Context, sourceDir, deltaRef, 
 	return nil
 }
 
-// Import reconstructs an OCI image directly in containers/storage. An empty
-// targetRef imports the image without assigning it a name.
-func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error {
+// Import reconstructs an OCI image directly in containers/storage and returns
+// its local image ID. An empty targetRef imports the image without assigning it a name.
+func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 
@@ -99,11 +99,11 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 	}
 	args = append(args, deltaRef)
 
-	_, stderr, exitCode := d.exec.ExecuteWithContext(ctx, ociDeltaCmd, args...)
+	stdout, stderr, exitCode := d.exec.ExecuteWithContext(ctx, ociDeltaCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
-	return nil
+	return strings.TrimSpace(stdout), nil
 }
 
 // SourceImageDigests returns cached host image digests in the OSTree repository

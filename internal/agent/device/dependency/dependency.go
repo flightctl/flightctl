@@ -1121,9 +1121,11 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
+	importedImageRef := target.image
 	switch runtimeInfo.Name {
 	case client.CRIRuntimeCRIO:
-		if err := m.ociDelta.Import(ctx, deltaFile, importRef); err != nil {
+		importedImageRef, err = m.ociDelta.Import(ctx, deltaFile, importRef)
+		if err != nil {
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
 	case client.CRIRuntimeContainerd:
@@ -1132,7 +1134,10 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		}
 	}
 
-	if (digestPinned || runtimeInfo.Name == client.CRIRuntimeContainerd) && !cri.ImageExists(ctx, target.image, opts...) {
+	// CRI-O's reconstructed manifest can differ from the canonical target digest.
+	// Verify its local identity before the registry refresh establishes that digest.
+	if (digestPinned || runtimeInfo.Name == client.CRIRuntimeContainerd) &&
+		(importedImageRef == "" || !cri.ImageExists(ctx, importedImageRef, opts...)) {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
 
@@ -1366,7 +1371,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
-	if err := ociDelta.Import(ctx, deltaFile, importRef); err != nil {
+	if _, err := ociDelta.Import(ctx, deltaFile, importRef); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 	// Pull the registry reference after importing the reconstructed image so
