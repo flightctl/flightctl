@@ -97,6 +97,7 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		deviceName := uniqueName(h, "takeover-device")
 		key := "e2e.flightctl.io/" + uniqueName(h, "takeover")
 		securityCreateDevice(h, deviceName, map[string]string{key: "amd64"}, "amd64", nil)
+		securityWaitInitialArchitecturePromotion(h, deviceName)
 		baseline := securityLabelEventCount(h, deviceName)
 
 		createLabelSyncMapping(h, name, &key, scopedScalarExpression(h, "status.systemInfo.architecture"))
@@ -304,6 +305,17 @@ func securityWaitReadyGeneration(h *e2e.Harness, name string, generation int64) 
 		}
 		g.Expect(ready).To(BeTrue())
 	}).WithTimeout(testutil.DURATION_TIMEOUT).WithPolling(testutil.POLLING).Should(Succeed())
+}
+
+func securityWaitInitialArchitecturePromotion(h *e2e.Harness, deviceName string) {
+	response, err := h.Client.GetLabelSyncMappingWithResponse(h.Context, "system-info")
+	Expect(err).NotTo(HaveOccurred())
+	if response.StatusCode() == http.StatusNotFound {
+		return
+	}
+	Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
+	waitForDeviceLabels(h, deviceName, map[string]string{"systeminfo.flightctl.io/architecture": "amd64"})
+	Eventually(func() int { return securityLabelEventCount(h, deviceName) }).WithTimeout(testutil.DURATION_TIMEOUT).Should(BeNumerically(">=", 1))
 }
 
 func securityOrgOwners(h *e2e.Harness, key string) []string {
