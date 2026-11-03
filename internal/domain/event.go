@@ -66,6 +66,7 @@ const (
 	EventReasonDeviceVulnerabilityCVEResolved  = v1beta1.EventReasonDeviceVulnerabilityCVEResolved
 	EventReasonDeviceVulnerabilityCVEWarning   = v1beta1.EventReasonDeviceVulnerabilityCVEWarning
 	EventReasonDeviceOSImageChanged            = v1beta1.EventReasonDeviceOSImageChanged
+	EventReasonDeviceStatusUpdated             = v1beta1.EventReasonDeviceStatusUpdated
 	EventReasonEnrollmentRequestApprovalFailed = v1beta1.EventReasonEnrollmentRequestApprovalFailed
 	EventReasonEnrollmentRequestApproved       = v1beta1.EventReasonEnrollmentRequestApproved
 	EventReasonFleetInvalid                    = v1beta1.EventReasonFleetInvalid
@@ -166,7 +167,6 @@ const (
 	UpdatedFieldLabels                   = v1beta1.Labels
 	UpdatedFieldOwner                    = v1beta1.Owner
 	UpdatedFieldSpec                     = v1beta1.Spec
-	UpdatedFieldStatus                   = v1beta1.ResourceUpdatedStatus
 	UpdatedFieldSpecSelector             = v1beta1.SpecSelector
 	UpdatedFieldSpecTemplate             = v1beta1.SpecTemplate
 	UpdatedFieldEnrollmentHooksCondition = v1beta1.StatusConditionsEnrollmentHooks

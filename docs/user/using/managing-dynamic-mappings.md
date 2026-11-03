@@ -137,7 +137,7 @@ metadata:
 
 Flight Control evaluates mappings when device status changes, including update progress, applications, `systemInfo`, and systemd units. Liveness-only changes do not trigger evaluation.
 
-Status changes produce `ResourceUpdated` events with `details.updatedFields: [status]`. These events use a dedicated device status queue so label evaluation can run alongside spec and metadata processing. Mappings evaluate the latest persisted device state when the worker processes the event.
+Status changes produce `DeviceStatusUpdated` events. These events use a dedicated device status queue so label evaluation can run alongside spec and metadata processing. Mappings evaluate the latest persisted device state when the worker processes the event.
 
 ## CEL syntax and extensions
 

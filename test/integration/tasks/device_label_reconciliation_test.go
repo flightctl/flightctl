@@ -273,7 +273,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(statusEventsForDevice("heartbeat-only")).To(HaveLen(baseline + 1))
 	})
 
-	It("When update progress changes it should persist status and publish explicit status events", func() {
+	It("When update progress changes it should persist status and publish DeviceStatusUpdated events", func() {
 		const name = "update-progress-only"
 		createMapping("update-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
 		device := createDevice(name, "x86_64", nil, nil)
@@ -380,13 +380,8 @@ var _ = Describe("Device label reconciliation worker", func() {
 	)
 
 	It("acknowledges status work for a device that no longer exists", func() {
-		var details domain.EventDetails
-		Expect(details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
-			DetailType: domain.ResourceUpdated, UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus},
-		})).To(Succeed())
 		event := domain.Event{
-			Details: &details,
-			Reason:  domain.EventReasonResourceUpdated,
+			Reason: domain.EventReasonDeviceStatusUpdated,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "deleted-device",
@@ -395,7 +390,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(newWorkerLogic(newLabelSyncMappingService(mustNewEvaluator()), event).Reconcile(ctx)).To(Succeed())
 	})
 
-	It("publishes post-commit identity events and reconciles reported labels into fleet membership", func() {
+	It("publishes post-commit status events and reconciles reported labels into fleet membership", func() {
 		name := "reported-status-device"
 		createMapping("reported-architecture", "architecture", "status.systemInfo.architecture")
 		selector := map[string]string{"architecture": "arm64"}
@@ -417,10 +412,8 @@ var _ = Describe("Device label reconciliation worker", func() {
 		statusEvent := statusEvents[len(statusEvents)-1]
 		Expect(statusEvent.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
 		Expect(statusEvent.InvolvedObject.Name).To(Equal(name))
-		Expect(statusEvent.Details).NotTo(BeNil())
-		statusDetails, err := statusEvent.Details.AsResourceUpdatedDetails()
-		Expect(err).NotTo(HaveOccurred())
-		Expect(statusDetails.UpdatedFields).To(Equal([]domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}))
+		Expect(statusEvent.Reason).To(Equal(domain.EventReasonDeviceStatusUpdated))
+		Expect(statusEvent.Details).To(BeNil())
 
 		var spoofedLabels interface{} = map[string]string{"architecture": "arm64", "site": "east"}
 		spoofPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &spoofedLabels}}

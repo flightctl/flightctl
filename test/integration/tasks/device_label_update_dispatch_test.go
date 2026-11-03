@@ -228,13 +228,8 @@ var _ = Describe("Device label update dispatch", func() {
 		_, err := deviceStore.Create(ctx, orgID, &device, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		var details domain.EventDetails
-		Expect(details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
-			DetailType: domain.ResourceUpdated, UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus},
-		})).To(Succeed())
 		statusEvent := domain.Event{
-			Details: &details,
-			Reason:  domain.EventReasonResourceUpdated,
+			Reason: domain.EventReasonDeviceStatusUpdated,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "promoted-device",

@@ -227,14 +227,14 @@ func TestShouldReconcileDeviceLabels(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "When a device status changes it should reconcile from the status field",
-			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus)),
+			name:     "When a device status changes it should reconcile labels",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device1"),
 			expected: true,
 		},
 		{
-			name:     "When status and spec change it should reconcile labels",
-			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus, domain.Spec)),
-			expected: true,
+			name:     "When another resource uses the status reason it should skip label reconciliation",
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonDeviceStatusUpdated, "fleet1"),
+			expected: false,
 		},
 		{
 			name:     "When a device update has no details it should skip status reconciliation",
@@ -764,7 +764,7 @@ func TestDispatchTasks_DeviceLabelReconciliationRetriesConfigurationFailures(t *
 	orgID := uuid.New()
 	eventWithOrgID := worker_client.EventWithOrgId{
 		OrgId: orgID,
-		Event: createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus)),
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device1"),
 	}
 	payload, err := json.Marshal(eventWithOrgID)
 	require.NoError(t, err)
@@ -799,7 +799,7 @@ func TestDispatchTasks_DeviceLabelReconciliationCompletesAfterReconcilerReturns(
 	)
 	eventWithOrgID := worker_client.EventWithOrgId{
 		OrgId: orgID,
-		Event: createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus)),
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device1"),
 	}
 	payload, err := json.Marshal(eventWithOrgID)
 	require.NoError(t, err)
@@ -828,7 +828,7 @@ func TestDispatchTasks_DeviceLabelReconciliationRetriesReconciliationErrors(t *t
 
 	eventWithOrgID := worker_client.EventWithOrgId{
 		OrgId: orgID,
-		Event: createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus)),
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device1"),
 	}
 	payload, err := json.Marshal(eventWithOrgID)
 	require.NoError(t, err)

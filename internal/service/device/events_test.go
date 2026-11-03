@@ -26,11 +26,7 @@ func prepareTestDeviceForEvents(name string) *domain.Device {
 }
 
 func isStatusUpdatedEvent(event *domain.Event) bool {
-	if event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
-		return false
-	}
-	details, err := event.Details.AsResourceUpdatedDetails()
-	return err == nil && lo.Contains(details.UpdatedFields, domain.UpdatedFieldStatus)
+	return event.Reason == domain.EventReasonDeviceStatusUpdated
 }
 
 func TestEmitDeviceUpdatedEvent(t *testing.T) {
@@ -52,7 +48,7 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		require.Nil(t, ev.created[0].Details)
 	})
 
-	t.Run("When status changes it should publish a reconciliation event identifying status", func(t *testing.T) {
+	t.Run("When status changes it should publish a DeviceStatusUpdated event", func(t *testing.T) {
 		ev := &fakeEvents{}
 		oldDevice := prepareTestDeviceForEvents("dev1")
 		newDevice := prepareTestDeviceForEvents("dev1")
@@ -70,10 +66,8 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		require.Len(t, reconciliationEvents, 1)
 		require.Equal(t, domain.DeviceKind, reconciliationEvents[0].InvolvedObject.Kind)
 		require.Equal(t, "dev1", reconciliationEvents[0].InvolvedObject.Name)
-		details, err := reconciliationEvents[0].Details.AsResourceUpdatedDetails()
-		require.NoError(t, err)
-		require.Equal(t, domain.ResourceUpdated, details.DetailType)
-		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, details.UpdatedFields)
+		require.Nil(t, reconciliationEvents[0].Details)
+		require.Equal(t, "Device status was updated.", reconciliationEvents[0].Message)
 	})
 
 	for _, tt := range []struct {
@@ -252,6 +246,24 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", "not-a-device", "also-not", false, nil)
 		require.Empty(t, ev.created)
 	})
+}
+
+func TestEmitDeviceStatusAndSpecChanges(t *testing.T) {
+	ev := &fakeEvents{}
+	oldDevice, newDevice := prepareTestDeviceForEvents("dev1"), prepareTestDeviceForEvents("dev1")
+	oldDevice.Metadata.Owner, newDevice.Metadata.Owner = lo.ToPtr("Fleet/edge"), lo.ToPtr("Fleet/edge")
+	newDevice.Spec.Os.Image = "new-image"
+	newDevice.Status.SystemInfo.Architecture = "aarch64"
+
+	EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+	require.Len(t, ev.created, 2)
+	require.Equal(t, domain.EventReasonDeviceStatusUpdated, ev.created[0].Reason)
+	require.Nil(t, ev.created[0].Details)
+	require.Equal(t, domain.EventReasonResourceUpdated, ev.created[1].Reason)
+	details, err := ev.created[1].Details.AsResourceUpdatedDetails()
+	require.NoError(t, err)
+	require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{domain.Spec}, details.UpdatedFields)
 }
 
 func TestEmitStandalonePrepareDeltasGeneration(t *testing.T) {

@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -356,6 +357,16 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domai
 		return resourceUpdates
 	}
 
+	if !deviceStatusesEqual(oldDevice.Status, newDevice.Status) {
+		resourceUpdates = append(resourceUpdates, ResourceUpdate{
+			Reason:  domain.EventReasonDeviceStatusUpdated,
+			Details: "Device status was updated.",
+		})
+	}
+	if newDevice.Status == nil {
+		return resourceUpdates
+	}
+
 	// Check if OS image digest changed (used for CVE lifecycle event processing)
 	oldDigest := getOSImageDigest(oldDevice)
 	newDigest := getOSImageDigest(newDevice)
@@ -446,6 +457,16 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domai
 	}
 
 	return resourceUpdates
+}
+
+func deviceStatusesEqual(oldStatus, newStatus *domain.DeviceStatus) bool {
+	if oldStatus == nil || newStatus == nil {
+		return oldStatus == newStatus
+	}
+	oldCopy, newCopy := *oldStatus, *newStatus
+	// LastSeen is a liveness signal excluded from the JSON exposed to CEL.
+	oldCopy.LastSeen, newCopy.LastSeen = nil, nil
+	return reflect.DeepEqual(oldCopy, newCopy)
 }
 
 func hasStatusChanged[T comparable](oldDevice *domain.Device, newDevice *domain.Device, defaultValue T, getter func(*domain.Device) T) bool {

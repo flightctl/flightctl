@@ -307,6 +307,7 @@ const (
 	EventReasonDeviceOSImageChanged            EventReason = "DeviceOSImageChanged"
 	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
 	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
+	EventReasonDeviceStatusUpdated             EventReason = "DeviceStatusUpdated"
 	EventReasonDeviceUpdateFailed              EventReason = "DeviceUpdateFailed"
 	EventReasonDeviceVulnerabilityCVECritical  EventReason = "DeviceVulnerabilityCVECritical"
 	EventReasonDeviceVulnerabilityCVEResolved  EventReason = "DeviceVulnerabilityCVEResolved"
@@ -572,7 +573,6 @@ const (
 const (
 	Labels                          ResourceUpdatedDetailsUpdatedFields = "labels"
 	Owner                           ResourceUpdatedDetailsUpdatedFields = "owner"
-	ResourceUpdatedStatus           ResourceUpdatedDetailsUpdatedFields = "status"
 	Spec                            ResourceUpdatedDetailsUpdatedFields = "spec"
 	SpecSelector                    ResourceUpdatedDetailsUpdatedFields = "spec.selector"
 	SpecTemplate                    ResourceUpdatedDetailsUpdatedFields = "spec.template"

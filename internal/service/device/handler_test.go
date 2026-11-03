@@ -500,13 +500,10 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
 		require.Len(t, ev.created, 1)
 		event := ev.created[0]
-		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
+		require.Equal(t, domain.EventReasonDeviceStatusUpdated, event.Reason)
 		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
 		require.Equal(t, "foo", event.InvolvedObject.Name)
-		require.NotNil(t, event.Details)
-		details, err := event.Details.AsResourceUpdatedDetails()
-		require.NoError(t, err)
-		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, details.UpdatedFields)
+		require.Nil(t, event.Details)
 	})
 
 	t.Run("When patching an immutable field it should return bad request", func(t *testing.T) {

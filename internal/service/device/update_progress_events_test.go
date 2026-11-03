@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -157,7 +158,8 @@ func TestEmitDeviceStatusProgressEvents(t *testing.T) {
 			require.Equal(t, newStatus, *newDevice.Status)
 			if tt.wantMetadata {
 				require.Len(t, ev.created, 2)
-				require.NotNil(t, ev.created[0].Details)
+				require.Equal(t, domain.EventReasonResourceUpdated, ev.created[1].Reason)
+				require.NotNil(t, ev.created[1].Details)
 			}
 			if tt.wantReason != "" {
 				require.True(t, slices.ContainsFunc(ev.created, func(e *domain.Event) bool { return e.Reason == tt.wantReason }))
@@ -170,14 +172,18 @@ func TestEmitDeviceStatusProgressEvents(t *testing.T) {
 			oldStatus, newStatus := domain.NewDeviceStatus(), domain.NewDeviceStatus()
 			oldStatus.Conditions = []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: string(domain.UpdateStateApplyingUpdate)}}
 			newStatus.Conditions = []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusFalse, Reason: string(reason)}}
-			require.False(t, labelSyncStatusesEqual(&oldStatus, &newStatus))
+			assertStatusUpdate := func() {
+				updates := common.ComputeDeviceStatusChanges(context.Background(), &domain.Device{Status: &oldStatus}, &domain.Device{Status: &newStatus}, uuid.New())
+				require.True(t, slices.ContainsFunc(updates, func(update common.ResourceUpdate) bool { return update.Reason == domain.EventReasonDeviceStatusUpdated }))
+			}
+			assertStatusUpdate()
 			oldStatus = newStatus
 			newStatus.Conditions = slices.Clone(oldStatus.Conditions)
 			newStatus.Conditions[0].Message = "Terminal detail"
-			require.False(t, labelSyncStatusesEqual(&oldStatus, &newStatus))
+			assertStatusUpdate()
 			newStatus = oldStatus
 			newStatus.Updated.Info = lo.ToPtr("Terminal info")
-			require.False(t, labelSyncStatusesEqual(&oldStatus, &newStatus))
+			assertStatusUpdate()
 		})
 	}
 }

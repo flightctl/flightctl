@@ -120,11 +120,6 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("worker publisher: %w", err)
 	}
 	defer workerPublisher.Close()
-	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, s.queuesProvider)
-	if err != nil {
-		return err
-	}
-	defer statusPublisher.Close()
 	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return fmt.Errorf("delta publisher: %w", err)
@@ -139,7 +134,6 @@ func (s *Server) Run(ctx context.Context) error {
 		s.eventsHandler.SetWorkerClient(worker_client.NewWorkerClient(
 			workerPublisher,
 			s.log,
-			worker_client.WithStatusPublisher(statusPublisher),
 			worker_client.WithDeltaPublisher(deltaPublisher),
 			worker_client.WithDeltaCompletionPublisher(deltaCompletionPublisher),
 		))

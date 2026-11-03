@@ -59,12 +59,15 @@ details:
 
 | Category              | Event Reasons                                                                                     |
 |-----------------------|--------------------------------------------------------------------------------------------------|
+| **Status Updates** | `DeviceStatusUpdated` |
 | **Connection Status** | `DeviceConnected`, `DeviceDisconnected`                                                          |
 | **Resource Monitoring** | `DeviceCPUCritical`, `DeviceCPUWarning`, `DeviceCPUNormal`, `DeviceMemoryCritical`, `DeviceMemoryWarning`, `DeviceMemoryNormal`, `DeviceDiskCritical`, `DeviceDiskWarning`, `DeviceDiskNormal` |
 | **Application Status** | `DeviceApplicationError`, `DeviceApplicationDegraded`, `DeviceApplicationHealthy`              |
 | **Device Lifecycle**  | `DeviceIsRebooting`, `DeviceDecommissioned`, `DeviceDecommissionFailed`, `DeviceMultipleOwnersDetected`, `DeviceMultipleOwnersResolved`, `DeviceSpecInvalid`, `DeviceSpecValid` |
 | **Content Management** | `DeviceContentUpdating`, `DeviceContentUpToDate`, `DeviceContentOutOfDate`                     |
 | **Vulnerability (CVE)** | `DeviceVulnerabilityCVEWarning`, `DeviceVulnerabilityCVECritical`, `DeviceVulnerabilityCVEResolved` *(see below)* |
+
+`DeviceStatusUpdated` triggers dynamic label reconciliation for changes to device status. Changes only to the liveness timestamp (`LastSeen`) do not produce this event. Focused lifecycle events, such as `DeviceConnected`, are emitted independently.
 
 ### Vulnerability (CVE) events
 

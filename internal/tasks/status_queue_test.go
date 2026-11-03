@@ -15,7 +15,7 @@ import (
 
 func TestStatusOnlyEventWhenDispatchedItShouldOnlyReconcileLabels(t *testing.T) {
 	ctx, log := context.Background(), logrus.New()
-	event := createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device", createResourceUpdatedDetails(t, domain.UpdatedFieldStatus))
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device")
 	require.True(t, shouldReconcileDeviceLabels(ctx, event))
 	require.False(t, shouldReconcileDeviceOwnership(ctx, event, log))
 	require.False(t, shouldRolloutFleet(ctx, event, log))

@@ -52,7 +52,7 @@ func StatusQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (
 	return queuesProvider.NewQueueProducer(ctx, consts.DeviceStatusTaskQueue)
 }
 
-// WithStatusPublisher routes status-only device updates to the status queue.
+// WithStatusPublisher routes DeviceStatusUpdated events to the status queue.
 func WithStatusPublisher(p queues.QueueProducer) ClientOption {
 	return func(c *workerClient) {
 		c.statusPublisher = p
@@ -170,6 +170,7 @@ func (t *workerClient) enqueueWithError(ctx context.Context, orgId uuid.UUID, ev
 var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonResourceCreated:             {},
 	domain.EventReasonResourceUpdated:             {},
+	domain.EventReasonDeviceStatusUpdated:         {},
 	domain.EventReasonResourceDeleted:             {},
 	domain.EventReasonFleetRolloutStarted:         {},
 	domain.EventReasonReferencedRepositoryUpdated: {},
@@ -201,15 +202,9 @@ func IsDeltaGenerationCompletionQueueEvent(reason domain.EventReason) bool {
 	return reason == domain.EventReasonDeltaGenerationComplete
 }
 
-// IsDeviceStatusQueueEvent identifies status-only device updates. Updates that
-// also change spec or metadata stay on the main queue for their other workflows.
+// IsDeviceStatusQueueEvent identifies device status notifications for label reconciliation.
 func IsDeviceStatusQueueEvent(event domain.Event) bool {
-	if event.InvolvedObject.Kind != domain.DeviceKind || event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
-		return false
-	}
-	details, err := event.Details.AsResourceUpdatedDetails()
-	return err == nil && details.DetailType == domain.ResourceUpdated &&
-		len(details.UpdatedFields) == 1 && details.UpdatedFields[0] == domain.UpdatedFieldStatus
+	return event.InvolvedObject.Kind == domain.DeviceKind && event.Reason == domain.EventReasonDeviceStatusUpdated
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {

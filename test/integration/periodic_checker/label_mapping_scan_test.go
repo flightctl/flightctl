@@ -329,13 +329,8 @@ var _ = Describe("Label mapping scan integration", func() {
 		var statusEvent *domain.Event
 		for i := range events.Items {
 			event := &events.Items[i]
-			if event.InvolvedObject.Kind != domain.DeviceKind || event.InvolvedObject.Name != "a" ||
-				event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
-				continue
-			}
-			details, err := event.Details.AsResourceUpdatedDetails()
-			Expect(err).NotTo(HaveOccurred())
-			if lo.Contains(details.UpdatedFields, domain.UpdatedFieldStatus) {
+			if event.InvolvedObject.Kind == domain.DeviceKind && event.InvolvedObject.Name == "a" &&
+				event.Reason == domain.EventReasonDeviceStatusUpdated {
 				statusEvent = event
 				break
 			}

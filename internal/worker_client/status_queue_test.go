@@ -21,23 +21,20 @@ func TestDeviceStatusQueueRouting(t *testing.T) {
 		kind       domain.ResourceKind
 		reason     domain.EventReason
 		fields     []domain.ResourceUpdatedDetailsUpdatedFields
-		omitFields bool
 		withStatus bool
 		wantStatus bool
 	}{
-		{name: "When a device status changes it should use the status queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, withStatus: true, wantStatus: true},
+		{name: "When a device status changes it should use the status queue", kind: domain.DeviceKind, reason: domain.EventReasonDeviceStatusUpdated, withStatus: true, wantStatus: true},
 		{name: "When a device spec changes it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.Spec}, withStatus: true},
 		{name: "When device labels change it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels}, withStatus: true},
-		{name: "When status and spec change it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus, domain.Spec}, withStatus: true},
-		{name: "When a device is created it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceCreated, omitFields: true, withStatus: true},
-		{name: "When another resource status changes it should use the main queue", kind: domain.FleetKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, withStatus: true},
-		{name: "When update details are absent it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, omitFields: true, withStatus: true},
-		{name: "When changed fields are empty it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, withStatus: true},
-		{name: "When a status publisher is absent it should retain main queue delivery", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, fields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}},
+		{name: "When a device is created it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceCreated, withStatus: true},
+		{name: "When another resource uses the status reason it should use the main queue", kind: domain.FleetKind, reason: domain.EventReasonDeviceStatusUpdated, withStatus: true},
+		{name: "When update details are absent it should use the main queue", kind: domain.DeviceKind, reason: domain.EventReasonResourceUpdated, withStatus: true},
+		{name: "When a status publisher is absent it should retain main queue delivery", kind: domain.DeviceKind, reason: domain.EventReasonDeviceStatusUpdated},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			event := domain.Event{Reason: tt.reason, InvolvedObject: domain.ObjectReference{Kind: string(tt.kind), Name: "device"}}
-			if !tt.omitFields {
+			if tt.fields != nil {
 				var details domain.EventDetails
 				require.NoError(t, details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{DetailType: domain.ResourceUpdated, UpdatedFields: tt.fields}))
 				event.Details = &details
@@ -66,18 +63,6 @@ func TestDeviceStatusQueueRouting(t *testing.T) {
 	}
 }
 
-func TestDeviceStatusQueueMalformedDetails(t *testing.T) {
-	for _, payload := range []string{
-		`{"detailType":"ResourceUpdated","updatedFields":7}`,
-		`{"detailType":"Other","updatedFields":["status"]}`,
-	} {
-		var details domain.EventDetails
-		require.NoError(t, json.Unmarshal([]byte(payload), &details))
-		event := domain.Event{Reason: domain.EventReasonResourceUpdated, InvolvedObject: domain.ObjectReference{Kind: domain.DeviceKind}, Details: &details}
-		require.False(t, IsDeviceStatusQueueEvent(event))
-	}
-}
-
 func TestStatusQueuePublisherAndFailure(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	provider := queues.NewMockProvider(ctrl)
@@ -87,9 +72,7 @@ func TestStatusQueuePublisherAndFailure(t *testing.T) {
 	publisher, err := StatusQueuePublisher(ctx, provider)
 	require.NoError(t, err)
 	producer.EXPECT().Enqueue(ctx, gomock.Any(), gomock.Any()).Return(errors.New("status queue unavailable"))
-	var details domain.EventDetails
-	require.NoError(t, details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{DetailType: domain.ResourceUpdated, UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}}))
-	event := domain.Event{Reason: domain.EventReasonResourceUpdated, InvolvedObject: domain.ObjectReference{Kind: domain.DeviceKind}, Details: &details}
+	event := domain.Event{Reason: domain.EventReasonDeviceStatusUpdated, InvolvedObject: domain.ObjectReference{Kind: domain.DeviceKind}}
 	mainProducer := &recordingProducer{}
 	client := NewWorkerClient(mainProducer, logrus.New(), WithStatusPublisher(publisher)).(ReliableWorkerClient)
 	require.ErrorContains(t, client.EmitEventWithError(ctx, uuid.New(), &event), "status queue unavailable")
