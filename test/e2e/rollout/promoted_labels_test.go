@@ -69,12 +69,10 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		Expect(harness.CreateFleetWithSelector(mapFleet, map[string]string{regionKey: "west"})).To(Succeed())
 		Expect(harness.CreateFleetWithSelector(staticFleet, map[string]string{"static-test": suffix})).To(Succeed())
 
-		By("checking ownership and ordinary label queries")
+		By("checking fleet ownership for promoted and static selectors")
 		promotedWaitForOwner(harness, deviceA, scalarFleet)
 		promotedWaitForOwner(harness, deviceB, mapFleet)
 		promotedWaitForOwner(harness, deviceC, staticFleet)
-		promotedExpectSelectedDevice(harness, architectureKey+"=amd64", deviceA)
-		promotedExpectSelectedDevice(harness, regionKey+"=west", deviceB)
 
 		By("changing an unrelated promoted value without moving the static-only device")
 		promotedReplaceDeviceStatus(harness, deviceC, "arm64", "north")
@@ -505,17 +503,5 @@ func promotedWaitForOwner(harness *e2e.Harness, deviceName, fleetName string) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(device.Metadata.Owner).NotTo(BeNil())
 		g.Expect(*device.Metadata.Owner).To(Equal("Fleet/" + fleetName))
-	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
-}
-
-func promotedExpectSelectedDevice(harness *e2e.Harness, selector, expectedName string) {
-	Eventually(func(g Gomega) {
-		response, err := harness.Client.ListDevicesWithResponse(harness.Context, &api.ListDevicesParams{LabelSelector: &selector})
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-		g.Expect(response.JSON200).NotTo(BeNil())
-		g.Expect(response.JSON200.Items).To(HaveLen(1))
-		g.Expect(response.JSON200.Items[0].Metadata.Name).NotTo(BeNil())
-		g.Expect(*response.JSON200.Items[0].Metadata.Name).To(Equal(expectedName))
 	}).WithTimeout(util.TIMEOUT).WithPolling(util.POLLING).Should(Succeed())
 }

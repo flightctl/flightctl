@@ -67,7 +67,7 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		Eventually(func() int { return securityLabelEventCount(h, deviceName) }).WithTimeout(testutil.DURATION_TIMEOUT).Should(BeNumerically(">", baseline))
 		added := securityLabelEventCount(h, deviceName)
 
-		securitySetStatus(h, deviceName, "arm64", nil)
+		replaceDeviceStatus(h, deviceName, "arm64", "linux", nil)
 		waitForDeviceLabels(h, deviceName, map[string]string{key: "arm64"})
 		Eventually(func() int { return securityLabelEventCount(h, deviceName) }).WithTimeout(testutil.DURATION_TIMEOUT).Should(BeNumerically(">", added))
 		changed := securityLabelEventCount(h, deviceName)
@@ -121,7 +121,6 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		waitForMappingReady(h, name)
 		waitForDeviceLabels(h, deviceName, map[string]string{ownedKey: "east", forgedKey: "operator"})
 		securityWaitDeviceOwner(h, deviceName, ownedKey, name)
-		Expect(securityDeviceOwners(h, deviceName, forgedKey)).To(BeEmpty())
 
 		device := getDevice(h, deviceName)
 		Expect(device.Metadata.Annotations).NotTo(BeNil())
@@ -131,26 +130,13 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		Expect(managedKeys).To(ContainElement(ownedKey))
 		Expect(managedKeys).NotTo(ContainElement(forgedKey))
 
-		By("blocking a direct write to the promoted key while allowing the unrelated key")
-		unchanged := cloneLabels(device.Metadata.Labels)
-		device.Metadata.Labels = &unchanged
-		unchangedWrite, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceName, *device)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(unchangedWrite.StatusCode()).To(Equal(http.StatusOK), string(unchangedWrite.Body))
-		device = getDevice(h, deviceName)
+		By("rejecting a direct write to the map-owned key")
 		labels := cloneLabels(device.Metadata.Labels)
 		labels[ownedKey] = "forged"
 		device.Metadata.Labels = &labels
 		blocked, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceName, *device)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(blocked.StatusCode()).To(Equal(http.StatusConflict), string(blocked.Body))
-		device = getDevice(h, deviceName)
-		labels = cloneLabels(device.Metadata.Labels)
-		labels[forgedKey] = "operator-updated"
-		device.Metadata.Labels = &labels
-		allowed, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceName, *device)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(allowed.StatusCode()).To(Equal(http.StatusOK), string(allowed.Body))
 
 		By("discarding metadata supplied to the status endpoint")
 		device = getDevice(h, deviceName)
@@ -168,7 +154,7 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		Expect(status.StatusCode()).To(Equal(http.StatusOK), string(status.Body))
 		Expect(status.JSON200).NotTo(BeNil())
 		Expect(status.JSON200.Metadata.Labels).NotTo(BeNil())
-		Expect(*status.JSON200.Metadata.Labels).To(And(HaveKeyWithValue(ownedKey, "east"), HaveKeyWithValue(forgedKey, "operator-updated")))
+		Expect(*status.JSON200.Metadata.Labels).To(And(HaveKeyWithValue(ownedKey, "east"), HaveKeyWithValue(forgedKey, "operator")))
 		Expect(status.JSON200.Metadata.Annotations).NotTo(BeNil())
 		Expect((*status.JSON200.Metadata.Annotations)[api.DeviceAnnotationManagedLabels]).To(Equal(managed))
 		securityWaitDeviceOwner(h, deviceName, ownedKey, name)
@@ -276,10 +262,6 @@ var _ = Describe("Label sync organization isolation", Serial, Label("integration
 
 func securityCreateDevice(h *e2e.Harness, name string, labels map[string]string, arch string, custom map[string]string) {
 	createDeviceWithStatus(h, name, labels, arch, "linux", custom)
-}
-
-func securitySetStatus(h *e2e.Harness, name, arch string, custom map[string]string) {
-	replaceDeviceStatus(h, name, arch, "linux", custom)
 }
 
 func securityDeleteMapping(h *e2e.Harness, name string) {

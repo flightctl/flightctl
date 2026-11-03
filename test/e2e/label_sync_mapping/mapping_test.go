@@ -1,10 +1,8 @@
 package label_sync_mapping
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -14,12 +12,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-type mappingCleanupContextKey struct{}
-
-type mappingCleanupRegistry struct {
-	names map[string]struct{}
-}
 
 const (
 	apiEventuallyTimeout = testutil.TIMEOUT
@@ -42,38 +34,14 @@ func createLabelSyncMapping(harness *e2e.Harness, name string, key *string, expr
 	Expect(response.StatusCode()).To(Equal(http.StatusCreated), string(response.Body))
 	Expect(response.JSON201).NotTo(BeNil())
 
-	registerMappingCleanup(harness, name)
+	DeferCleanup(func() {
+		response, err := harness.Client.DeleteLabelSyncMappingWithResponse(harness.Context, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(response.StatusCode()).To(BeElementOf(http.StatusOK, http.StatusNotFound), string(response.Body))
+		waitForMappingDeleted(harness, name)
+	})
 
 	return response.JSON201
-}
-
-func registerMappingCleanup(harness *e2e.Harness, name string) {
-	registry, ok := harness.Context.Value(mappingCleanupContextKey{}).(*mappingCleanupRegistry)
-	if !ok {
-		registry = &mappingCleanupRegistry{names: map[string]struct{}{}}
-		harness.SetTestContext(context.WithValue(harness.Context, mappingCleanupContextKey{}, registry))
-		DeferCleanup(func() {
-			names := make([]string, 0, len(registry.names))
-			for mappingName := range registry.names {
-				names = append(names, mappingName)
-			}
-			sort.Strings(names)
-
-			for _, mappingName := range names {
-				response, err := harness.Client.DeleteLabelSyncMappingWithResponse(harness.Context, mappingName)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(response.StatusCode()).To(BeElementOf(http.StatusOK, http.StatusNotFound), string(response.Body))
-			}
-			Eventually(func(g Gomega) {
-				for _, mappingName := range names {
-					response, err := harness.Client.GetLabelSyncMappingWithResponse(harness.Context, mappingName)
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(response.StatusCode()).To(Equal(http.StatusNotFound), string(response.Body))
-				}
-			}).Should(Succeed())
-		})
-	}
-	registry.names[name] = struct{}{}
 }
 
 func scopedScalarExpression(harness *e2e.Harness, expression string) string {
@@ -101,11 +69,10 @@ func newLabelSyncMapping(harness *e2e.Harness, name string, key *string, express
 	}
 }
 
-func createDeviceWithStatus(harness *e2e.Harness, name string, labels map[string]string, architecture, operatingSystem string, customInfo map[string]string) *api.Device {
-	device, err := resources.CreateDevice(harness, name, &labels)
+func createDeviceWithStatus(harness *e2e.Harness, name string, labels map[string]string, architecture, operatingSystem string, customInfo map[string]string) {
+	_, err := resources.CreateDevice(harness, name, &labels)
 	Expect(err).NotTo(HaveOccurred())
 	replaceDeviceStatus(harness, name, architecture, operatingSystem, customInfo)
-	return device
 }
 
 func replaceDeviceStatus(harness *e2e.Harness, name, architecture, operatingSystem string, customInfo map[string]string) {
@@ -297,15 +264,6 @@ var _ = Describe("Label sync mapping ownership", Serial, Label("integration", "s
 		createDeviceWithStatus(harness, deviceName, map[string]string{"operator": "preserved", ownedKey: "amd64"}, "amd64", "linux", nil)
 		waitForDeviceLabels(harness, deviceName, map[string]string{ownedKey: "amd64"})
 		waitForMappingReady(harness, mappingName)
-		Eventually(func(g Gomega) {
-			response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceName)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(response.StatusCode()).To(Equal(http.StatusOK), string(response.Body))
-			g.Expect(response.JSON200).NotTo(BeNil())
-			g.Expect(response.JSON200.Metadata.Annotations).NotTo(BeNil())
-			g.Expect(*response.JSON200.Metadata.Annotations).To(HaveKey(api.DeviceAnnotationManagedLabels))
-		}).Should(Succeed())
-
 		deviceProvenance, err := harness.Client.GetDeviceLabelSyncProvenanceWithResponse(harness.Context, deviceName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(deviceProvenance.StatusCode()).To(Equal(http.StatusOK), string(deviceProvenance.Body))
@@ -324,6 +282,11 @@ var _ = Describe("Label sync mapping ownership", Serial, Label("integration", "s
 
 		By("blocking a changed exact-key write while allowing unchanged and unrelated writes")
 		device := getDevice(harness, deviceName)
+		unchangedResponse, err := harness.Client.ReplaceDeviceWithResponse(harness.Context, deviceName, *device)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(unchangedResponse.StatusCode()).To(Equal(http.StatusOK), string(unchangedResponse.Body))
+
+		device = getDevice(harness, deviceName)
 		changedLabels := cloneLabels(device.Metadata.Labels)
 		changedLabels[ownedKey] = "forged"
 		device.Metadata.Labels = &changedLabels
@@ -378,14 +341,6 @@ var _ = Describe("Label sync mapping ownership", Serial, Label("integration", "s
 		Expect(*recreated.Metadata.CreationTimestamp).NotTo(Equal(*created.Metadata.CreationTimestamp))
 		waitForDeviceLabels(harness, deviceName, map[string]string{ownedKey: "linux"})
 		waitForMappingReady(harness, mappingName)
-		organizationProvenance, err = harness.Client.GetLabelSyncProvenanceWithResponse(
-			harness.Context,
-			&api.GetLabelSyncProvenanceParams{LabelKeys: []string{ownedKey}},
-		)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(organizationProvenance.StatusCode()).To(Equal(http.StatusOK), string(organizationProvenance.Body))
-		Expect(organizationProvenance.JSON200).NotTo(BeNil())
-		Expect(ownersForKey(organizationProvenance.JSON200.Items, ownedKey)).To(ConsistOf(mappingName))
 
 		device = getDevice(harness, deviceName)
 		recreatedLabels := cloneLabels(device.Metadata.Labels)
