@@ -88,6 +88,8 @@ ARG AGENT_CONFIG_FROM=
 ARG AGENT_CERTS_FROM=
 
 COPY --from=variant-context flightctl-e2e.tmpfiles.conf /usr/lib/tmpfiles.d/flightctl-e2e.tmpfiles.conf
+COPY --from=variant-context e2e-status-value.sh /usr/lib/flightctl/custom-info.d/e2eStatusValue
+RUN chmod 0755 /usr/lib/flightctl/custom-info.d/e2eStatusValue
 
 # Install CA trust, agent config and certs if provided
 RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
