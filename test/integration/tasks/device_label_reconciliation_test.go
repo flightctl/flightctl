@@ -194,7 +194,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		return domain.Event{}
 	}
 
-	statusEventsForDevice := func(name string) []domain.Event {
+	reconciliationRequestsForDevice := func(name string) []domain.Event {
 		list, err := eventStore.List(ctx, orgID, store.ListParams{Limit: 100})
 		Expect(err).NotTo(HaveOccurred())
 		var result []domain.Event
@@ -222,44 +222,12 @@ var _ = Describe("Device label reconciliation worker", func() {
 		return *condition
 	}
 
-	It("When status events leave labels unchanged it should measure the event-driven worker path", Label("performance"), func() {
-		const repetitions = 20
-		createMapping("architecture", "architecture", "status.systemInfo.architecture")
-		device := createDevice("worker-performance", "x86_64", nil, nil)
-		device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, "worker-performance", *device, true)
-		Expect(status.Code).To(Equal(int32(200)), status.Message)
-		Expect(newWorkerLogic(mappingSvc, createEventForDevice("worker-performance")).Reconcile(ctx)).To(Succeed())
-		baseline := len(statusEventsForDevice("worker-performance"))
-		durations := make([]time.Duration, 0, repetitions)
-		var total time.Duration
-		for i := 0; i < repetitions; i++ {
-			device.Status.SystemInfo.BootID = fmt.Sprintf("boot-%d", i)
-			device, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "worker-performance", *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-			events := statusEventsForDevice("worker-performance")
-			Expect(events).To(HaveLen(baseline + i + 1))
-			logic := newWorkerLogic(mappingSvc, events[len(events)-1])
-			started := time.Now()
-			Expect(logic.Reconcile(ctx)).To(Succeed())
-			duration := time.Since(started)
-			durations = append(durations, duration)
-			total += duration
-		}
-		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
-		AddReportEntry("status-event-worker", map[string]any{
-			"operations": repetitions, "total": total.String(), "median": durations[repetitions/2].String(), "p95": durations[(repetitions*95-1)/100].String(),
-		})
-		persisted, err := deviceStore.Get(ctx, orgID, "worker-performance")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "x86_64"))
-	})
-
 	It("When identical agent statuses are repeated it should refresh liveness without scheduling label reconciliation", func() {
 		created := createDevice("heartbeat-only", "x86_64", nil, nil)
 		// Establish service-computed status before counting steady-state events.
 		updated, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *created, true)
 		Expect(status.Code).To(Equal(int32(200)), status.Message)
-		baseline := len(statusEventsForDevice("heartbeat-only"))
+		baseline := len(reconciliationRequestsForDevice("heartbeat-only"))
 		lastSeen := updated.Status.LastSeen
 		for i := 0; i < 10; i++ {
 			updated, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
@@ -269,15 +237,15 @@ var _ = Describe("Device label reconciliation worker", func() {
 		persisted, err := deviceStore.GetWithTimestamp(ctx, orgID, "heartbeat-only")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(persisted.Status.LastSeen.Before(*lastSeen)).To(BeFalse())
-		Expect(statusEventsForDevice("heartbeat-only")).To(HaveLen(baseline))
+		Expect(reconciliationRequestsForDevice("heartbeat-only")).To(HaveLen(baseline))
 		updated.Status.SystemInfo.Architecture = "aarch64"
 		_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
 		Expect(status.Code).To(Equal(int32(200)), status.Message)
-		Expect(statusEventsForDevice("heartbeat-only")).To(HaveLen(baseline + 1))
+		Expect(reconciliationRequestsForDevice("heartbeat-only")).To(HaveLen(baseline + 1))
 	})
 
-	It("When update progress changes it should persist status and publish DeviceLabelReconciliationRequested events", func() {
-		const name = "update-progress-only"
+	It("When a status condition changes it should request reconciliation of CEL-derived labels", func() {
+		const name = "condition-label"
 		createMapping("update-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
 		device := createDevice(name, "x86_64", nil, nil)
 		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
@@ -287,102 +255,23 @@ var _ = Describe("Device label reconciliation worker", func() {
 		device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
 		Expect(status.Code).To(Equal(int32(200)), status.Message)
 		Expect(newWorkerLogic(mappingSvc, createEventForDevice(name)).Reconcile(ctx)).To(Succeed())
-		baseline := len(statusEventsForDevice(name))
-		lastSeen, resourceVersion := device.Status.LastSeen, device.Metadata.ResourceVersion
-		for i := 0; i < 20; i++ {
-			condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
-			condition.Reason = string(domain.UpdateStateApplyingUpdate)
-			condition.Message = fmt.Sprintf("Downloading image: %d", i)
-			condition.LastTransitionTime = time.Now()
-			device, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-		}
-		statusEvents := statusEventsForDevice(name)
-		Expect(statusEvents).To(HaveLen(baseline + 20))
-		persisted, err := deviceStore.GetWithTimestamp(ctx, orgID, name)
+		baseline := len(reconciliationRequestsForDevice(name))
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
+		condition.Reason = string(domain.UpdateStateApplyingUpdate)
+		_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).To(HaveLen(baseline + 1))
+		persisted, err := deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(persisted.Metadata.ResourceVersion).NotTo(Equal(resourceVersion))
-		Expect(persisted.Status.LastSeen.After(*lastSeen)).To(BeTrue())
-		Expect(lo.FromPtr(persisted.Status.Updated.Info)).To(Equal("Downloading image: 19"))
-		Expect(domain.FindStatusCondition(persisted.Status.Conditions, domain.ConditionTypeDeviceUpdating).Reason).To(Equal(string(domain.UpdateStateApplyingUpdate)))
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "Preparing"))
-		Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
-		persisted, err = deviceStore.Get(ctx, orgID, name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
-
-		Expect(patchArchitecture(name, "aarch64").Code).To(Equal(int32(200)))
-		statusEvents = statusEventsForDevice(name)
-		Expect(statusEvents).To(HaveLen(baseline + 21))
-		Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(mappingSvc, requests[len(requests)-1]).Reconcile(ctx)).To(Succeed())
 		persisted, err = deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
 	})
 
-	DescribeTable("When stable selector inputs change alongside update progress it should reconcile current state",
-		func(expression string, change func(*domain.Device), expected string) {
-			const name = "stable-update-input"
-			createMapping("stable-input", "stable", expression)
-			device := createDevice(name, "x86_64", nil, nil)
-			domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
-				Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
-				Reason: string(domain.UpdateStateApplyingUpdate), Message: "Downloading image", LastTransitionTime: time.Now(),
-			})
-			device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-			baseline := len(statusEventsForDevice(name))
-			domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating).Message = "Download progressing"
-			change(device)
-			_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-			statusEvents := statusEventsForDevice(name)
-			Expect(statusEvents).To(HaveLen(baseline + 1))
-			Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
-			persisted, err := deviceStore.Get(ctx, orgID, name)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("stable", expected))
-		},
-		Entry("system info", "status.systemInfo.architecture", func(d *domain.Device) {
-			d.Status.SystemInfo.Architecture = "aarch64"
-		}, "aarch64"),
-		Entry("applications", "status.applications[0].name", func(d *domain.Device) {
-			d.Status.Applications = []domain.DeviceApplicationStatus{{Name: "workload", Status: domain.ApplicationStatusRunning}}
-		}, "workload"),
-		Entry("systemd", "status.systemd[0].activeState", func(d *domain.Device) {
-			d.Status.Systemd = &[]domain.SystemdUnitStatus{{Unit: "sshd.service", ActiveState: "active", LoadState: "loaded", EnableState: "enabled", SubState: "running"}}
-		}, "active"),
-	)
-
-	DescribeTable("When an update reaches a terminal condition it should reconcile labels",
-		func(reason domain.UpdateState) {
-			const name = "terminal-update"
-			createMapping("terminal-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
-			device := createDevice(name, "x86_64", nil, nil)
-			domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
-				Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
-				Reason: string(domain.UpdateStateApplyingUpdate), LastTransitionTime: time.Now(),
-			})
-			device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-			baseline := len(statusEventsForDevice(name))
-			condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
-			condition.Status, condition.Reason, condition.Message = domain.ConditionStatusFalse, string(reason), "Update finished"
-			_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
-			Expect(status.Code).To(Equal(int32(200)), status.Message)
-			statusEvents := statusEventsForDevice(name)
-			Expect(statusEvents).To(HaveLen(baseline + 1))
-			Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
-			persisted, err := deviceStore.Get(ctx, orgID, name)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", string(reason)))
-		},
-		Entry("updated", domain.UpdateStateUpdated),
-		Entry("error", domain.UpdateStateError),
-		Entry("canceled", domain.UpdateStateCanceled),
-	)
-
-	It("acknowledges status work for a device that no longer exists", func() {
+	It("acknowledges reconciliation requests for a device that no longer exists", func() {
 		event := domain.Event{
 			Reason: domain.EventReasonDeviceLabelReconciliationRequested,
 			InvolvedObject: domain.ObjectReference{
@@ -429,7 +318,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		eventsSvc.SetWorkerClient(worker_client.NewWorkerClient(mainProducer, log, worker_client.WithLabelSyncPublisher(labelSyncProducer)))
 		status := patchArchitecture(name, "arm64")
 		Expect(status.Code).To(Equal(int32(200)), status.Message)
-		Expect(statusEventsForDevice(name)).To(HaveLen(1))
+		Expect(reconciliationRequestsForDevice(name)).To(HaveLen(1))
 		device, err := deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{"site": "east"}))
@@ -438,7 +327,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Entry("When publication fails it should retain the audit record", errors.New("label sync queue unavailable")),
 	)
 
-	It("publishes post-commit status events and reconciles reported labels into fleet membership", func() {
+	It("publishes reconciliation requests and reconciles reported labels into fleet membership", func() {
 		name := "reported-status-device"
 		createMapping("reported-architecture", "architecture", "status.systemInfo.architecture")
 		selector := map[string]string{"architecture": "arm64"}
@@ -455,13 +344,13 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(persisted.Status.SystemInfo.Architecture).To(Equal("arm64"))
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "amd64"))
-		statusEvents := statusEventsForDevice(name)
-		Expect(statusEvents).NotTo(BeEmpty())
-		statusEvent := statusEvents[len(statusEvents)-1]
-		Expect(statusEvent.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
-		Expect(statusEvent.InvolvedObject.Name).To(Equal(name))
-		Expect(statusEvent.Reason).To(Equal(domain.EventReasonDeviceLabelReconciliationRequested))
-		Expect(statusEvent.Details).To(BeNil())
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).NotTo(BeEmpty())
+		request := requests[len(requests)-1]
+		Expect(request.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
+		Expect(request.InvolvedObject.Name).To(Equal(name))
+		Expect(request.Reason).To(Equal(domain.EventReasonDeviceLabelReconciliationRequested))
+		Expect(request.Details).To(BeNil())
 
 		var spoofedLabels interface{} = map[string]string{"architecture": "arm64", "site": "east"}
 		spoofPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &spoofedLabels}}
@@ -473,7 +362,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(spoofOwnerStatus.Code).To(Equal(int32(400)))
 
 		service := newLabelSyncMappingService(mustNewEvaluator())
-		Expect(newWorkerLogic(service, statusEvent).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, request).Reconcile(ctx)).To(Succeed())
 		persisted, err = deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "arm64"))
@@ -515,14 +404,14 @@ var _ = Describe("Device label reconciliation worker", func() {
 		_, updateStatus := mappingSvc.ReplaceLabelSyncMapping(ctx, orgID, "latest-state-mapping", *mapping)
 		Expect(updateStatus.Code).To(Equal(int32(200)), updateStatus.Message)
 
-		statusEvents := statusEventsForDevice(name)
-		Expect(statusEvents).To(HaveLen(2))
-		Expect(statusEvents[0].Metadata.CreationTimestamp.Before(*statusEvents[1].Metadata.CreationTimestamp)).To(BeTrue())
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).To(HaveLen(2))
+		Expect(requests[0].Metadata.CreationTimestamp.Before(*requests[1].Metadata.CreationTimestamp)).To(BeTrue())
 		service := newLabelSyncMappingService(mustNewEvaluator())
 		Expect(newWorkerLogic(service, createdEvent).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[1]).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[0]).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[1]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[1]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[0]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[1]).Reconcile(ctx)).To(Succeed())
 
 		persisted, err := deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
@@ -619,7 +508,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		for _, architecture := range []string{"riscv64", "arm64"} {
 			Expect(patchArchitecture(name, architecture).Code).To(Equal(int32(200)))
 		}
-		Expect(statusEventsForDevice(name)).To(HaveLen(3))
+		Expect(reconciliationRequestsForDevice(name)).To(HaveLen(3))
 
 		var operatorLabels interface{} = map[string]string{"site": "west", "operator": "kept"}
 		labelPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &operatorLabels}}

@@ -477,7 +477,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
 
-	t.Run("When a status patch commits it should identify status in the reconciliation event", func(t *testing.T) {
+	t.Run("When a status patch commits it should request label reconciliation", func(t *testing.T) {
 		st, ev, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
