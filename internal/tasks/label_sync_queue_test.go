@@ -13,9 +13,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestStatusOnlyEventWhenDispatchedItShouldOnlyReconcileLabels(t *testing.T) {
+func TestLabelReconciliationRequestWhenDispatchedItShouldOnlyReconcileLabels(t *testing.T) {
 	ctx, log := context.Background(), logrus.New()
-	event := createTestEvent(domain.DeviceKind, domain.EventReasonDeviceStatusUpdated, "device")
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonDeviceLabelReconciliationRequested, "device")
 	require.True(t, shouldReconcileDeviceLabels(ctx, event))
 	require.False(t, shouldReconcileDeviceOwnership(ctx, event, log))
 	require.False(t, shouldRolloutFleet(ctx, event, log))
@@ -29,7 +29,7 @@ func TestStatusOnlyEventWhenDispatchedItShouldOnlyReconcileLabels(t *testing.T) 
 func TestLaunchConsumersWhenStartingItShouldAllocateOneLoopPerQueue(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	provider := queues.NewMockProvider(ctrl)
-	for _, name := range []string{consts.TaskQueue, consts.DeviceStatusTaskQueue} {
+	for _, name := range []string{consts.TaskQueue, consts.DeviceLabelSyncTaskQueue} {
 		consumer := queues.NewMockQueueConsumer(ctrl)
 		provider.EXPECT().NewQueueConsumer(gomock.Any(), name).Return(consumer, nil).Times(1)
 		consumer.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -37,11 +37,11 @@ func TestLaunchConsumersWhenStartingItShouldAllocateOneLoopPerQueue(t *testing.T
 	require.NoError(t, LaunchConsumers(context.Background(), provider, TaskConsumer{}, 1, 1))
 }
 
-func TestLaunchConsumersWhenStatusStartupFailsItShouldReturnTheError(t *testing.T) {
+func TestLaunchConsumersWhenLabelSyncStartupFailsItShouldReturnTheError(t *testing.T) {
 	for _, failConsume := range []bool{false, true} {
-		name := "When status consumer creation fails it should fail startup"
+		name := "When label sync consumer creation fails it should fail startup"
 		if failConsume {
-			name = "When status consumption fails it should fail startup"
+			name = "When label sync consumption fails it should fail startup"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
@@ -49,13 +49,13 @@ func TestLaunchConsumersWhenStatusStartupFailsItShouldReturnTheError(t *testing.
 			main := queues.NewMockQueueConsumer(ctrl)
 			provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.TaskQueue).Return(main, nil)
 			main.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(nil)
-			failure := errors.New("status consumer unavailable")
+			failure := errors.New("label sync consumer unavailable")
 			if failConsume {
-				status := queues.NewMockQueueConsumer(ctrl)
-				provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.DeviceStatusTaskQueue).Return(status, nil)
-				status.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(failure)
+				labelSync := queues.NewMockQueueConsumer(ctrl)
+				provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.DeviceLabelSyncTaskQueue).Return(labelSync, nil)
+				labelSync.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(failure)
 			} else {
-				provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.DeviceStatusTaskQueue).Return(nil, failure)
+				provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.DeviceLabelSyncTaskQueue).Return(nil, failure)
 			}
 			require.ErrorIs(t, LaunchConsumers(context.Background(), provider, TaskConsumer{}, 1, 1), failure)
 		})

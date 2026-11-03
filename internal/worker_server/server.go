@@ -82,11 +82,11 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer publisher.Close()
-	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, s.queuesProvider)
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}
-	defer statusPublisher.Close()
+	defer labelSyncPublisher.Close()
 
 	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
@@ -101,7 +101,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
-	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher), worker_client.WithStatusPublisher(statusPublisher))
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher), worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
 		s.log.WithError(err).Error("failed to create rendered version manager")
 		return err

@@ -33,7 +33,7 @@ type ClientOption func(*workerClient)
 
 type workerClient struct {
 	publisher                queues.QueueProducer
-	statusPublisher          queues.QueueProducer
+	labelSyncPublisher       queues.QueueProducer
 	deltaPublisher           queues.QueueProducer
 	deltaCompletionPublisher queues.QueueProducer
 	log                      logrus.FieldLogger
@@ -47,15 +47,15 @@ func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues
 	return publisher, nil
 }
 
-// StatusQueuePublisher returns a producer for device status updates.
-func StatusQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
-	return queuesProvider.NewQueueProducer(ctx, consts.DeviceStatusTaskQueue)
+// LabelSyncQueuePublisher returns a producer for device label reconciliation requests.
+func LabelSyncQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	return queuesProvider.NewQueueProducer(ctx, consts.DeviceLabelSyncTaskQueue)
 }
 
-// WithStatusPublisher routes DeviceStatusUpdated events to the status queue.
-func WithStatusPublisher(p queues.QueueProducer) ClientOption {
+// WithLabelSyncPublisher routes DeviceLabelReconciliationRequested events to the label sync queue.
+func WithLabelSyncPublisher(p queues.QueueProducer) ClientOption {
 	return func(c *workerClient) {
-		c.statusPublisher = p
+		c.labelSyncPublisher = p
 	}
 }
 
@@ -126,8 +126,8 @@ func (t *workerClient) EmitEventWithError(ctx context.Context, orgId uuid.UUID, 
 	if event == nil {
 		return nil
 	}
-	if IsDeviceStatusQueueEvent(*event) && t.statusPublisher != nil {
-		return t.enqueueWithError(ctx, orgId, event, t.statusPublisher)
+	if IsDeviceLabelSyncQueueEvent(*event) && t.labelSyncPublisher != nil {
+		return t.enqueueWithError(ctx, orgId, event, t.labelSyncPublisher)
 	}
 	if event.Reason == domain.EventReasonDeltaGenerationComplete && t.deltaCompletionPublisher != nil {
 		return t.enqueueWithError(ctx, orgId, event, t.deltaCompletionPublisher)
@@ -168,20 +168,20 @@ func (t *workerClient) enqueueWithError(ctx context.Context, orgId uuid.UUID, ev
 }
 
 var eventReasons = map[domain.EventReason]struct{}{
-	domain.EventReasonResourceCreated:             {},
-	domain.EventReasonResourceUpdated:             {},
-	domain.EventReasonDeviceStatusUpdated:         {},
-	domain.EventReasonResourceDeleted:             {},
-	domain.EventReasonFleetRolloutStarted:         {},
-	domain.EventReasonReferencedRepositoryUpdated: {},
-	domain.EventReasonDependencyChangeDetected:    {},
-	domain.EventReasonFleetRolloutDeviceSelected:  {},
-	domain.EventReasonFleetRolloutBatchDispatched: {},
-	domain.EventReasonDeviceConflictResolved:      {},
-	domain.EventReasonDeviceDecommissioned:        {},
-	domain.EventReasonApplicationLifecycleChanged: {},
-	domain.EventReasonDeltaGenerationCompleted:    {},
-	domain.EventReasonEnrollmentRequestApproved:   {},
+	domain.EventReasonResourceCreated:                    {},
+	domain.EventReasonResourceUpdated:                    {},
+	domain.EventReasonDeviceLabelReconciliationRequested: {},
+	domain.EventReasonResourceDeleted:                    {},
+	domain.EventReasonFleetRolloutStarted:                {},
+	domain.EventReasonReferencedRepositoryUpdated:        {},
+	domain.EventReasonDependencyChangeDetected:           {},
+	domain.EventReasonFleetRolloutDeviceSelected:         {},
+	domain.EventReasonFleetRolloutBatchDispatched:        {},
+	domain.EventReasonDeviceConflictResolved:             {},
+	domain.EventReasonDeviceDecommissioned:               {},
+	domain.EventReasonApplicationLifecycleChanged:        {},
+	domain.EventReasonDeltaGenerationCompleted:           {},
+	domain.EventReasonEnrollmentRequestApproved:          {},
 }
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
@@ -202,9 +202,9 @@ func IsDeltaGenerationCompletionQueueEvent(reason domain.EventReason) bool {
 	return reason == domain.EventReasonDeltaGenerationComplete
 }
 
-// IsDeviceStatusQueueEvent identifies device status notifications for label reconciliation.
-func IsDeviceStatusQueueEvent(event domain.Event) bool {
-	return event.InvolvedObject.Kind == domain.DeviceKind && event.Reason == domain.EventReasonDeviceStatusUpdated
+// IsDeviceLabelSyncQueueEvent identifies requests for device label reconciliation.
+func IsDeviceLabelSyncQueueEvent(event domain.Event) bool {
+	return event.InvolvedObject.Kind == domain.DeviceKind && event.Reason == domain.EventReasonDeviceLabelReconciliationRequested
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {

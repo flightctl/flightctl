@@ -359,8 +359,8 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domai
 
 	if !deviceStatusesEqual(oldDevice.Status, newDevice.Status) {
 		resourceUpdates = append(resourceUpdates, ResourceUpdate{
-			Reason:  domain.EventReasonDeviceStatusUpdated,
-			Details: "Device status was updated.",
+			Reason:  domain.EventReasonDeviceLabelReconciliationRequested,
+			Details: "Device label reconciliation was requested.",
 		})
 	}
 	if newDevice.Status == nil {

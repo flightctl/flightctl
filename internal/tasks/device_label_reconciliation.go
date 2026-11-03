@@ -57,5 +57,5 @@ func shouldReconcileDeviceLabels(_ context.Context, event domain.Event) bool {
 	if event.InvolvedObject.Kind != domain.DeviceKind {
 		return false
 	}
-	return event.Reason == domain.EventReasonResourceCreated || event.Reason == domain.EventReasonDeviceStatusUpdated
+	return event.Reason == domain.EventReasonResourceCreated || event.Reason == domain.EventReasonDeviceLabelReconciliationRequested
 }

@@ -106,12 +106,12 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer queuePublisher.Close() // Close publisher on server shutdown
 
-	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, queuesProvider)
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		return err
 	}
-	defer statusPublisher.Close()
-	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log, worker_client.WithStatusPublisher(statusPublisher))
+	defer labelSyncPublisher.Close()
+	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log, worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 	if err = rendered.Bus.Initialize(ctx, kvStore, queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
 		return err
 	}

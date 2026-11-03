@@ -89,13 +89,13 @@ func TestQueueMaintenanceTaskWhenMaintainingQueuesItShouldUseEachQueueLease(t *t
 	require.NoError(t, task.Execute(context.Background()))
 	require.Equal(t, []queueMaintenanceTimeoutCall{
 		{queueName: consts.TaskQueue, timeout: tasks.EventProcessingTimeout},
-		{queueName: consts.DeviceStatusTaskQueue, timeout: tasks.EventProcessingTimeout},
+		{queueName: consts.DeviceLabelSyncTaskQueue, timeout: tasks.EventProcessingTimeout},
 		{queueName: consts.DeltaGenerationTaskQueue, timeout: tasks.EventProcessingTimeout},
 		{queueName: consts.DeltaGenerationCompletionQueue, timeout: 13 * time.Minute},
 	}, provider.timeoutCalls)
 	require.Equal(t, []string{
 		consts.TaskQueue,
-		consts.DeviceStatusTaskQueue,
+		consts.DeviceLabelSyncTaskQueue,
 		consts.DeltaGenerationTaskQueue,
 		consts.DeltaGenerationCompletionQueue,
 	}, provider.retryCalls)

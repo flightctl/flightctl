@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestComputeDeviceStatusChanges_StatusNotification(t *testing.T) {
+func TestComputeDeviceStatusChanges_LabelReconciliationRequest(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		change  func(oldDevice, newDevice *domain.Device)
@@ -42,13 +42,13 @@ func TestComputeDeviceStatusChanges_StatusNotification(t *testing.T) {
 			updates := ComputeDeviceStatusChanges(context.Background(), oldDevice, newDevice, uuid.New())
 			var notifications []ResourceUpdate
 			for _, update := range updates {
-				if update.Reason == domain.EventReasonDeviceStatusUpdated {
+				if update.Reason == domain.EventReasonDeviceLabelReconciliationRequested {
 					notifications = append(notifications, update)
 				}
 			}
 			require.Len(t, notifications, tt.want)
 			if tt.want > 0 {
-				require.Equal(t, "Device status was updated.", notifications[0].Details)
+				require.Equal(t, "Device label reconciliation was requested.", notifications[0].Details)
 			}
 			after, err := json.Marshal([]*domain.Device{oldDevice, newDevice})
 			require.NoError(t, err)

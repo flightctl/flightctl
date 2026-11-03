@@ -556,7 +556,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk.
-			// The status change also emits a DeviceStatusUpdated event for label reconciliation.
+			// The status change also emits a DeviceLabelReconciliationRequested event.
 			events := getEventsForDevice(deviceName)
 			Expect(len(events)).To(Equal(5))
 
@@ -567,7 +567,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			Expect(eventReasons).To(ContainElements(
 				"ResourceCreated",
-				"DeviceStatusUpdated",
+				"DeviceLabelReconciliationRequested",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
@@ -599,7 +599,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery.
-			// Each status update contributes a DeviceStatusUpdated event.
+			// Each status update contributes a DeviceLabelReconciliationRequested event.
 			events = getEventsForDevice(deviceName)
 			Expect(len(events)).To(Equal(9))
 
@@ -610,8 +610,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			Expect(eventReasons).To(ContainElements(
 				"ResourceCreated",
-				"DeviceStatusUpdated",
-				"DeviceStatusUpdated",
+				"DeviceLabelReconciliationRequested",
+				"DeviceLabelReconciliationRequested",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",

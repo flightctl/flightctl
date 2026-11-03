@@ -119,7 +119,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, s.queuesProvider)
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithStatusPublisher(statusPublisher))
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))

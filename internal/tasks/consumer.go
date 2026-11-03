@@ -481,7 +481,7 @@ func hasUpdatedFields(details *domain.EventDetails, log logrus.FieldLogger, fiel
 }
 
 func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, d TaskConsumer, numConsumers, threadsPerConsumer int) error {
-	queueNames := []string{consts.TaskQueue, consts.DeviceStatusTaskQueue}
+	queueNames := []string{consts.TaskQueue, consts.DeviceLabelSyncTaskQueue}
 	totalConsumers := len(queueNames) * numConsumers * threadsPerConsumer
 
 	if d.WorkerMetrics != nil {

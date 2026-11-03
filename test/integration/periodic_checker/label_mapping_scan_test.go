@@ -330,7 +330,7 @@ var _ = Describe("Label mapping scan integration", func() {
 		for i := range events.Items {
 			event := &events.Items[i]
 			if event.InvolvedObject.Kind == domain.DeviceKind && event.InvolvedObject.Name == "a" &&
-				event.Reason == domain.EventReasonDeviceStatusUpdated {
+				event.Reason == domain.EventReasonDeviceLabelReconciliationRequested {
 				statusEvent = event
 				break
 			}

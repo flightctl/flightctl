@@ -500,7 +500,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
 		require.Len(t, ev.created, 1)
 		event := ev.created[0]
-		require.Equal(t, domain.EventReasonDeviceStatusUpdated, event.Reason)
+		require.Equal(t, domain.EventReasonDeviceLabelReconciliationRequested, event.Reason)
 		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
 		require.Equal(t, "foo", event.InvolvedObject.Name)
 		require.Nil(t, event.Details)

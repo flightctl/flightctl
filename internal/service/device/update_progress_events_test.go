@@ -174,7 +174,9 @@ func TestEmitDeviceStatusProgressEvents(t *testing.T) {
 			newStatus.Conditions = []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusFalse, Reason: string(reason)}}
 			assertStatusUpdate := func() {
 				updates := common.ComputeDeviceStatusChanges(context.Background(), &domain.Device{Status: &oldStatus}, &domain.Device{Status: &newStatus}, uuid.New())
-				require.True(t, slices.ContainsFunc(updates, func(update common.ResourceUpdate) bool { return update.Reason == domain.EventReasonDeviceStatusUpdated }))
+				require.True(t, slices.ContainsFunc(updates, func(update common.ResourceUpdate) bool {
+					return update.Reason == domain.EventReasonDeviceLabelReconciliationRequested
+				}))
 			}
 			assertStatusUpdate()
 			oldStatus = newStatus

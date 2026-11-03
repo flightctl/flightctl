@@ -111,7 +111,7 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 func (t *QueueMaintenanceTask) maintainedQueueNames() []string {
 	return []string{
 		consts.TaskQueue,
-		consts.DeviceStatusTaskQueue,
+		consts.DeviceLabelSyncTaskQueue,
 		consts.DeltaGenerationTaskQueue,
 		consts.DeltaGenerationCompletionQueue,
 	}
