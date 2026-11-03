@@ -399,7 +399,7 @@ ubiMinimal:
   # -- UBI minimal image repository
   image: registry.access.redhat.com/ubi9/ubi-minimal
   # -- UBI minimal image tag (pinned to avoid unexpected updates)
-  tag: "9.7-1763362218"
+  tag: "9.8-1793578971"
 
 # -- ImageBuilder API Configuration
 imageBuilderApi:

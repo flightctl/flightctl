@@ -27,7 +27,7 @@ db-setup:
   tag: latest
 gateway:
   image: registry.access.redhat.com/ubi9/nginx-124
-  tag: "9.8-1785993104"
+  tag: "9.8-1793639597"
 db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
