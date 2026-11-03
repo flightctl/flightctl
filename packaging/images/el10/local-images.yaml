@@ -24,7 +24,7 @@ db-setup:
   tag: latest
 gateway:
   image: registry.access.redhat.com/ubi10/nginx-126
-  tag: "1785834652"
+  tag: "10.2-1793578939"
 ui:
   # UI images are built from flightctl-ui repo
   image: quay.io/flightctl/flightctl-ui-el10
