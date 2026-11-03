@@ -33,6 +33,7 @@ type ClientOption func(*workerClient)
 
 type workerClient struct {
 	publisher                queues.QueueProducer
+	statusPublisher          queues.QueueProducer
 	deltaPublisher           queues.QueueProducer
 	deltaCompletionPublisher queues.QueueProducer
 	log                      logrus.FieldLogger
@@ -44,6 +45,18 @@ func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
 	return publisher, nil
+}
+
+// StatusQueuePublisher returns a producer for device status updates.
+func StatusQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	return queuesProvider.NewQueueProducer(ctx, consts.DeviceStatusTaskQueue)
+}
+
+// WithStatusPublisher routes status-only device updates to the status queue.
+func WithStatusPublisher(p queues.QueueProducer) ClientOption {
+	return func(c *workerClient) {
+		c.statusPublisher = p
+	}
 }
 
 // DeltaQueuePublisher returns a producer for the delta-generation task queue.
@@ -112,6 +125,9 @@ func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *do
 func (t *workerClient) EmitEventWithError(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
+	}
+	if IsDeviceStatusQueueEvent(*event) && t.statusPublisher != nil {
+		return t.enqueueWithError(ctx, orgId, event, t.statusPublisher)
 	}
 	if event.Reason == domain.EventReasonDeltaGenerationComplete && t.deltaCompletionPublisher != nil {
 		return t.enqueueWithError(ctx, orgId, event, t.deltaCompletionPublisher)
@@ -183,6 +199,17 @@ func IsDeltaGenerationQueueEvent(reason domain.EventReason) bool {
 // dedicated delta-generation completion queue.
 func IsDeltaGenerationCompletionQueueEvent(reason domain.EventReason) bool {
 	return reason == domain.EventReasonDeltaGenerationComplete
+}
+
+// IsDeviceStatusQueueEvent identifies status-only device updates. Updates that
+// also change spec or metadata stay on the main queue for their other workflows.
+func IsDeviceStatusQueueEvent(event domain.Event) bool {
+	if event.InvolvedObject.Kind != domain.DeviceKind || event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
+		return false
+	}
+	details, err := event.Details.AsResourceUpdatedDetails()
+	return err == nil && details.DetailType == domain.ResourceUpdated &&
+		len(details.UpdatedFields) == 1 && details.UpdatedFields[0] == domain.UpdatedFieldStatus
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {

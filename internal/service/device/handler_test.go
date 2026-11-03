@@ -477,7 +477,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
 
-	t.Run("When a status patch commits it should publish identity-only reconciliation work", func(t *testing.T) {
+	t.Run("When a status patch commits it should identify status in the reconciliation event", func(t *testing.T) {
 		st, ev, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
@@ -503,7 +503,10 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
 		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
 		require.Equal(t, "foo", event.InvolvedObject.Name)
-		require.Nil(t, event.Details)
+		require.NotNil(t, event.Details)
+		details, err := event.Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, details.UpdatedFields)
 	})
 
 	t.Run("When patching an immutable field it should return bad request", func(t *testing.T) {

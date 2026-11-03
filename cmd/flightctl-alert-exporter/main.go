@@ -93,7 +93,12 @@ func main() {
 		log.Fatalf("initializing task queue publisher: %v", err)
 	}
 	defer publisher.Close()
-	workerClient := worker_client.NewWorkerClient(publisher, log)
+	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, queuesProvider)
+	if err != nil {
+		log.Fatalf("initializing status queue publisher: %v", err)
+	}
+	defer statusPublisher.Close()
+	workerClient := worker_client.NewWorkerClient(publisher, log, worker_client.WithStatusPublisher(statusPublisher))
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	orgCache.Start()

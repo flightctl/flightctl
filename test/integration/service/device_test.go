@@ -556,7 +556,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk.
-			// The status change also emits an identity-only ResourceUpdated event for label reconciliation.
+			// The status change also emits a ResourceUpdated event identifying status for label reconciliation.
 			events := getEventsForDevice(deviceName)
 			Expect(len(events)).To(Equal(5))
 
@@ -599,7 +599,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery.
-			// Each status update contributes an identity-only ResourceUpdated event.
+			// Each status update contributes a ResourceUpdated event identifying status.
 			events = getEventsForDevice(deviceName)
 			Expect(len(events)).To(Equal(9))
 

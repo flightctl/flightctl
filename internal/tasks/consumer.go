@@ -481,7 +481,8 @@ func hasUpdatedFields(details *domain.EventDetails, log logrus.FieldLogger, fiel
 }
 
 func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, d TaskConsumer, numConsumers, threadsPerConsumer int) error {
-	totalConsumers := numConsumers * threadsPerConsumer
+	queueNames := []string{consts.TaskQueue, consts.DeviceStatusTaskQueue}
+	totalConsumers := len(queueNames) * numConsumers * threadsPerConsumer
 
 	if d.WorkerMetrics != nil {
 		d.WorkerMetrics.SetConsumersActive(float64(totalConsumers))
@@ -491,14 +492,16 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, d Task
 		}()
 	}
 
-	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.TaskQueue)
-		if err != nil {
-			return err
-		}
-		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, d.dispatch()); err != nil {
+	for _, queueName := range queueNames {
+		for i := 0; i != numConsumers; i++ {
+			consumer, err := queuesProvider.NewQueueConsumer(ctx, queueName)
+			if err != nil {
 				return err
+			}
+			for j := 0; j != threadsPerConsumer; j++ {
+				if err = consumer.Consume(ctx, d.dispatch()); err != nil {
+					return err
+				}
 			}
 		}
 	}

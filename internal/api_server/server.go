@@ -179,6 +179,11 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer publisher.Close()
+	statusPublisher, err := worker_client.StatusQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	defer statusPublisher.Close()
 	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
@@ -188,7 +193,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher), worker_client.WithStatusPublisher(statusPublisher))
 
 	s.log.Println("Initializing API server")
 

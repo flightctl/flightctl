@@ -228,8 +228,13 @@ var _ = Describe("Device label update dispatch", func() {
 		_, err := deviceStore.Create(ctx, orgID, &device, nil)
 		Expect(err).NotTo(HaveOccurred())
 
+		var details domain.EventDetails
+		Expect(details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
+			DetailType: domain.ResourceUpdated, UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus},
+		})).To(Succeed())
 		statusEvent := domain.Event{
-			Reason: domain.EventReasonResourceUpdated,
+			Details: &details,
+			Reason:  domain.EventReasonResourceUpdated,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "promoted-device",
@@ -283,7 +288,14 @@ func runDeviceTaskEvent(
 	Expect(err).NotTo(HaveOccurred())
 	consumer := &oneEventTaskConsumer{payload: payload}
 	provider := queues.NewMockProvider(ctrl)
-	provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.TaskQueue).Return(consumer, nil).Times(1)
+	queueName, otherQueueName := consts.TaskQueue, consts.DeviceStatusTaskQueue
+	if worker_client.IsDeviceStatusQueueEvent(event) {
+		queueName, otherQueueName = otherQueueName, queueName
+	}
+	provider.EXPECT().NewQueueConsumer(gomock.Any(), queueName).Return(consumer, nil).Times(1)
+	otherConsumer := queues.NewMockQueueConsumer(ctrl)
+	provider.EXPECT().NewQueueConsumer(gomock.Any(), otherQueueName).Return(otherConsumer, nil).Times(1)
+	otherConsumer.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	Expect(tasks.LaunchConsumers(ctx, provider, taskConsumer, 1, 1)).To(Succeed())
 	Expect(consumer.handlerErr).NotTo(HaveOccurred())
 	Expect(consumer.processingErr).NotTo(HaveOccurred())

@@ -9549,7 +9549,8 @@ components:
           type: array
           items:
             type: string
-            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks]
+            enum: [owner, labels, spec, spec.selector, spec.template, status, status.conditions.EnrollmentHooks]
+            x-enum-varnames: [Owner, Labels, Spec, SpecSelector, SpecTemplate, ResourceUpdatedStatus, StatusConditionsEnrollmentHooks]
           description: List of fields that were updated in the resource.
         previousOwner:
           type: string

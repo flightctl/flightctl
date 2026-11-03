@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
@@ -22,6 +23,14 @@ func prepareTestDeviceForEvents(name string) *domain.Device {
 		Spec:       &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		Status:     &status,
 	}
+}
+
+func isStatusUpdatedEvent(event *domain.Event) bool {
+	if event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
+		return false
+	}
+	details, err := event.Details.AsResourceUpdatedDetails()
+	return err == nil && lo.Contains(details.UpdatedFields, domain.UpdatedFieldStatus)
 }
 
 func TestEmitDeviceUpdatedEvent(t *testing.T) {
@@ -43,7 +52,7 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		require.Nil(t, ev.created[0].Details)
 	})
 
-	t.Run("When status changes it should publish an identity-only reconciliation event", func(t *testing.T) {
+	t.Run("When status changes it should publish a reconciliation event identifying status", func(t *testing.T) {
 		ev := &fakeEvents{}
 		oldDevice := prepareTestDeviceForEvents("dev1")
 		newDevice := prepareTestDeviceForEvents("dev1")
@@ -54,16 +63,79 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 
 		var reconciliationEvents []*domain.Event
 		for _, event := range ev.created {
-			if event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+			if isStatusUpdatedEvent(event) {
 				reconciliationEvents = append(reconciliationEvents, event)
 			}
 		}
 		require.Len(t, reconciliationEvents, 1)
 		require.Equal(t, domain.DeviceKind, reconciliationEvents[0].InvolvedObject.Kind)
 		require.Equal(t, "dev1", reconciliationEvents[0].InvolvedObject.Name)
+		details, err := reconciliationEvents[0].Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Equal(t, domain.ResourceUpdated, details.DetailType)
+		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}, details.UpdatedFields)
 	})
 
-	t.Run("When status is unchanged it should not publish an identity-only reconciliation event", func(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(*domain.Device)
+		want   int
+	}{
+		{
+			name: "When only LastSeen changes it should skip reconciliation",
+			change: func(d *domain.Device) {
+				d.Status.LastSeen = lo.ToPtr(time.Unix(200, 0))
+			},
+		},
+		{
+			name: "When LastSeen is cleared it should skip reconciliation",
+			change: func(d *domain.Device) {
+				d.Status.LastSeen = nil
+			},
+		},
+		{
+			name: "When a CEL-visible timestamp changes it should reconcile",
+			change: func(d *domain.Device) {
+				d.Status.Conditions[0].LastTransitionTime = time.Unix(200, 0)
+			},
+			want: 1,
+		},
+		{
+			name: "When LastSeen and system info change it should reconcile",
+			change: func(d *domain.Device) {
+				d.Status.LastSeen = lo.ToPtr(time.Unix(200, 0))
+				d.Status.SystemInfo.Architecture = "aarch64"
+			},
+			want: 1,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := &fakeEvents{}
+			oldDevice := prepareTestDeviceForEvents("dev1")
+			newDevice := prepareTestDeviceForEvents("dev1")
+			for _, d := range []*domain.Device{oldDevice, newDevice} {
+				d.Status.LastSeen = lo.ToPtr(time.Unix(100, 0))
+				d.Status.Conditions = []domain.Condition{{
+					Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
+					LastTransitionTime: time.Unix(100, 0),
+				}}
+			}
+			tt.change(newDevice)
+			oldStatus, newStatus := *oldDevice.Status, *newDevice.Status
+			EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+			var count int
+			for _, event := range ev.created {
+				if isStatusUpdatedEvent(event) {
+					count++
+				}
+			}
+			require.Equal(t, tt.want, count)
+			require.Equal(t, oldStatus, *oldDevice.Status)
+			require.Equal(t, newStatus, *newDevice.Status)
+		})
+	}
+
+	t.Run("When status is unchanged it should not publish a status reconciliation event", func(t *testing.T) {
 		ev := &fakeEvents{}
 		oldDevice := prepareTestDeviceForEvents("dev1")
 		newDevice := prepareTestDeviceForEvents("dev1")
@@ -72,13 +144,11 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
 
 		for _, event := range ev.created {
-			if event.Reason == domain.EventReasonResourceUpdated {
-				require.NotNil(t, event.Details)
-			}
+			require.False(t, isStatusUpdatedEvent(event))
 		}
 	})
 
-	t.Run("When a device spec changes without status it should not publish an identity-only reconciliation event", func(t *testing.T) {
+	t.Run("When a device spec changes without status it should not publish a status reconciliation event", func(t *testing.T) {
 		ev := &fakeEvents{}
 		oldDevice := prepareTestDeviceForEvents("dev1")
 		newDevice := prepareTestDeviceForEvents("dev1")
@@ -87,9 +157,7 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
 
 		for _, event := range ev.created {
-			if event.Reason == domain.EventReasonResourceUpdated {
-				require.NotNil(t, event.Details)
-			}
+			require.False(t, isStatusUpdatedEvent(event))
 		}
 	})
 
@@ -101,7 +169,7 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, errors.New("write failed"))
 
 		for _, event := range ev.created {
-			require.False(t, event.Reason == domain.EventReasonResourceUpdated && event.Details == nil)
+			require.False(t, isStatusUpdatedEvent(event))
 		}
 	})
 

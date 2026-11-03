@@ -166,6 +166,7 @@ const (
 	UpdatedFieldLabels                   = v1beta1.Labels
 	UpdatedFieldOwner                    = v1beta1.Owner
 	UpdatedFieldSpec                     = v1beta1.Spec
+	UpdatedFieldStatus                   = v1beta1.ResourceUpdatedStatus
 	UpdatedFieldSpecSelector             = v1beta1.SpecSelector
 	UpdatedFieldSpecTemplate             = v1beta1.SpecTemplate
 	UpdatedFieldEnrollmentHooksCondition = v1beta1.StatusConditionsEnrollmentHooks

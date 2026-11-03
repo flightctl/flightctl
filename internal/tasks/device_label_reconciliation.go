@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -60,5 +61,9 @@ func shouldReconcileDeviceLabels(_ context.Context, event domain.Event) bool {
 	if event.Reason == domain.EventReasonResourceCreated {
 		return true
 	}
-	return event.Reason == domain.EventReasonResourceUpdated && event.Details == nil
+	if event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
+		return false
+	}
+	details, err := event.Details.AsResourceUpdatedDetails()
+	return err == nil && details.DetailType == domain.ResourceUpdated && slices.Contains(details.UpdatedFields, domain.UpdatedFieldStatus)
 }

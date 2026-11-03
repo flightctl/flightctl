@@ -161,6 +161,7 @@ func TestRun_WhenDeltaWorkerStartsItShouldOpenDedicatedCompletionQueue(t *testin
 	require.NoError(t, server.Run(ctx))
 	require.Equal(t, []string{
 		consts.TaskQueue,
+		consts.DeviceStatusTaskQueue,
 		consts.DeltaGenerationTaskQueue,
 		consts.DeltaGenerationCompletionQueue,
 	}, provider.producerNames)

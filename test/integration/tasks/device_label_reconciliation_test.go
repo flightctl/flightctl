@@ -106,7 +106,9 @@ var _ = Describe("Device label reconciliation worker", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		producer := queues.NewMockQueueProducer(ctrl)
 		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-		workerClient := worker_client.NewWorkerClient(producer, log)
+		statusProducer := queues.NewMockQueueProducer(ctrl)
+		statusProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+		workerClient := worker_client.NewWorkerClient(producer, log, worker_client.WithStatusPublisher(statusProducer))
 		eventsSvc = events.NewServiceHandler(eventStore, workerClient, log)
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).NotTo(HaveOccurred())
@@ -194,8 +196,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(err).NotTo(HaveOccurred())
 		var result []domain.Event
 		for _, event := range list.Items {
-			if event.InvolvedObject.Kind == domain.DeviceKind && event.InvolvedObject.Name == name &&
-				event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+			if event.InvolvedObject.Name == name && worker_client.IsDeviceStatusQueueEvent(event) {
 				result = append(result, event)
 			}
 		}
@@ -218,9 +219,174 @@ var _ = Describe("Device label reconciliation worker", func() {
 		return *condition
 	}
 
-	It("acknowledges stale identity-only work for a device that no longer exists", func() {
+	It("When status events leave labels unchanged it should measure the event-driven worker path", Label("performance"), func() {
+		const repetitions = 20
+		createMapping("architecture", "architecture", "status.systemInfo.architecture")
+		device := createDevice("worker-performance", "x86_64", nil, nil)
+		device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, "worker-performance", *device, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(newWorkerLogic(mappingSvc, createEventForDevice("worker-performance")).Reconcile(ctx)).To(Succeed())
+		baseline := len(statusEventsForDevice("worker-performance"))
+		durations := make([]time.Duration, 0, repetitions)
+		var total time.Duration
+		for i := 0; i < repetitions; i++ {
+			device.Status.SystemInfo.BootID = fmt.Sprintf("boot-%d", i)
+			device, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "worker-performance", *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+			events := statusEventsForDevice("worker-performance")
+			Expect(events).To(HaveLen(baseline + i + 1))
+			logic := newWorkerLogic(mappingSvc, events[len(events)-1])
+			started := time.Now()
+			Expect(logic.Reconcile(ctx)).To(Succeed())
+			duration := time.Since(started)
+			durations = append(durations, duration)
+			total += duration
+		}
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		AddReportEntry("status-event-worker", map[string]any{
+			"operations": repetitions, "total": total.String(), "median": durations[repetitions/2].String(), "p95": durations[(repetitions*95-1)/100].String(),
+		})
+		persisted, err := deviceStore.Get(ctx, orgID, "worker-performance")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "x86_64"))
+	})
+
+	It("When identical agent statuses are repeated it should refresh liveness without scheduling label reconciliation", func() {
+		created := createDevice("heartbeat-only", "x86_64", nil, nil)
+		// Establish service-computed status before counting steady-state events.
+		updated, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *created, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		baseline := len(statusEventsForDevice("heartbeat-only"))
+		lastSeen := updated.Status.LastSeen
+		for i := 0; i < 10; i++ {
+			updated, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+		}
+		Expect(updated.Status.LastSeen.After(*lastSeen)).To(BeTrue())
+		persisted, err := deviceStore.GetWithTimestamp(ctx, orgID, "heartbeat-only")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(persisted.Status.LastSeen.Before(*lastSeen)).To(BeFalse())
+		Expect(statusEventsForDevice("heartbeat-only")).To(HaveLen(baseline))
+		updated.Status.SystemInfo.Architecture = "aarch64"
+		_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(statusEventsForDevice("heartbeat-only")).To(HaveLen(baseline + 1))
+	})
+
+	It("When update progress changes it should persist status and publish explicit status events", func() {
+		const name = "update-progress-only"
+		createMapping("update-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
+		device := createDevice(name, "x86_64", nil, nil)
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
+			Reason: string(domain.UpdateStatePreparing), Message: "Preparing update", LastTransitionTime: time.Now(),
+		})
+		device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(newWorkerLogic(mappingSvc, createEventForDevice(name)).Reconcile(ctx)).To(Succeed())
+		baseline := len(statusEventsForDevice(name))
+		lastSeen, resourceVersion := device.Status.LastSeen, device.Metadata.ResourceVersion
+		for i := 0; i < 20; i++ {
+			condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
+			condition.Reason = string(domain.UpdateStateApplyingUpdate)
+			condition.Message = fmt.Sprintf("Downloading image: %d", i)
+			condition.LastTransitionTime = time.Now()
+			device, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+		}
+		statusEvents := statusEventsForDevice(name)
+		Expect(statusEvents).To(HaveLen(baseline + 20))
+		persisted, err := deviceStore.GetWithTimestamp(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(persisted.Metadata.ResourceVersion).NotTo(Equal(resourceVersion))
+		Expect(persisted.Status.LastSeen.After(*lastSeen)).To(BeTrue())
+		Expect(lo.FromPtr(persisted.Status.Updated.Info)).To(Equal("Downloading image: 19"))
+		Expect(domain.FindStatusCondition(persisted.Status.Conditions, domain.ConditionTypeDeviceUpdating).Reason).To(Equal(string(domain.UpdateStateApplyingUpdate)))
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "Preparing"))
+		Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
+		persisted, err = deviceStore.Get(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
+
+		Expect(patchArchitecture(name, "aarch64").Code).To(Equal(int32(200)))
+		statusEvents = statusEventsForDevice(name)
+		Expect(statusEvents).To(HaveLen(baseline + 21))
+		Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
+		persisted, err = deviceStore.Get(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
+	})
+
+	DescribeTable("When stable selector inputs change alongside update progress it should reconcile current state",
+		func(expression string, change func(*domain.Device), expected string) {
+			const name = "stable-update-input"
+			createMapping("stable-input", "stable", expression)
+			device := createDevice(name, "x86_64", nil, nil)
+			domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+				Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
+				Reason: string(domain.UpdateStateApplyingUpdate), Message: "Downloading image", LastTransitionTime: time.Now(),
+			})
+			device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+			baseline := len(statusEventsForDevice(name))
+			domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating).Message = "Download progressing"
+			change(device)
+			_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+			statusEvents := statusEventsForDevice(name)
+			Expect(statusEvents).To(HaveLen(baseline + 1))
+			Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
+			persisted, err := deviceStore.Get(ctx, orgID, name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("stable", expected))
+		},
+		Entry("system info", "status.systemInfo.architecture", func(d *domain.Device) {
+			d.Status.SystemInfo.Architecture = "aarch64"
+		}, "aarch64"),
+		Entry("applications", "status.applications[0].name", func(d *domain.Device) {
+			d.Status.Applications = []domain.DeviceApplicationStatus{{Name: "workload", Status: domain.ApplicationStatusRunning}}
+		}, "workload"),
+		Entry("systemd", "status.systemd[0].activeState", func(d *domain.Device) {
+			d.Status.Systemd = &[]domain.SystemdUnitStatus{{Unit: "sshd.service", ActiveState: "active", LoadState: "loaded", EnableState: "enabled", SubState: "running"}}
+		}, "active"),
+	)
+
+	DescribeTable("When an update reaches a terminal condition it should reconcile labels",
+		func(reason domain.UpdateState) {
+			const name = "terminal-update"
+			createMapping("terminal-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
+			device := createDevice(name, "x86_64", nil, nil)
+			domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+				Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
+				Reason: string(domain.UpdateStateApplyingUpdate), LastTransitionTime: time.Now(),
+			})
+			device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+			baseline := len(statusEventsForDevice(name))
+			condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
+			condition.Status, condition.Reason, condition.Message = domain.ConditionStatusFalse, string(reason), "Update finished"
+			_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+			statusEvents := statusEventsForDevice(name)
+			Expect(statusEvents).To(HaveLen(baseline + 1))
+			Expect(newWorkerLogic(mappingSvc, statusEvents[len(statusEvents)-1]).Reconcile(ctx)).To(Succeed())
+			persisted, err := deviceStore.Get(ctx, orgID, name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", string(reason)))
+		},
+		Entry("updated", domain.UpdateStateUpdated),
+		Entry("error", domain.UpdateStateError),
+		Entry("canceled", domain.UpdateStateCanceled),
+	)
+
+	It("acknowledges status work for a device that no longer exists", func() {
+		var details domain.EventDetails
+		Expect(details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
+			DetailType: domain.ResourceUpdated, UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus},
+		})).To(Succeed())
 		event := domain.Event{
-			Reason: domain.EventReasonResourceUpdated,
+			Details: &details,
+			Reason:  domain.EventReasonResourceUpdated,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "deleted-device",
@@ -251,7 +417,10 @@ var _ = Describe("Device label reconciliation worker", func() {
 		statusEvent := statusEvents[len(statusEvents)-1]
 		Expect(statusEvent.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
 		Expect(statusEvent.InvolvedObject.Name).To(Equal(name))
-		Expect(statusEvent.Details).To(BeNil())
+		Expect(statusEvent.Details).NotTo(BeNil())
+		statusDetails, err := statusEvent.Details.AsResourceUpdatedDetails()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(statusDetails.UpdatedFields).To(Equal([]domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus}))
 
 		var spoofedLabels interface{} = map[string]string{"architecture": "arm64", "site": "east"}
 		spoofPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &spoofedLabels}}

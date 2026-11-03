@@ -34,11 +34,13 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 
 	// Only generate status change events when the device is not being created
 	if !created {
-		if oldDevice != nil && newDevice != nil && !reflect.DeepEqual(oldDevice.Status, newDevice.Status) {
-			// Emit an identity-only update so the worker can reconcile from committed state.
-			// Focused events below describe known status transitions; mapped label changes
-			// are only known after all current mappings have been evaluated.
-			event := domain.GetBaseEvent(ctx, domain.DeviceKind, name, domain.EventReasonResourceUpdated, "Device status changed", nil)
+		if oldDevice != nil && newDevice != nil && !labelSyncStatusesEqual(oldDevice.Status, newDevice.Status) {
+			// Status events carry the changed field so workers can route label evaluation
+			// separately from spec and metadata work, using current committed state.
+			details := &domain.ResourceUpdatedDetails{
+				UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldStatus},
+			}
+			event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind, name, details, log, nil)
 			eventsService.CreateEvent(ctx, orgId, event)
 		}
 
@@ -94,6 +96,16 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 	if holdStandalone {
 		emitStandalonePrepareDeltas(ctx, eventsService, log, orgId, name, newDevice)
 	}
+}
+
+func labelSyncStatusesEqual(oldStatus, newStatus *domain.DeviceStatus) bool {
+	if oldStatus == nil || newStatus == nil {
+		return oldStatus == newStatus
+	}
+	oldCopy, newCopy := *oldStatus, *newStatus
+	// LastSeen is a liveness signal excluded from the JSON exposed to CEL.
+	oldCopy.LastSeen, newCopy.LastSeen = nil, nil
+	return reflect.DeepEqual(oldCopy, newCopy)
 }
 
 func hasFleetOwner(device *domain.Device) bool {
