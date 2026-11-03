@@ -30,7 +30,7 @@ db-setup:
   tag: latest
 gateway:
   image: registry.access.redhat.com/ubi9/nginx-124
-  tag: "9.8-1785993104"
+  tag: "9.8-1793639597"
 ui:
   # UI images are built from flightctl-ui repo
   image: quay.io/flightctl/flightctl-ui-el9
