@@ -39,9 +39,11 @@ func (e *reconciliationEvaluator) Evaluate(expression string, _ Activation) (Res
 }
 
 type reconciliationMappingState struct {
-	snapshots      []labelsyncmappingstore.DeviceMappingsSnapshot
-	snapshotErrors []error
-	reads          int
+	snapshots       []labelsyncmappingstore.DeviceMappingsSnapshot
+	snapshotErrors  []error
+	reads           int
+	definitionReads int
+	revisionReads   int
 }
 
 type deviceApplyResponse struct {
@@ -65,7 +67,7 @@ func newReconcilerService(t *testing.T, mappings *reconciliationMappingState, de
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mappingStore := labelsyncmappingstore.NewMockStore(ctrl)
-	mappingStore.EXPECT().GetDeviceMappingsSnapshot(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID) (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
+	readMappingState := func() (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
 		index := mappings.reads
 		mappings.reads++
 		if index >= len(mappings.snapshots) {
@@ -76,6 +78,15 @@ func newReconcilerService(t *testing.T, mappings *reconciliationMappingState, de
 			err = mappings.snapshotErrors[index]
 		}
 		return mappings.snapshots[index], err
+	}
+	mappingStore.EXPECT().GetDeviceMappingsSnapshot(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID) (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
+		mappings.definitionReads++
+		return readMappingState()
+	}).AnyTimes()
+	mappingStore.EXPECT().GetDeviceMappingsRevision(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID) (int64, error) {
+		mappings.revisionReads++
+		snapshot, err := readMappingState()
+		return snapshot.Revision, err
 	}).AnyTimes()
 	deviceStore := NewMockReconciliationDeviceStore(ctrl)
 	deviceStore.EXPECT().GetLabelSnapshot(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error) {
@@ -243,7 +254,8 @@ func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 	assert.True(t, result.LabelsChanged)
 	assert.True(t, result.MappingApplyCommitted)
 	assert.Len(t, devices.applyArgs, 2)
-	assert.Equal(t, 3, mappingStore.reads)
+	assert.Equal(t, 2, mappingStore.definitionReads)
+	assert.Equal(t, 1, mappingStore.revisionReads)
 	assert.Equal(t, []string{"mapped", "mapped"}, evaluator.called)
 	assert.Equal(t, domain.DesiredDeviceLabel{Value: "x86_64", MappingID: &mappingID}, devices.applyArgs[0]["architecture"])
 }
@@ -274,6 +286,8 @@ func TestReconcileDeviceLabelsReportsCommittedApplyAfterVerificationFailure(t *t
 	require.ErrorIs(t, err, verificationErr)
 	assert.True(t, result.MappingApplyCommitted)
 	assert.Len(t, devices.applyArgs, 2)
+	assert.Equal(t, 1, mappingStore.definitionReads)
+	assert.Equal(t, 1, mappingStore.revisionReads)
 }
 
 func TestReconcileDeviceLabelsSkipsDecommissionedDevice(t *testing.T) {
