@@ -103,11 +103,11 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.access.redhat.com/ubi10/nginx-126",
-          "tag": "1785834652"
+          "tag": "10.2-1793578939"
         },
         {
           "ref": "registry.access.redhat.com/ubi10/ubi-minimal",
-          "tag": "10.1-1769677092"
+          "tag": "10.2-1793642335"
         }
       ],
       "optional_images": {
@@ -221,11 +221,11 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.access.redhat.com/ubi9/nginx-124",
-          "tag": "9.8-1785993104"
+          "tag": "9.8-1793639597"
         },
         {
           "ref": "registry.access.redhat.com/ubi9/ubi-minimal",
-          "tag": "9.7-1763362218"
+          "tag": "9.8-1793578971"
         }
       ],
       "optional_images": {
@@ -267,11 +267,11 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.redhat.io/rhel10/postgresql-16",
-          "tag": "10.1-1776906601"
+          "tag": "10.2-1793579273"
         },
         {
           "ref": "registry.redhat.io/rhel10/valkey-8",
-          "tag": "10.1-1776907598"
+          "tag": "10.2-1793580555"
         },
         {
           "ref": "registry.redhat.io/rhem/flightctl-alert-exporter-rhel10",
@@ -339,7 +339,7 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.redhat.io/ubi10/ubi-minimal",
-          "tag": "10.1-1769677092"
+          "tag": "10.2-1793642335"
         }
       ],
       "optional_images": {
@@ -381,11 +381,11 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.redhat.io/rhel9/postgresql-16",
-          "tag": "9.7-1766414426"
+          "tag": "9.8-1793637208"
         },
         {
           "ref": "registry.redhat.io/rhel9/redis-7",
-          "tag": "9.7-1766414358"
+          "tag": "9.8-1793253232"
         },
         {
           "ref": "registry.redhat.io/rhem/flightctl-alert-exporter-rhel9",
@@ -453,7 +453,7 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.redhat.io/ubi9/ubi-minimal",
-          "tag": "9.7-1763362218"
+          "tag": "9.8-1793578971"
         }
       ],
       "optional_images": {
