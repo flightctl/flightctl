@@ -231,36 +231,67 @@ func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 }
 
 func TestHandlerHandleEmitsTerminalProgressForClaimedPrepare(t *testing.T) {
-	orgID := uuid.New()
-	deviceGeneration := int64(1)
-	prepare := model.DeltaPrepare{
-		ID:         uuid.New(),
-		OrgID:      orgID,
-		Kind:       domain.DeviceKind,
-		Name:       "device-1",
-		Generation: &deviceGeneration,
-		Status:     model.DeltaPrepareWaiting,
+	tests := []struct {
+		name       string
+		status     string
+		wantReason domain.EventReason
+		wantType   domain.EventType
+	}{
+		{
+			name:       "When generation succeeds it should emit a succeeded event",
+			status:     model.DeltaGenerationSucceeded,
+			wantReason: domain.EventReasonDeltaGenerationSucceeded,
+			wantType:   domain.EventTypeNormal,
+		},
+		{
+			name:       "When generation fails it should emit a warning failure event",
+			status:     model.DeltaGenerationFailed,
+			wantReason: domain.EventReasonDeltaGenerationFailed,
+			wantType:   domain.EventTypeWarning,
+		},
+		{
+			name:       "When generation is rejected it should emit a normal rejection event",
+			status:     model.DeltaGenerationRejected,
+			wantReason: domain.EventReasonDeltaGenerationRejected,
+			wantType:   domain.EventTypeNormal,
+		},
 	}
-	generation := &model.DeltaGeneration{
-		OrgID:           orgID,
-		ImageRepository: "quay.io/example/os",
-		SourceDigest:    "sha256:source",
-		TargetDigest:    "sha256:target",
-		Status:          model.DeltaGenerationSucceeded,
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgID := uuid.New()
+			deviceGeneration := int64(1)
+			prepare := model.DeltaPrepare{
+				ID:         uuid.New(),
+				OrgID:      orgID,
+				Kind:       domain.DeviceKind,
+				Name:       "device-1",
+				Generation: &deviceGeneration,
+				Status:     model.DeltaPrepareWaiting,
+			}
+			generation := &model.DeltaGeneration{
+				OrgID:           orgID,
+				ImageRepository: "quay.io/example/os",
+				SourceDigest:    "sha256:source",
+				TargetDigest:    "sha256:target",
+				Status:          tt.status,
+			}
+			event, err := deltageneration.NewGenerationCompleteEvent(generation)
+			require.NoError(t, err)
+			store := &completionStore{progress: []deltapreparestore.PrepareProgress{{Prepare: prepare, Completed: 1, Total: 2}}}
+			completion, events := newCompletionServiceWithEventsForTest(t, store)
+			handler, err := NewHandler(completion, workerservice.NewStorePreparingStatus(nil, &progressStatusStore{}))
+			require.NoError(t, err)
+
+			err = handler.Handle(context.Background(), worker_client.EventWithOrgId{OrgId: orgID, Event: *event})
+
+			require.NoError(t, err)
+			require.Len(t, events.created, 1)
+			require.Equal(t, tt.wantReason, events.created[0].Reason)
+			require.Equal(t, tt.wantType, events.created[0].Type)
+			details, err := events.created[0].Details.AsDeltaGenerationProgressDetails()
+			require.NoError(t, err)
+			require.Equal(t, &deviceGeneration, details.Generation)
+		})
 	}
-	event, err := deltageneration.NewGenerationCompleteEvent(generation)
-	require.NoError(t, err)
-	store := &completionStore{progress: []deltapreparestore.PrepareProgress{{Prepare: prepare, Completed: 1, Total: 2}}}
-	completion, events := newCompletionServiceWithEventsForTest(t, store)
-	handler, err := NewHandler(completion, workerservice.NewStorePreparingStatus(nil, &progressStatusStore{}))
-	require.NoError(t, err)
-
-	err = handler.Handle(context.Background(), worker_client.EventWithOrgId{OrgId: orgID, Event: *event})
-
-	require.NoError(t, err)
-	require.Len(t, events.created, 1)
-	require.Equal(t, domain.EventReasonDeltaGenerationProgress, events.created[0].Reason)
-	details, err := events.created[0].Details.AsDeltaGenerationProgressDetails()
-	require.NoError(t, err)
-	require.Equal(t, &deviceGeneration, details.Generation)
 }

@@ -64,7 +64,7 @@ type deltaUpdateSnapshot struct {
 }
 
 var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
-	It("When a fleet OS image changes with a writable delta target it should hold then apply a generated OS delta", func() {
+	It("When a fleet OS image changes with a writable delta target it should hold then apply a generated OS delta", Label("OCP-90800"), func() {
 		harness := e2e.GetWorkerHarness()
 		createWritableDeltaRepo(harness)
 
@@ -84,7 +84,7 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 		waitSettledOSDeltaUpdate(harness, fleetName, deviceId, v2Image, deltaUpdateExpectGeneratedAndUsed, eventBaseline)
 	})
 
-	It("When generateDelta is false it should write the new OS spec without FleetDeltaPreparing", func() {
+	It("When generateDelta is false it should write the new OS spec without FleetDeltaPreparing", Label("OCP-90799"), func() {
 		harness := e2e.GetWorkerHarness()
 		createWritableDeltaRepo(harness)
 
@@ -104,7 +104,7 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 			"device spec is V2 and UpToDate without waiting for generation", TIMEOUT)
 	})
 
-	It("When maxWaitForDelta expires it should roll out the OS without a deltaImage hint", func() {
+	It("When maxWaitForDelta expires it should roll out the OS without a deltaImage hint", Label("OCP-90798"), func() {
 		temporarilyUseFastDeltaPrepareDeadlinePoll()
 
 		harness := e2e.GetWorkerHarness()
@@ -126,12 +126,30 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 		waitSettledOSDeltaUpdate(harness, fleetName, deviceId, v2Image, deltaUpdateExpectGenerationButNotUsed, eventBaseline)
 	})
 
-	It("When a standalone device OS spec changes with a writable delta target it should delay render then hint", Label("standalone"), func() {
+	It("When a standalone device OS spec changes with a writable delta target it should delay render then hint", Label("standalone"), Label("OCP-90797"), func() {
 		harness := e2e.GetWorkerHarness()
-		createWritableDeltaRepo(harness)
 
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 		waitDeviceUpToDate(harness, deviceId, "device UpToDate on current OS")
+
+		By("booting the registry base image so the delta source is available in the target repository")
+		baseImage := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.Base)
+		Expect(harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+			if device.Spec == nil {
+				device.Spec = &v1beta1.DeviceSpec{}
+			}
+			device.Spec.Os = &v1beta1.DeviceOsSpec{Image: baseImage}
+		})).To(Succeed())
+		harness.WaitForDeviceContents(deviceId, "device UpToDate on the registry base OS", func(device *v1beta1.Device) bool {
+			return device.Status != nil && device.Status.Os.Image == baseImage &&
+				device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
+		}, LONGTIMEOUT)
+		sourceDigest := getDeltaDevice(harness, deviceId).Status.Os.ImageDigest
+		Expect(sourceDigest).NotTo(BeEmpty())
+		_, err := harness.ResolveImage(applicationRegistryEndpoint(), util.DeviceImageRegistryPath, sourceDigest)
+		Expect(err).NotTo(HaveOccurred(), "booted OS source digest %s must be available in the delta target repository", sourceDigest)
+
+		createWritableDeltaRepo(harness)
 		requireDeltaGenerationSupport(harness, deviceId)
 
 		v2Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V2)
@@ -147,7 +165,7 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 		waitSettledOSDeltaUpdate(harness, "", deviceId, v2Image, deltaUpdateExpectGeneratedAndUsed, eventBaseline)
 	})
 
-	It("When there is no writable delta target it should update OS without a hint", func() {
+	It("When there is no writable delta target it should update OS without a hint", Label("OCP-90796"), func() {
 		harness := e2e.GetWorkerHarness()
 
 		fleetName := "delta-os-no-target"
@@ -649,7 +667,7 @@ func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId strin
 
 func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, observation *deltaLifecycleObservation) error {
 	for _, event := range events {
-		if event.Reason != v1beta1.EventReasonDeltaGenerationProgress {
+		if !isDeltaGenerationLifecycleReason(event.Reason) {
 			continue
 		}
 		if event.Details == nil {
@@ -687,6 +705,18 @@ func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, o
 		}
 	}
 	return nil
+}
+
+func isDeltaGenerationLifecycleReason(reason v1beta1.EventReason) bool {
+	switch reason {
+	case v1beta1.EventReasonDeltaGenerationProgress,
+		v1beta1.EventReasonDeltaGenerationSucceeded,
+		v1beta1.EventReasonDeltaGenerationFailed,
+		v1beta1.EventReasonDeltaGenerationRejected:
+		return true
+	default:
+		return false
+	}
 }
 
 func expectedGenerationProgressPending(expectation deltaUpdateExpectation, observation deltaLifecycleObservation, fleetName, deviceId string) (bool, string) {
@@ -808,7 +838,7 @@ func logDeltaEventsOnce(events []v1beta1.Event, loggedEvents map[string]struct{}
 			continue
 		}
 		loggedEvents[*event.Metadata.Name] = struct{}{}
-		if event.Reason == v1beta1.EventReasonDeltaGenerationProgress && progress != nil {
+		if isDeltaGenerationLifecycleReason(event.Reason) && progress != nil {
 			progress.lastChange = time.Now()
 		}
 		observedProgress = isDeltaLifecycleProgressEvent(event.Reason) || observedProgress
@@ -818,9 +848,11 @@ func logDeltaEventsOnce(events []v1beta1.Event, loggedEvents map[string]struct{}
 }
 
 func isDeltaLifecycleProgressEvent(reason v1beta1.EventReason) bool {
+	if isDeltaGenerationLifecycleReason(reason) {
+		return true
+	}
 	switch reason {
-	case v1beta1.EventReasonDeltaGenerationProgress,
-		v1beta1.EventReasonDeltaGenerationCompleted,
+	case v1beta1.EventReasonDeltaGenerationCompleted,
 		v1beta1.EventReasonDeviceContentOutOfDate,
 		v1beta1.EventReasonDeviceContentUpdating,
 		v1beta1.EventReasonDeviceIsRebooting,

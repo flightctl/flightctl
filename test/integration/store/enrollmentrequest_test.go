@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -13,7 +14,6 @@ import (
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
@@ -50,7 +50,35 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, enrollmentRequestStore, orgId)
+		for i := 1; i <= numEnrollmentRequests; i++ {
+			resource := api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
+					Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: "csr string",
+				},
+				Status: &api.EnrollmentRequestStatus{
+					Certificate: lo.ToPtr("cert"),
+				},
+			}
+
+			_, err := enrollmentRequestStore.Create(ctx, orgId, &resource)
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			_, _, _, err = enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				mutation.Resource().Status = resource.Status
+				return nil
+			})
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
 	})
 
 	AfterEach(func() {
@@ -58,6 +86,42 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	})
 
 	Context("EnrollmentRequest store", func() {
+		It("Mutate creates an enrollment request when it does not exist", func() {
+			resource := api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("mutate-create"),
+					Labels: &map[string]string{"phase": "created"},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: "mutate create csr",
+				},
+				Status: &api.EnrollmentRequestStatus{
+					Certificate: lo.ToPtr("mutate create certificate"),
+				},
+			}
+
+			updated, before, created, err := enrollmentRequestStore.Mutate(ctx, orgId, *resource.Metadata.Name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				Expect(mutation.EnrollmentRequest).To(BeNil())
+				mutation.EnrollmentRequest = &resource
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+			Expect(before).To(BeNil())
+			Expect(updated).ToNot(BeNil())
+			Expect(*updated.Metadata.Name).To(Equal("mutate-create"))
+			Expect(updated.Spec.Csr).To(Equal("mutate create csr"))
+			Expect(updated.Metadata.Labels).ToNot(BeNil())
+			Expect(*updated.Metadata.Labels).To(HaveKeyWithValue("phase", "created"))
+
+			loaded, err := enrollmentRequestStore.Get(ctx, orgId, "mutate-create")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(loaded.Spec.Csr).To(Equal("mutate create csr"))
+			Expect(loaded.Metadata.Labels).ToNot(BeNil())
+			Expect(*loaded.Metadata.Labels).To(HaveKeyWithValue("phase", "created"))
+			Expect(loaded.Metadata.ResourceVersion).To(Equal(updated.Metadata.ResourceVersion))
+		})
+
 		It("Get enrollmentrequest success", func() {
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -206,7 +270,13 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, _, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest)
+			_, _, _, err := enrollmentRequestStore.Mutate(ctx, orgId, *enrollmentrequest.Metadata.Name, nil, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				if err := mutation.RequireExisting(); err != nil {
+					return err
+				}
+				mutation.Resource().Status = enrollmentrequest.Status
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())

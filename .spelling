@@ -12,6 +12,7 @@ API
 APIs
 apiVersion
 arm64
+ARMv7
 base64
 backoff
 boolean
@@ -429,6 +430,7 @@ automount
 automounted
 RoleBinding
 add-ons
+32-bit
 10-second
 ModelCar
 READMEs

@@ -3,6 +3,7 @@ package deltapreparegeneration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
@@ -105,25 +106,35 @@ func TestServiceCreateDeltaPrepareGenerationsReportsExistingProgress(t *testing.
 }
 
 func TestProgressServiceSkipsTerminalProgress(t *testing.T) {
-	orgID := uuid.New()
-	prepareID := uuid.New()
-	key := deltagenerationstore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
-	joins := &recordingJoinStore{joins: []*model.DeltaPrepareGeneration{{PrepareID: prepareID, OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest}}}
-	prepares := &fakePrepareService{
-		prepare: &model.DeltaPrepare{ID: prepareID, OrgID: orgID, Kind: domain.DeviceKind, Name: "device-1", Status: model.DeltaPrepareWaiting},
-	}
-	events := &recordingEvents{}
-	h := NewProgressHandler(joins, prepares, events)
-	generation := &model.DeltaGeneration{
-		OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
-		Status: model.DeltaGenerationSucceeded,
+	terminalStatuses := []string{
+		model.DeltaGenerationSucceeded,
+		model.DeltaGenerationFailed,
+		model.DeltaGenerationRejected,
 	}
 
-	err := h.EmitForGeneration(context.Background(), generation)
+	for _, status := range terminalStatuses {
+		t.Run(fmt.Sprintf("When generation is %s it should skip progress", status), func(t *testing.T) {
+			orgID := uuid.New()
+			prepareID := uuid.New()
+			key := deltagenerationstore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
+			joins := &recordingJoinStore{joins: []*model.DeltaPrepareGeneration{{PrepareID: prepareID, OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest}}}
+			prepares := &fakePrepareService{
+				prepare: &model.DeltaPrepare{ID: prepareID, OrgID: orgID, Kind: domain.DeviceKind, Name: "device-1", Status: model.DeltaPrepareWaiting},
+			}
+			events := &recordingEvents{}
+			h := NewProgressHandler(joins, prepares, events)
+			generation := &model.DeltaGeneration{
+				OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
+				Status: status,
+			}
 
-	require.NoError(t, err)
-	require.Empty(t, events.created)
-	require.Zero(t, prepares.statusCalls)
+			err := h.EmitForGeneration(context.Background(), generation)
+
+			require.NoError(t, err)
+			require.Empty(t, events.created)
+			require.Zero(t, prepares.statusCalls)
+		})
+	}
 }
 
 func TestServiceCreateDeltaPrepareGenerationsPropagatesGenerationListError(t *testing.T) {

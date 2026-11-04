@@ -179,6 +179,11 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer publisher.Close()
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	defer labelSyncPublisher.Close()
 	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
@@ -188,20 +193,19 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher), worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 
 	s.log.Println("Initializing API server")
 
-	// Construct the per-resource stores and service handlers this server needs, each wrapped
-	// with tracing. Cross-resource dependencies always go through the other resource's store,
-	// never its service, to avoid layering cycles (e.g. device depends on fleetStore, not
-	// fleetService).
+	// Construct stores for persistence and service handlers for resource workflows, each
+	// wrapped with tracing. Wire owning services and provider interfaces explicitly, and
+	// finish initializing the shared TPM verifier before serving requests.
 	vulnerabilityEnabled := s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled
 
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
 	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 	templateVersionStore := templateversionstore.NewTemplateVersionStore(s.db, s.log.WithField("pkg", "templateversion-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.db, s.log.WithField("pkg", "repository-store"))
 	resourceSyncStore := resourcesyncstore.NewResourceSyncStore(s.db, s.log.WithField("pkg", "resourcesync-store"))
@@ -221,10 +225,13 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
-	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
+
+	var tpmVerifier tpmcsr.Verifier
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrSvc, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
+	tpmVerifier = *tpmcsr.NewVerifier(enrollmentRequestSvc)
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(

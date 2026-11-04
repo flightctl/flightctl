@@ -39,7 +39,7 @@ For CI-published deltas, verify the delta referrer in the target image's reposit
 Inspect [Delta preparation events](../references/events.md#delta-preparation-events) for the Fleet or standalone Device being updated:
 
 ```console
-flightctl get events --field-selector="involvedObject.kind=Fleet,involvedObject.name=<fleet_name>,reason=DeltaGenerationProgress" -o yaml
+flightctl get events --field-selector="involvedObject.kind=Fleet,involvedObject.name=<fleet_name>,reason in (DeltaGenerationProgress,DeltaGenerationSucceeded,DeltaGenerationFailed,DeltaGenerationRejected)" -o yaml
 ```
 
 For a standalone device, use `involvedObject.kind=Device` and its name. Each event identifies the image pair through `details.imageRepository`, `details.sourceDigest`, and `details.targetDigest`. `details.generationStatus` reports `in_progress`, `succeeded`, `failed`, or `rejected`. Successful, failed, and rejected pairs are terminal and count toward `status.deltaGeneration.completed`.

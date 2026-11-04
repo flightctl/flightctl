@@ -11,6 +11,9 @@ const (
 	AsyncInternalCA
 )
 
+// DefaultDeviceEnrollmentSignerName is the default signer used for device enrollment CSRs.
+const DefaultDeviceEnrollmentSignerName = "flightctl.io/enrollment"
+
 type InternalCfg struct {
 	CertFile         string `json:"certFile,omitempty"`
 	KeyFile          string `json:"keyFile,omitempty"`
@@ -45,7 +48,7 @@ func NewDefault(tempDir string) *Config {
 		AdminCommonName:                   domain.ExternalRoleAdmin,
 		ClientBootstrapCertName:           "client-enrollment",
 		ClientBootstrapCommonName:         "client-enrollment",
-		DeviceEnrollmentSignerName:        "flightctl.io/enrollment",
+		DeviceEnrollmentSignerName:        DefaultDeviceEnrollmentSignerName,
 		ClientBootstrapCommonNamePrefix:   "client-enrollment-",
 		DeviceManagementSignerName:        "flightctl.io/device-enrollment",
 		DeviceManagementRenewalSignerName: "flightctl.io/device-management-renewal",

@@ -3,6 +3,7 @@ package v1beta1
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,51 @@ func TestVmApplicationRunAsRoundTrip(t *testing.T) {
 	decodedVmApp, err := decodedSpec.AsVmApplication()
 	require.NoError(t, err)
 	assert.Equal(t, Username("flightctl"), decodedVmApp.RunAs)
+}
+
+func TestCertificateSigningRequestStatusIssuedAt(t *testing.T) {
+	issuedAt := time.Date(2025, 3, 4, 5, 6, 7, 123456000, time.UTC)
+	tests := []struct {
+		name        string
+		status      CertificateSigningRequestStatus
+		wantIssued  *time.Time
+		wantEncoded string
+		wantAbsent  bool
+	}{
+		{
+			name: "When issuance time is set it should round-trip in UTC",
+			status: CertificateSigningRequestStatus{
+				Certificate: lo.ToPtr([]byte("certificate")),
+				Conditions:  []Condition{},
+				IssuedAt:    &issuedAt,
+			},
+			wantIssued:  &issuedAt,
+			wantEncoded: `"issuedAt":"2025-03-04T05:06:07.123456Z"`,
+		},
+		{
+			name:       "When issuance time is unset it should omit the field",
+			status:     CertificateSigningRequestStatus{Conditions: []Condition{}},
+			wantAbsent: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.status)
+			require.NoError(t, err)
+			if test.wantAbsent {
+				require.NotContains(t, string(encoded), "issuedAt")
+				return
+			}
+
+			require.Contains(t, string(encoded), test.wantEncoded)
+			var decoded CertificateSigningRequestStatus
+			require.NoError(t, json.Unmarshal(encoded, &decoded))
+			require.NotNil(t, decoded.IssuedAt)
+			require.True(t, decoded.IssuedAt.Equal(*test.wantIssued))
+			require.Equal(t, time.UTC, decoded.IssuedAt.Location())
+		})
+	}
 }
 
 // newTestContainerAppWithLifecycle builds a ContainerApplication with the given

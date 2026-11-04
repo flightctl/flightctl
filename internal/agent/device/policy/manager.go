@@ -90,7 +90,6 @@ type schedule struct {
 	location           *time.Location
 	cron               cron.Schedule
 	startGraceDuration time.Duration
-	interval           time.Duration
 
 	// this is used for testing to override time.Now
 	nowFn func() time.Time
@@ -115,8 +114,6 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 		s.location = time.Local
 	}
 
-	now := s.normalizeTime(log, s.nowFn().In(s.location))
-
 	// parse cron expression
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	cronExpr, err := parser.Parse(updateSchedule.At)
@@ -125,11 +122,6 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	}
 	s.cron = cronExpr
 	log.Debugf("Parsed cron expression: %s", s.cron)
-
-	// calculate cron interval
-	nextRun := s.cron.Next(now)
-	secondRun := s.cron.Next(nextRun)
-	s.interval = secondRun.Sub(nextRun)
 
 	// parse grace duration
 	duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
@@ -141,41 +133,19 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	return nil
 }
 
-// Ready returns true if the schedule is ready to run
+// IsReady returns true if an activation falls within the current grace window.
 func (s *schedule) IsReady(log *log.PrefixLogger) bool {
 	now := s.nowFn().In(s.location)
-	lastRun := s.cron.Next(now.Add(-s.interval))
-	graceEnd := lastRun.Add(s.startGraceDuration)
-	nextRun := s.cron.Next(now)
-	log.Debugf("Policy %s current time: %s, last run: %s, next run: %s, grace ends: %s", s.policyType, now, lastRun, nextRun, graceEnd)
+	windowStart := now.Add(-s.startGraceDuration)
+	// Next is strictly after its input; include an activation exactly at windowStart.
+	activation := s.cron.Next(windowStart.Add(-time.Nanosecond))
+	log.Debugf("Policy %s current time: %s, window start: %s, candidate activation: %s", s.policyType, now, windowStart, activation)
 
-	if now.Equal(lastRun) || (now.After(lastRun) && !now.After(graceEnd)) {
+	if !activation.IsZero() && !activation.After(now) {
 		log.Infof("Policy %s schedule is ready", s.policyType)
 		return true
 	}
 
 	log.Debugf("Policy %s schedule is not ready", s.policyType)
 	return false
-}
-
-// normalizeTime ensures that DST is properly handled.
-func (s *schedule) normalizeTime(log *log.PrefixLogger, t time.Time) time.Time {
-	if s.location == nil {
-		return t
-	}
-
-	localTime := t.In(s.location)
-	if localTime.IsDST() {
-		// dst adjusted ok to return
-		return localTime
-	}
-
-	// ensure fall DST is handled
-	previousHour := localTime.Add(-time.Hour)
-	if previousHour.IsDST() {
-		log.Warnf("Time %s falls within a DST transition, adjusting to %s", t, localTime)
-		return localTime.Add(time.Hour)
-	}
-
-	return localTime
 }

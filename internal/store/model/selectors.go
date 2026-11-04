@@ -27,8 +27,9 @@ var (
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
 	}
 	enrollmentRequestStatusSelectors = selectorToTypeMap{
-		selector.NewSelectorName("status.approval.approved"): selector.Bool,
-		selector.NewSelectorName("status.certificate"):       selector.String,
+		selector.NewSelectorName("status.approval.approved"):         selector.Bool,
+		selector.NewSelectorName("status.certificate"):               selector.String,
+		selector.NewSelectorName("status.enrollmentCertificateName"): selector.String,
 	}
 	resourceSyncSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.repository"): selector.String,

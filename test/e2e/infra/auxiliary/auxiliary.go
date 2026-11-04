@@ -76,8 +76,8 @@ func Get(ctx context.Context) *Services {
 }
 
 // StartServices starts only the requested aux services with reuse=true.
-// Image bundles are always uploaded so registry manifests match the bundle
-// (reuse must not keep a docker-archive rewrite from an earlier run).
+// Image bundles and charts are always uploaded so fixtures match the current
+// checkout, even when the registry was populated by an earlier run.
 func StartServices(ctx context.Context, services []Service) (*Services, error) {
 	network := GetDockerNetwork()
 	reuse := true
@@ -92,10 +92,10 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.UploadImages(ctx); err != nil {
 				return nil, fmt.Errorf("failed to upload images: %w", err)
 			}
+			if err := s.UploadCharts(); err != nil {
+				return nil, fmt.Errorf("failed to upload charts: %w", err)
+			}
 			if !s.Registry.Reused {
-				if err := s.UploadCharts(); err != nil {
-					return nil, fmt.Errorf("failed to upload charts: %w", err)
-				}
 				if err := s.UploadQuadlets(); err != nil {
 					return nil, fmt.Errorf("failed to upload quadlets: %w", err)
 				}
@@ -103,7 +103,7 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 					return nil, fmt.Errorf("failed to mirror external test images: %w", err)
 				}
 			} else {
-				logrus.Info("Skipping chart/quadlet/external upload (registry container was reused)")
+				logrus.Info("Skipping quadlet/external upload (registry container was reused)")
 			}
 		case ServiceGitServer:
 			s.GitServer = &GitServer{}

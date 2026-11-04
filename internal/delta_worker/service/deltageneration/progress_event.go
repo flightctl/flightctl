@@ -36,13 +36,25 @@ func DeltaGenerationProgressEvent(ctx context.Context, prepare model.DeltaPrepar
 	if err := eventDetails.FromDeltaGenerationProgressDetails(details); err != nil {
 		return nil, err
 	}
-	event := domain.GetBaseEvent(ctx, domain.ResourceKind(prepare.Kind), prepare.Name, domain.EventReasonDeltaGenerationProgress, progressMessage(key, status, phase), &eventDetails)
+	event := domain.GetBaseEvent(ctx, domain.ResourceKind(prepare.Kind), prepare.Name, reasonForGenerationStatus(status), progressMessage(key, status, phase), &eventDetails)
 	event.Source.Component = progressSource
 	event.Actor = progressActor
-	if status == domain.DeltaGenerationProgressFailed {
-		event.Type = domain.EventTypeWarning
-	}
 	return event, nil
+}
+
+func reasonForGenerationStatus(status domain.DeltaGenerationProgressDetailsGenerationStatus) domain.EventReason {
+	switch status {
+	case domain.DeltaGenerationProgressSucceeded:
+		return domain.EventReasonDeltaGenerationSucceeded
+	case domain.DeltaGenerationProgressFailed:
+		return domain.EventReasonDeltaGenerationFailed
+	case domain.DeltaGenerationProgressRejected:
+		return domain.EventReasonDeltaGenerationRejected
+	case domain.DeltaGenerationProgressInProgress:
+		return domain.EventReasonDeltaGenerationProgress
+	default:
+		return domain.EventReasonDeltaGenerationProgress
+	}
 }
 
 func progressMessage(key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus, phase *domain.DeltaGenerationPhase) string {

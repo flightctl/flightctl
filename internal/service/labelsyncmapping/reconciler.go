@@ -88,12 +88,12 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		result.ManagedLabelsChanged = result.ManagedLabelsChanged || applied.ManagedLabelsChanged
 		result.OwnershipChanged = result.OwnershipChanged || applied.OwnershipChanged
 		h.emitLabelChange(ctx, orgID, deviceName, applied)
-		latestMappings, err := h.store.GetDeviceMappingsSnapshot(ctx, orgID)
+		latestRevision, err := h.store.GetDeviceMappingsRevision(ctx, orgID)
 		if err != nil {
 			result.MappingOutcomes = failedDeviceOutcomes(snapshot.Mappings, result.MappingOutcomes, err)
 			return h.recordReconciliationFailure(ctx, orgID, deviceName, result, err)
 		}
-		if latestMappings.Revision != mappings.Revision {
+		if latestRevision != mappings.Revision {
 			continue
 		}
 		return result, reconcileErr
@@ -200,11 +200,11 @@ func (h *ServiceHandler) shouldRetryApply(ctx context.Context, orgID uuid.UUID, 
 
 	// A mapping may be finalized after evaluation but before the device store
 	// assigns its owner ID. A changed revision makes that FK failure stale.
-	latestMappings, err := h.store.GetDeviceMappingsSnapshot(ctx, orgID)
+	latestRevision, err := h.store.GetDeviceMappingsRevision(ctx, orgID)
 	if err != nil {
 		return false, errors.Join(applyErr, err)
 	}
-	return latestMappings.Revision != revision, applyErr
+	return latestRevision != revision, applyErr
 }
 
 func isPostgresDeadlock(err error) bool {

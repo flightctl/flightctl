@@ -3,6 +3,10 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -11,18 +15,37 @@ import (
 	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+)
+
+var testEnrollmentSignerName = config.NewDefault().CA.DeviceEnrollmentSignerName
+
+type legacyCertificateSigningRequest struct {
+	model.Resource
+	Spec   *model.JSONField[domain.CertificateSigningRequestSpec]   `gorm:"type:jsonb"`
+	Status *model.JSONField[domain.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
+}
+
+func (legacyCertificateSigningRequest) TableName() string { return "certificate_signing_requests" }
+
+const (
+	enrollmentSignerName = "historical.example/changed"
+	otherSignerName      = "other.example/issuer"
 )
 
 var _ = Describe("DataStore Migration Tests", func() {
@@ -82,10 +105,10 @@ var _ = Describe("DataStore Migration Tests", func() {
     resourceType: Device
     expression: '{}'
 `)
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, true, manifest)).To(MatchError(migration.ErrDryRunComplete))
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, true, manifest, testEnrollmentSignerName)).To(MatchError(migration.ErrDryRunComplete))
 			Expect(freshGormDb.Migrator().HasColumn(&model.DeviceLabel{}, "label_sync_mapping_id")).To(BeFalse())
 
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest, testEnrollmentSignerName)).To(Succeed())
 
 			Expect(freshGormDb.Migrator().HasColumn(&model.DeviceLabel{}, "label_sync_mapping_id")).To(BeTrue())
 			mappingStore := labelsyncmappingstore.NewStore(freshGormDb, freshLog.WithField("pkg", "labelsyncmapping-store"))
@@ -117,7 +140,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 			mappingStore := labelsyncmappingstore.NewStore(freshGormDb, freshLog.WithField("pkg", "labelsyncmapping-store"))
 			name := "shared-name"
 			_, err := mappingStore.Create(freshCtx, org1ID, &domain.LabelSyncMapping{
@@ -145,7 +168,7 @@ var _ = Describe("DataStore Migration Tests", func() {
     resourceType: Device
     expression: '{}'
 `)
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest, testEnrollmentSignerName)).To(Succeed())
 
 			operatorMapping, err := mappingStore.Get(freshCtx, org1ID, "shared-name")
 			Expect(err).NotTo(HaveOccurred())
@@ -171,7 +194,7 @@ var _ = Describe("DataStore Migration Tests", func() {
     resourceType: Device
     expression: '{}'
 `), 0o600)).To(Succeed())
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest, testEnrollmentSignerName)).To(Succeed())
 			var laterOrgMappings int64
 			Expect(freshGormDb.Model(&model.LabelSyncMapping{}).Where("org_id = ?", org3ID).Count(&laterOrgMappings).Error).To(Succeed())
 			Expect(laterOrgMappings).To(Equal(int64(0)))
@@ -191,7 +214,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			migrationLog := logrus.New()
 			migrationLog.SetOutput(&logOutput)
 			migrationLog.SetLevel(logrus.WarnLevel)
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest, testEnrollmentSignerName)).To(Succeed())
 			Expect(logOutput.String()).To(ContainSubstring("Initial label-sync mappings were not attempted"))
 
 			var markerCount int64
@@ -207,7 +230,7 @@ var _ = Describe("DataStore Migration Tests", func() {
     resourceType: Device
     expression: '{}'
 `), 0o600)).To(Succeed())
-			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest, testEnrollmentSignerName)).To(Succeed())
 			var mappingCount int64
 			Expect(freshGormDb.Model(&model.LabelSyncMapping{}).Where("org_id = ?", orgID).Count(&mappingCount).Error).To(Succeed())
 			Expect(mappingCount).To(Equal(int64(1)))
@@ -228,7 +251,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			for _, orgID := range []uuid.UUID{org1ID, org2ID} {
@@ -260,7 +283,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Spec:     model.MakeJSONField(domain.CatalogSpec{DisplayName: &customDisplayName}),
 			}).Error).To(Succeed())
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// Org with no prior catalog should have received a default catalog.
@@ -297,7 +320,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Spec:     model.MakeJSONField(domain.CatalogSpec{}),
 			}).Error).To(Succeed())
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// The org only had owned catalogs, so the backfill must add the default one.
@@ -327,7 +350,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// First migration: creates schema, backfills catalogs, records migration key.
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			// Verify the default catalog was created for the default org.
 			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
@@ -342,7 +365,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err).To(HaveOccurred(), "default catalog should be absent after deletion")
 
 			// Simulate a server restart: migrations run again.
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			// The catalog must not have been recreated because the migration key is already recorded.
 			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
@@ -361,7 +384,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			db := freshGormDb.WithContext(freshCtx)
 			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
@@ -396,7 +419,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Spec:     model.MakeJSONField(oauth2Spec),
 			}).Error).To(Succeed())
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			var oidcRow model.AuthProvider
 			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oidc").First(&oidcRow).Error).To(Succeed())
@@ -423,7 +446,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			db := freshGormDb.WithContext(freshCtx)
 			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
@@ -447,7 +470,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				}).Error).To(Succeed())
 			}
 
-			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("would share issuer"))
 		})
@@ -462,7 +485,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			db := freshGormDb.WithContext(freshCtx)
 			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
@@ -486,7 +509,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				}).Error).To(Succeed())
 			}
 
-			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("would share issuer"))
 		})
@@ -503,7 +526,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			db := freshGormDb.WithContext(freshCtx)
 
@@ -533,7 +556,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
 			Expect(missingSources).To(Equal(int64(legacyFindingCount)))
 
-			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false, testEnrollmentSignerName)).To(Succeed())
 
 			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
 			Expect(missingSources).To(BeZero())
@@ -547,5 +570,90 @@ var _ = Describe("DataStore Migration Tests", func() {
 			var marker model.SchemaMigration
 			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").First(&marker).Error).To(Succeed())
 		})
+	})
+})
+
+var _ = Describe("Normal retained certificate migration", func() {
+	var suite *certificatePersistenceSuite
+	BeforeEach(func() { suite = newCertificatePersistenceSuite() })
+
+	It("When migrating an old schema it should derive exact leaf keys only for the enrollment signer and retain duplicate ambiguity", func() {
+		cfg, name, database, err := testdb.CreateEmptyTestDB(suite.Ctx, suite.Log, "legacy_csr_", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(testdb.DeleteTestDB(suite.Ctx, suite.Log, cfg, database, name)).To(Succeed()) })
+		Expect(database.AutoMigrate(&model.Organization{}, &legacyCertificateSigningRequest{})).To(Succeed())
+		Expect(database.Migrator().HasColumn(&legacyCertificateSigningRequest{}, "certificate_digest")).To(BeFalse())
+		Expect(database.Create(&model.Organization{ID: suite.OrgID, ExternalID: "legacy-digest", DisplayName: "Legacy"}).Error).To(Succeed())
+		request := newStoredCSR()
+		parsed, err := fcrypto.ParseCSR(request.Spec.Request)
+		Expect(err).NotTo(HaveOccurred())
+		leaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600)
+		Expect(err).NotTo(HaveOccurred())
+		certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+		alternate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Comment": "old encoding"}, Bytes: leaf.Raw})
+		rows := []struct {
+			name       string
+			signerName string
+			retained   []byte
+		}{
+			{name: "first", signerName: enrollmentSignerName, retained: certificate},
+			{name: "second", signerName: enrollmentSignerName, retained: alternate},
+			{name: "malformed", signerName: enrollmentSignerName, retained: []byte("not PEM")},
+			{name: "unissued", signerName: enrollmentSignerName},
+			{name: "foreign", signerName: otherSignerName, retained: certificate},
+		}
+		for _, row := range rows {
+			status := domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
+			if row.retained != nil {
+				status.Certificate = &row.retained
+			}
+			Expect(database.Create(&legacyCertificateSigningRequest{Resource: model.Resource{OrgID: suite.OrgID, Name: row.name},
+				Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: row.signerName}), Status: model.MakeJSONField(status)}).Error).To(Succeed())
+		}
+		padding := make([]legacyCertificateSigningRequest, 505)
+		for index := range padding {
+			padding[index] = legacyCertificateSigningRequest{Resource: model.Resource{OrgID: suite.OrgID, Name: fmt.Sprintf("padding-%04d", index)},
+				Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{})}
+		}
+		Expect(database.Create(&padding).Error).To(Succeed())
+		Expect(migration.Run(suite.Ctx, database, suite.Log, true, enrollmentSignerName)).To(MatchError(migration.ErrDryRunComplete))
+		Expect(database.Migrator().HasColumn(&legacyCertificateSigningRequest{}, "certificate_digest")).To(BeFalse())
+		Expect(migration.Run(suite.Ctx, database, suite.Log, false, enrollmentSignerName)).To(Succeed())
+		Expect(database.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest")).To(BeTrue())
+		var definition string
+		Expect(database.Raw("SELECT indexdef FROM pg_indexes WHERE tablename = 'certificate_signing_requests' AND indexname = 'idx_csr_org_certificate_digest'").Scan(&definition).Error).To(Succeed())
+		Expect(definition).To(ContainSubstring("(org_id, certificate_digest)"))
+		Expect(definition).NotTo(ContainSubstring("UNIQUE"))
+		digest := sha256.Sum256(leaf.Raw)
+		filter := selector.NewFieldSelectorOrDie("internal.certificateDigest="+hex.EncodeToString(digest[:]), selector.WithPrivateSelectors())
+		var indexed int64
+		Expect(database.Table("certificate_signing_requests").Where("name IN ? AND certificate_digest IS NOT NULL", []string{"first", "second"}).Count(&indexed).Error).To(Succeed())
+		Expect(indexed).To(Equal(int64(2)))
+		Expect(database.Table("certificate_signing_requests").Where("name = ? AND certificate_digest IS NOT NULL", "foreign").Count(&indexed).Error).To(Succeed())
+		Expect(indexed).To(BeZero())
+		provider := csrstore.NewCertificateSigningRequestStore(database, suite.Log, enrollmentSignerName)
+		listed, err := provider.List(suite.Ctx, suite.OrgID, store.ListParams{FieldSelector: filter})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(listed.Items).To(HaveLen(2))
+		Expect(migration.Run(suite.Ctx, database, suite.Log, false, enrollmentSignerName)).To(Succeed())
+		_, err = provider.Delete(suite.Ctx, suite.OrgID, "second")
+		Expect(err).NotTo(HaveOccurred())
+		listed, err = provider.List(suite.Ctx, suite.OrgID, store.ListParams{FieldSelector: filter})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(listed.Items).To(HaveLen(1))
+		Expect(listed.Items[0].Metadata.Name).To(Equal(lo.ToPtr("first")))
+	})
+
+	It("When old certificate encoding is invalid it should roll back migration and permit a corrected retry", func() {
+		cfg, name, database, err := testdb.CreateEmptyTestDB(suite.Ctx, suite.Log, "invalid_csr_", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(testdb.DeleteTestDB(suite.Ctx, suite.Log, cfg, database, name)).To(Succeed()) })
+		Expect(database.AutoMigrate(&model.Organization{}, &legacyCertificateSigningRequest{})).To(Succeed())
+		Expect(database.Create(&model.Organization{ID: suite.OrgID, ExternalID: "invalid-digest", DisplayName: "Invalid"}).Error).To(Succeed())
+		Expect(database.Exec(`INSERT INTO certificate_signing_requests (org_id, name, spec, status) VALUES (?, 'invalid', '{"signerName":"historical.example/changed"}', '{"certificate":"!bad-base64!"}')`, suite.OrgID).Error).To(Succeed())
+		Expect(migration.Run(suite.Ctx, database, suite.Log, false, enrollmentSignerName)).To(MatchError(ContainSubstring("retained certificate encoding")))
+		Expect(database.Migrator().HasColumn(&legacyCertificateSigningRequest{}, "certificate_digest")).To(BeFalse())
+		Expect(database.Exec(`UPDATE certificate_signing_requests SET status = '{"certificate":null}' WHERE name = 'invalid'`).Error).To(Succeed())
+		Expect(migration.Run(suite.Ctx, database, suite.Log, false, enrollmentSignerName)).To(Succeed())
 	})
 })

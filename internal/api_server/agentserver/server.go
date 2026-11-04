@@ -110,7 +110,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
 	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
@@ -119,11 +119,15 @@ func (s *AgentServer) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return err
+	}
 	s.kvStore, err = kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
@@ -139,10 +143,13 @@ func (s *AgentServer) init(ctx context.Context) error {
 	ehPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(ehPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
-	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicySvc, notifySecretsStore))
+
+	var tpmVerifier tpmcsr.Verifier
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, &tpmVerifier, s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, s.csrSvc, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicySvc, notifySecretsStore))
+	tpmVerifier = *tpmcsr.NewVerifier(s.enrollmentRequestSvc)
 	s.catalogSvc = catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	s.organizationSvc = organizationservice.WrapWithTracing(

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -82,8 +83,10 @@ func (h *TransportHandler) GetEnrollmentRequestStatus(w http.ResponseWriter, r *
 // (PUT /api/v1/enrollmentrequests/{name}/approval)
 func (h *TransportHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var approval apiv1beta1.EnrollmentRequestApproval
-	if err := json.NewDecoder(r.Body).Decode(&approval); err != nil {
-		h.SetParseFailureResponse(w, err)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&approval); err != nil {
+		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}
 

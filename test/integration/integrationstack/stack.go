@@ -536,7 +536,7 @@ func runMigrate(ctx context.Context, host string, port uint, migrationUser, migr
 		}
 	}()
 
-	return migration.Run(ctx, migrationDB, log, false)
+	return migration.Run(ctx, migrationDB, log, false, cfg.CA.DeviceEnrollmentSignerName)
 }
 
 // findSetupDatabaseUsersSQL locates deploy/scripts/setup_database_users.sql relative to repository root.

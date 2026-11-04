@@ -50,7 +50,7 @@ community-el9:
       image: quay.io/flightctl/flightctl-remote-access-el9
     ubiMinimal:
       image: registry.access.redhat.com/ubi9/ubi-minimal
-      tag: "9.7-1763362218"
+      tag: "9.8-1793578971"
 rhem-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -66,10 +66,10 @@ rhem-el9:
   images:
     db:
       image: registry.redhat.io/rhel9/postgresql-16
-      tag: 9.7-1766414426
+      tag: 9.8-1793637208
     kv:
       image: registry.redhat.io/rhel9/redis-7
-      tag: 9.7-1766414358
+      tag: 9.8-1793253232
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
       tag: v2.15.0-1
@@ -106,7 +106,7 @@ rhem-el9:
       image: registry.redhat.io/rhem/flightctl-remote-access-rhel9
     ubiMinimal:
       image: registry.redhat.io/ubi9/ubi-minimal
-      tag: "9.7-1763362218"
+      tag: "9.8-1793578971"
 community-el10:
   name: flightctl
   description: A helm chart for FlightControl
@@ -159,7 +159,7 @@ community-el10:
       image: quay.io/flightctl/flightctl-remote-access-el10
     ubiMinimal:
       image: registry.access.redhat.com/ubi10/ubi-minimal
-      tag: "10.1-1769677092"
+      tag: "10.2-1793642335"
 rhem-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -175,10 +175,10 @@ rhem-el10:
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: 10.1-1776906601
+      tag: 10.2-1793579273
     kv:
       image: registry.redhat.io/rhel10/valkey-8
-      tag: 10.1-1776907598
+      tag: 10.2-1793580555
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
       tag: v2.15.0-1
@@ -215,7 +215,7 @@ rhem-el10:
       image: registry.redhat.io/rhem/flightctl-remote-access-rhel10
     ubiMinimal:
       image: registry.redhat.io/ubi10/ubi-minimal
-      tag: "10.1-1769677092"
+      tag: "10.2-1793642335"
 
 # --------------------------------------------------------------------------
 # flightctl-catalog-collector

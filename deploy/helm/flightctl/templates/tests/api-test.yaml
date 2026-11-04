@@ -13,7 +13,7 @@ spec:
   {{- end }}
   containers:
     - name: "{{ .Release.Name }}-connection-test"
-      image: "{{ if .Values.ubiMinimal }}{{ .Values.ubiMinimal.image }}:{{ .Values.ubiMinimal.tag }}{{ else }}registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218{{ end }}"
+      image: "{{ if .Values.ubiMinimal }}{{ .Values.ubiMinimal.image }}:{{ .Values.ubiMinimal.tag }}{{ else }}registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793578971{{ end }}"
       imagePullPolicy: IfNotPresent
       command:
         - '/bin/bash'

@@ -59,12 +59,15 @@ details:
 
 | Category              | Event Reasons                                                                                     |
 |-----------------------|--------------------------------------------------------------------------------------------------|
+| **Label Reconciliation** | `DeviceLabelReconciliationRequested` |
 | **Connection Status** | `DeviceConnected`, `DeviceDisconnected`                                                          |
 | **Resource Monitoring** | `DeviceCPUCritical`, `DeviceCPUWarning`, `DeviceCPUNormal`, `DeviceMemoryCritical`, `DeviceMemoryWarning`, `DeviceMemoryNormal`, `DeviceDiskCritical`, `DeviceDiskWarning`, `DeviceDiskNormal` |
 | **Application Status** | `DeviceApplicationError`, `DeviceApplicationDegraded`, `DeviceApplicationHealthy`              |
 | **Device Lifecycle**  | `DeviceIsRebooting`, `DeviceDecommissioned`, `DeviceDecommissionFailed`, `DeviceMultipleOwnersDetected`, `DeviceMultipleOwnersResolved`, `DeviceSpecInvalid`, `DeviceSpecValid` |
 | **Content Management** | `DeviceContentUpdating`, `DeviceContentUpToDate`, `DeviceContentOutOfDate`                     |
 | **Vulnerability (CVE)** | `DeviceVulnerabilityCVEWarning`, `DeviceVulnerabilityCVECritical`, `DeviceVulnerabilityCVEResolved` *(see below)* |
+
+`DeviceLabelReconciliationRequested` records a request to reconcile dynamic labels after device status changes. The event is persisted for auditing before publication to the label sync queue. It does not indicate that labels changed or reconciliation succeeded. Changes only to the liveness timestamp (`LastSeen`) do not produce this event. Focused lifecycle events, such as `DeviceConnected`, are emitted independently.
 
 ### Vulnerability (CVE) events
 
@@ -107,7 +110,13 @@ When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Contro
 
 ### Delta preparation events
 
-`PrepareDeltas` and `DeltaGenerationProgress` events identify the desired update in their `details`:
+The following delta preparation and generation events identify the desired update in their `details`:
+
+- `PrepareDeltas`
+- `DeltaGenerationProgress`
+- `DeltaGenerationSucceeded`
+- `DeltaGenerationFailed`
+- `DeltaGenerationRejected`
 
 | Resource | Detail field | Meaning |
 |----------|--------------|---------|
@@ -121,6 +130,9 @@ Status and annotation updates do not change the spec generation.
 
 For standalone devices, `DeltaGenerationCompleted` resumes rendering only for the prepared spec generation.
 A delayed completion for an older generation does not resume rendering of a newer spec.
+`DeltaGenerationProgress` reports that a pair is in progress or has entered a phase.
+The terminal events use `DeltaGenerationSucceeded`, `DeltaGenerationFailed`, or `DeltaGenerationRejected`.
+`DeltaGenerationFailed` is a Warning event; the other delta generation events are Normal events.
 
 ### Encryption Events
 
