@@ -74,6 +74,7 @@ const (
 
 	// Tasks
 	TaskQueue                = "task-queue"
+	DeviceLabelSyncTaskQueue = "device-label-sync-queue"
 	ImageBuildTaskQueue      = "imagebuild-queue"
 	DeltaGenerationTaskQueue = "delta-generation-queue"
 	// DeltaGenerationCompletionQueue is a separate stream so terminal-generation

@@ -2,6 +2,8 @@ package tasks_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -28,6 +30,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -106,7 +109,9 @@ var _ = Describe("Device label reconciliation worker", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		producer := queues.NewMockQueueProducer(ctrl)
 		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-		workerClient := worker_client.NewWorkerClient(producer, log)
+		labelSyncProducer := queues.NewMockQueueProducer(ctrl)
+		labelSyncProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+		workerClient := worker_client.NewWorkerClient(producer, log, worker_client.WithLabelSyncPublisher(labelSyncProducer))
 		eventsSvc = events.NewServiceHandler(eventStore, workerClient, log)
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).NotTo(HaveOccurred())
@@ -189,13 +194,12 @@ var _ = Describe("Device label reconciliation worker", func() {
 		return domain.Event{}
 	}
 
-	statusEventsForDevice := func(name string) []domain.Event {
+	reconciliationRequestsForDevice := func(name string) []domain.Event {
 		list, err := eventStore.List(ctx, orgID, store.ListParams{Limit: 100})
 		Expect(err).NotTo(HaveOccurred())
 		var result []domain.Event
 		for _, event := range list.Items {
-			if event.InvolvedObject.Kind == domain.DeviceKind && event.InvolvedObject.Name == name &&
-				event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+			if event.InvolvedObject.Name == name && worker_client.IsDeviceLabelSyncQueueEvent(event) {
 				result = append(result, event)
 			}
 		}
@@ -218,9 +222,58 @@ var _ = Describe("Device label reconciliation worker", func() {
 		return *condition
 	}
 
-	It("acknowledges stale identity-only work for a device that no longer exists", func() {
+	It("When identical agent statuses are repeated it should refresh liveness without scheduling label reconciliation", func() {
+		created := createDevice("heartbeat-only", "x86_64", nil, nil)
+		// Establish service-computed status before counting steady-state events.
+		updated, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *created, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		baseline := len(reconciliationRequestsForDevice("heartbeat-only"))
+		lastSeen := updated.Status.LastSeen
+		for i := 0; i < 10; i++ {
+			updated, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
+		}
+		Expect(updated.Status.LastSeen.After(*lastSeen)).To(BeTrue())
+		persisted, err := deviceStore.GetWithTimestamp(ctx, orgID, "heartbeat-only")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(persisted.Status.LastSeen.Before(*lastSeen)).To(BeFalse())
+		Expect(reconciliationRequestsForDevice("heartbeat-only")).To(HaveLen(baseline))
+		updated.Status.SystemInfo.Architecture = "aarch64"
+		_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, "heartbeat-only", *updated, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(reconciliationRequestsForDevice("heartbeat-only")).To(HaveLen(baseline + 1))
+	})
+
+	It("When a status condition changes it should request reconciliation of CEL-derived labels", func() {
+		const name = "condition-label"
+		createMapping("update-phase", "phase", `status.conditions.filter(c, c.type == "Updating")[0].reason`)
+		device := createDevice(name, "x86_64", nil, nil)
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue,
+			Reason: string(domain.UpdateStatePreparing), Message: "Preparing update", LastTransitionTime: time.Now(),
+		})
+		device, status := deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(newWorkerLogic(mappingSvc, createEventForDevice(name)).Reconcile(ctx)).To(Succeed())
+		baseline := len(reconciliationRequestsForDevice(name))
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating)
+		condition.Reason = string(domain.UpdateStateApplyingUpdate)
+		_, status = deviceSvc.ReplaceDeviceStatus(ctx, orgID, name, *device, true)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).To(HaveLen(baseline + 1))
+		persisted, err := deviceStore.Get(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "Preparing"))
+		Expect(newWorkerLogic(mappingSvc, requests[len(requests)-1]).Reconcile(ctx)).To(Succeed())
+		persisted, err = deviceStore.Get(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
+	})
+
+	It("acknowledges reconciliation requests for a device that no longer exists", func() {
 		event := domain.Event{
-			Reason: domain.EventReasonResourceUpdated,
+			Reason: domain.EventReasonDeviceLabelReconciliationRequested,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "deleted-device",
@@ -229,7 +282,52 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(newWorkerLogic(newLabelSyncMappingService(mustNewEvaluator()), event).Reconcile(ctx)).To(Succeed())
 	})
 
-	It("publishes post-commit identity events and reconciles reported labels into fleet membership", func() {
+	DescribeTable("When label reconciliation is requested it should persist audit metadata before publication", func(publishErr error) {
+		const name = "audited-request"
+		createDevice(name, "amd64", map[string]string{"site": "east"}, nil)
+		ctx = context.WithValue(ctx, middleware.RequestIDKey, "label-sync-audit-request")
+		mainProducer := queues.NewMockQueueProducer(ctrl)
+		labelSyncProducer := queues.NewMockQueueProducer(ctrl)
+		labelSyncProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(publishCtx context.Context, payload []byte, _ int64) error {
+				var queued worker_client.EventWithOrgId
+				Expect(json.Unmarshal(payload, &queued)).To(Succeed())
+				Expect(queued.OrgId).To(Equal(orgID))
+				Expect(queued.Event.Reason).To(Equal(domain.EventReasonDeviceLabelReconciliationRequested))
+				Expect(queued.Event.Message).To(Equal("Device label reconciliation was requested."))
+				Expect(queued.Event.InvolvedObject).To(Equal(domain.ObjectReference{Kind: domain.DeviceKind, Name: name}))
+				persisted, err := eventStore.List(publishCtx, orgID, store.ListParams{Limit: 100})
+				Expect(err).NotTo(HaveOccurred())
+				var auditEvent *domain.Event
+				for i := range persisted.Items {
+					if lo.FromPtr(persisted.Items[i].Metadata.Name) == lo.FromPtr(queued.Event.Metadata.Name) {
+						auditEvent = &persisted.Items[i]
+						break
+					}
+				}
+				Expect(auditEvent).NotTo(BeNil(), "the audit event must exist before queue publication")
+				Expect(auditEvent.Reason).To(Equal(queued.Event.Reason))
+				Expect(auditEvent.InvolvedObject).To(Equal(queued.Event.InvolvedObject))
+				Expect(auditEvent.Actor).To(Equal("service:flightctl-worker"))
+				Expect(auditEvent.Source.Component).To(Equal("flightctl-worker"))
+				Expect(auditEvent.Metadata.CreationTimestamp).NotTo(BeNil())
+				Expect(lo.FromPtr(auditEvent.Metadata.Annotations)).To(HaveKeyWithValue(domain.EventAnnotationRequestID, "label-sync-audit-request"))
+				return publishErr
+			},
+		)
+		eventsSvc.SetWorkerClient(worker_client.NewWorkerClient(mainProducer, log, worker_client.WithLabelSyncPublisher(labelSyncProducer)))
+		status := patchArchitecture(name, "arm64")
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(reconciliationRequestsForDevice(name)).To(HaveLen(1))
+		device, err := deviceStore.Get(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{"site": "east"}))
+	},
+		Entry("When publication succeeds it should retain the audit record", nil),
+		Entry("When publication fails it should retain the audit record", errors.New("label sync queue unavailable")),
+	)
+
+	It("publishes reconciliation requests and reconciles reported labels into fleet membership", func() {
 		name := "reported-status-device"
 		createMapping("reported-architecture", "architecture", "status.systemInfo.architecture")
 		selector := map[string]string{"architecture": "arm64"}
@@ -246,12 +344,13 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(persisted.Status.SystemInfo.Architecture).To(Equal("arm64"))
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "amd64"))
-		statusEvents := statusEventsForDevice(name)
-		Expect(statusEvents).NotTo(BeEmpty())
-		statusEvent := statusEvents[len(statusEvents)-1]
-		Expect(statusEvent.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
-		Expect(statusEvent.InvolvedObject.Name).To(Equal(name))
-		Expect(statusEvent.Details).To(BeNil())
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).NotTo(BeEmpty())
+		request := requests[len(requests)-1]
+		Expect(request.InvolvedObject.Kind).To(Equal(domain.DeviceKind))
+		Expect(request.InvolvedObject.Name).To(Equal(name))
+		Expect(request.Reason).To(Equal(domain.EventReasonDeviceLabelReconciliationRequested))
+		Expect(request.Details).To(BeNil())
 
 		var spoofedLabels interface{} = map[string]string{"architecture": "arm64", "site": "east"}
 		spoofPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &spoofedLabels}}
@@ -263,7 +362,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(spoofOwnerStatus.Code).To(Equal(int32(400)))
 
 		service := newLabelSyncMappingService(mustNewEvaluator())
-		Expect(newWorkerLogic(service, statusEvent).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, request).Reconcile(ctx)).To(Succeed())
 		persisted, err = deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "arm64"))
@@ -305,14 +404,14 @@ var _ = Describe("Device label reconciliation worker", func() {
 		_, updateStatus := mappingSvc.ReplaceLabelSyncMapping(ctx, orgID, "latest-state-mapping", *mapping)
 		Expect(updateStatus.Code).To(Equal(int32(200)), updateStatus.Message)
 
-		statusEvents := statusEventsForDevice(name)
-		Expect(statusEvents).To(HaveLen(2))
-		Expect(statusEvents[0].Metadata.CreationTimestamp.Before(*statusEvents[1].Metadata.CreationTimestamp)).To(BeTrue())
+		requests := reconciliationRequestsForDevice(name)
+		Expect(requests).To(HaveLen(2))
+		Expect(requests[0].Metadata.CreationTimestamp.Before(*requests[1].Metadata.CreationTimestamp)).To(BeTrue())
 		service := newLabelSyncMappingService(mustNewEvaluator())
 		Expect(newWorkerLogic(service, createdEvent).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[1]).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[0]).Reconcile(ctx)).To(Succeed())
-		Expect(newWorkerLogic(service, statusEvents[1]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[1]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[0]).Reconcile(ctx)).To(Succeed())
+		Expect(newWorkerLogic(service, requests[1]).Reconcile(ctx)).To(Succeed())
 
 		persisted, err := deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
@@ -409,7 +508,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		for _, architecture := range []string{"riscv64", "arm64"} {
 			Expect(patchArchitecture(name, architecture).Code).To(Equal(int32(200)))
 		}
-		Expect(statusEventsForDevice(name)).To(HaveLen(3))
+		Expect(reconciliationRequestsForDevice(name)).To(HaveLen(3))
 
 		var operatorLabels interface{} = map[string]string{"site": "west", "operator": "kept"}
 		labelPatch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &operatorLabels}}

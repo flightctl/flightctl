@@ -119,11 +119,15 @@ func (s *AgentServer) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	labelSyncPublisher, err := worker_client.LabelSyncQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return err
+	}
 	s.kvStore, err = kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))

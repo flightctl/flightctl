@@ -33,6 +33,7 @@ type ClientOption func(*workerClient)
 
 type workerClient struct {
 	publisher                queues.QueueProducer
+	labelSyncPublisher       queues.QueueProducer
 	deltaPublisher           queues.QueueProducer
 	deltaCompletionPublisher queues.QueueProducer
 	log                      logrus.FieldLogger
@@ -44,6 +45,18 @@ func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
 	return publisher, nil
+}
+
+// LabelSyncQueuePublisher returns a producer for device label reconciliation requests.
+func LabelSyncQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	return queuesProvider.NewQueueProducer(ctx, consts.DeviceLabelSyncTaskQueue)
+}
+
+// WithLabelSyncPublisher routes DeviceLabelReconciliationRequested events to the label sync queue.
+func WithLabelSyncPublisher(p queues.QueueProducer) ClientOption {
+	return func(c *workerClient) {
+		c.labelSyncPublisher = p
+	}
 }
 
 // DeltaQueuePublisher returns a producer for the delta-generation task queue.
@@ -113,6 +126,9 @@ func (t *workerClient) EmitEventWithError(ctx context.Context, orgId uuid.UUID, 
 	if event == nil {
 		return nil
 	}
+	if IsDeviceLabelSyncQueueEvent(*event) && t.labelSyncPublisher != nil {
+		return t.enqueueWithError(ctx, orgId, event, t.labelSyncPublisher)
+	}
 	if event.Reason == domain.EventReasonDeltaGenerationComplete && t.deltaCompletionPublisher != nil {
 		return t.enqueueWithError(ctx, orgId, event, t.deltaCompletionPublisher)
 	}
@@ -152,19 +168,20 @@ func (t *workerClient) enqueueWithError(ctx context.Context, orgId uuid.UUID, ev
 }
 
 var eventReasons = map[domain.EventReason]struct{}{
-	domain.EventReasonResourceCreated:             {},
-	domain.EventReasonResourceUpdated:             {},
-	domain.EventReasonResourceDeleted:             {},
-	domain.EventReasonFleetRolloutStarted:         {},
-	domain.EventReasonReferencedRepositoryUpdated: {},
-	domain.EventReasonDependencyChangeDetected:    {},
-	domain.EventReasonFleetRolloutDeviceSelected:  {},
-	domain.EventReasonFleetRolloutBatchDispatched: {},
-	domain.EventReasonDeviceConflictResolved:      {},
-	domain.EventReasonDeviceDecommissioned:        {},
-	domain.EventReasonApplicationLifecycleChanged: {},
-	domain.EventReasonDeltaGenerationCompleted:    {},
-	domain.EventReasonEnrollmentRequestApproved:   {},
+	domain.EventReasonResourceCreated:                    {},
+	domain.EventReasonResourceUpdated:                    {},
+	domain.EventReasonDeviceLabelReconciliationRequested: {},
+	domain.EventReasonResourceDeleted:                    {},
+	domain.EventReasonFleetRolloutStarted:                {},
+	domain.EventReasonReferencedRepositoryUpdated:        {},
+	domain.EventReasonDependencyChangeDetected:           {},
+	domain.EventReasonFleetRolloutDeviceSelected:         {},
+	domain.EventReasonFleetRolloutBatchDispatched:        {},
+	domain.EventReasonDeviceConflictResolved:             {},
+	domain.EventReasonDeviceDecommissioned:               {},
+	domain.EventReasonApplicationLifecycleChanged:        {},
+	domain.EventReasonDeltaGenerationCompleted:           {},
+	domain.EventReasonEnrollmentRequestApproved:          {},
 }
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
@@ -183,6 +200,11 @@ func IsDeltaGenerationQueueEvent(reason domain.EventReason) bool {
 // dedicated delta-generation completion queue.
 func IsDeltaGenerationCompletionQueueEvent(reason domain.EventReason) bool {
 	return reason == domain.EventReasonDeltaGenerationComplete
+}
+
+// IsDeviceLabelSyncQueueEvent identifies requests for device label reconciliation.
+func IsDeviceLabelSyncQueueEvent(event domain.Event) bool {
+	return event.InvolvedObject.Kind == domain.DeviceKind && event.Reason == domain.EventReasonDeviceLabelReconciliationRequested
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {
