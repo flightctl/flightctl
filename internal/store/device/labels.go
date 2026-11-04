@@ -25,7 +25,8 @@ func (s *DeviceStore) GetLabelSnapshot(ctx context.Context, orgID uuid.UUID, nam
 	var snapshot domain.DeviceLabelSnapshot
 	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
 		var device model.Device
-		if err := tx.Where("org_id = ? AND name = ?", orgID, name).Take(&device).Error; err != nil {
+		if err := tx.Select("name", "created_at", "labels", "annotations", "generation", "owner", "resource_version", "spec", "status", "service_conditions").
+			Where("org_id = ? AND name = ?", orgID, name).Take(&device).Error; err != nil {
 			return store.ErrorFromGormError(err)
 		}
 		resource, err := device.ToApiResource()
@@ -110,18 +111,19 @@ func (s *DeviceStore) ApplyLabels(ctx context.Context, orgID uuid.UUID, name str
 		return plan.result, nil
 	}
 
-	err = store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
-		if !changed {
-			// Confirm no-op observations without rewriting the device.
-			var current model.Device
-			err := tx.Select("resource_version").Where("org_id = ? AND name = ? AND resource_version = ?", orgID, name, plan.resourceVersion).Take(&current).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return flterrors.ErrResourceVersionConflict
-			}
-			return store.ErrorFromGormError(err)
+	if !changed {
+		// A single read fences no-op observations and joins any caller-owned transaction.
+		var current model.Device
+		err = s.getDB(ctx).Select("resource_version").Where("org_id = ? AND name = ? AND resource_version = ?", orgID, name, plan.resourceVersion).Take(&current).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.DeviceLabelApplyResult{}, flterrors.ErrResourceVersionConflict
 		}
-		return s.applyLabelsInTransaction(tx, orgID, name, snapshot, desired, plan)
-	})
+		err = store.ErrorFromGormError(err)
+	} else {
+		err = store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+			return s.applyLabelsInTransaction(tx, orgID, name, snapshot, desired, plan)
+		})
+	}
 	if err != nil {
 		return domain.DeviceLabelApplyResult{}, err
 	}
