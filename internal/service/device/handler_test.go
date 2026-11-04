@@ -477,7 +477,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
 
-	t.Run("When a status patch commits it should publish identity-only reconciliation work", func(t *testing.T) {
+	t.Run("When a status patch commits it should request label reconciliation", func(t *testing.T) {
 		st, ev, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
@@ -500,7 +500,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
 		require.Len(t, ev.created, 1)
 		event := ev.created[0]
-		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
+		require.Equal(t, domain.EventReasonDeviceLabelReconciliationRequested, event.Reason)
 		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
 		require.Equal(t, "foo", event.InvolvedObject.Name)
 		require.Nil(t, event.Details)

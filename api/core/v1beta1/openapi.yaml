@@ -9361,6 +9361,7 @@ components:
             - DeviceVulnerabilityCVEResolved
             - DeviceVulnerabilityCVEWarning
             - DeviceOSImageChanged
+            - DeviceLabelReconciliationRequested
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
             - DeviceMultipleOwnersDetected
