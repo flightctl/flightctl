@@ -138,16 +138,23 @@ func (s *AgentGrpcServer) enrollmentHooksEvent(ctx context.Context, orgID uuid.U
 }
 
 func (s *AgentGrpcServer) identityFromPeer(ctx context.Context) (string, uuid.UUID, error) {
+	cert, err := verifiedPeerCertificate(ctx)
+	if err != nil {
+		return "", uuid.Nil, err
+	}
+	return s.identityFromCert(cert)
+}
+
+func verifiedPeerCertificate(ctx context.Context) (*x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return "", uuid.Nil, status.Error(codes.Unauthenticated, "no peer found")
+		return nil, status.Error(codes.Unauthenticated, "no peer found")
 	}
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
-		return "", uuid.Nil, status.Error(codes.Unauthenticated, "failed to verify client certificate")
+		return nil, status.Error(codes.Unauthenticated, "failed to verify client certificate")
 	}
-	cert := tlsInfo.State.VerifiedChains[0][0]
-	return s.identityFromCert(cert)
+	return tlsInfo.State.VerifiedChains[0][0], nil
 }
 
 func (s *AgentGrpcServer) identityFromCert(cert *x509.Certificate) (string, uuid.UUID, error) {

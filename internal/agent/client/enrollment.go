@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -54,7 +56,21 @@ func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1beta1.En
 		// An enrollment request already exists, so get and return it
 		return e.GetEnrollmentRequest(ctx, *req.Metadata.Name)
 	}
-	return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
+	return nil, fmt.Errorf("create enrollmentrequest failed: %s", responseStatus(resp.Status(), resp.Body))
+}
+
+// responseStatus describes a non-success API response without discarding the
+// server-provided message, which is the only clue for enrollment rejections.
+func responseStatus(status string, body []byte) string {
+	message := strings.TrimSpace(string(body))
+	var apiStatus v1beta1.Status
+	if err := json.Unmarshal(body, &apiStatus); err == nil && apiStatus.Message != "" {
+		message = apiStatus.Message
+	}
+	if message == "" {
+		message = ErrEmptyResponse.Error()
+	}
+	return fmt.Sprintf("%s: %s", status, message)
 }
 
 func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
@@ -72,12 +88,8 @@ func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...
 		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
-	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("get enrollmentrequest failed: %s", resp.Status())
-	}
-
-	if resp.JSON200 == nil {
-		return nil, fmt.Errorf("get enrollmentrequest failed: %s", ErrEmptyResponse)
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return nil, fmt.Errorf("get enrollmentrequest failed: %s", responseStatus(resp.Status(), resp.Body))
 	}
 
 	return resp.JSON200, nil

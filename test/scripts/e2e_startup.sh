@@ -131,7 +131,20 @@ cleanup_resource_type() {
     fi
     
     resources=$(echo "$resources" | tr -d '\r' | grep -v '^$' || true)
-    
+
+    # Enrollment credentials baked into the agent images are issued by
+    # client-enrollment-<id> CSRs. Enrollment mTLS requires the issuing CSR to
+    # stay approved, so deleting it would revoke every agent's bootstrap.
+    if [[ "${resource_type}" == "certificatesigningrequest" ]]; then
+        local preserved
+        preserved=$(echo "$resources" | grep -E '(^|/)client-enrollment(-[0-9a-f]+)?$' || true)
+        if [[ -n "$preserved" ]]; then
+            echo "ℹ️  [Startup] Preserving enrollment credential CSRs:"
+            echo "$preserved"
+        fi
+        resources=$(echo "$resources" | grep -vE '(^|/)client-enrollment(-[0-9a-f]+)?$' || true)
+    fi
+
     if [[ -z "$resources" ]]; then
         echo "ℹ️  [Startup] No $resource_type resources found to delete"
         return 0

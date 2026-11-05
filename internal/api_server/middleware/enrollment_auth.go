@@ -3,49 +3,105 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fcsigner "github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/transport"
+	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 )
 
 // EnrollmentAuthMiddleware handles certificate-based authentication for enrollment/bootstrap requests
 type EnrollmentAuthMiddleware struct {
-	ca    *crypto.CAClient
-	log   logrus.FieldLogger
-	cache *ttlcache.Cache[string, *EnrollmentIdentity]
+	ca          *crypto.CAClient
+	csrStatuses csrservice.Service
+	statusCache *RedisEnrollmentCSRStatusCache
+	log         logrus.FieldLogger
+	cache       *ttlcache.Cache[string, *EnrollmentIdentity]
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	started     bool
+	stopOnce    sync.Once
 }
 
 // NewEnrollmentAuthMiddleware creates a new enrollment authentication middleware
-func NewEnrollmentAuthMiddleware(ca *crypto.CAClient, log logrus.FieldLogger) *EnrollmentAuthMiddleware {
+func NewEnrollmentAuthMiddleware(ca *crypto.CAClient, csrStatuses csrservice.Service, statusCache *RedisEnrollmentCSRStatusCache, log logrus.FieldLogger) (*EnrollmentAuthMiddleware, error) {
+	if ca == nil {
+		return nil, errors.New("ca is required")
+	}
+	if csrStatuses == nil {
+		return nil, errors.New("csrStatuses is required")
+	}
+	if statusCache == nil {
+		return nil, errors.New("statusCache is required")
+	}
+	if log == nil {
+		return nil, errors.New("log is required")
+	}
 	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *EnrollmentIdentity](10 * time.Minute),
 	)
 
 	return &EnrollmentAuthMiddleware{
-		ca:    ca,
-		log:   log,
-		cache: cache,
+		ca:          ca,
+		csrStatuses: csrStatuses,
+		statusCache: statusCache,
+		log:         log,
+		cache:       cache,
+	}, nil
+}
+
+// Start starts the cache background cleanup. It creates a child context that
+// can be independently canceled via Stop.
+func (m *EnrollmentAuthMiddleware) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.started {
+		return errors.New("enrollment auth middleware already started")
 	}
+
+	middlewareCtx, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
+	m.started = true
+
+	go m.cache.Start()
+	go func() {
+		<-middlewareCtx.Done()
+		m.cache.Stop()
+		m.log.Debug("Enrollment auth identity cache stopped")
+	}()
+
+	return nil
 }
 
-// Start starts the cache background cleanup
-func (m *EnrollmentAuthMiddleware) Start() {
-	m.cache.Start()
-}
-
-// Stop stops the cache background cleanup
+// Stop stops the cache background cleanup.
 func (m *EnrollmentAuthMiddleware) Stop() {
-	m.cache.Stop()
+	m.mu.Lock()
+	started := m.started
+	cancel := m.cancel
+	m.mu.Unlock()
+
+	if !started {
+		return
+	}
+	m.stopOnce.Do(func() {
+		if cancel != nil {
+			cancel()
+		}
+	})
 }
 
 // AuthenticateEnrollment is the middleware function that authenticates enrollment requests using certificates
@@ -60,10 +116,46 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			return
 		}
 
+		peerSigner := m.ca.PeerCertificateSignerFromCtx(ctx)
+		if peerSigner == nil {
+			m.log.Warn("could not determine peer certificate signer")
+			transport.WriteJSONError(w, r, "could not determine peer certificate signer", http.StatusUnauthorized)
+			return
+		}
+
+		if peerSigner.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
+			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, peerSigner.Name())
+			transport.WriteJSONError(w, r, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, peerSigner.Name()), http.StatusUnauthorized)
+			return
+		}
+
+		peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
+		if err != nil {
+			m.log.Warnf("Enrollment certificate validation failed: %v", err)
+			transport.WriteJSONError(w, r, fmt.Sprintf("Certificate validation failed: %v", err), http.StatusUnauthorized)
+			return
+		}
+
+		orgID, present, err := fcsigner.GetOrgIDExtensionFromCert(peerCertificate)
+		if err != nil {
+			m.log.Errorf("Failed to extract organization ID from certificate: %v", err)
+			transport.WriteJSONError(w, r, fmt.Sprintf("Failed to extract organization ID: %v", err), http.StatusUnauthorized)
+			return
+		}
+		if !present {
+			orgID = org.DefaultID
+		}
+
+		credentialName, allowed := m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate)
+		if !allowed {
+			transport.WriteJSONError(w, r, "Enrollment certificate is not approved", http.StatusUnauthorized)
+			return
+		}
+
 		// Create cache key from certificate fingerprint
 		cacheKey := m.createCacheKey(r.TLS)
+		// Check the identity cache only after the CSR status decision.
 		if cacheKey != "" {
-			// Check cache first
 			if item := m.cache.Get(cacheKey); item != nil {
 				enrollmentIdentity := item.Value()
 				// Validate that the cached identity hasn't expired
@@ -82,43 +174,12 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			}
 		}
 
-		// Validate certificate signer using the exact same pattern as ValidateEnrollmentAccessFromContext
-		signer := m.ca.PeerCertificateSignerFromCtx(ctx)
-
-		got := "<nil>"
-		if signer != nil {
-			got = signer.Name()
-		}
-
-		if signer == nil || signer.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
-			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got)
-			transport.WriteJSONError(w, r, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got), http.StatusUnauthorized)
-			return
-		}
-
-		// Get peer certificate using the same pattern as handler.go
-		peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
-		if err != nil {
-			m.log.Warnf("Enrollment certificate validation failed: %v", err)
-			transport.WriteJSONError(w, r, fmt.Sprintf("Certificate validation failed: %v", err), http.StatusUnauthorized)
-			return
-		}
-		//get org ID from certificate extension
-		orgID, present, err := fcsigner.GetOrgIDExtensionFromCert(peerCertificate)
-		if err != nil {
-			m.log.Errorf("Failed to extract organization ID from certificate: %v", err)
-			transport.WriteJSONError(w, r, fmt.Sprintf("Failed to extract organization ID: %v", err), http.StatusUnauthorized)
-			return
-		}
-		if !present {
-			orgID = org.DefaultID
-		}
-
 		// Create enrollment identity with basic certificate information
 		identity := &EnrollmentIdentity{
-			orgID:          orgID.String(),
-			commonName:     peerCertificate.Subject.CommonName,
-			expirationDate: peerCertificate.NotAfter,
+			orgID:             orgID.String(),
+			commonName:        peerCertificate.Subject.CommonName,
+			expirationDate:    peerCertificate.NotAfter,
+			enrollmentCSRName: credentialName,
 		}
 
 		// Cache the identity if we have a valid cache key
@@ -136,6 +197,46 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 		// Continue to next middleware/handler
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) (*string, bool) {
+	certificateDigest := crypto.CertificateDigest(peerCertificate.Raw)
+	entry, found, err := m.statusCache.Get(ctx, orgId, certificateDigest)
+	if err != nil {
+		m.log.WithError(err).Warnf("Failed to get cached CSR status for certificate digest %q", certificateDigest)
+	} else if found {
+		if entry.Status == nil {
+			return nil, false
+		}
+		if !domain.IsStatusConditionTrue(entry.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
+			return entry.Name, false
+		}
+	}
+
+	csr, err := csrservice.CSRForLeaf(ctx, m.csrStatuses, orgId, peerCertificate)
+	if errors.Is(err, csrservice.ErrEnrollmentCSRNotFound) {
+		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
+			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
+		}
+		return nil, false
+	}
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to resolve enrollment certificate to CSR")
+		return nil, false
+	}
+	if csr.Status == nil {
+		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
+			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
+		}
+		return nil, false
+	}
+	approved := domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
+	if !approved {
+		if cacheErr := m.statusCache.Set(ctx, orgId, certificateDigest, enrollmentCSRStatusCacheEntry{Name: csr.Metadata.Name, Status: csr.Status}); cacheErr != nil {
+			m.log.WithError(cacheErr).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
+		}
+	}
+	return csr.Metadata.Name, approved
 }
 
 // createCacheKey creates a cache key from the TLS connection
