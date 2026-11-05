@@ -227,7 +227,7 @@ type ImageBuildCondition struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -380,7 +380,7 @@ type ImageExportCondition struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -472,7 +472,7 @@ type ImagePromotionCondition struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.

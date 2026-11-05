@@ -9126,7 +9126,184 @@ components:
           description: A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
         reason:
           type: string
-          description: A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
+          description: A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message. Standalone condition reason schemas catalog known values but are non-exhaustive; clients must tolerate unknown reason strings.
+    EnrollmentApprovalConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for approval conditions. EnrollmentRequest Approved uses ManuallyApproved; CertificateSigningRequest Approved and Denied use Approved and Denied respectively. Clients must tolerate unknown reason strings.
+      enum:
+        - Approved
+        - ManuallyApproved
+        - Denied
+      x-enum-varnames:
+        - EnrollmentApprovalConditionReasonApproved
+        - EnrollmentApprovalConditionReasonManuallyApproved
+        - EnrollmentApprovalConditionReasonDenied
+    CertificateSigningRequestFailureConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the CertificateSigningRequest Failed condition. Clients must tolerate unknown reason strings.
+      enum:
+        - SigningFailed
+      x-enum-varnames:
+        - CertificateSigningRequestFailureConditionReasonSigningFailed
+    TpmConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for EnrollmentRequest and CertificateSigningRequest TPMVerified conditions. Challenge reasons apply to EnrollmentRequest; TPMVerificationSucceeded applies to CertificateSigningRequest. Clients must tolerate unknown reason strings.
+      enum:
+        - TPMVerificationFailed
+        - TPMVerificationSucceeded
+        - TPMChallengeRequired
+        - TPMChallengeFailed
+        - TPMChallengeSucceeded
+      x-enum-varnames:
+        - TpmConditionReasonVerificationFailed
+        - TpmConditionReasonVerificationSucceeded
+        - TpmConditionReasonChallengeRequired
+        - TpmConditionReasonChallengeFailed
+        - TpmConditionReasonChallengeSucceeded
+    RepositoryConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Repository Accessible condition. Clients must tolerate unknown reason strings.
+      enum:
+        - Accessible
+        - Inaccessible
+      x-enum-varnames:
+        - RepositoryConditionReasonAccessible
+        - RepositoryConditionReasonInaccessible
+    ResourceSyncConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for ResourceSync conditions. Accessible uses accessible and repository lookup, clone, or path failure strings; ResourceParsed uses success or fail; Synced also uses NewHashDetected. Existing spelling and casing are preserved. Clients must tolerate unknown reason strings.
+      enum:
+        - accessible
+        - repository resource not found
+        - failed to clone repository
+        - path not found in repository
+        - success
+        - fail
+        - NewHashDetected
+      x-enum-varnames:
+        - ResourceSyncConditionReasonAccessible
+        - ResourceSyncConditionReasonRepositoryNotFound
+        - ResourceSyncConditionReasonCloneFailed
+        - ResourceSyncConditionReasonPathNotFound
+        - ResourceSyncConditionReasonSuccess
+        - ResourceSyncConditionReasonFail
+        - ResourceSyncConditionReasonNewHashDetected
+    ValidationConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for Fleet Valid and Device SpecValid conditions. Clients must tolerate unknown reason strings.
+      enum:
+        - Valid
+        - Invalid
+      x-enum-varnames:
+        - ValidationConditionReasonValid
+        - ValidationConditionReasonInvalid
+    FleetRolloutConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Fleet RolloutInProgress condition. Clients must tolerate unknown reason strings.
+      enum:
+        - Inactive
+        - Active
+        - Suspended
+        - Waiting
+      x-enum-varnames:
+        - FleetRolloutConditionReasonInactive
+        - FleetRolloutConditionReasonActive
+        - FleetRolloutConditionReasonSuspended
+        - FleetRolloutConditionReasonWaiting
+    DeviceUpdateConditionReason:
+      type: string
+      description: Non-exhaustive known Device update reasons. Update states apply to the Updating condition; the legacy Bootstrapping constant has no current producer or condition type mapping. Clients must tolerate unknown reason strings.
+      enum:
+        - Bootstrapping
+        - Preparing
+        - ReadyToUpdate
+        - ApplyingUpdate
+        - Rebooting
+        - Updated
+        - Canceled
+        - Error
+        - RollingBack
+        - Retrying
+      x-enum-varnames:
+        - DeviceUpdateConditionReasonBootstrapping
+        - DeviceUpdateConditionReasonPreparing
+        - DeviceUpdateConditionReasonReadyToUpdate
+        - DeviceUpdateConditionReasonApplyingUpdate
+        - DeviceUpdateConditionReasonRebooting
+        - DeviceUpdateConditionReasonUpdated
+        - DeviceUpdateConditionReasonCanceled
+        - DeviceUpdateConditionReasonError
+        - DeviceUpdateConditionReasonRollingBack
+        - DeviceUpdateConditionReasonRetrying
+    DeviceDecommissionConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Device DeviceDecommissioning condition. Clients must tolerate unknown reason strings.
+      enum:
+        - Started
+        - Completed
+        - Error
+      x-enum-varnames:
+        - DeviceDecommissionConditionReasonStarted
+        - DeviceDecommissionConditionReasonCompleted
+        - DeviceDecommissionConditionReasonError
+    DeviceOwnershipConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Device MultipleOwners condition. The reason can also be empty when the condition is false. Clients must tolerate unknown reason strings.
+      enum:
+        - MultipleOwners
+      x-enum-varnames:
+        - DeviceOwnershipConditionReasonMultipleOwners
+    DeviceLabelsConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Device LabelsSynced condition. Clients must tolerate unknown reason strings.
+      enum:
+        - Reconciled
+        - ReconciliationFailed
+      x-enum-varnames:
+        - DeviceLabelsConditionReasonReconciled
+        - DeviceLabelsConditionReasonReconciliationFailed
+    LabelSyncMappingConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the LabelSyncMapping Ready condition. Clients must tolerate unknown reason strings.
+      enum:
+        - Pending
+        - Degraded
+        - Success
+      x-enum-varnames:
+        - LabelSyncMappingConditionReasonPending
+        - LabelSyncMappingConditionReasonDegraded
+        - LabelSyncMappingConditionReasonSuccess
+    DeltaPreparingConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for Fleet FleetDeltaPreparing and Device DeviceDeltaPreparing conditions. Clients must tolerate unknown reason strings.
+      enum:
+        - DeltaGenerationInProgress
+      x-enum-varnames:
+        - DeltaPreparingConditionReasonDeltaGenerationInProgress
+    EnrollmentHooksConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the Device EnrollmentHooks condition. Clients must tolerate unknown reason strings.
+      enum:
+        - NotifyPending
+        - Pending
+        - Failed
+        - Succeeded
+        - Continued
+        - ManualOverride
+      x-enum-varnames:
+        - EnrollmentHooksConditionReasonNotifyPending
+        - EnrollmentHooksConditionReasonPending
+        - EnrollmentHooksConditionReasonFailed
+        - EnrollmentHooksConditionReasonSucceeded
+        - EnrollmentHooksConditionReasonContinued
+        - EnrollmentHooksConditionReasonManualOverride
+    EnrollmentHookPolicyConditionReason:
+      type: string
+      description: Non-exhaustive known reasons for the EnrollmentHookPolicy Ready condition. Clients must tolerate unknown reason strings.
+      enum:
+        - ValidationPassed
+      x-enum-varnames:
+        - EnrollmentHookPolicyConditionReasonValidationPassed
     Condition:
       description: Condition contains details for one aspect of the current state of this API Resource.
       allOf:
