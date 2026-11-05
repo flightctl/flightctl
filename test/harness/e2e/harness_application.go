@@ -49,12 +49,10 @@ type VMCloudInitWriteFile struct {
 	Content     string
 }
 
-// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
+// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user
+// and disables faillock so an SSH probe before cloud-init finishes cannot lock the account.
 func VMFedoraNoCloudUserData(password string) string {
-	return fmt.Sprintf(`#cloud-config
-ssh_pwauth: true
-password: %s
-chpasswd: { expire: False }`, password)
+	return VMFedoraNoCloudUserDataWith(password, nil, nil)
 }
 
 // VMGuestDisableFaillockCommand returns a cloud-init runcmd that removes pam_faillock
@@ -66,7 +64,7 @@ func VMGuestDisableFaillockCommand(user string) string {
 	return fmt.Sprintf(`bash -lc "authselect disable-feature with-faillock >/dev/null 2>&1 || true; faillock --user %s --reset >/dev/null 2>&1 || true"`, user)
 }
 
-// VMFedoraNoCloudUserDataWith is VMFedoraNoCloudUserData plus faillock reset, extra write_files, and runcmd entries.
+// VMFedoraNoCloudUserDataWith is VMFedoraNoCloudUserData plus extra write_files and runcmd entries.
 func VMFedoraNoCloudUserDataWith(password string, extraWriteFiles []VMCloudInitWriteFile, extraRuncmds []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `#cloud-config
@@ -1395,7 +1393,7 @@ fi`,
 		quotedPassword,
 		sshCommand,
 	)
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(script)}, nil)
 	if err != nil {
 		return "", classifyDeviceLocalSSHError(fmt.Errorf(
 			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
@@ -1430,6 +1428,25 @@ func classifyDeviceLocalSSHError(err error) error {
 	default:
 		return err
 	}
+}
+
+func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
+	GinkgoHelper()
+	const remoteCmd = "/usr/bin/whoami"
+	const unavailableWindow = "10s"
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should be unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, LONGTIMEOUT, POLLING).Should(Succeed())
+
+	Consistently(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, unavailableWindow, POLLING).Should(Succeed())
 }
 
 // trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
@@ -1499,7 +1516,7 @@ func (h *Harness) RunUDPProbeOnDeviceLocalPort(port int) (string, error) {
 		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
 	}
 
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", udpProbeDeviceHostScript(port)}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(udpProbeDeviceHostScript(port))}, nil)
 	if err != nil {
 		return "", fmt.Errorf("running UDP probe on device host localhost:%d: %w", port, err)
 	}
