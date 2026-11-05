@@ -1403,6 +1403,11 @@ func (e *recordingEvents) CreateEvent(_ context.Context, _ uuid.UUID, event *dom
 	e.events = append(e.events, event)
 }
 
+func (e *recordingEvents) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	e.CreateEvent(ctx, orgId, event)
+	return nil
+}
+
 func (*recordingEvents) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }
 

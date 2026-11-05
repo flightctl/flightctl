@@ -370,6 +370,11 @@ func (f *fakeEvents) CreateEvent(ctx context.Context, orgId uuid.UUID, event *do
 	f.created = append(f.created, event)
 }
 
+func (f *fakeEvents) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	f.CreateEvent(ctx, orgId, event)
+	return nil
+}
+
 func (f *fakeEvents) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 }
 

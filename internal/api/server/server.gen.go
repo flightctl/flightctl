@@ -73,6 +73,9 @@ type ServerInterface interface {
 	// (PUT /certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string)
 
+	// (POST /certificatesigningrequests/{name}/revocation)
+	RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
 	// (POST /deviceactions/resume)
 	ResumeDevices(w http.ResponseWriter, r *http.Request)
 
@@ -393,6 +396,11 @@ func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r
 
 // (PUT /certificatesigningrequests/{name}/approval)
 func (_ Unimplemented) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /certificatesigningrequests/{name}/revocation)
+func (_ Unimplemented) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1292,6 +1300,32 @@ func (siw *ServerInterfaceWrapper) UpdateCertificateSigningRequestApproval(w htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCertificateSigningRequestApproval(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeCertificateSigningRequest(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3971,6 +4005,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/certificatesigningrequests/{name}/revocation", wrapper.RevokeCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deviceactions/resume", wrapper.ResumeDevices)

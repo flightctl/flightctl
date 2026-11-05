@@ -208,7 +208,7 @@ func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context
 		if entry.Status == nil {
 			return nil, false
 		}
-		if !domain.IsStatusConditionTrue(entry.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) {
+		if !enrollmentCSRStatusAllows(*entry.Status) {
 			return entry.Name, false
 		}
 	}
@@ -230,13 +230,20 @@ func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context
 		}
 		return nil, false
 	}
-	approved := domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
-	if !approved {
+	allowed := enrollmentCSRStatusAllows(*csr.Status)
+	if !allowed {
 		if cacheErr := m.statusCache.Set(ctx, orgId, certificateDigest, enrollmentCSRStatusCacheEntry{Name: csr.Metadata.Name, Status: csr.Status}); cacheErr != nil {
 			m.log.WithError(cacheErr).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
 		}
 	}
-	return csr.Metadata.Name, approved
+	return csr.Metadata.Name, allowed
+}
+
+func enrollmentCSRStatusAllows(status domain.CertificateSigningRequestStatus) bool {
+	if status.Revocation != nil {
+		return false
+	}
+	return domain.IsStatusConditionTrue(status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
 }
 
 // createCacheKey creates a cache key from the TLS connection
