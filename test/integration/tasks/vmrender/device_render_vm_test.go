@@ -43,6 +43,10 @@ func (m *mockK8sClient) GetSecret(_ context.Context, _, _ string) (*corev1.Secre
 	return &corev1.Secret{}, nil
 }
 
+func (m *mockK8sClient) GetCurrentUser(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *mockK8sClient) PostCRD(_ context.Context, _ string, _ []byte, _ ...k8sclient.Option) ([]byte, error) {
 	return nil, nil
 }

@@ -6,7 +6,7 @@ Flight Control API server integrates with OpenShift OAuth for seamless authentic
 
 Flight Control API server integrates with OpenShift OAuth by:
 
-- Validating OAuth tokens against OpenShift OAuth server
+- Validating OAuth tokens with the Kubernetes `SelfSubjectReview` API
 - Mapping OpenShift users to Flight Control users
 - Auto-mapping OpenShift projects to Flight Control organizations
 - Using RoleBindings from project namespaces for authorization
@@ -16,13 +16,55 @@ Flight Control API server integrates with OpenShift OAuth by:
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
 - **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
+- **`flightctl-org-admin-<namespace>`** - Full access to all Flight Control resources within an organization
 - **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories; application lifecycle (start/stop/restart); device and application console; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
 - **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer-<namespace>`** - Access to enrollmentrequests, certificate signing requests; view imagebuilds and imageexports; download imageexports
 
 **Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`). The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
 
-**Note:** Flight Control automatically creates a service account named `flightctl-admin` with the `flightctl-admin-<namespace>` role; to use other role types, create your own service account and bind it to the desired ClusterRole.
+**Note:** Flight Control automatically creates a service account named `flightctl-admin`. In cluster-scoped installs it is bound to the global `flightctl-admin-<namespace>` role. In namespace-scoped installs it is bound to the project-scoped `flightctl-org-admin-<namespace>` role. To use other role types, create your own service account and bind it to the desired role.
+
+### Namespace-scoped installations
+
+When you set `global.namespaceScoped=true`, Flight Control creates the standard roles as namespaced Roles and does not create security context constraints. Install the [tenant chart](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-tenant/README.md) in each additional project; it creates the project Roles, RoleBindings, and the RoleBinding that lets the control plane read RoleBindings for organization mapping. For more information, see [Installing without cluster-admin permissions](../installing-service-on-kubernetes.md#installing-without-cluster-admin-permissions).
+
+The installer must already hold the permissions delegated by these Roles, including `flightctl.io` permissions, or have explicit namespaced `escalate` and `bind` authorization. Stock OpenShift project-admin permissions alone do not satisfy this requirement.
+
+### Service-account OAuth client
+
+By default, OpenShift authentication uses a cluster-scoped OAuthClient. For a namespace-only install, set `global.auth.openshift.clientType=serviceaccount` to use the `flightctl-api` ServiceAccount as the OAuth client instead. The chart then:
+
+- Annotates the `flightctl-api` ServiceAccount with the UI and CLI redirect URIs.
+- Uses the client ID `system:serviceaccount:<namespace>:flightctl-api`.
+- Requests the scopes `user:info user:check-access user:list-projects` by default.
+- Does not create an OAuthClient.
+
+The API token proxy injects the projected ServiceAccount token as the OAuth client credential. The credential is not included in the public `/auth/config` response, and it is reread from the token file so rotation is picked up. Clients must use the Flight Control token proxy for the authorization-code exchange; the CLI requires `--web`.
+
+Because the resulting token is scope-constrained, Flight Control uses different OpenShift APIs:
+
+- Identity: `GET /apis/user.openshift.io/v1/users/~`.
+- Access checks: Kubernetes `SelfSubjectAccessReview`.
+- Permission listings: OpenShift `authorization.openshift.io/v1` self-subject rules review with an explicit empty scope list.
+- Project discovery: `GET /apis/project.openshift.io/v1/projects` with the user's token.
+
+OpenShift disables refresh tokens for these clients, so users must re-authenticate when the token expires. Verify service-account client and `user:list-projects` behavior on your OpenShift version before relying on it; the OpenShift 4.20/4.21 source supports both, while the service-account documentation does not list the project-list scopes.
+
+Example values:
+
+```yaml
+global:
+  auth:
+    type: openshift
+    openshift:
+      clientType: serviceaccount
+      authorizationUrl: https://oauth-openshift.apps.example.com/oauth/authorize
+      tokenUrl: https://oauth-openshift.apps.example.com/oauth/token
+      issuer: https://oauth-openshift.apps.example.com
+```
+
+The tenant chart remains required for additional projects and their RoleBinding-based role mappings.
 
 ## Organization Mapping
 
@@ -33,13 +75,15 @@ Flight Control automatically maps OpenShift projects to Flight Control organizat
 
 ### Project Filtering
 
-By default, Flight Control only considers OpenShift projects labeled with `io.flightctl/instance=<releaseName>`. To include a project, label it:
+By default, Flight Control only considers OpenShift projects labeled with `io.flightctl/instance=<releaseName>`. To include a project, have an administrator authorized to update Namespace labels apply the label:
 
 ```bash
 oc label namespace my-project io.flightctl/instance=my-release
 ```
 
 Only projects with this label will be mapped to Flight Control organizations. You can customize the label selector via `global.auth.openshift.projectLabelFilter` in your Helm values.
+
+Stock project-admin permissions do not authorize Namespace label updates.
 
 ## Authorization
 
@@ -106,7 +150,7 @@ oc new-project my-org
 
 ### 2. Assign Roles to Users
 
-Use `oc adm policy add-role-to-user` to assign roles to users in your project. **Important:** You must use the namespace-specific ClusterRole names (e.g., `flightctl-admin-<namespace>`) where `<namespace>` is your Helm release namespace:
+Use `oc adm policy add-role-to-user` to assign roles to users in your project. **Important:** You must use the namespace-specific role names where `<namespace>` is your Helm release namespace. Cluster-scoped installs create ClusterRoles; namespace-scoped installs create Roles and the tenant chart creates them in each additional project.
 
 ```bash
 # Required: Grant view permissions so the user has access to the project
@@ -114,8 +158,8 @@ oc adm policy add-role-to-user view my-user -n my-org
 
 # Choose one of the following Flight Control roles based on the user's needs:
 # Replace <namespace> with your Helm release namespace (e.g., "flightctl" or "flightctl-prod")
-# Grant Flight Control admin permissions
-oc adm policy add-role-to-user flightctl-admin-<namespace> my-user -n my-org
+# Grant Flight Control organization-admin permissions
+oc adm policy add-role-to-user flightctl-org-admin-<namespace> my-user -n my-org
 
 # Grant Flight Control operator permissions
 oc adm policy add-role-to-user flightctl-operator-<namespace> my-user -n my-org
@@ -127,8 +171,10 @@ oc adm policy add-role-to-user flightctl-viewer-<namespace> my-user -n my-org
 **Example:** If your Helm release namespace is `flightctl`, use:
 
 ```bash
-oc adm policy add-role-to-user flightctl-admin-flightctl my-user -n my-org
+oc adm policy add-role-to-user flightctl-org-admin-flightctl my-user -n my-org
 ```
+
+**Note:** `flightctl-admin-<namespace>` is a global super-admin role and must not be bound in a single project. Use `flightctl-org-admin-<namespace>` for a project-scoped administrator.
 
 **Note:** You may see a warning "User 'my-user' not found" when assigning roles to users that don't exist yet in OpenShift. This is expected and the role will still be added. The user will be able to use these permissions once they authenticate.
 

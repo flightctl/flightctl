@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -36,8 +37,8 @@ func TestK8sGetIdentity_GroupRolesResolved(t *testing.T) {
 	auth := newTestK8sAuthN(t, mock)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user01", "uid-001", []string{"developers", "system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user01", "uid-001", []string{"developers", "system:authenticated"}), nil)
 
 	mock.EXPECT().
 		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user01", []string{"developers", "system:authenticated"}).
@@ -63,8 +64,8 @@ func TestK8sGetIdentity_NoGroupsNoRoles(t *testing.T) {
 	auth := newTestK8sAuthN(t, mock)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user04", "uid-004", []string{"system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user04", "uid-004", []string{"system:authenticated"}), nil)
 
 	mock.EXPECT().
 		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user04", []string{"system:authenticated"}).
@@ -87,8 +88,8 @@ func TestK8sGetIdentity_AdminViaGroup(t *testing.T) {
 	auth := newTestK8sAuthN(t, mock)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("admin-user", "uid-admin", []string{"platform-admins", "system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("admin-user", "uid-admin", []string{"platform-admins", "system:authenticated"}), nil)
 
 	// Group platform-admins is bound to flightctl-admin role
 	mock.EXPECT().
@@ -109,8 +110,8 @@ func TestK8sGetIdentity_UserAndGroupRolesCombined(t *testing.T) {
 	auth := newTestK8sAuthN(t, mock)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user05", "uid-005", []string{"ops-team", "system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user05", "uid-005", []string{"ops-team", "system:authenticated"}), nil)
 
 	// User gets viewer directly + operator through group
 	mock.EXPECT().
@@ -145,8 +146,8 @@ func TestK8sGetIdentity_OrganizationNamePrefix(t *testing.T) {
 	require.NoError(t, err)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
 	mock.EXPECT().
 		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user01", []string{"system:authenticated"}).
 		Return([]string{}, nil)
@@ -176,8 +177,8 @@ func TestK8sGetIdentity_NoRbacNs(t *testing.T) {
 	require.NoError(t, err)
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user06", "uid-006", []string{"developers"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user06", "uid-006", []string{"developers"}), nil)
 
 	// No ListRoleBindingsForUser call expected since RbacNs is nil
 
@@ -188,4 +189,32 @@ func TestK8sGetIdentity_NoRbacNs(t *testing.T) {
 	orgs := identity.GetOrganizations()
 	require.Len(t, orgs, 1)
 	assert.Empty(t, orgs[0].Roles)
+}
+
+func TestK8sValidateToken(t *testing.T) {
+	t.Run("When SelfSubjectReview succeeds it should accept the token", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mock := k8sclient.NewMockK8SClient(ctrl)
+		auth := newTestK8sAuthN(t, mock)
+		mock.EXPECT().
+			PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+			Return(selfSubjectReviewJSON("user01", "uid-001", nil), nil)
+
+		require.NoError(t, auth.ValidateToken(context.Background(), "test-token"))
+	})
+
+	t.Run("When SelfSubjectReview is rejected it should reject the token", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mock := k8sclient.NewMockK8SClient(ctrl)
+		auth := newTestK8sAuthN(t, mock)
+		mock.EXPECT().
+			PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+			Return(nil, errors.New("Unauthorized"))
+
+		require.Error(t, auth.ValidateToken(context.Background(), "bad-token"))
+	})
 }

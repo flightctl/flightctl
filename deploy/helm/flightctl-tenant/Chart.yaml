@@ -1,0 +1,7 @@
+apiVersion: v2
+name: flightctl-tenant
+description: Per-project RBAC bundle for a namespace-scoped Flight Control installation
+type: application
+version: 0.1.0
+appVersion: "latest"
+kubeVersion: '>= 1.32.0-0'
