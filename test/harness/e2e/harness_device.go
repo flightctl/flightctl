@@ -399,6 +399,42 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 	}, condition, timeout)
 }
 
+// WaitForDeviceReportedLabel waits for a device label to be reported and returns its non-empty value.
+func (h *Harness) WaitForDeviceReportedLabel(deviceID, labelKey, timeout string) string {
+	labelValue := ""
+	h.WaitForDeviceContents(deviceID, fmt.Sprintf("device reports label %s", labelKey), func(device *v1beta1.Device) bool {
+		if device.Metadata.Labels == nil {
+			return false
+		}
+		value, found := (*device.Metadata.Labels)[labelKey]
+		if !found || value == "" {
+			return false
+		}
+		labelValue = value
+		return true
+	}, timeout)
+	return labelValue
+}
+
+// WaitForDeviceLabels waits until expected labels are present with their requested values
+// and the optional absent keys are missing.
+func (h *Harness) WaitForDeviceLabels(deviceID, description string, expectedLabels map[string]string, timeout string, absentKeys ...string) {
+	h.WaitForDeviceContents(deviceID, description, func(device *v1beta1.Device) bool {
+		labels := lo.FromPtr(device.Metadata.Labels)
+		for key, expectedValue := range expectedLabels {
+			if value, found := labels[key]; !found || value != expectedValue {
+				return false
+			}
+		}
+		for _, key := range absentKeys {
+			if _, found := labels[key]; found {
+				return false
+			}
+		}
+		return true
+	}, timeout)
+}
+
 // EnsureDeviceContents ensures that the contents of the device match the specified condition for the entire timeout
 func (h *Harness) EnsureDeviceContents(deviceId string, description string, condition func(*v1beta1.Device) bool, timeout string) {
 	ensureResourceContents(deviceId, description, func(id string) (*v1beta1.Device, error) {
