@@ -28,10 +28,11 @@ func TestRollout(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	registryFuture := e2e.StartAuxServicesAsyncWith(context.Background(), auxiliary.ServiceRegistry)
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
+	auxSvcs = registryFuture.Wait()
 })
 
 var _ = AfterSuite(func() {
