@@ -657,16 +657,18 @@ func (b *OnboardingBrowser) WizardNavigateBackwards(n int) error {
 }
 
 // StartCockpitTunnel starts an SSH local port forward from a free local port to
-// the VM's Cockpit service on port 9090. Returns the local address to use with
-// CockpitLogin and a cleanup function that kills the tunnel process.
+// the VM's Cockpit service on port 9090. sshHost and sshPort are the guest sshd
+// endpoint (the nested port forward, or the bridged DHCP address on port 22).
+// hostKeyArgs are the options for that endpoint. Returns the local address to
+// use with CockpitLogin and a cleanup function that kills the tunnel process.
 //
 // The forward targets the guest's own loopback ("localhost:9090") and binds
 // locally to 127.0.0.1, so the browser reaches Cockpit as 127.0.0.1. This is the
 // right choice for every spec that drives configuration through the multi-NIC
 // inline apply path; use StartCockpitTunnelViaInterface for specs that need the
 // wizard's single-NIC detection to fire.
-func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr string, cleanup func(), err error) {
-	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.1", "localhost")
+func StartCockpitTunnel(sshHost string, sshPort int, sshUser, sshPassword string, hostKeyArgs []string) (cockpitAddr string, cleanup func(), err error) {
+	return startCockpitTunnel(sshHost, sshPort, sshUser, sshPassword, hostKeyArgs, "127.0.0.1", "localhost")
 }
 
 // StartCockpitTunnelViaInterface forwards to the guest's real interface address
@@ -682,15 +684,15 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 // cockpitAddr is "127.0.0.2:<port>"; 127.0.0.2 is still loopback (bindable
 // without extra setup on Linux) but is not one of the literals the plugin's
 // isLocalhost() treats as local.
-func StartCockpitTunnelViaInterface(sshPort int, sshUser, sshPassword, guestIP string) (cockpitAddr string, cleanup func(), err error) {
-	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.2", guestIP)
+func StartCockpitTunnelViaInterface(sshHost string, sshPort int, sshUser, sshPassword, guestIP string, hostKeyArgs []string) (cockpitAddr string, cleanup func(), err error) {
+	return startCockpitTunnel(sshHost, sshPort, sshUser, sshPassword, hostKeyArgs, "127.0.0.2", guestIP)
 }
 
 // startCockpitTunnel is the shared implementation behind StartCockpitTunnel and
 // StartCockpitTunnelViaInterface. localBind is the loopback address the forward
 // listens on (and the host the browser navigates to); forwardHost is the host
 // cockpit-ws is reached at from inside the guest.
-func startCockpitTunnel(sshPort int, sshUser, sshPassword, localBind, forwardHost string) (cockpitAddr string, cleanup func(), err error) {
+func startCockpitTunnel(sshHost string, sshPort int, sshUser, sshPassword string, hostKeyArgs []string, localBind, forwardHost string) (cockpitAddr string, cleanup func(), err error) {
 	listener, err := net.Listen("tcp", net.JoinHostPort(localBind, "0"))
 	if err != nil {
 		return "", nil, fmt.Errorf("finding free port on %s: %w", localBind, err)
@@ -701,15 +703,19 @@ func startCockpitTunnel(sshPort int, sshUser, sshPassword, localBind, forwardHos
 	// Pass the password via SSHPASS (sshpass -e) rather than on the command line
 	// (sshpass -p), so the credential stays out of argv, the process table, and any
 	// logged command string.
-	cmd := exec.Command("sshpass", "-e", // #nosec G204 - e2e test code with controlled inputs
-		"ssh", "-p", strconv.Itoa(sshPort),
-		fmt.Sprintf("%s@127.0.0.1", sshUser),
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
+	sshArgs := []string{
+		"-e", "ssh",
+		"-p", strconv.Itoa(sshPort),
+		fmt.Sprintf("%s@%s", sshUser, sshHost),
+		"-o", "PubkeyAuthentication=no",
 		"-o", "LogLevel=ERROR",
+	}
+	sshArgs = append(sshArgs, hostKeyArgs...)
+	sshArgs = append(sshArgs,
 		"-L", fmt.Sprintf("%s:%d:%s:%d", localBind, localPort, forwardHost, cockpitPort),
 		"-N",
 	)
+	cmd := exec.Command("sshpass", sshArgs...) // #nosec G204 - e2e test code with controlled inputs
 	cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
 	// Capture ssh's stderr so a tunnel that never comes up (auth failure, refused
 	// forward) reports the underlying reason instead of a bare "did not become
@@ -737,8 +743,8 @@ func startCockpitTunnel(sshPort int, sshUser, sshPassword, localBind, forwardHos
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("SSH tunnel to %s:%d via SSH port %d did not become ready within 15s: %s",
-		forwardHost, cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
+	return "", nil, fmt.Errorf("SSH tunnel to %s:%d via %s:%d did not become ready within 15s: %s",
+		forwardHost, cockpitPort, sshHost, sshPort, strings.TrimSpace(sshStderr.String()))
 }
 
 // --- iframe helpers ---
