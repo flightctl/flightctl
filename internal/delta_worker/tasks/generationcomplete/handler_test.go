@@ -59,6 +59,15 @@ func (s *completionEventServiceStub) CreateEventWithRetry(ctx context.Context, o
 	return nil
 }
 
+func (s *completionEventServiceStub) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	s.CreateEvent(ctx, orgId, event)
+	return nil
+}
+
+func (*completionEventServiceStub) PublishEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
+}
+
 func (*completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }
 

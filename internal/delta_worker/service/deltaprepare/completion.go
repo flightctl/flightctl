@@ -92,5 +92,8 @@ func (h *ServiceHandler) createEvent(ctx context.Context, orgID uuid.UUID, event
 	if event == nil {
 		return nil
 	}
-	return h.events.CreateEventWithRetry(ctx, orgID, event)
+	if err := h.events.CreateEventWithRetry(ctx, orgID, event); err != nil {
+		return fmt.Errorf("create delta-prepare event: %w", err)
+	}
+	return nil
 }

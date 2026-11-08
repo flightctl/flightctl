@@ -227,9 +227,11 @@ func (f *fakeEnrollmentRequestService) GetEnrollmentRequest(ctx context.Context,
 // the removed HandleCertificateSigningRequestUpdatedEvents method.
 type fakeEventsService struct {
 	events.Service
-	created        []*domain.Event
-	deleted        []string
-	createEventErr error
+	created         []*domain.Event
+	published       []*domain.Event
+	deleted         []string
+	createEventErr  error
+	publishEventErr error
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
@@ -242,6 +244,18 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 func (f *fakeEventsService) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	f.CreateEvent(ctx, orgId, event)
 	return f.createEventErr
+}
+
+func (f *fakeEventsService) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	f.CreateEvent(ctx, orgId, event)
+	return f.createEventErr
+}
+
+func (f *fakeEventsService) PublishEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	if event != nil {
+		f.published = append(f.published, event)
+	}
+	return f.publishEventErr
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -1338,6 +1352,36 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		require.Len(t, revocationEvents, 1)
 	})
 
+	t.Run("When revocation event publication fails it should keep the committed revocation", func(t *testing.T) {
+		h, _, _, fakeEvents, cfg := newTestHandler(t)
+		fakeEvents.publishEventErr = errors.New("queue unavailable")
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "event-publish-failure-enrollment-csr"
+		_, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		revoked, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: "Credential compromised",
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, revoked.Status.Revocation)
+
+		current, getStatus := h.GetCertificateSigningRequest(ctx, orgId, name)
+		require.Equal(t, statusSuccessCode, getStatus.Code)
+		require.NotNil(t, current.Status.Revocation)
+		require.Len(t, fakeEvents.published, 1)
+		require.Equal(t, domain.EventReasonEnrollmentCredentialRevoked, fakeEvents.published[0].Reason)
+	})
+
 	t.Run("When the reason is blank or oversized it should reject the request without revoking", func(t *testing.T) {
 		h, _, _, _, cfg := newTestHandler(t)
 		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
@@ -1357,7 +1401,7 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		for reason, message := range map[string]string{
 			"":                        "reason is required and cannot be blank",
 			"   ":                     "reason is required and cannot be blank",
-			strings.Repeat("x", 1025): "reason must be at most 1024 bytes",
+			strings.Repeat("x", 1025): "reason must be at most 1024 characters",
 		} {
 			_, status := h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
 				Reason: reason,
@@ -1370,6 +1414,34 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Nil(t, current.Status.Revocation)
 		require.Equal(t, created.Status.Certificate, current.Status.Certificate)
+	})
+
+	t.Run("When the reason uses multi-byte characters it should count characters instead of bytes", func(t *testing.T) {
+		h, _, _, _, cfg := newTestHandler(t)
+		ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+			identity.NewMappedIdentity("security-officer", "uid-security-officer", nil, nil, true, nil))
+		orgId := uuid.New()
+		name := "multibyte-reason-enrollment-csr"
+		_, status := h.CreateCertificateSigningRequest(ctx, orgId, domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: domain.CertificateSigningRequestSpec{
+				SignerName: cfg.DeviceEnrollmentSignerName,
+				Request:    csrPEM(t, name),
+				Usages:     validUsages(),
+			},
+		})
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		reason := strings.Repeat("é", 600)
+		_, status = h.RevokeCertificateSigningRequest(ctx, orgId, name, domain.EnrollmentCertificateRevocationRequest{
+			Reason: reason,
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		current, status := h.GetCertificateSigningRequest(ctx, orgId, name)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, current.Status.Revocation)
+		require.Equal(t, reason, current.Status.Revocation.Reason)
 	})
 
 	t.Run("When the target is not an issued enrollment credential it should reject it without mutation", func(t *testing.T) {
@@ -1429,9 +1501,9 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			require.Equal(t, expectedStatus.Message, status.Message)
 		}
 
-		require.Nil(t, serviceClient.Status.Revocation)
-		require.Nil(t, managementRenewal.Status.Revocation)
-		require.Nil(t, unissued.Status.Revocation)
+		for _, name := range []string{"service-client-csr", "management-renewal-csr", "unissued-enrollment-csr"} {
+			require.Nil(t, fakeStore.items[name].Status.Revocation, name)
+		}
 	})
 
 	t.Run("When no authenticated actor is present it should reject the request without revoking", func(t *testing.T) {
@@ -1457,7 +1529,7 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 		})
 
 		require.Equal(t, int32(403), status.Code)
-		require.Nil(t, csr.Status.Revocation)
+		require.Nil(t, fakeStore.items[name].Status.Revocation)
 	})
 }
 

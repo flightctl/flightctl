@@ -56,16 +56,37 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 	}
 }
 
-// CreateEventWithRetry persists an event and retries queue publication when a
-// concrete worker client exposes publication errors. It is used by the
-// standalone-device PrepareDeltas path, whose delayed render must not depend
-// on a single transient queue write.
-func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+// CreateEventRecord persists an event without publishing it to workers. Store
+// methods join the transaction carried by ctx, so callers that need the event
+// record to be atomic with the state change it describes use this inside a
+// transaction and publish with PublishEventWithRetry after the commit.
+func (h *ServiceHandler) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
 	}
 	if err := h.store.Create(ctx, orgId, event); err != nil {
 		return fmt.Errorf("create event: %w", err)
+	}
+	return nil
+}
+
+// CreateEventWithRetry persists an event and retries queue publication when a
+// concrete worker client exposes publication errors. It is used by the
+// standalone-device PrepareDeltas path, whose delayed render must not depend
+// on a single transient queue write.
+func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	if err := h.CreateEventRecord(ctx, orgId, event); err != nil {
+		return err
+	}
+	return h.PublishEventWithRetry(ctx, orgId, event)
+}
+
+// PublishEventWithRetry publishes an already persisted event to the worker
+// queue, retrying transient failures when the concrete worker client exposes
+// publication errors.
+func (h *ServiceHandler) PublishEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	if event == nil {
+		return nil
 	}
 	if h.workerClient == nil {
 		return nil

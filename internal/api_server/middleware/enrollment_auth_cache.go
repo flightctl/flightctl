@@ -12,6 +12,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultEnrollmentCSRStatusCacheTTL bounds how long a cached enrollment
+// decision can outlive the CSR state it was derived from. Revocation
+// invalidates the entry, but a lookup that read the approved CSR before the
+// revocation committed can still restore the approved entry afterward, so a
+// revoked credential may remain usable until this TTL expires.
 const DefaultEnrollmentCSRStatusCacheTTL = 30 * time.Second
 const missingCSRStatusValue = "null"
 

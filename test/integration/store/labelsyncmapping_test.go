@@ -1408,6 +1408,15 @@ func (e *recordingEvents) CreateEventWithRetry(ctx context.Context, orgId uuid.U
 	return nil
 }
 
+func (e *recordingEvents) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	e.CreateEvent(ctx, orgId, event)
+	return nil
+}
+
+func (*recordingEvents) PublishEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
+}
+
 func (*recordingEvents) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }
 

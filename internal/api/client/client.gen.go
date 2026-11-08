@@ -7745,6 +7745,7 @@ type RevokeCertificateSigningRequestResponse struct {
 	JSON404      *Status
 	JSON409      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -12930,6 +12931,13 @@ func ParseRevokeCertificateSigningRequestResponse(rsp *http.Response) (*RevokeCe
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

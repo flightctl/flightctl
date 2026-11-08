@@ -324,6 +324,10 @@ func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.
 	})
 	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 		if current, getErr := s.Get(ctx, orgId, name); getErr == nil &&
+			previous != nil &&
+			previous.Metadata.CreationTimestamp != nil &&
+			current.Metadata.CreationTimestamp != nil &&
+			current.Metadata.CreationTimestamp.Equal(*previous.Metadata.CreationTimestamp) &&
 			current.Status != nil && current.Status.Revocation != nil {
 			return current, current, false, nil
 		}

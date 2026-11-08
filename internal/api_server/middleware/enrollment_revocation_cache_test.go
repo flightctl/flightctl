@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -77,4 +78,35 @@ func TestRevocationCacheInvalidationWhenRevocationReturnsNoCertificateItShouldKe
 
 	require.Equal(t, domain.StatusOK(), resultStatus)
 	require.Zero(t, kv.deletes)
+}
+
+func TestRevocationCacheInvalidationWhenDeleteKeepsFailingItShouldRetryBeforeLogging(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	caClient, _, err := crypto.EnsureCA(cacfg.NewDefault(tempDir))
+	require.NoError(t, err)
+	certificate := namedEnrollmentCertificate(t, ctx, caClient, tempDir, "enrollment-credential")
+	certificatePEM, err := fcrypto.EncodeCertificatePEM(certificate)
+	require.NoError(t, err)
+
+	cache, kv := newTestEnrollmentCSRStatusCache()
+	kv.deleteErr = errors.New("kv store unavailable")
+	orgId := uuid.New()
+	digest := crypto.CertificateDigest(certificate.Raw)
+	status := domain.CertificateSigningRequestStatus{}
+	require.NoError(t, cache.Set(ctx, orgId, digest, enrollmentCSRStatusCacheEntry{Status: &status}))
+
+	service := &fakeRevokingCSRService{
+		result: &domain.CertificateSigningRequest{Status: &domain.CertificateSigningRequestStatus{Certificate: &certificatePEM}},
+		status: domain.StatusOK(),
+	}
+	wrapped := WrapCSRServiceWithRevocationCacheInvalidation(service, cache, logrus.New())
+
+	_, resultStatus := wrapped.RevokeCertificateSigningRequest(ctx, orgId, "enrollment-credential", domain.EnrollmentCertificateRevocationRequest{Reason: "Compromised"})
+
+	require.Equal(t, domain.StatusOK(), resultStatus)
+	require.Equal(t, 3, kv.deletes)
+	_, found, getErr := cache.Get(ctx, orgId, digest)
+	require.NoError(t, getErr)
+	require.True(t, found)
 }

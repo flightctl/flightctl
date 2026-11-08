@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -510,8 +511,8 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 	if reason == "" {
 		return nil, domain.StatusBadRequest("reason is required and cannot be blank")
 	}
-	if len(reason) > 1024 {
-		return nil, domain.StatusBadRequest("reason must be at most 1024 bytes")
+	if utf8.RuneCountInString(reason) > 1024 {
+		return nil, domain.StatusBadRequest("reason must be at most 1024 characters")
 	}
 
 	identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
@@ -543,6 +544,7 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		RevokedAt: time.Now().UTC(),
 	}
 	var revoked *domain.CertificateSigningRequest
+	var revocationEvent *domain.Event
 	err = h.store.WithTransaction(ctx, func(txCtx context.Context) error {
 		var changed bool
 		var mutateErr error
@@ -556,10 +558,16 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		event := domain.GetBaseEvent(txCtx, domain.CertificateSigningRequestKind, name,
 			domain.EventReasonEnrollmentCredentialRevoked, "Enrollment credential revoked.", nil)
 		event.Actor = actor
-		return h.events.CreateEventWithRetry(txCtx, orgId, event)
+		revocationEvent = event
+		return h.events.CreateEventRecord(txCtx, orgId, event)
 	})
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+	if revocationEvent != nil {
+		if publishErr := h.events.PublishEventWithRetry(ctx, orgId, revocationEvent); publishErr != nil {
+			h.log.WithError(publishErr).Errorf("Failed to publish revocation event for certificate signing request %q", name)
+		}
 	}
 
 	return revoked, domain.StatusOK()

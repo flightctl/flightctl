@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -41,8 +42,22 @@ func (s *revocationInvalidatingCSRService) RevokeCertificateSigningRequest(ctx c
 		}
 		return result, status
 	}
-	if err := s.cache.Delete(ctx, orgId, crypto.CertificateDigest(leaf.Raw)); err != nil && s.log != nil {
-		s.log.WithError(err).Warnf("Failed to invalidate cached enrollment status for %q", name)
+	digest := crypto.CertificateDigest(leaf.Raw)
+	var deleteErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if deleteErr = s.cache.Delete(ctx, orgId, digest); deleteErr == nil {
+			break
+		}
+		if attempt == 2 || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+		}
+	}
+	if deleteErr != nil && s.log != nil {
+		s.log.WithError(deleteErr).Errorf("Failed to invalidate cached enrollment status for %q; the revoked credential may keep authenticating until the cached entry expires", name)
 	}
 	return result, status
 }
