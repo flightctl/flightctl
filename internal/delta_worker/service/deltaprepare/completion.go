@@ -88,12 +88,17 @@ func (h *ServiceHandler) emitFleetResume(ctx context.Context, orgID uuid.UUID, p
 	return h.createEvent(ctx, orgID, common.GetFleetRolloutStartedEvent(ctx, *prepare.TemplateVersion, prepare.Name, immediate, false))
 }
 
+type reliableEventService interface {
+	CreateEventWithRetry(context.Context, uuid.UUID, *domain.Event) error
+}
+
 func (h *ServiceHandler) createEvent(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
 	}
-	if err := h.events.CreateEventWithRetry(ctx, orgID, event); err != nil {
-		return fmt.Errorf("create delta-prepare event: %w", err)
+	if reliable, ok := h.events.(reliableEventService); ok {
+		return reliable.CreateEventWithRetry(ctx, orgID, event)
 	}
+	h.events.CreateEvent(ctx, orgID, event)
 	return nil
 }

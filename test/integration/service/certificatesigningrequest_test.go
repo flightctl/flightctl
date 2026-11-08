@@ -420,8 +420,13 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					}
 				}
 				Expect(revocationEvents).To(HaveLen(1))
-				Expect(revocationEvents[0].Actor).To(Equal("test-admin"))
+				Expect(revocationEvents[0].Actor).To(Equal("user:test-admin"))
 				Expect(revocationEvents[0].InvolvedObject.Name).To(Equal(csrName))
+
+				By("persisting one durable revocation work record")
+				var revocationWork []model.EnrollmentRevocationWork
+				Expect(suite.DB.Where("org_id = ? AND csr_name = ?", suite.OrgID, csrName).Find(&revocationWork).Error).NotTo(HaveOccurred())
+				Expect(revocationWork).To(HaveLen(1))
 			})
 
 			It("When revoking a service-client CSR it should refuse without mutation", func() {

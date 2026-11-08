@@ -70,7 +70,7 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "org admin can revoke enrollment credentials",
+			name:     "When an org admin creates a revocation it should be allowed",
 			roles:    []string{v1beta1.RoleOrgAdmin},
 			resource: "certificatesigningrequests/revocation",
 			op:       "create",
@@ -133,7 +133,7 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "operator cannot revoke enrollment credentials",
+			name:     "When an operator creates a revocation it should be denied",
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "certificatesigningrequests/revocation",
 			op:       "create",
@@ -343,7 +343,7 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "installer cannot revoke enrollment credentials",
+			name:     "When an installer creates a revocation it should be denied",
 			roles:    []string{v1beta1.RoleInstaller},
 			resource: "certificatesigningrequests/revocation",
 			op:       "create",

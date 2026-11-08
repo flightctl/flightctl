@@ -2,9 +2,12 @@ package transportv1beta1
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -89,7 +92,12 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 // (POST /api/v1/certificatesigningrequests/{name}/revocation)
 func (h *TransportHandler) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var request apiv1beta1.EnrollmentCertificateRevocationRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeStrictJSON(r, &request); err != nil {
+		var unknownFieldErr *unknownJSONFieldError
+		if errors.As(err, &unknownFieldErr) {
+			h.SetResponse(w, nil, domain.StatusBadRequest(fmt.Sprintf("can't decode JSON body: %v", err)))
+			return
+		}
 		h.SetParseFailureResponse(w, err)
 		return
 	}

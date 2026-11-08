@@ -44,8 +44,7 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 		return
 	}
 
-	err := h.store.Create(ctx, orgId, event)
-	if err != nil {
+	if err := h.PersistEvent(ctx, orgId, event); err != nil {
 		h.log.Errorf("failed emitting event <%s> (%s) for %s %s/%s: %v",
 			*event.Metadata.Name, event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
 		return
@@ -56,11 +55,11 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 	}
 }
 
-// CreateEventRecord persists an event without publishing it to workers. Store
-// methods join the transaction carried by ctx, so callers that need the event
-// record to be atomic with the state change it describes use this inside a
-// transaction and publish with PublishEventWithRetry after the commit.
-func (h *ServiceHandler) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+// PersistEvent persists an event record without publishing it to workers.
+// Store methods join the transaction carried by ctx, so a resource service can
+// write the event atomically with the state change it describes. Publication is
+// deliberately separate: the caller decides whether and when to enqueue it.
+func (h *ServiceHandler) PersistEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
 	}
@@ -75,16 +74,16 @@ func (h *ServiceHandler) CreateEventRecord(ctx context.Context, orgId uuid.UUID,
 // standalone-device PrepareDeltas path, whose delayed render must not depend
 // on a single transient queue write.
 func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	if err := h.CreateEventRecord(ctx, orgId, event); err != nil {
+	if err := h.PersistEvent(ctx, orgId, event); err != nil {
 		return err
 	}
-	return h.PublishEventWithRetry(ctx, orgId, event)
+	return h.publishEvent(ctx, orgId, event)
 }
 
-// PublishEventWithRetry publishes an already persisted event to the worker
-// queue, retrying transient failures when the concrete worker client exposes
+// publishEvent publishes an already persisted event to the worker queue,
+// retrying transient failures when the concrete worker client exposes
 // publication errors.
-func (h *ServiceHandler) PublishEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+func (h *ServiceHandler) publishEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
 	}

@@ -92,7 +92,8 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		hasItem             bool
 		itemCondition       domain.ConditionType
 		cachedCondition     domain.ConditionType
-		revoked             bool
+		itemRevoked         bool
+		cachedRevoked       bool
 		requests            int
 		wantCode            int
 		wantCSRRequests     int
@@ -140,7 +141,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			name:                "When CSR is revoked it should reject",
 			hasItem:             true,
 			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
-			revoked:             true,
+			itemRevoked:         true,
 			requests:            1,
 			wantCode:            http.StatusUnauthorized,
 			wantCSRRequests:     1,
@@ -150,7 +151,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		{
 			name:                "When revoked CSR status is cached it should reject without reading CSR service",
 			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
-			revoked:             true,
+			cachedRevoked:       true,
 			requests:            2,
 			wantCode:            http.StatusUnauthorized,
 			wantStatusCacheGets: 2,
@@ -179,6 +180,18 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		{
 			name:                "When approved CSR status is cached but the CSR no longer exists it should reject and cache missing status",
 			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			requests:            1,
+			wantCode:            http.StatusUnauthorized,
+			wantCSRRequests:     1,
+			wantStatusCacheGets: 1,
+			wantStatusCacheSets: 1,
+		},
+		{
+			name:                "When approved CSR status is cached but the authoritative CSR is revoked it should reject",
+			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			hasItem:             true,
+			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
+			itemRevoked:         true,
 			requests:            1,
 			wantCode:            http.StatusUnauthorized,
 			wantCSRRequests:     1,
@@ -216,7 +229,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			csrs := &fakeCSRService{}
 			if test.hasItem {
 				item := enrollmentCSR(csrName, test.itemCondition, &certificatePEM)
-				if test.revoked {
+				if test.itemRevoked {
 					item.Status.Revocation = testRevocation()
 				}
 				csrs.items = []domain.CertificateSigningRequest{item}
@@ -230,7 +243,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 						Status: domain.ConditionStatusTrue,
 					}},
 				}
-				if test.revoked {
+				if test.cachedRevoked {
 					status.Revocation = testRevocation()
 				}
 				entry := enrollmentCSRStatusCacheEntry{Name: &csrName, Status: &status}

@@ -1114,7 +1114,7 @@ type CertificateSigningRequestStatus struct {
 	// IssuedAt Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
 	IssuedAt *time.Time `json:"issuedAt,omitempty"`
 
-	// Revocation Immutable server-owned enrollment credential revocation state.
+	// Revocation Server-owned immutable enrollment credential revocation state.
 	Revocation *EnrollmentCertificateRevocation `json:"revocation,omitempty"`
 }
 

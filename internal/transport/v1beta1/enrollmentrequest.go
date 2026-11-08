@@ -83,9 +83,7 @@ func (h *TransportHandler) GetEnrollmentRequestStatus(w http.ResponseWriter, r *
 // (PUT /api/v1/enrollmentrequests/{name}/approval)
 func (h *TransportHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var approval apiv1beta1.EnrollmentRequestApproval
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&approval); err != nil {
+	if err := decodeStrictJSON(r, &approval); err != nil {
 		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}

@@ -9352,7 +9352,10 @@ components:
       description: Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
       properties:
         revocation:
-          $ref: '#/components/schemas/EnrollmentCertificateRevocation'
+          description: Server-owned immutable enrollment credential revocation state.
+          readOnly: true
+          allOf:
+            - $ref: '#/components/schemas/EnrollmentCertificateRevocation'
         issuedAt:
           description: Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
           type: string
@@ -9372,6 +9375,7 @@ components:
       type: object
     EnrollmentCertificateRevocationRequest:
       description: Request to revoke an issued enrollment credential.
+      additionalProperties: false
       properties:
         reason:
           description: The security reason for revoking the enrollment credential.

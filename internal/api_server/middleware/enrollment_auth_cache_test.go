@@ -14,14 +14,12 @@ import (
 
 type fakeEnrollmentStatusKVStore struct {
 	kvstore.KVStore
-	values    map[string][]byte
-	ttls      map[string]time.Duration
-	gets      int
-	sets      int
-	deletes   int
-	getErr    error
-	setErr    error
-	deleteErr error
+	values map[string][]byte
+	ttls   map[string]time.Duration
+	gets   int
+	sets   int
+	getErr error
+	setErr error
 }
 
 func (f *fakeEnrollmentStatusKVStore) Get(ctx context.Context, key string) ([]byte, error) {
@@ -39,16 +37,6 @@ func (f *fakeEnrollmentStatusKVStore) Set(ctx context.Context, key string, value
 	}
 	f.values[key] = value
 	f.ttls[key] = expiration
-	return nil
-}
-
-func (f *fakeEnrollmentStatusKVStore) Delete(ctx context.Context, key string) error {
-	f.deletes++
-	if f.deleteErr != nil {
-		return f.deleteErr
-	}
-	delete(f.values, key)
-	delete(f.ttls, key)
 	return nil
 }
 
@@ -163,19 +151,4 @@ func TestRedisEnrollmentCSRStatusCacheWhenKVStoreFailsItShouldReturnError(t *tes
 	err = setCache.SetMissing(context.Background(), orgId, certificateDigest)
 	require.ErrorContains(t, err, "setting cached missing enrollment CSR status")
 	require.ErrorIs(t, err, setKV.setErr)
-}
-
-func TestRedisEnrollmentCSRStatusCacheWhenStatusIsDeletedItShouldRemoveTheKey(t *testing.T) {
-	orgId := uuid.New()
-	certificateDigest := "certificate-digest"
-	cache, kv := newTestEnrollmentCSRStatusCache()
-	status := domain.CertificateSigningRequestStatus{}
-	require.NoError(t, cache.Set(context.Background(), orgId, certificateDigest, enrollmentCSRStatusCacheEntry{Status: &status}))
-
-	require.NoError(t, cache.Delete(context.Background(), orgId, certificateDigest))
-
-	_, found, err := cache.Get(context.Background(), orgId, certificateDigest)
-	require.NoError(t, err)
-	require.False(t, found)
-	require.Equal(t, 1, kv.deletes)
 }

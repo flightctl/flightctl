@@ -21,6 +21,7 @@ import (
 	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	"github.com/flightctl/flightctl/internal/service/events"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -170,21 +171,9 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 	return mutation.Device, device, false, nil
 }
 
-type completionEventServiceStub struct{}
+type completionEventServiceStub struct{ events.Service }
 
 func (completionEventServiceStub) CreateEvent(context.Context, uuid.UUID, *domain.Event) {}
-
-func (completionEventServiceStub) CreateEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
-	return nil
-}
-
-func (completionEventServiceStub) CreateEventRecord(context.Context, uuid.UUID, *domain.Event) error {
-	return nil
-}
-
-func (completionEventServiceStub) PublishEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
-	return nil
-}
 
 func (completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }

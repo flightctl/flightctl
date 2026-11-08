@@ -12,11 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// DefaultEnrollmentCSRStatusCacheTTL bounds how long a cached enrollment
-// decision can outlive the CSR state it was derived from. Revocation
-// invalidates the entry, but a lookup that read the approved CSR before the
-// revocation committed can still restore the approved entry afterward, so a
-// revoked credential may remain usable until this TTL expires.
 const DefaultEnrollmentCSRStatusCacheTTL = 30 * time.Second
 const missingCSRStatusValue = "null"
 
@@ -78,9 +73,4 @@ func (c *RedisEnrollmentCSRStatusCache) SetMissing(ctx context.Context, orgId uu
 		return fmt.Errorf("setting cached missing enrollment CSR status: %w", err)
 	}
 	return nil
-}
-
-func (c *RedisEnrollmentCSRStatusCache) Delete(ctx context.Context, orgId uuid.UUID, certificateDigest string) error {
-	key := (&kvstore.EnrollmentCSRStatusKey{OrgID: orgId, CertificateDigest: certificateDigest}).ComposeKey()
-	return c.kvStore.Delete(ctx, key)
 }

@@ -11,6 +11,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/events"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -47,25 +48,12 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 }
 
 type completionEventServiceStub struct {
+	events.Service
 	created []*domain.Event
 }
 
 func (s *completionEventServiceStub) CreateEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
 	s.created = append(s.created, event)
-}
-
-func (s *completionEventServiceStub) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	s.CreateEvent(ctx, orgId, event)
-	return nil
-}
-
-func (s *completionEventServiceStub) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	s.CreateEvent(ctx, orgId, event)
-	return nil
-}
-
-func (*completionEventServiceStub) PublishEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
-	return nil
 }
 
 func (*completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {

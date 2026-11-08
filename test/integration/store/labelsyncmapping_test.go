@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/events"
 	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -1393,28 +1394,15 @@ func (e *scriptedEvaluator) callsSnapshot() []string {
 }
 
 type recordingEvents struct {
-	mu     sync.Mutex
-	events []*domain.Event
+	events.Service
+	mu       sync.Mutex
+	recorded []*domain.Event
 }
 
 func (e *recordingEvents) CreateEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.events = append(e.events, event)
-}
-
-func (e *recordingEvents) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	e.CreateEvent(ctx, orgId, event)
-	return nil
-}
-
-func (e *recordingEvents) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	e.CreateEvent(ctx, orgId, event)
-	return nil
-}
-
-func (*recordingEvents) PublishEventWithRetry(context.Context, uuid.UUID, *domain.Event) error {
-	return nil
+	e.recorded = append(e.recorded, event)
 }
 
 func (*recordingEvents) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
@@ -1423,7 +1411,7 @@ func (*recordingEvents) HandleGenericResourceDeletedEvents(context.Context, doma
 func (e *recordingEvents) snapshot() []*domain.Event {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append([]*domain.Event(nil), e.events...)
+	return append([]*domain.Event(nil), e.recorded...)
 }
 
 func mappingID(ctx context.Context, db *gorm.DB, orgID uuid.UUID, name string) uuid.UUID {

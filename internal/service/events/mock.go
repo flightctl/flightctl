@@ -53,34 +53,6 @@ func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, orgId, event)
 }
 
-// CreateEventRecord mocks base method.
-func (m *MockService) CreateEventRecord(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateEventRecord", ctx, orgId, event)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateEventRecord indicates an expected call of CreateEventRecord.
-func (mr *MockServiceMockRecorder) CreateEventRecord(ctx, orgId, event any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventRecord", reflect.TypeOf((*MockService)(nil).CreateEventRecord), ctx, orgId, event)
-}
-
-// CreateEventWithRetry mocks base method.
-func (m *MockService) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateEventWithRetry", ctx, orgId, event)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateEventWithRetry indicates an expected call of CreateEventWithRetry.
-func (mr *MockServiceMockRecorder) CreateEventWithRetry(ctx, orgId, event any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventWithRetry", reflect.TypeOf((*MockService)(nil).CreateEventWithRetry), ctx, orgId, event)
-}
-
 // HandleGenericResourceDeletedEvents mocks base method.
 func (m *MockService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource any, created bool, err error) {
 	m.ctrl.T.Helper()
@@ -93,16 +65,16 @@ func (mr *MockServiceMockRecorder) HandleGenericResourceDeletedEvents(ctx, resou
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleGenericResourceDeletedEvents", reflect.TypeOf((*MockService)(nil).HandleGenericResourceDeletedEvents), ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
-// PublishEventWithRetry mocks base method.
-func (m *MockService) PublishEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+// PersistEvent mocks base method.
+func (m *MockService) PersistEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishEventWithRetry", ctx, orgId, event)
+	ret := m.ctrl.Call(m, "PersistEvent", ctx, orgId, event)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// PublishEventWithRetry indicates an expected call of PublishEventWithRetry.
-func (mr *MockServiceMockRecorder) PublishEventWithRetry(ctx, orgId, event any) *gomock.Call {
+// PersistEvent indicates an expected call of PersistEvent.
+func (mr *MockServiceMockRecorder) PersistEvent(ctx, orgId, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishEventWithRetry", reflect.TypeOf((*MockService)(nil).PublishEventWithRetry), ctx, orgId, event)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PersistEvent", reflect.TypeOf((*MockService)(nil).PersistEvent), ctx, orgId, event)
 }

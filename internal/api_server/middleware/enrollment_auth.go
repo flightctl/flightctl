@@ -240,7 +240,7 @@ func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context
 }
 
 func enrollmentCSRStatusAllows(status domain.CertificateSigningRequestStatus) bool {
-	if status.Revocation != nil {
+	if status.HasRevocation() {
 		return false
 	}
 	return domain.IsStatusConditionTrue(status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)

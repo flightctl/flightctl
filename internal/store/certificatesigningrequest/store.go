@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -28,7 +29,8 @@ type Store interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
-	Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error)
+	CreateRevocationWork(ctx context.Context, orgId uuid.UUID, name string, csrCreatedAt time.Time) error
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -67,6 +69,23 @@ func (m *CertificateSigningRequestMutation) RequireExisting() error {
 	if m.CertificateSigningRequest == nil {
 		return flterrors.ErrResourceNotFound
 	}
+	return nil
+}
+
+// ApplyRevocation sets the immutable enrollment credential revocation exactly
+// once. A repeated apply is a no-op so the first committed revocation wins.
+func (m *CertificateSigningRequestMutation) ApplyRevocation(revocation domain.EnrollmentCertificateRevocation) error {
+	if err := m.RequireExisting(); err != nil {
+		return err
+	}
+	current := m.Resource()
+	if current.Status == nil {
+		current.Status = &domain.CertificateSigningRequestStatus{}
+	}
+	if current.Status.HasRevocation() {
+		return store.ErrMutateSkipWrite
+	}
+	current.Status.Revocation = &revocation
 	return nil
 }
 
@@ -117,6 +136,9 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 	db := s.getDB(ctx)
 
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(&model.EnrollmentRevocationWork{}); err != nil {
 		return err
 	}
 	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest") {
@@ -307,32 +329,63 @@ func sameRetainedCertificate(a, b *[]byte) bool {
 	return bytes.Equal(*a, *b)
 }
 
-func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+// Revoke records the first revocation for a CSR and reports whether this call
+// changed it. A CSR that already has a revocation returns changed=false,
+// regardless of the requested reason.
+// A same-named replacement is detected by comparing the immutable creation
+// timestamp and is reported as a conflict instead of being treated as the
+// original CSR.
+func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error) {
+	if previous != nil && previous.Status != nil && previous.Status.HasRevocation() {
+		current, err := s.Get(ctx, orgId, name)
+		if err != nil {
+			return nil, false, err
+		}
+		if !sameCSRIdentity(previous, current) {
+			return nil, false, flterrors.ErrNoRowsUpdated
+		}
+		return current, false, nil
+	}
 	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(mutation *CertificateSigningRequestMutation) error {
-		if err := mutation.RequireExisting(); err != nil {
-			return err
-		}
-		current := mutation.Resource()
-		if current.Status == nil {
-			current.Status = &domain.CertificateSigningRequestStatus{}
-		}
-		if current.Status.Revocation != nil {
-			return store.ErrMutateSkipWrite
-		}
-		current.Status.Revocation = &revocation
-		return nil
+		return mutation.ApplyRevocation(revocation)
 	})
 	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
-		if current, getErr := s.Get(ctx, orgId, name); getErr == nil &&
-			previous != nil &&
-			previous.Metadata.CreationTimestamp != nil &&
-			current.Metadata.CreationTimestamp != nil &&
-			current.Metadata.CreationTimestamp.Equal(*previous.Metadata.CreationTimestamp) &&
-			current.Status != nil && current.Status.Revocation != nil {
-			return current, current, false, nil
+		// Mutate cannot return the row when its compare-and-swap misses, so
+		// reload to distinguish an idempotent replay from a recreated CSR.
+		current, getErr := s.Get(ctx, orgId, name)
+		switch {
+		case getErr == nil:
+			if sameCSRIdentity(previous, current) && current.Status != nil && current.Status.HasRevocation() {
+				return current, false, nil
+			}
+		case errors.Is(getErr, flterrors.ErrResourceNotFound):
+			// The row was deleted concurrently; report the CAS conflict below.
+		default:
+			return nil, false, getErr
 		}
 	}
-	changed := err == nil && updated != nil && updated.Status != nil && updated.Status.Revocation != nil &&
-		(before == nil || before.Status == nil || before.Status.Revocation == nil)
-	return updated, before, changed, err
+	return updated, RevocationApplied(updated, before, err), err
+}
+
+func sameCSRIdentity(a, b *domain.CertificateSigningRequest) bool {
+	return a != nil && b != nil &&
+		a.Metadata.CreationTimestamp != nil && b.Metadata.CreationTimestamp != nil &&
+		a.Metadata.CreationTimestamp.Equal(*b.Metadata.CreationTimestamp)
+}
+
+// RevocationApplied reports whether a Revoke call introduced the revocation.
+func RevocationApplied(updated, before *domain.CertificateSigningRequest, err error) bool {
+	if err != nil || updated == nil || updated.Status == nil || updated.Status.Revocation == nil {
+		return false
+	}
+	return before == nil || before.Status == nil || !before.Status.HasRevocation()
+}
+
+// CreateRevocationWork records the durable consequence-work outbox row for a
+// committed revocation. Callers must run it in the same transaction as Revoke.
+// The (org_id, csr_name, csr_created_at) primary key makes repeated inserts for
+// the same CSR idempotent while a same-named replacement gets its own row.
+func (s *CertificateSigningRequestStore) CreateRevocationWork(ctx context.Context, orgId uuid.UUID, name string, csrCreatedAt time.Time) error {
+	work := model.EnrollmentRevocationWork{OrgID: orgId, CSRName: name, CSRCreatedAt: csrCreatedAt}
+	return s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&work).Error
 }
