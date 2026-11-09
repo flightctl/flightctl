@@ -71,7 +71,7 @@ type Store interface {
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc, opts ...MutateOption) (updated *domain.Device, before *domain.Device, created bool, err error)
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...UpdateStatusOption) (updated *domain.Device, before *domain.Device, err error)
 	// ReplaceServiceOwnedStatus updates service-owned status fields without
 	// replacing the device's desired state or agent-owned status.
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
@@ -295,6 +295,16 @@ func WithManagedLabelMapReplacement(explicitRemovalPaths []string) MutateOption 
 			c.explicitLabelRemovalPaths[path] = struct{}{}
 		}
 	}
+}
+
+// StatusMergeOf returns the merge that opts configure for UpdateStatus, or
+// nil (for tests/fakes).
+func StatusMergeOf(opts ...UpdateStatusOption) StatusMergeFunc {
+	cfg := &updateStatusConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.merge
 }
 
 // HasWithTimestamp reports whether opts include WithTimestamp (for tests/fakes).
@@ -791,24 +801,51 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 	})
 }
 
+// UpdateStatusOption configures UpdateStatus.
+type UpdateStatusOption func(*updateStatusConfig)
+
+type updateStatusConfig struct {
+	merge StatusMergeFunc
+}
+
+// StatusMergeFunc returns the status to write given the device as currently
+// stored. It must not modify current.
+type StatusMergeFunc func(current *domain.Device) (*domain.DeviceStatus, error)
+
+// WithStatusMerge makes UpdateStatus write the status that merge derives from
+// the device loaded for each attempt, instead of the given device's status.
+// merge runs again after a concurrent write forces a retry, so its decision is
+// always based on the freshly stored device. An error from merge ends
+// UpdateStatus without writing anything.
+func WithStatusMerge(merge StatusMergeFunc) UpdateStatusOption {
+	return func(cfg *updateStatusConfig) { cfg.merge = merge }
+}
+
 // UpdateStatus writes only status + resource_version so service_conditions
 // (SpecValid, DependencySync, delta estimates, …) are left intact. previous is
 // optional (first attempt).
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	if device == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
-	name := lo.FromPtr(device.Metadata.Name)
-	// device doesn't change across retries, so convert it once instead of on every attempt.
-	fromAPI, err := model.NewDeviceFromApiResource(device)
-	if err != nil {
-		return nil, nil, err
+	cfg := updateStatusConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
-	fromAPI.OrgID = orgId
+	name := lo.FromPtr(device.Metadata.Name)
+	// Without a merge, device doesn't change across retries, so convert it once instead of on every attempt.
+	var fromAPI *model.Device
+	if cfg.merge == nil {
+		var err error
+		if fromAPI, err = model.NewDeviceFromApiResource(device); err != nil {
+			return nil, nil, err
+		}
+		fromAPI.OrgID = orgId
+	}
 
 	var before, updated *domain.Device
 	attempt := 0
-	err = store.RetryUpdate(func() (bool, error) {
+	err := store.RetryUpdate(func() (bool, error) {
 		var current *domain.Device
 		if attempt == 0 && previous != nil && lo.FromPtr(previous.Metadata.Name) == name {
 			current = previous
@@ -829,6 +866,24 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if rvErr != nil {
 			return false, flterrors.ErrIllegalResourceVersionFormat
 		}
+		toWrite := fromAPI
+		if cfg.merge != nil {
+			status, mergeErr := cfg.merge(current)
+			if mergeErr != nil {
+				return false, mergeErr
+			}
+			merged := *device
+			merged.Status = status
+			converted, convertErr := model.NewDeviceFromApiResource(&merged)
+			if convertErr != nil {
+				return false, convertErr
+			}
+			converted.OrgID = orgId
+			toWrite = converted
+			// Lets integration tests commit a concurrent write between the merge
+			// decision and the conditional update.
+			s.genericStore.IntegrationTestCreateOrUpdateCallback()
+		}
 		// Return the stored service conditions with the CAS update so the API
 		// response can merge estimates with the new agent status without a read.
 		var returned model.Device
@@ -836,7 +891,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 			Where("org_id = ? AND name = ? AND resource_version = ?", orgId, name, rv).
 			Clauses(clause.Returning{Columns: []clause.Column{{Name: "service_conditions"}}}).
 			Updates(map[string]interface{}{
-				"status":           fromAPI.Status,
+				"status":           toWrite.Status,
 				"resource_version": gorm.Expr("resource_version + 1"),
 			})
 		if result.Error != nil {
@@ -847,7 +902,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 			return true, flterrors.ErrNoRowsUpdated
 		}
 		statusModel := &model.Device{
-			Status:            fromAPI.Status,
+			Status:            toWrite.Status,
 			ServiceConditions: returned.ServiceConditions,
 		}
 		mergedStatusResource, err := statusModel.ToApiResource()

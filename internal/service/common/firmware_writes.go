@@ -18,7 +18,10 @@ const (
 	FleetFirmwarePatchPath  = "/spec/template/spec/firmware"
 )
 
-const firmwareSpecSchemaName = "FirmwareSpec"
+const (
+	firmwareSpecSchemaName   = "FirmwareSpec"
+	firmwareStatusSchemaName = "FirmwareStatus"
+)
 
 // PreserveOmittedFirmware returns the device spec to store when a write
 // replaces spec: a spec that omits firmware keeps the stored firmware, because
@@ -72,16 +75,21 @@ func ValidatePatchedFirmware[T any](current T, patch domain.PatchRequest, path s
 	if !found || firmware == nil {
 		return nil
 	}
+	return validateRawFirmware(firmware, path, firmwareSpecSchemaName)
+}
 
+// validateRawFirmware checks a decoded raw JSON value at path against the
+// named API schema.
+func validateRawFirmware(value any, path, schemaName string) error {
 	swagger, err := domain.GetSwagger()
 	if err != nil {
 		return fmt.Errorf("failed to load the API schema: %w", err)
 	}
-	schema := swagger.Components.Schemas[firmwareSpecSchemaName]
+	schema := swagger.Components.Schemas[schemaName]
 	if schema == nil || schema.Value == nil {
-		return fmt.Errorf("the API schema has no %s definition", firmwareSpecSchemaName)
+		return fmt.Errorf("the API schema has no %s definition", schemaName)
 	}
-	if err := schema.Value.VisitJSON(firmware, openapi3.MultiErrors(), openapi3.VisitAsRequest()); err != nil {
+	if err := schema.Value.VisitJSON(value, openapi3.MultiErrors(), openapi3.VisitAsRequest()); err != nil {
 		return fmt.Errorf("patch produced an invalid resource: %s", firmwareSchemaErrors(path, err))
 	}
 	return nil
