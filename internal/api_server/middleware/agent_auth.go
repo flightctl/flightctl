@@ -139,12 +139,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		}
 
 		// Create agent identity with the extracted information
-		identity := &AgentIdentity{
-			deviceFingerprint: fingerprint,
-			orgID:             orgID.String(),
-			commonName:        peerCertificate.Subject.CommonName,
-			expirationDate:    peerCertificate.NotAfter,
-		}
+		identity := NewAgentIdentity(fingerprint, orgID.String(), peerCertificate.Subject.CommonName, peerCertificate.NotAfter)
 
 		// Cache the identity if we have a valid cache key
 		if cacheKey != "" {
@@ -195,6 +190,17 @@ type AgentIdentity struct {
 	orgID             string
 	commonName        string
 	expirationDate    time.Time
+}
+
+// NewAgentIdentity returns the identity of a device agent authenticated by a
+// certificate with the given common name and expiration date.
+func NewAgentIdentity(deviceFingerprint, orgID, commonName string, expirationDate time.Time) *AgentIdentity {
+	return &AgentIdentity{
+		deviceFingerprint: deviceFingerprint,
+		orgID:             orgID,
+		commonName:        commonName,
+		expirationDate:    expirationDate,
+	}
 }
 
 // GetUsername returns the device fingerprint as the username
