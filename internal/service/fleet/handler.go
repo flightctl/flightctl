@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -27,18 +28,37 @@ type ServiceHandler struct {
 	events            events.Service
 	log               logrus.FieldLogger
 	callEventCallback store.EventCallbackCaller
+	descriptors       common.ApprovedDescriptorProvider
+}
+
+// HandlerOption configures optional dependencies of a fleet ServiceHandler.
+type HandlerOption func(*ServiceHandler)
+
+// WithApprovedDescriptorProvider sets the source of approved firmware updater
+// releases. Without it, every lookup reports the releases as unavailable.
+func WithApprovedDescriptorProvider(provider common.ApprovedDescriptorProvider) HandlerOption {
+	return func(h *ServiceHandler) {
+		if provider != nil {
+			h.descriptors = provider
+		}
+	}
 }
 
 // NewServiceHandler creates a new fleet ServiceHandler instance.
 // catalogStore is optional — when nil, catalog item ref validation is skipped.
-func NewServiceHandler(fleetStore fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{
+func NewServiceHandler(fleetStore fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger, opts ...HandlerOption) *ServiceHandler {
+	h := &ServiceHandler{
 		store:             fleetStore,
 		catalogStore:      catalogStore,
 		events:            events,
 		log:               log,
 		callEventCallback: store.CallEventCallback(domain.FleetKind, log),
+		descriptors:       common.UnavailableDescriptorProvider{},
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -340,9 +360,29 @@ func (h *ServiceHandler) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid
 	return accepted, domain.StatusOK()
 }
 
-func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	err := h.store.OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+// ReplaceFleetRepositoryRefsIfCurrent replaces the repository references of a
+// fleet with the complete set computed from its device template: the
+// template's configuration repositories plus the literal artifact and
+// signature repositories of its firmware. The set is computed before the store
+// transaction opens; it is written only while the fleet still has the given
+// generation. When the firmware references cannot be known, nothing is
+// written.
+func (h *ServiceHandler) ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, templateSpec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
+	names, complete, err := common.CollectRepositoryDependencies(ctx, h.descriptors, templateSpec, common.FirmwareFleetTemplate)
+	if err != nil {
+		return 0, domain.StatusInternalServerError(fmt.Sprintf("computing repository references of fleet %q: %v", name, err))
+	}
+	if !complete {
+		return common.RepositoryRefsIncomplete, domain.StatusOK()
+	}
+	applied, err := h.store.ReplaceRepositoryRefsIfCurrent(ctx, orgId, name, generation, names...)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+	}
+	if !applied {
+		return common.RepositoryRefsStale, domain.StatusOK()
+	}
+	return common.RepositoryRefsReplaced, domain.StatusOK()
 }
 
 func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {

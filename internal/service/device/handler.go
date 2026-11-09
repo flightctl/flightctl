@@ -43,6 +43,20 @@ type DeviceServiceHandler struct {
 	agentEndpoint     string
 	log               logrus.FieldLogger
 	callEventCallback store.EventCallbackCaller
+	descriptors       common.ApprovedDescriptorProvider
+}
+
+// HandlerOption configures optional dependencies of a DeviceServiceHandler.
+type HandlerOption func(*DeviceServiceHandler)
+
+// WithApprovedDescriptorProvider sets the source of approved firmware updater
+// releases. Without it, every lookup reports the releases as unavailable.
+func WithApprovedDescriptorProvider(provider common.ApprovedDescriptorProvider) HandlerOption {
+	return func(h *DeviceServiceHandler) {
+		if provider != nil {
+			h.descriptors = provider
+		}
+	}
 }
 
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
@@ -55,8 +69,9 @@ func NewDeviceServiceHandler(
 	kvStore kvstore.KVStore,
 	agentEndpoint string,
 	log logrus.FieldLogger,
+	opts ...HandlerOption,
 ) Service {
-	return &DeviceServiceHandler{
+	h := &DeviceServiceHandler{
 		deviceStore:       deviceStore,
 		catalogStore:      catalogStore,
 		fleetStore:        fleetStore,
@@ -66,7 +81,12 @@ func NewDeviceServiceHandler(
 		agentEndpoint:     agentEndpoint,
 		log:               log,
 		callEventCallback: store.CallEventCallback(domain.DeviceKind, log),
+		descriptors:       common.UnavailableDescriptorProvider{},
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 var _ Service = (*DeviceServiceHandler)(nil)
@@ -1153,9 +1173,28 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 	}
 }
 
-func (h *DeviceServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	err := h.deviceStore.OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+// ReplaceDeviceRepositoryRefsIfCurrent replaces the repository references of
+// a standalone device with the complete set computed from spec: its
+// configuration repositories plus the artifact and signature repositories of
+// its firmware. The set is computed before the store transaction opens; it is
+// written only while the device still has the given generation and no owner.
+// When the firmware references cannot be known, nothing is written.
+func (h *DeviceServiceHandler) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
+	names, complete, err := common.CollectRepositoryDependencies(ctx, h.descriptors, spec, common.FirmwareStandalone)
+	if err != nil {
+		return 0, domain.StatusInternalServerError(fmt.Sprintf("computing repository references of device %q: %v", name, err))
+	}
+	if !complete {
+		return common.RepositoryRefsIncomplete, domain.StatusOK()
+	}
+	applied, err := h.deviceStore.ReplaceRepositoryRefsIfCurrent(ctx, orgId, name, generation, names...)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	if !applied {
+		return common.RepositoryRefsStale, domain.StatusOK()
+	}
+	return common.RepositoryRefsReplaced, domain.StatusOK()
 }
 
 func (h *DeviceServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {

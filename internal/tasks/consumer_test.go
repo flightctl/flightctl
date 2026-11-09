@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
@@ -716,7 +717,7 @@ func TestDispatchTasks_FleetValidationAcknowledgesInvalidConfigAndRetriesOperati
 			mockRepositorySvc := repositoryservice.NewMockService(ctrl)
 			mockEventSvc := eventservice.NewMockService(ctrl)
 			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.StatusOK())
-			mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
+			mockFleetSvc.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, domain.StatusOK())
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
 			if tt.lookupRepository {
 				mockRepositorySvc.EXPECT().GetRepository(gomock.Any(), orgID, "repo-1").Return(nil, tt.repositoryStatus)

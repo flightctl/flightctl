@@ -83,6 +83,7 @@ type Store interface {
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
+	ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error)
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 
 	// Used by catalog
@@ -668,17 +669,55 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 }
 
 func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
-	repos := []model.Repository{}
+	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
+		return replaceFleetRepositoryRefs(innerTx, orgId, name, repositoryNames)
+	})
+}
+
+// ReplaceRepositoryRefsIfCurrent replaces the repository references of a
+// fleet with exactly the given names, but only while the fleet still has the
+// given generation. It locks the fleet row and checks the generation in the
+// same transaction as the replacement, joining a transaction already carried
+// by ctx, so a writer that read an older version of the fleet leaves the
+// references untouched and gets applied=false.
+func (s *FleetStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	applied := false
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		var current struct {
+			Generation *int64
+		}
+		result := tx.Raw(`SELECT generation FROM fleets WHERE org_id = ? AND name = ? AND deleted_at IS NULL FOR UPDATE`, orgId, name).Scan(&current)
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return flterrors.ErrResourceNotFound
+		}
+		if lo.FromPtr(current.Generation) != generation {
+			return nil
+		}
+		if err := replaceFleetRepositoryRefs(tx, orgId, name, repositoryNames); err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// replaceFleetRepositoryRefs makes db's fleet_repos rows for the fleet match
+// exactly repositoryNames. Names without a Repository yet get a placeholder
+// repository row, as references always have.
+func replaceFleetRepositoryRefs(db *gorm.DB, orgId uuid.UUID, name string, repositoryNames []string) error {
+	repos := make([]model.Repository, 0, len(repositoryNames))
 	for _, repoName := range repositoryNames {
 		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
 	}
-	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
-		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-		if err := innerTx.Model(&fleet).Association("Repositories").Replace(repos); err != nil {
-			return store.ErrorFromGormError(err)
-		}
-		return nil
-	})
+	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+	if err := db.Model(&fleet).Association("Repositories").Replace(repos); err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	return nil
 }
 
 func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
