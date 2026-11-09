@@ -77,13 +77,13 @@ func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UU
 	if err := h.PersistEvent(ctx, orgId, event); err != nil {
 		return err
 	}
-	return h.publishEvent(ctx, orgId, event)
+	return h.PublishEvent(ctx, orgId, event)
 }
 
-// publishEvent publishes an already persisted event to the worker queue,
+// PublishEvent publishes an already persisted event to the worker queue,
 // retrying transient failures when the concrete worker client exposes
 // publication errors.
-func (h *ServiceHandler) publishEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+func (h *ServiceHandler) PublishEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
 		return nil
 	}

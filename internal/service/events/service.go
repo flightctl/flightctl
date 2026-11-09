@@ -17,5 +17,6 @@ import (
 type Service interface {
 	CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event)
 	PersistEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
+	PublishEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
 	HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 }

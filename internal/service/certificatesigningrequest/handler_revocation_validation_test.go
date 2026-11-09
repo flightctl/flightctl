@@ -21,7 +21,6 @@ type revocationValidationCase struct {
 	wantStatus   int32
 	wantMessage  string
 	wantRevoked  bool
-	wantWork     int
 	check        func(t *testing.T, persisted *domain.CertificateSigningRequest)
 }
 
@@ -61,7 +60,6 @@ func TestRevokeCertificateSigningRequestValidation(t *testing.T) {
 			withIdentity: true,
 			wantStatus:   statusSuccessCode,
 			wantRevoked:  true,
-			wantWork:     1,
 		},
 		{
 			name:         "When the target is a service-client CSR it should reject it without mutation",
@@ -158,7 +156,7 @@ func TestRevokeCertificateSigningRequestValidation(t *testing.T) {
 				require.Equal(t, tc.wantMessage, status.Message)
 			}
 
-			persisted := assertRevocationPersisted(t, h, store, ctx, orgId, name, tc.wantWork)
+			persisted := assertRevocationPersisted(t, h, ctx, orgId, name)
 			switch {
 			case tc.check != nil:
 				tc.check(t, persisted)

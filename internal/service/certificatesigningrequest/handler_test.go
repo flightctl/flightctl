@@ -44,9 +44,8 @@ const (
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
-	items              map[string]*domain.CertificateSigningRequest
-	revocationWorkCSRs []string
-	revokeErr          error
+	items     map[string]*domain.CertificateSigningRequest
+	revokeErr error
 }
 
 var _ csrstore.Store = (*fakeCertificateSigningRequestStore)(nil)
@@ -178,10 +177,8 @@ func (f *fakeCertificateSigningRequestStore) WithTransaction(ctx context.Context
 		}
 		snapshot[name] = clone
 	}
-	workSnapshot := append([]string(nil), f.revocationWorkCSRs...)
 	if err := fn(ctx); err != nil {
 		f.items = snapshot
-		f.revocationWorkCSRs = workSnapshot
 		return err
 	}
 	return nil
@@ -195,11 +192,6 @@ func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId u
 		return mutation.ApplyRevocation(revocation)
 	})
 	return updated, csrstore.RevocationApplied(updated, before, err), err
-}
-
-func (f *fakeCertificateSigningRequestStore) CreateRevocationWork(ctx context.Context, orgId uuid.UUID, name string, csrCreatedAt time.Time) error {
-	f.revocationWorkCSRs = append(f.revocationWorkCSRs, name)
-	return nil
 }
 
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM

@@ -164,25 +164,7 @@ var _ = Describe("CSR revocation mutations", func() {
 		Expect(current.Status.Revocation).To(Equal(&revocation))
 	})
 
-	It("When recording revocation work it should key rows by CSR creation timestamp", func() {
-		suite := newCertificatePersistenceSuite()
-		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
-		defer cancel()
-		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
-		createdAt := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
-
-		Expect(provider.CreateRevocationWork(ctx, suite.OrgID, "reused-name", createdAt)).To(Succeed())
-		Expect(provider.CreateRevocationWork(ctx, suite.OrgID, "reused-name", createdAt)).To(Succeed())
-		Expect(provider.CreateRevocationWork(ctx, suite.OrgID, "reused-name", createdAt.Add(time.Minute))).To(Succeed())
-
-		var work []model.EnrollmentRevocationWork
-		Expect(suite.DB.Where("org_id = ? AND csr_name = ?", suite.OrgID, "reused-name").Order("csr_created_at").Find(&work).Error).To(Succeed())
-		Expect(work).To(HaveLen(2))
-		Expect(work[0].CSRCreatedAt.UTC()).To(Equal(createdAt))
-		Expect(work[1].CSRCreatedAt.UTC()).To(Equal(createdAt.Add(time.Minute)))
-	})
-
-	It("When a revocation transaction rolls back it should leave no revocation, outbox row, or event", func() {
+	It("When a revocation transaction rolls back it should leave no revocation or event", func() {
 		suite := newCertificatePersistenceSuite()
 		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
 		defer cancel()
@@ -194,12 +176,9 @@ var _ = Describe("CSR revocation mutations", func() {
 		revocation := domain.EnrollmentCertificateRevocation{Reason: "Credential compromised", RevokedBy: "security-officer", RevokedAt: time.Now().UTC()}
 
 		err = provider.WithTransaction(ctx, func(txCtx context.Context) error {
-			revoked, _, revokeErr := provider.Revoke(txCtx, suite.OrgID, *created.Metadata.Name, created, revocation)
+			_, _, revokeErr := provider.Revoke(txCtx, suite.OrgID, *created.Metadata.Name, created, revocation)
 			if revokeErr != nil {
 				return revokeErr
-			}
-			if workErr := provider.CreateRevocationWork(txCtx, suite.OrgID, *created.Metadata.Name, *revoked.Metadata.CreationTimestamp); workErr != nil {
-				return workErr
 			}
 			if eventErr := events.Create(txCtx, suite.OrgID, domain.GetBaseEvent(txCtx, domain.CertificateSigningRequestKind, *created.Metadata.Name, domain.EventReasonEnrollmentCredentialRevoked, "Enrollment credential revoked.", nil)); eventErr != nil {
 				return eventErr
@@ -211,9 +190,6 @@ var _ = Describe("CSR revocation mutations", func() {
 		current, err := provider.Get(ctx, suite.OrgID, *created.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(current.Status.Revocation).To(BeNil())
-		var work []model.EnrollmentRevocationWork
-		Expect(suite.DB.Where("org_id = ? AND csr_name = ?", suite.OrgID, *created.Metadata.Name).Find(&work).Error).To(Succeed())
-		Expect(work).To(BeEmpty())
 		eventList, err := events.List(ctx, suite.OrgID, store.ListParams{})
 		Expect(err).NotTo(HaveOccurred())
 		for _, event := range eventList.Items {

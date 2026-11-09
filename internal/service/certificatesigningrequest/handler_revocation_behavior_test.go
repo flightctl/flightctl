@@ -24,7 +24,6 @@ type revocationBehaviorCase struct {
 	wantStatus     int32
 	wantRevoked    bool
 	wantReason     string
-	wantWork       int
 	wantEvents     int
 	assertOriginal bool
 }
@@ -38,7 +37,6 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			wantStatus:     statusSuccessCode,
 			wantRevoked:    true,
 			wantReason:     "Commissioning credential compromised",
-			wantWork:       1,
 			wantEvents:     1,
 			assertOriginal: true,
 		},
@@ -50,7 +48,6 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			wantStatus:  statusSuccessCode,
 			wantRevoked: true,
 			wantReason:  "Credential compromised",
-			wantWork:    1,
 			wantEvents:  1,
 		},
 		{
@@ -61,7 +58,6 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			wantStatus:     statusSuccessCode,
 			wantRevoked:    true,
 			wantReason:     "Legacy credential compromised",
-			wantWork:       1,
 			wantEvents:     1,
 			assertOriginal: true,
 		},
@@ -112,17 +108,13 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 				require.Nil(t, revoked.Status.Revocation.FlaggingCompletedAt)
 			}
 
-			persisted := assertRevocationPersisted(t, h, store, ctx, orgId, tc.csrName, tc.wantWork)
+			persisted := assertRevocationPersisted(t, h, ctx, orgId, tc.csrName)
 			if tc.wantRevoked {
 				require.NotNil(t, persisted.Status.Revocation)
 				require.Equal(t, tc.wantReason, persisted.Status.Revocation.Reason)
 			} else {
 				require.Nil(t, persisted.Status.Revocation)
 			}
-			if tc.wantWork > 0 {
-				require.Equal(t, []string{tc.csrName}, store.revocationWorkCSRs)
-			}
-
 			revocationEvents := filterRevocationEvents(fakeEvents.events)
 			require.Len(t, revocationEvents, tc.wantEvents)
 			if len(revocationEvents) > 0 {

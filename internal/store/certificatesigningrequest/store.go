@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -30,7 +29,6 @@ type Store interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 	Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error)
-	CreateRevocationWork(ctx context.Context, orgId uuid.UUID, name string, csrCreatedAt time.Time) error
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -136,9 +134,6 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 	db := s.getDB(ctx)
 
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
-		return err
-	}
-	if err := db.AutoMigrate(&model.EnrollmentRevocationWork{}); err != nil {
 		return err
 	}
 	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_org_certificate_digest") {
@@ -379,13 +374,4 @@ func RevocationApplied(updated, before *domain.CertificateSigningRequest, err er
 		return false
 	}
 	return before == nil || before.Status == nil || !before.Status.HasRevocation()
-}
-
-// CreateRevocationWork records the durable consequence-work outbox row for a
-// committed revocation. Callers must run it in the same transaction as Revoke.
-// The (org_id, csr_name, csr_created_at) primary key makes repeated inserts for
-// the same CSR idempotent while a same-named replacement gets its own row.
-func (s *CertificateSigningRequestStore) CreateRevocationWork(ctx context.Context, orgId uuid.UUID, name string, csrCreatedAt time.Time) error {
-	work := model.EnrollmentRevocationWork{OrgID: orgId, CSRName: name, CSRCreatedAt: csrCreatedAt}
-	return s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&work).Error
 }

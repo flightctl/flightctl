@@ -78,3 +78,17 @@ func (mr *MockServiceMockRecorder) PersistEvent(ctx, orgId, event any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PersistEvent", reflect.TypeOf((*MockService)(nil).PersistEvent), ctx, orgId, event)
 }
+
+// PublishEvent mocks base method.
+func (m *MockService) PublishEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishEvent", ctx, orgId, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishEvent indicates an expected call of PublishEvent.
+func (mr *MockServiceMockRecorder) PublishEvent(ctx, orgId, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishEvent", reflect.TypeOf((*MockService)(nil).PublishEvent), ctx, orgId, event)
+}

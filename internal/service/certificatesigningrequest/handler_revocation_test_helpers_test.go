@@ -92,10 +92,9 @@ func filterRevocationEvents(events []*domain.Event) []*domain.Event {
 	return filtered
 }
 
-func assertRevocationPersisted(t *testing.T, h *ServiceHandler, store *fakeCertificateSigningRequestStore, ctx context.Context, orgId uuid.UUID, name string, wantWork int) *domain.CertificateSigningRequest {
+func assertRevocationPersisted(t *testing.T, h *ServiceHandler, ctx context.Context, orgId uuid.UUID, name string) *domain.CertificateSigningRequest {
 	t.Helper()
 	persisted, status := h.GetCertificateSigningRequest(ctx, orgId, name)
 	require.Equal(t, statusSuccessCode, status.Code)
-	require.Len(t, store.revocationWorkCSRs, wantWork)
 	return persisted
 }

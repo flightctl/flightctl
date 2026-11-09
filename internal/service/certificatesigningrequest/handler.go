@@ -541,6 +541,7 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		RevokedAt: nowFunc().UTC(),
 	}
 	var revoked *domain.CertificateSigningRequest
+	var revocationEvent *domain.Event
 	err = h.store.WithTransaction(ctx, func(txCtx context.Context) error {
 		var changed bool
 		var mutateErr error
@@ -551,19 +552,19 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		if !changed {
 			return nil
 		}
-		if revoked == nil || revoked.Metadata.CreationTimestamp == nil {
-			return fmt.Errorf("revoked certificate signing request %q has no creation timestamp", name)
-		}
-		if err := h.store.CreateRevocationWork(txCtx, orgId, name, *revoked.Metadata.CreationTimestamp); err != nil {
-			return err
-		}
 		event := domain.GetBaseEvent(txCtx, domain.CertificateSigningRequestKind, name,
 			domain.EventReasonEnrollmentCredentialRevoked, "Enrollment credential revoked.", nil)
 		event.Actor = "user:" + actor
+		revocationEvent = event
 		return h.events.PersistEvent(txCtx, orgId, event)
 	})
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+	if revocationEvent != nil {
+		if publishErr := h.events.PublishEvent(ctx, orgId, revocationEvent); publishErr != nil {
+			h.log.WithError(publishErr).Errorf("Failed to publish revocation event for certificate signing request %q", name)
+		}
 	}
 
 	return revoked, domain.StatusOK()
