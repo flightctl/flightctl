@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -73,7 +72,7 @@ var _ = Describe("CSR revocation mutations", func() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				updated, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, issued, revocation)
+				updated, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, revocation, nil)
 				results <- revokeResult{updated: updated, changed: changed, err: err}
 			}()
 		}
@@ -99,18 +98,18 @@ var _ = Describe("CSR revocation mutations", func() {
 		current, err := provider.Get(ctx, suite.OrgID, *revoked.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(current.Status.Revocation).To(Equal(&revocation))
-		repeated, changed, err := provider.Revoke(ctx, suite.OrgID, *current.Metadata.Name, current, domain.EnrollmentCertificateRevocation{
+		repeated, changed, err := provider.Revoke(ctx, suite.OrgID, *current.Metadata.Name, domain.EnrollmentCertificateRevocation{
 			Reason:    "Different reason",
 			RevokedBy: "different-actor",
 			RevokedAt: revokedAt.Add(time.Hour),
-		})
+		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 		Expect(repeated.Status.Revocation).To(Equal(&revocation))
 		Expect(repeated.Metadata.ResourceVersion).To(Equal(current.Metadata.ResourceVersion))
 	})
 
-	It("When a CSR is deleted and recreated under the same name it should reject a stale revoke", func() {
+	It("When a CSR is deleted and recreated under the same name it should revoke the current row", func() {
 		suite := newCertificatePersistenceSuite()
 		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
 		defer cancel()
@@ -145,19 +144,11 @@ var _ = Describe("CSR revocation mutations", func() {
 			RevokedBy: "security-officer",
 			RevokedAt: time.Date(2025, 3, 5, 6, 7, 8, 0, time.UTC),
 		}
-		_, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, replacementIssued, revocation)
+		revoked, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, revocation, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
-
-		updated, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, issued, domain.EnrollmentCertificateRevocation{
-			Reason:    "Stale revocation",
-			RevokedBy: "security-officer",
-			RevokedAt: time.Date(2025, 3, 6, 7, 8, 9, 0, time.UTC),
-		})
-		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, flterrors.ErrNoRowsUpdated)).To(BeTrue())
-		Expect(changed).To(BeFalse())
-		Expect(updated).To(BeNil())
+		Expect(revoked.Metadata.CreationTimestamp).To(Equal(&recreatedAt))
+		Expect(revoked.Status.Certificate).To(Equal(replacementIssued.Status.Certificate))
 
 		current, err := provider.Get(ctx, suite.OrgID, *issued.Metadata.Name)
 		Expect(err).NotTo(HaveOccurred())
@@ -176,7 +167,7 @@ var _ = Describe("CSR revocation mutations", func() {
 		revocation := domain.EnrollmentCertificateRevocation{Reason: "Credential compromised", RevokedBy: "security-officer", RevokedAt: time.Now().UTC()}
 
 		err = provider.WithTransaction(ctx, func(txCtx context.Context) error {
-			_, _, revokeErr := provider.Revoke(txCtx, suite.OrgID, *created.Metadata.Name, created, revocation)
+			_, _, revokeErr := provider.Revoke(txCtx, suite.OrgID, *created.Metadata.Name, revocation, nil)
 			if revokeErr != nil {
 				return revokeErr
 			}
@@ -219,11 +210,11 @@ var _ = Describe("CSR revocation mutations", func() {
 		Expect(stored.CertificateDigest).NotTo(BeNil())
 		digest := *stored.CertificateDigest
 
-		revoked, changed, err := provider.Revoke(ctx, suite.OrgID, *legacy.Metadata.Name, legacy, domain.EnrollmentCertificateRevocation{
+		revoked, changed, err := provider.Revoke(ctx, suite.OrgID, *legacy.Metadata.Name, domain.EnrollmentCertificateRevocation{
 			Reason:    "Credential compromised",
 			RevokedBy: "security-officer",
 			RevokedAt: time.Now().UTC(),
-		})
+		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 		Expect(revoked.Status.Certificate).To(Equal(issued.Status.Certificate))

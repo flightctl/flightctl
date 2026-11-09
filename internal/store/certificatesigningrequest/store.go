@@ -28,7 +28,7 @@ type Store interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
-	Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error)
+	Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -324,33 +324,31 @@ func sameRetainedCertificate(a, b *[]byte) bool {
 	return bytes.Equal(*a, *b)
 }
 
-// Revoke records the first revocation for a CSR and reports whether this call
-// changed it. A CSR that already has a revocation returns changed=false,
-// regardless of the requested reason.
-// A same-named replacement is detected by comparing the immutable creation
-// timestamp and is reported as a conflict instead of being treated as the
-// original CSR.
-func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error) {
-	if previous != nil && previous.Status != nil && previous.Status.HasRevocation() {
-		current, err := s.Get(ctx, orgId, name)
-		if err != nil {
-			return nil, false, err
+// Revoke records the first revocation for the current CSR with the given name.
+// Mutate loads the row inside the caller's transaction, runs validate before
+// applying the revocation, and uses that row for the compare-and-swap. A CSR
+// that already has a revocation returns changed=false, regardless of the
+// requested reason.
+func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error) {
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
 		}
-		if !sameCSRIdentity(previous, current) {
-			return nil, false, flterrors.ErrNoRowsUpdated
+		if validate != nil {
+			if err := validate(mutation.Resource()); err != nil {
+				return err
+			}
 		}
-		return current, false, nil
-	}
-	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(mutation *CertificateSigningRequestMutation) error {
 		return mutation.ApplyRevocation(revocation)
 	})
 	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 		// Mutate cannot return the row when its compare-and-swap misses, so
-		// reload to distinguish an idempotent replay from a recreated CSR.
+		// reload to return the current row when a concurrent caller already
+		// revoked it.
 		current, getErr := s.Get(ctx, orgId, name)
 		switch {
 		case getErr == nil:
-			if sameCSRIdentity(previous, current) && current.Status != nil && current.Status.HasRevocation() {
+			if current.Status != nil && current.Status.HasRevocation() {
 				return current, false, nil
 			}
 		case errors.Is(getErr, flterrors.ErrResourceNotFound):
@@ -360,12 +358,6 @@ func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.
 		}
 	}
 	return updated, RevocationApplied(updated, before, err), err
-}
-
-func sameCSRIdentity(a, b *domain.CertificateSigningRequest) bool {
-	return a != nil && b != nil &&
-		a.Metadata.CreationTimestamp != nil && b.Metadata.CreationTimestamp != nil &&
-		a.Metadata.CreationTimestamp.Equal(*b.Metadata.CreationTimestamp)
 }
 
 // RevocationApplied reports whether a Revoke call introduced the revocation.

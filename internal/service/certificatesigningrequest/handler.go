@@ -29,6 +29,11 @@ import (
 // nowFunc allows overriding for unit tests
 var nowFunc = time.Now
 
+var (
+	errRevocationTargetNotEnrollment = errors.New("only enrollment credentials may be revoked")
+	errRevocationTargetNotIssued     = errors.New("only issued enrollment credentials may be revoked")
+)
+
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
 	tpmVerifier   *tpmcsr.Verifier
@@ -524,17 +529,6 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		return nil, domain.StatusForbidden("an authenticated identity with a username is required to revoke an enrollment credential")
 	}
 
-	current, err := h.store.Get(ctx, orgId, name)
-	if err != nil {
-		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
-	}
-	if !h.isProtectedEnrollmentCredential(current) {
-		return nil, domain.StatusBadRequest("only enrollment credentials may be revoked")
-	}
-	if current.Status == nil || current.Status.Certificate == nil || len(*current.Status.Certificate) == 0 {
-		return nil, domain.StatusConflict("only issued enrollment credentials may be revoked")
-	}
-
 	revocation := domain.EnrollmentCertificateRevocation{
 		Reason:    reason,
 		RevokedBy: actor,
@@ -542,10 +536,18 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 	}
 	var revoked *domain.CertificateSigningRequest
 	var revocationEvent *domain.Event
-	err = h.store.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := h.store.WithTransaction(ctx, func(txCtx context.Context) error {
 		var changed bool
 		var mutateErr error
-		revoked, changed, mutateErr = h.store.Revoke(txCtx, orgId, name, current, revocation)
+		revoked, changed, mutateErr = h.store.Revoke(txCtx, orgId, name, revocation, func(current *domain.CertificateSigningRequest) error {
+			if !h.isProtectedEnrollmentCredential(current) {
+				return errRevocationTargetNotEnrollment
+			}
+			if current.Status == nil || current.Status.Certificate == nil || len(*current.Status.Certificate) == 0 {
+				return errRevocationTargetNotIssued
+			}
+			return nil
+		})
 		if mutateErr != nil {
 			return mutateErr
 		}
@@ -559,6 +561,12 @@ func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, or
 		return h.events.PersistEvent(txCtx, orgId, event)
 	})
 	if err != nil {
+		switch {
+		case errors.Is(err, errRevocationTargetNotEnrollment):
+			return nil, domain.StatusBadRequest(errRevocationTargetNotEnrollment.Error())
+		case errors.Is(err, errRevocationTargetNotIssued):
+			return nil, domain.StatusConflict(errRevocationTargetNotIssued.Error())
+		}
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
 	if revocationEvent != nil {

@@ -184,11 +184,19 @@ func (f *fakeCertificateSigningRequestStore) WithTransaction(ctx context.Context
 	return nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, revocation domain.EnrollmentCertificateRevocation) (*domain.CertificateSigningRequest, bool, error) {
+func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error) {
 	if f.revokeErr != nil {
 		return nil, false, f.revokeErr
 	}
-	updated, before, _, err := f.Mutate(ctx, orgId, name, previous, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+	updated, before, _, err := f.Mutate(ctx, orgId, name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		if validate != nil {
+			if err := validate(mutation.Resource()); err != nil {
+				return err
+			}
+		}
 		return mutation.ApplyRevocation(revocation)
 	})
 	return updated, csrstore.RevocationApplied(updated, before, err), err
