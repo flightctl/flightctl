@@ -44,6 +44,7 @@ type DeviceServiceHandler struct {
 	log               logrus.FieldLogger
 	callEventCallback store.EventCallbackCaller
 	descriptors       common.ApprovedDescriptorProvider
+	getRepository     common.RepositoryGetter
 }
 
 // HandlerOption configures optional dependencies of a DeviceServiceHandler.
@@ -56,6 +57,15 @@ func WithApprovedDescriptorProvider(provider common.ApprovedDescriptorProvider) 
 		if provider != nil {
 			h.descriptors = provider
 		}
+	}
+}
+
+// WithRepositoryGetter sets the tenant-scoped Repository lookup that firmware
+// admission uses to validate the artifact and signature repositories a device
+// references. Without it, firmware that references a repository is rejected.
+func WithRepositoryGetter(getRepository common.RepositoryGetter) HandlerOption {
+	return func(h *DeviceServiceHandler) {
+		h.getRepository = getRepository
 	}
 }
 
@@ -131,12 +141,86 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, status
 	}
 
+	repositoryRefs, status := h.admitFirmware(ctx, orgId, nil, device.Spec, true, device.Metadata.Owner)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
 	name := lo.FromPtr(device.Metadata.Name)
-	result, err := h.deviceStore.Create(ctx, orgId, &device, nil)
+	var result *domain.Device
+	var err error
+	if repositoryRefs == nil {
+		result, err = h.deviceStore.Create(ctx, orgId, &device, nil)
+	} else {
+		result, err = h.createWithRepositoryRefs(ctx, orgId, &device, *repositoryRefs)
+	}
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
+}
+
+// createWithRepositoryRefs creates a device together with its repository
+// references in one transaction, so that a failed reference write leaves no
+// device behind. Like any device creation, it is not retried.
+func (h *DeviceServiceHandler) createWithRepositoryRefs(ctx context.Context, orgId uuid.UUID, device *domain.Device, repositoryRefs []string) (*domain.Device, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	var created *domain.Device
+	err := h.deviceStore.WithTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		if created, err = h.deviceStore.Create(txCtx, orgId, device, nil); err != nil {
+			return err
+		}
+		applied, err := h.deviceStore.ReplaceRepositoryRefsIfCurrent(txCtx, orgId, name, lo.FromPtr(created.Metadata.Generation), repositoryRefs...)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			return fmt.Errorf("repository references of new device %q were not written", name)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+// admitFirmware validates the desired firmware of a device spec that a write
+// is about to store, and returns the repository references to store with it.
+//
+// When the write creates the device or changes its spec, and the resulting spec
+// has firmware, the updater release is authorized and the configuration and
+// repository references are validated now; a write that keeps the stored spec
+// stores nothing new. A device spec is always concrete, so template parameters
+// are rejected.
+//
+// For a standalone device, the references are the complete set of its
+// configuration and firmware references, or only its configuration references
+// when the write withdraws its firmware. nil leaves the stored references as
+// they are, which is always the case for a device that a fleet owns.
+func (h *DeviceServiceHandler) admitFirmware(ctx context.Context, orgId uuid.UUID, stored, candidate *domain.DeviceSpec, creating bool, owner *string) (*[]string, domain.Status) {
+	standalone := lo.FromPtr(owner) == ""
+	if candidate == nil || candidate.Firmware == nil {
+		if creating || stored == nil || stored.Firmware == nil || !standalone {
+			return nil, domain.StatusOK()
+		}
+		var config *[]domain.ConfigProviderSpec
+		if candidate != nil {
+			config = candidate.Config
+		}
+		refs := common.RepositoryDependencySet(common.CollectConfigRepositoryRefs(config), nil)
+		return &refs, domain.StatusOK()
+	}
+	if !creating && stored != nil && domain.DeviceSpecsAreEqual(*stored, *candidate) {
+		return nil, domain.StatusOK()
+	}
+	admission, status := common.ValidateFirmwareIntent(ctx, orgId, h.descriptors, h.getRepository, candidate, common.FirmwareStandalone)
+	if status.Code != http.StatusOK || !standalone {
+		return nil, status
+	}
+	refs := common.RepositoryDependencySet(common.CollectConfigRepositoryRefs(candidate.Config), admission.ConcreteRepositoryRefs)
+	return &refs, domain.StatusOK()
 }
 
 func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*devicestore.DeviceListParams, domain.Status) {
@@ -271,9 +355,16 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, status
 	}
 
+	var callbackStatus domain.Status
 	result, before, created, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		creating := m.Device == nil
 		if creating {
+			repositoryRefs, admitted := h.admitFirmware(ctx, orgId, nil, device.Spec, true, device.Metadata.Owner)
+			if admitted.Code != http.StatusOK {
+				callbackStatus = admitted
+				return common.ApiStatusToErr(admitted)
+			}
+			m.RepositoryRefs = repositoryRefs
 			status := domain.NewDeviceStatus()
 			m.Device = &domain.Device{
 				ApiVersion: domain.DeviceAPIVersion,
@@ -295,14 +386,29 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
 			return err
 		}
-		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(device.Spec)) {
+		// A replacement that omits firmware keeps the stored firmware.
+		spec := device.Spec
+		if spec != nil {
+			spec = common.PreserveOmittedFirmware(spec, current.Spec)
+		}
+		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(spec)) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
 		if enforceCapabilities && isPackageModeOsTargetConflict(current, &device) {
 			return flterrors.ErrOsTargetNotSupportedOnPackageMode
 		}
-		if device.Spec != nil {
-			current.Spec = device.Spec
+		owner := current.Metadata.Owner
+		if device.Metadata.Owner != nil || lo.Contains(fieldsToUnset, "owner") {
+			owner = device.Metadata.Owner
+		}
+		if spec != nil {
+			repositoryRefs, admitted := h.admitFirmware(ctx, orgId, current.Spec, spec, false, owner)
+			if admitted.Code != http.StatusOK {
+				callbackStatus = admitted
+				return common.ApiStatusToErr(admitted)
+			}
+			m.RepositoryRefs = repositoryRefs
+			current.Spec = spec
 		}
 		if device.Metadata.Labels != nil || lo.Contains(fieldsToUnset, "labels") {
 			current.Metadata.Labels = device.Metadata.Labels
@@ -310,13 +416,14 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if device.Metadata.Annotations != nil || lo.Contains(fieldsToUnset, "annotations") {
 			current.Metadata.Annotations = device.Metadata.Annotations
 		}
-		if device.Metadata.Owner != nil || lo.Contains(fieldsToUnset, "owner") {
-			current.Metadata.Owner = device.Metadata.Owner
-		}
+		current.Metadata.Owner = owner
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
 	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, created, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
+	}
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -741,7 +848,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 
 	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback reapplies
 	// the patch against the CAS-fresh current on every attempt so ownership/spec checks stay correct.
-	if status := validateDevicePatch(ctx, orgId, h.catalogStore, currentObj, patch, name); status.Code != http.StatusOK {
+	if status := h.validateDevicePatch(ctx, orgId, currentObj, patch, name); status.Code != http.StatusOK {
 		return nil, status
 	}
 	mutateOptions := []devicestore.MutateOption{devicestore.WithTimestamp()}
@@ -773,6 +880,12 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		if enforceCapabilities && isPackageModeOsTargetConflict(current, patched) {
 			return flterrors.ErrOsTargetNotSupportedOnPackageMode
 		}
+		repositoryRefs, admitted := h.admitFirmware(ctx, orgId, current.Spec, patched.Spec, false, current.Metadata.Owner)
+		if admitted.Code != http.StatusOK {
+			callbackStatus = admitted
+			return common.ApiStatusToErr(admitted)
+		}
+		m.RepositoryRefs = repositoryRefs
 
 		current.Spec = patched.Spec
 		current.Metadata.Labels = patched.Metadata.Labels
@@ -789,18 +902,30 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func validateDevicePatch(ctx context.Context, orgId uuid.UUID, catalogStore catalogstore.Store, current *domain.Device, patch domain.PatchRequest, name string) domain.Status {
+func (h *DeviceServiceHandler) validateDevicePatch(ctx context.Context, orgId uuid.UUID, current *domain.Device, patch domain.PatchRequest, name string) domain.Status {
 	patched, err := applyDevicePatch(ctx, current, patch, name)
 	if err != nil {
 		return domain.StatusBadRequest(err.Error())
 	}
-	return common.ValidateCatalogItemRefs(ctx, orgId, catalogStore, patched.Spec)
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, patched.Spec); status != domain.StatusOK() {
+		return status
+	}
+	_, status := h.admitFirmware(ctx, orgId, current.Spec, patched.Spec, false, current.Metadata.Owner)
+	return status
 }
 
 func applyDevicePatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
+	if err := common.ValidatePatchedFirmware(current, patch, common.DeviceFirmwarePatchPath); err != nil {
+		return nil, err
+	}
 	patched := &domain.Device{}
 	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
 		return nil, err
+	}
+	// Only an explicit removal withdraws the firmware; any other patch that
+	// leaves it absent keeps the stored firmware.
+	if !common.FirmwareRemovedByPatch(patch, common.DeviceFirmwarePatchPath) {
+		patched.Spec = common.PreserveOmittedFirmware(patched.Spec, current.Spec)
 	}
 	if current.Status != nil && patched.Status != nil {
 		patched.Status.LastSeen = current.Status.LastSeen
