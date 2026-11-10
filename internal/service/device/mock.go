@@ -267,6 +267,21 @@ func (mr *MockServiceMockRecorder) HealthcheckDevices(ctx, orgId, names any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HealthcheckDevices", reflect.TypeOf((*MockService)(nil).HealthcheckDevices), ctx, orgId, names)
 }
 
+// HoldDeviceForFirmware mocks base method.
+func (m *MockService) HoldDeviceForFirmware(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, sourceHasFirmware bool) (bool, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HoldDeviceForFirmware", ctx, orgId, name, expectedOwner, sourceHasFirmware)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// HoldDeviceForFirmware indicates an expected call of HoldDeviceForFirmware.
+func (mr *MockServiceMockRecorder) HoldDeviceForFirmware(ctx, orgId, name, expectedOwner, sourceHasFirmware any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HoldDeviceForFirmware", reflect.TypeOf((*MockService)(nil).HoldDeviceForFirmware), ctx, orgId, name, expectedOwner, sourceHasFirmware)
+}
+
 // ListConnectivityChangedDevices mocks base method.
 func (m *MockService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()

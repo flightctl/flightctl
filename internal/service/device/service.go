@@ -24,8 +24,18 @@ type Service interface {
 	// so it cannot race with agent status heartbeats or clobber concurrent label/owner
 	// writes. expectedOwner is checked against the freshly loaded owner on every retry
 	// attempt; a mismatch returns a conflict so callers can detect it exactly as they
-	// would a resourceVersion conflict today.
+	// would a resourceVersion conflict today. A device with desired firmware or an
+	// outstanding firmware attempt is held instead: its spec and annotations are left
+	// unchanged and the returned status satisfies IsFirmwareHold.
 	ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status)
+	// HoldDeviceForFirmware records the firmware hold condition on a device that
+	// an internal reconciler owning it (fleet rollout) must not roll out:
+	// because sourceHasFirmware reports that the source of its new spec
+	// carries firmware, or because the device, as freshly loaded on every
+	// attempt, has desired firmware or an outstanding firmware attempt. It
+	// reports whether the device is held; a device that needs no hold is left
+	// unchanged. expectedOwner is checked like in ReplaceDeviceSpec.
+	HoldDeviceForFirmware(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, sourceHasFirmware bool) (bool, domain.Status)
 	// SetDeviceOwner sets (or clears, when newOwner is nil) only the Owner field.
 	// Like ReplaceDeviceSpec, it skips resourceVersion matching and never touches
 	// Spec/Labels/Annotations, so fleet-selector reassignment can't race with heartbeats
@@ -50,6 +60,9 @@ type Service interface {
 	StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status)
 	RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status)
 	OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status)
+	// UpdateRenderedDevice stores a new rendered output of the device. A device with
+	// desired firmware or an outstanding firmware attempt is held instead: its rendered
+	// output is left unchanged and the returned status satisfies IsFirmwareHold.
 	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status
 	SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status
 	ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status)

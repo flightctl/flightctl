@@ -205,6 +205,10 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 	for devIndex := range devices.Items {
 		device := &devices.Items[devIndex]
 		refs, updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
+		if errors.Is(updateErr, errFirmwareHold) {
+			f.log.Infof("Not rolling out device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
+			continue
+		}
 		if updateErr != nil {
 			f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
 			pageFailures++
@@ -267,6 +271,10 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	}
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 	refs, err := f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
+	if errors.Is(err, errFirmwareHold) {
+		f.log.Infof("Not rolling out device %s/%s: %v", f.orgId, f.event.InvolvedObject.Name, err)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -297,6 +305,25 @@ func (f FleetRolloutsLogic) syncFleetApplicationLifecycleDefault(ctx context.Con
 }
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
+	// The desired spec assembled from a template version carries no firmware.
+	// This check only avoids assembling it; whether the device is held is
+	// decided on the device as loaded for the write.
+	sourceHasFirmware := templateVersion.Status != nil && templateVersion.Status.Firmware != nil
+	if sourceHasFirmware || domain.DeviceRequiresFirmwareHold(device) {
+		held, status := f.deviceSvc.HoldDeviceForFirmware(ctx, f.orgId, *device.Metadata.Name, &f.owner, sourceHasFirmware)
+		if status.Code != http.StatusOK {
+			return nil, fmt.Errorf("failed holding device %s/%s for firmware: %w", f.orgId, *device.Metadata.Name, common.ApiStatusToErr(status))
+		}
+		if held {
+			return nil, fmt.Errorf("%w: device %s/%s is not rolled out to templateVersion %s", errFirmwareHold, f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
+		}
+		fresh, status := f.deviceSvc.GetDevice(ctx, f.orgId, *device.Metadata.Name)
+		if status.Code != http.StatusOK {
+			return nil, fmt.Errorf("failed getting device %s/%s: %s", f.orgId, *device.Metadata.Name, status.Message)
+		}
+		device = fresh
+	}
+
 	currentVersion := ""
 	currentRenderedVersion := ""
 	if device.Metadata.Annotations != nil {
@@ -1073,6 +1100,9 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 		// match, so it can't be blocked by agent status heartbeats bumping resource_version
 		// out from under us. Owner is re-verified against the store's fresh read below.
 		_, status = f.deviceSvc.ReplaceDeviceSpec(newCtx, f.orgId, *device.Metadata.Name, &f.owner, *newDeviceSpec, setAnnotations, deleteAnnotations)
+		if deviceservice.IsFirmwareHold(status) {
+			return fmt.Errorf("%w: %s", errFirmwareHold, status.Message)
+		}
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {
 				device, status = f.deviceSvc.GetDevice(ctx, f.orgId, *device.Metadata.Name)
