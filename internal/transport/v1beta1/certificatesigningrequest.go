@@ -2,8 +2,6 @@ package transportv1beta1
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -92,13 +90,10 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 // (POST /api/v1/certificatesigningrequests/{name}/revocation)
 func (h *TransportHandler) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var request apiv1beta1.EnrollmentCertificateRevocationRequest
-	if err := decodeStrictJSON(r, &request); err != nil {
-		var unknownFieldErr *unknownJSONFieldError
-		if errors.As(err, &unknownFieldErr) {
-			h.SetResponse(w, nil, domain.StatusBadRequest(fmt.Sprintf("can't decode JSON body: %v", err)))
-			return
-		}
-		h.SetParseFailureResponse(w, err)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}
 
