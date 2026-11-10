@@ -156,7 +156,10 @@ func (r *AccessTokenRefresher) refresh() error {
 
 	r.persistMu.Lock()
 	defer r.persistMu.Unlock()
-	snapshot := r.refreshAuthInfo(authInfo)
+	snapshot, err := r.refreshAuthInfo(authInfo)
+	if err != nil {
+		return fmt.Errorf("failed to update auth info: %w", err)
+	}
 	if snapshot != nil {
 		if err := snapshot.Persist(r.configFilePath); err != nil {
 			return fmt.Errorf("failed to persist config: %w", err)
@@ -312,16 +315,24 @@ func (r *AccessTokenRefresher) takeCancel() context.CancelFunc {
 
 // refreshAuthInfo writes renewed tokens into the in-memory config. If a
 // config file path is set, it returns a snapshot to persist; otherwise it returns nil.
-func (r *AccessTokenRefresher) refreshAuthInfo(authInfo login.AuthInfo) *Config {
+// The expiry is computed and validated before any state mutation, so an
+// unrepresentable lifetime leaves existing auth state unchanged.
+func (r *AccessTokenRefresher) refreshAuthInfo(authInfo login.AuthInfo) (*Config, error) {
+	// Compute expiry before mutating state so an error does not leave
+	// partially-updated credentials.
+	expiryStr, err := login.ExpiryFromLifetime(authInfo.ExpiresIn)
+	if err != nil {
+		return nil, fmt.Errorf("computing token expiry: %w", err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if authInfo.RefreshToken != "" {
 		r.config.AuthInfo.RefreshToken = authInfo.RefreshToken
 	}
 	r.config.AuthInfo.AccessToken = authInfo.AccessToken
-	if authInfo.ExpiresIn != nil {
-		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
-		r.config.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
+	if expiryStr != "" {
+		r.config.AuthInfo.AccessTokenExpiry = expiryStr
 	}
 	if authInfo.IdToken != "" {
 		r.config.AuthInfo.IdToken = authInfo.IdToken
@@ -330,5 +341,5 @@ func (r *AccessTokenRefresher) refreshAuthInfo(authInfo login.AuthInfo) *Config 
 	if r.configFilePath != "" {
 		snapshot = r.config.DeepCopy()
 	}
-	return snapshot
+	return snapshot, nil
 }
