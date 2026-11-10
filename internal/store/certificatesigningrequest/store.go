@@ -26,7 +26,9 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
@@ -68,6 +70,23 @@ func (m *CertificateSigningRequestMutation) RequireExisting() error {
 	return nil
 }
 
+// ApplyRevocation sets the immutable enrollment credential revocation exactly
+// once. A repeated apply is a no-op so the first committed revocation wins.
+func (m *CertificateSigningRequestMutation) ApplyRevocation(revocation domain.EnrollmentCertificateRevocation) error {
+	if err := m.RequireExisting(); err != nil {
+		return err
+	}
+	current := m.Resource()
+	if current.Status == nil {
+		current.Status = &domain.CertificateSigningRequestStatus{}
+	}
+	if current.Status.HasRevocation() {
+		return store.ErrMutateSkipWrite
+	}
+	current.Status.Revocation = &revocation
+	return nil
+}
+
 // CertificateSigningRequestApplyFunc mutates m in place on every Mutate attempt.
 type CertificateSigningRequestApplyFunc func(m *CertificateSigningRequestMutation) error
 
@@ -104,7 +123,11 @@ func certificateSigningRequestToModel(resource *domain.CertificateSigningRequest
 }
 
 func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
+}
+
+func (s *CertificateSigningRequestStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return store.WithTransaction(ctx, s.dbHandler, fn)
 }
 
 func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
@@ -299,4 +322,48 @@ func sameRetainedCertificate(a, b *[]byte) bool {
 		return a == nil && b == nil
 	}
 	return bytes.Equal(*a, *b)
+}
+
+// Revoke records the first revocation for the current CSR with the given name.
+// Mutate loads the row inside the caller's transaction, runs validate before
+// applying the revocation, and uses that row for the compare-and-swap. A CSR
+// that already has a revocation returns changed=false, regardless of the
+// requested reason.
+func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error) {
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(mutation *CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		if validate != nil {
+			if err := validate(mutation.Resource()); err != nil {
+				return err
+			}
+		}
+		return mutation.ApplyRevocation(revocation)
+	})
+	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+		// Mutate cannot return the row when its compare-and-swap misses, so
+		// reload to return the current row when a concurrent caller already
+		// revoked it.
+		current, getErr := s.Get(ctx, orgId, name)
+		switch {
+		case getErr == nil:
+			if current.Status != nil && current.Status.HasRevocation() {
+				return current, false, nil
+			}
+		case errors.Is(getErr, flterrors.ErrResourceNotFound):
+			// The row was deleted concurrently; report the CAS conflict below.
+		default:
+			return nil, false, getErr
+		}
+	}
+	return updated, revocationApplied(updated, before, err), err
+}
+
+// revocationApplied reports whether a Revoke call introduced the revocation.
+func revocationApplied(updated, before *domain.CertificateSigningRequest, err error) bool {
+	if err != nil || updated == nil || updated.Status == nil || updated.Status.Revocation == nil {
+		return false
+	}
+	return before == nil || before.Status == nil || !before.Status.HasRevocation()
 }

@@ -9,6 +9,7 @@ import (
 	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/events"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -37,11 +38,12 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 }
 
 type completionEventServiceStub struct {
-	events []*domain.Event
+	events.Service
+	recorded []*domain.Event
 }
 
 func (s *completionEventServiceStub) CreateEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
-	s.events = append(s.events, event)
+	s.recorded = append(s.recorded, event)
 }
 
 func (*completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
@@ -74,7 +76,7 @@ func TestResumeCompletedPrepareUsesProvidedPrepare(t *testing.T) {
 	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "request-1")
 	require.NoError(t, handler.ResumeCompletedPrepare(ctx, prepare))
 	require.Zero(t, store.gets)
-	events := handler.events.(*completionEventServiceStub).events
+	events := handler.events.(*completionEventServiceStub).recorded
 	require.Len(t, events, 1)
 	require.Equal(t, domain.EventReasonDeltaGenerationCompleted, events[0].Reason)
 	// The worker receives the generation after the event is serialized to the queue.

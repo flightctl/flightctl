@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -26,6 +28,11 @@ import (
 
 // nowFunc allows overriding for unit tests
 var nowFunc = time.Now
+
+var (
+	errRevocationTargetNotEnrollment = errors.New("only enrollment credentials may be revoked")
+	errRevocationTargetNotIssued     = errors.New("only issued enrollment credentials may be revoked")
+)
 
 type ServiceHandler struct {
 	store         certificatesigningrequeststore.Store
@@ -502,6 +509,73 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	return result, domain.StatusOK()
+}
+
+func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, request domain.EnrollmentCertificateRevocationRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	if utf8.RuneCountInString(request.Reason) > 1024 {
+		return nil, domain.StatusBadRequest("reason must be at most 1024 characters")
+	}
+	reason := strings.TrimSpace(request.Reason)
+	if reason == "" {
+		return nil, domain.StatusBadRequest("reason is required and cannot be blank")
+	}
+
+	identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+	if !ok {
+		return nil, domain.StatusForbidden("an authenticated identity is required to revoke an enrollment credential")
+	}
+	actor := identity.GetUsername()
+	if strings.TrimSpace(actor) == "" {
+		return nil, domain.StatusForbidden("an authenticated identity with a username is required to revoke an enrollment credential")
+	}
+
+	revocation := domain.EnrollmentCertificateRevocation{
+		Reason:    reason,
+		RevokedBy: actor,
+		RevokedAt: nowFunc().UTC(),
+	}
+	var revoked *domain.CertificateSigningRequest
+	var revocationEvent *domain.Event
+	err := h.store.WithTransaction(ctx, func(txCtx context.Context) error {
+		var changed bool
+		var mutateErr error
+		revoked, changed, mutateErr = h.store.Revoke(txCtx, orgId, name, revocation, func(current *domain.CertificateSigningRequest) error {
+			if !h.isProtectedEnrollmentCredential(current) {
+				return errRevocationTargetNotEnrollment
+			}
+			if current.Status == nil || current.Status.Certificate == nil || len(*current.Status.Certificate) == 0 {
+				return errRevocationTargetNotIssued
+			}
+			return nil
+		})
+		if mutateErr != nil {
+			return mutateErr
+		}
+		if !changed {
+			return nil
+		}
+		event := domain.GetBaseEvent(txCtx, domain.CertificateSigningRequestKind, name,
+			domain.EventReasonEnrollmentCredentialRevoked, "Enrollment credential revoked.", nil)
+		event.Actor = "user:" + actor
+		revocationEvent = event
+		return h.events.PersistEvent(txCtx, orgId, event)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, errRevocationTargetNotEnrollment):
+			return nil, domain.StatusBadRequest(errRevocationTargetNotEnrollment.Error())
+		case errors.Is(err, errRevocationTargetNotIssued):
+			return nil, domain.StatusConflict(errRevocationTargetNotIssued.Error())
+		}
+		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+	if revocationEvent != nil {
+		if publishErr := h.events.PublishEvent(ctx, orgId, revocationEvent); publishErr != nil {
+			h.log.WithError(publishErr).Errorf("Failed to publish revocation event for certificate signing request %q", name)
+		}
+	}
+
+	return revoked, domain.StatusOK()
 }
 
 func newSignRequestFromCertificateSigningRequest(csr *domain.CertificateSigningRequest) (signer.SignRequest, bool, error) {

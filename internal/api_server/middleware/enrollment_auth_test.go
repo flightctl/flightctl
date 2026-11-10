@@ -92,12 +92,15 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		hasItem             bool
 		itemCondition       domain.ConditionType
 		cachedCondition     domain.ConditionType
+		itemRevoked         bool
+		cachedRevoked       bool
 		requests            int
 		wantCode            int
 		wantCSRRequests     int
 		wantStatusCacheGets int
 		wantStatusCacheSets int
 		wantCSRName         string
+		wantMessageContains string
 	}{
 		{
 			name:                "When CSR is denied it should reject",
@@ -136,6 +139,27 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantStatusCacheSets: 1,
 		},
 		{
+			name:                "When CSR is revoked it should reject",
+			hasItem:             true,
+			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
+			itemRevoked:         true,
+			requests:            1,
+			wantCode:            http.StatusUnauthorized,
+			wantCSRRequests:     1,
+			wantStatusCacheGets: 1,
+			wantStatusCacheSets: 1,
+			wantMessageContains: "revoked",
+		},
+		{
+			name:                "When revoked CSR status is cached it should reject without reading CSR service",
+			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			cachedRevoked:       true,
+			requests:            2,
+			wantCode:            http.StatusUnauthorized,
+			wantStatusCacheGets: 2,
+			wantMessageContains: "revoked",
+		},
+		{
 			name:                "When CSR is approved it should allow without caching the approval and carry the CSR name",
 			hasItem:             true,
 			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
@@ -164,6 +188,19 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantCSRRequests:     1,
 			wantStatusCacheGets: 1,
 			wantStatusCacheSets: 1,
+		},
+		{
+			name:                "When approved CSR status is cached but the authoritative CSR is revoked it should reject",
+			cachedCondition:     domain.ConditionTypeCertificateSigningRequestApproved,
+			hasItem:             true,
+			itemCondition:       domain.ConditionTypeCertificateSigningRequestApproved,
+			itemRevoked:         true,
+			requests:            1,
+			wantCode:            http.StatusUnauthorized,
+			wantCSRRequests:     1,
+			wantStatusCacheGets: 1,
+			wantStatusCacheSets: 1,
+			wantMessageContains: "revoked",
 		},
 		{
 			name:                "When a legacy approved credential is resolved it should carry the resolved CSR name",
@@ -196,6 +233,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			csrs := &fakeCSRService{}
 			if test.hasItem {
 				item := enrollmentCSR(csrName, test.itemCondition, &certificatePEM)
+				if test.itemRevoked {
+					item.Status.Revocation = testRevocation()
+				}
 				csrs.items = []domain.CertificateSigningRequest{item}
 			}
 
@@ -206,6 +246,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 						Type:   test.cachedCondition,
 						Status: domain.ConditionStatusTrue,
 					}},
+				}
+				if test.cachedRevoked {
+					status.Revocation = testRevocation()
 				}
 				entry := enrollmentCSRStatusCacheEntry{Name: &csrName, Status: &status}
 				require.NoError(t, statusCache.Set(ctx, org.DefaultID, crypto.CertificateDigest(peerCertificate.Raw), entry))
@@ -234,6 +277,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 				handler.ServeHTTP(recorder, request)
 
 				require.Equal(t, test.wantCode, recorder.Code)
+				if test.wantMessageContains != "" {
+					require.Contains(t, recorder.Body.String(), test.wantMessageContains)
+				}
 			}
 
 			require.Equal(t, test.wantCSRRequests, csrs.calls)
@@ -268,6 +314,14 @@ func legacyEnrollmentCertificate(t *testing.T, ctx context.Context, caClient *cr
 	)
 	require.NoError(t, err)
 	return peerCertificate
+}
+
+func testRevocation() *domain.EnrollmentCertificateRevocation {
+	return &domain.EnrollmentCertificateRevocation{
+		Reason:    "Compromised",
+		RevokedBy: "security-officer",
+		RevokedAt: time.Now().UTC(),
+	}
 }
 
 func enrollmentCSR(name string, condition domain.ConditionType, certificatePEM *[]byte) domain.CertificateSigningRequest {

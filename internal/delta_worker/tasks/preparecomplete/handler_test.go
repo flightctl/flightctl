@@ -10,6 +10,7 @@ import (
 	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/events"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 	return mutation.Device, device, false, nil
 }
 
-type completionEventServiceStub struct{}
+type completionEventServiceStub struct{ events.Service }
 
 func (completionEventServiceStub) CreateEvent(context.Context, uuid.UUID, *domain.Event) {}
 

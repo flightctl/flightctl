@@ -84,7 +84,7 @@ The event `details` contain `detailType: DeviceVulnerabilityCVE` with the follow
 | Category               | Event Reasons                                                                                  |
 |------------------------|------------------------------------------------------------------------------------------------|
 | **General**           | `ResourceCreated`, `ResourceCreationFailed`, `ResourceUpdated`, `ResourceUpdateFailed`, `ResourceDeleted`, `ResourceDeletionFailed` |
-| **Enrollment**        | `EnrollmentRequestApproved`, `EnrollmentRequestApprovalFailed`                                 |
+| **Enrollment**        | `EnrollmentRequestApproved`, `EnrollmentRequestApprovalFailed`, `EnrollmentCredentialRevoked`  |
 | **Fleet Rollouts**    | `FleetRolloutCreated`, `FleetRolloutStarted`, `FleetRolloutBatchCompleted`                     |
 | **Repositories**      | `RepositoryAccessible`, `RepositoryInaccessible`                                              |
 | **ResourceSync**      | `ResourceSyncAccessible`, `ResourceSyncInaccessible`, `ResourceSyncCommitDetected`, `ResourceSyncParsed`, `ResourceSyncParsingFailed`, `ResourceSyncSynced`, `ResourceSyncSyncFailed`, `ResourceSyncCompleted` |

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -82,6 +83,21 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
 	body, status := h.certificatesigningrequest.UpdateCertificateSigningRequestApproval(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
+	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
+// (POST /api/v1/certificatesigningrequests/{name}/revocation)
+func (h *TransportHandler) RevokeCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request apiv1beta1.EnrollmentCertificateRevocationRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
+		return
+	}
+
+	body, status := h.certificatesigningrequest.RevokeCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, request)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
