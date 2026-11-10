@@ -7,7 +7,9 @@ import (
 	"time"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -17,10 +19,12 @@ type revocationValidationCase struct {
 	name         string
 	reason       string
 	withIdentity bool
+	actor        *string
 	prepare      func(t *testing.T, store *fakeCertificateSigningRequestStore, cfg *cacfg.Config, ctx context.Context, orgId uuid.UUID) string
 	wantStatus   int32
 	wantMessage  string
 	wantRevoked  bool
+	wantEvents   int
 	check        func(t *testing.T, persisted *domain.CertificateSigningRequest)
 }
 
@@ -60,6 +64,7 @@ func TestRevokeCertificateSigningRequestValidation(t *testing.T) {
 			withIdentity: true,
 			wantStatus:   statusSuccessCode,
 			wantRevoked:  true,
+			wantEvents:   1,
 		},
 		{
 			name:         "When the target is a service-client CSR it should reject it without mutation",
@@ -131,14 +136,35 @@ func TestRevokeCertificateSigningRequestValidation(t *testing.T) {
 			wantStatus:  statusForbiddenCode,
 			wantMessage: "an authenticated identity is required to revoke an enrollment credential",
 		},
+		{
+			name:         "When the authenticated identity has an empty username it should reject the request without revoking",
+			reason:       "Credential compromised",
+			withIdentity: true,
+			actor:        lo.ToPtr(""),
+			wantStatus:   statusForbiddenCode,
+			wantMessage:  "an authenticated identity with a username is required to revoke an enrollment credential",
+		},
+		{
+			name:         "When the authenticated identity has a whitespace-only username it should reject the request without revoking",
+			reason:       "Credential compromised",
+			withIdentity: true,
+			actor:        lo.ToPtr("   "),
+			wantStatus:   statusForbiddenCode,
+			wantMessage:  "an authenticated identity with a username is required to revoke an enrollment credential",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, store, _, _, cfg := newTestHandler(t)
+			h, store, _, fakeEvents, cfg := newTestHandler(t)
 			ctx := context.Background()
 			if tc.withIdentity {
-				ctx = revocationIdentityContext()
+				if tc.actor != nil {
+					ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey,
+						identity.NewMappedIdentity(*tc.actor, "uid", nil, nil, true, nil))
+				} else {
+					ctx = revocationIdentityContext()
+				}
 			}
 			orgId := uuid.New()
 			name := "validation-enrollment-csr"
@@ -166,6 +192,7 @@ func TestRevokeCertificateSigningRequestValidation(t *testing.T) {
 			default:
 				require.Nil(t, persisted.Status.Revocation)
 			}
+			require.Len(t, filterRevocationEvents(fakeEvents.events), tc.wantEvents)
 		})
 	}
 }

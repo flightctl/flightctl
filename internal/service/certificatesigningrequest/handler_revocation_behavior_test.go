@@ -19,11 +19,13 @@ type revocationBehaviorCase struct {
 	reason         string
 	createEventErr error
 	revokeErr      error
+	casMissWith    *domain.EnrollmentCertificateRevocation
 	preRevoke      bool
 	legacySigner   bool
 	wantStatus     int32
 	wantRevoked    bool
 	wantReason     string
+	wantRevokedBy  string
 	wantEvents     int
 	assertOriginal bool
 }
@@ -70,6 +72,20 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			wantEvents:     0,
 		},
 		{
+			name:    "When another caller already revoked the CSR it should return that revocation without a duplicate event",
+			csrName: "concurrent-revoke-enrollment-csr",
+			reason:  "Different reason",
+			casMissWith: &domain.EnrollmentCertificateRevocation{
+				Reason:    "Concurrent revocation",
+				RevokedBy: "other-user",
+				RevokedAt: time.Date(2025, 3, 5, 6, 7, 8, 0, time.UTC),
+			},
+			wantStatus:    statusSuccessCode,
+			wantRevoked:   true,
+			wantReason:    "Concurrent revocation",
+			wantRevokedBy: "other-user",
+		},
+		{
 			name:       "When the revocation loses a delete or recreate race it should return a conflict",
 			csrName:    "revocation-race-enrollment-csr",
 			reason:     "Credential compromised",
@@ -83,6 +99,7 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			h, store, _, fakeEvents, cfg := newTestHandler(t)
 			fakeEvents.createErr = tc.createEventErr
 			store.revokeErr = tc.revokeErr
+			store.casMissRevocation = tc.casMissWith
 			ctx := revocationIdentityContext()
 			orgId := uuid.New()
 			var created *domain.CertificateSigningRequest
@@ -100,10 +117,14 @@ func TestRevokeCertificateSigningRequest(t *testing.T) {
 			revoked, status := h.RevokeCertificateSigningRequest(ctx, orgId, tc.csrName, domain.EnrollmentCertificateRevocationRequest{Reason: tc.reason})
 			require.Equal(t, tc.wantStatus, status.Code)
 			if tc.wantRevoked {
+				wantRevokedBy := tc.wantRevokedBy
+				if wantRevokedBy == "" {
+					wantRevokedBy = "security-officer"
+				}
 				require.NotNil(t, revoked)
 				require.NotNil(t, revoked.Status.Revocation)
 				require.Equal(t, tc.wantReason, revoked.Status.Revocation.Reason)
-				require.Equal(t, "security-officer", revoked.Status.Revocation.RevokedBy)
+				require.Equal(t, wantRevokedBy, revoked.Status.Revocation.RevokedBy)
 				require.False(t, revoked.Status.Revocation.RevokedAt.IsZero())
 				require.Nil(t, revoked.Status.Revocation.FlaggingCompletedAt)
 			}

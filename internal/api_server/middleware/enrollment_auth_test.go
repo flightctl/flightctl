@@ -100,6 +100,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 		wantStatusCacheGets int
 		wantStatusCacheSets int
 		wantCSRName         string
+		wantMessageContains string
 	}{
 		{
 			name:                "When CSR is denied it should reject",
@@ -147,6 +148,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantCSRRequests:     1,
 			wantStatusCacheGets: 1,
 			wantStatusCacheSets: 1,
+			wantMessageContains: "revoked",
 		},
 		{
 			name:                "When revoked CSR status is cached it should reject without reading CSR service",
@@ -155,6 +157,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			requests:            2,
 			wantCode:            http.StatusUnauthorized,
 			wantStatusCacheGets: 2,
+			wantMessageContains: "revoked",
 		},
 		{
 			name:                "When CSR is approved it should allow without caching the approval and carry the CSR name",
@@ -197,6 +200,7 @@ func TestAuthenticateEnrollment(t *testing.T) {
 			wantCSRRequests:     1,
 			wantStatusCacheGets: 1,
 			wantStatusCacheSets: 1,
+			wantMessageContains: "revoked",
 		},
 		{
 			name:                "When a legacy approved credential is resolved it should carry the resolved CSR name",
@@ -273,6 +277,9 @@ func TestAuthenticateEnrollment(t *testing.T) {
 				handler.ServeHTTP(recorder, request)
 
 				require.Equal(t, test.wantCode, recorder.Code)
+				if test.wantMessageContains != "" {
+					require.Contains(t, recorder.Body.String(), test.wantMessageContains)
+				}
 			}
 
 			require.Equal(t, test.wantCSRRequests, csrs.calls)

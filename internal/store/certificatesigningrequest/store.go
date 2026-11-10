@@ -357,11 +357,11 @@ func (s *CertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.
 			return nil, false, getErr
 		}
 	}
-	return updated, RevocationApplied(updated, before, err), err
+	return updated, revocationApplied(updated, before, err), err
 }
 
-// RevocationApplied reports whether a Revoke call introduced the revocation.
-func RevocationApplied(updated, before *domain.CertificateSigningRequest, err error) bool {
+// revocationApplied reports whether a Revoke call introduced the revocation.
+func revocationApplied(updated, before *domain.CertificateSigningRequest, err error) bool {
 	if err != nil || updated == nil || updated.Status == nil || updated.Status.Revocation == nil {
 		return false
 	}

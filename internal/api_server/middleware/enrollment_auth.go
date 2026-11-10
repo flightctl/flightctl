@@ -146,9 +146,9 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			orgID = org.DefaultID
 		}
 
-		credentialName, allowed := m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate)
+		credentialName, allowed, denialReason := m.CSRStatusAllowsEnrollment(ctx, orgID, peerCertificate)
 		if !allowed {
-			transport.WriteJSONError(w, r, "Enrollment certificate is not approved", http.StatusUnauthorized)
+			transport.WriteJSONError(w, r, denialReason, http.StatusUnauthorized)
 			return
 		}
 
@@ -199,17 +199,22 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 	})
 }
 
-func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) (*string, bool) {
+const (
+	enrollmentDeniedNotApproved = "Enrollment certificate is not approved"
+	enrollmentDeniedRevoked     = "Enrollment certificate is revoked"
+)
+
+func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context, orgId uuid.UUID, peerCertificate *x509.Certificate) (*string, bool, string) {
 	certificateDigest := crypto.CertificateDigest(peerCertificate.Raw)
 	entry, found, err := m.statusCache.Get(ctx, orgId, certificateDigest)
 	if err != nil {
 		m.log.WithError(err).Warnf("Failed to get cached CSR status for certificate digest %q", certificateDigest)
 	} else if found {
 		if entry.Status == nil {
-			return nil, false
+			return nil, false, enrollmentDeniedNotApproved
 		}
 		if !enrollmentCSRStatusAllows(*entry.Status) {
-			return entry.Name, false
+			return entry.Name, false, enrollmentCSRStatusDenialReason(*entry.Status)
 		}
 	}
 
@@ -218,17 +223,17 @@ func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context
 		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
 			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
 		}
-		return nil, false
+		return nil, false, enrollmentDeniedNotApproved
 	}
 	if err != nil {
 		m.log.WithError(err).Warn("Failed to resolve enrollment certificate to CSR")
-		return nil, false
+		return nil, false, enrollmentDeniedNotApproved
 	}
 	if csr.Status == nil {
 		if cacheErr := m.statusCache.SetMissing(ctx, orgId, certificateDigest); cacheErr != nil {
 			m.log.WithError(cacheErr).Warnf("Failed to cache missing CSR status for certificate digest %q", certificateDigest)
 		}
-		return nil, false
+		return nil, false, enrollmentDeniedNotApproved
 	}
 	allowed := enrollmentCSRStatusAllows(*csr.Status)
 	if !allowed {
@@ -236,7 +241,10 @@ func (m *EnrollmentAuthMiddleware) CSRStatusAllowsEnrollment(ctx context.Context
 			m.log.WithError(cacheErr).Warnf("Failed to cache CSR status for certificate digest %q", certificateDigest)
 		}
 	}
-	return csr.Metadata.Name, allowed
+	if !allowed {
+		return csr.Metadata.Name, false, enrollmentCSRStatusDenialReason(*csr.Status)
+	}
+	return csr.Metadata.Name, true, ""
 }
 
 func enrollmentCSRStatusAllows(status domain.CertificateSigningRequestStatus) bool {
@@ -244,6 +252,13 @@ func enrollmentCSRStatusAllows(status domain.CertificateSigningRequestStatus) bo
 		return false
 	}
 	return domain.IsStatusConditionTrue(status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
+}
+
+func enrollmentCSRStatusDenialReason(status domain.CertificateSigningRequestStatus) string {
+	if status.HasRevocation() {
+		return enrollmentDeniedRevoked
+	}
+	return enrollmentDeniedNotApproved
 }
 
 // createCacheKey creates a cache key from the TLS connection

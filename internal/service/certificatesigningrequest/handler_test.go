@@ -44,8 +44,9 @@ const (
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
-	items     map[string]*domain.CertificateSigningRequest
-	revokeErr error
+	items             map[string]*domain.CertificateSigningRequest
+	revokeErr         error
+	casMissRevocation *domain.EnrollmentCertificateRevocation
 }
 
 var _ csrstore.Store = (*fakeCertificateSigningRequestStore)(nil)
@@ -188,6 +189,18 @@ func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId u
 	if f.revokeErr != nil {
 		return nil, false, f.revokeErr
 	}
+	if f.casMissRevocation != nil {
+		item, ok := f.items[name]
+		if !ok {
+			return nil, false, flterrors.ErrResourceNotFound
+		}
+		if item.Status == nil {
+			item.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		item.Status.Revocation = f.casMissRevocation
+		f.casMissRevocation = nil
+		return item, false, nil
+	}
 	updated, before, _, err := f.Mutate(ctx, orgId, name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
 		if err := mutation.RequireExisting(); err != nil {
 			return err
@@ -199,7 +212,9 @@ func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId u
 		}
 		return mutation.ApplyRevocation(revocation)
 	})
-	return updated, csrstore.RevocationApplied(updated, before, err), err
+	changed := err == nil && updated != nil && updated.Status != nil && updated.Status.HasRevocation() &&
+		(before == nil || before.Status == nil || !before.Status.HasRevocation())
+	return updated, changed, err
 }
 
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
