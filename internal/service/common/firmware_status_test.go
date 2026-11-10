@@ -58,7 +58,7 @@ const testFirmwareStatusJSON = `{
     "startedAt": "2026-11-09T10:00:00Z",
     "updatedAt": "2026-11-09T10:05:00Z",
     "changed": false,
-    "error": {"reason": "ArtifactUnauthenticated", "message": "the capsule exceeds the parser size budget", "retryable": false, "exceededBudget": "maxArtifactBytes"},
+    "error": {"reason": "ResourceLimitExceeded", "message": "the capsule exceeds the parser size budget", "retryable": false, "exceededBudget": "maxArtifactBytes"},
     "recovery": []
   },
   "components": [{
@@ -154,7 +154,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 		{
 			name: "When the status has neither observations nor budgets it should accept it without lookups even if evidence is unavailable",
 			mutate: func(status *domain.FirmwareStatus) {
-				status.Attempt.Error.ExceededBudget = nil
+				status.Attempt.Error = nil
 				status.Components[0].Observation = nil
 			},
 			unavailable: true,
@@ -223,7 +223,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 		{
 			name: "When the observation schema digest is missing it should reject it without a lookup",
 			mutate: func(status *domain.FirmwareStatus) {
-				status.Attempt.Error.ExceededBudget = nil
+				status.Attempt.Error = nil
 				status.Components[0].Observation.Backend.SchemaDigest = ""
 			},
 			wantCode: http.StatusBadRequest,
@@ -297,7 +297,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 		{
 			name: "When a component error names a budget of the pinned release it should accept it",
 			mutate: func(status *domain.FirmwareStatus) {
-				status.Components[0].Error = &domain.FirmwareError{Reason: "ArtifactUnauthenticated", Message: "too many FMP items", ExceededBudget: toPtr("maxFmpItems")}
+				status.Components[0].Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "too many FMP items", ExceededBudget: toPtr("maxFmpItems")}
 			},
 			wantCode:    http.StatusOK,
 			wantLookups: []string{"nvidia-orin@" + current},
@@ -305,7 +305,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 		{
 			name: "When a component error names an unknown budget it should reject it with its own path",
 			mutate: func(status *domain.FirmwareStatus) {
-				status.Components[0].Error = &domain.FirmwareError{Reason: "ArtifactUnauthenticated", Message: "limit", ExceededBudget: toPtr("unknownBudget")}
+				status.Components[0].Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "limit", ExceededBudget: toPtr("unknownBudget")}
 			},
 			wantCode:    http.StatusBadRequest,
 			wantErr:     []string{"status.firmware.components[0].error.exceededBudget", "unknownBudget"},
@@ -325,7 +325,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			mutate: func(status *domain.FirmwareStatus) {
 				status.Attempt = nil
 				status.Components[0].Observation = nil
-				status.Components[0].Error = &domain.FirmwareError{Reason: "ArtifactUnauthenticated", Message: "limit", ExceededBudget: toPtr("maxFmpItems")}
+				status.Components[0].Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "limit", ExceededBudget: toPtr("maxFmpItems")}
 			},
 			wantCode: http.StatusBadRequest,
 			wantErr:  []string{"status.firmware.components[0].error.exceededBudget", "pinned updater"},
@@ -352,12 +352,30 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			wantLookups: []string{"nvidia-orin@" + historical},
 		},
 		{
-			name: "When an error without an exceeded budget is reported it should accept it",
+			name: "When an error with another reason and no exceeded budget is reported it should accept it",
 			mutate: func(status *domain.FirmwareStatus) {
+				status.Attempt.Error.Reason = "ArtifactUnauthenticated"
 				status.Attempt.Error.ExceededBudget = nil
 				status.Components[0].Observation = nil
 			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name: "When an error with another reason names an exceeded budget it should reject it before any lookup",
+			mutate: func(status *domain.FirmwareStatus) {
+				status.Attempt.Error.Reason = "ArtifactUnauthenticated"
+				status.Components[0].Observation = nil
+			},
+			wantCode: http.StatusBadRequest,
+			wantErr:  []string{"status.firmware.attempt.error.exceededBudget", "Forbidden"},
+		},
+		{
+			name: "When a limit error names no exceeded budget it should reject it before any lookup",
+			mutate: func(status *domain.FirmwareStatus) {
+				status.Attempt.Error.ExceededBudget = nil
+			},
+			wantCode: http.StatusBadRequest,
+			wantErr:  []string{"status.firmware.attempt.error.exceededBudget", "Required value"},
 		},
 	}
 	for _, tt := range tests {

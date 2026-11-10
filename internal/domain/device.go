@@ -50,6 +50,10 @@ type FirmwareObservationBackend = v1beta1.FirmwareObservationBackend
 type FirmwareSupportStatus = v1beta1.FirmwareSupportStatus
 type FirmwareRecoveryAction = v1beta1.FirmwareRecoveryAction
 
+// FirmwareErrorReasonResourceLimitExceeded is the reason of a firmware error
+// that reports an exceeded resource budget.
+const FirmwareErrorReasonResourceLimitExceeded = v1beta1.FirmwareErrorReasonResourceLimitExceeded
+
 const (
 	FirmwareAttemptPhasePreparing        = v1beta1.FirmwareAttemptPhasePreparing
 	FirmwareAttemptPhaseWaitingForPolicy = v1beta1.FirmwareAttemptPhaseWaitingForPolicy

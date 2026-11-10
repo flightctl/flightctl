@@ -104,7 +104,7 @@ const testFirmwareStatusJSON = `{
     "updatedAt": "2026-11-09T10:05:00Z",
     "changed": true,
     "error": {
-      "reason": "ArtifactUnauthenticated",
+      "reason": "ResourceLimitExceeded",
       "message": "the capsule exceeds the parser size budget",
       "retryable": false,
       "component": "system",
