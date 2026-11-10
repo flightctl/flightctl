@@ -52,22 +52,19 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 	})
 
 	Context("Multi Device Selection", Label("79648"), func() {
-		It("should select devices correctly based on BatchSequence strategy", func() {
+		It("should select devices correctly based on BatchSequence strategy", Label("sanity"), func() {
 			By("create a fleet and Enroll devices into the fleet")
 
+			madridSelector := map[string]string{labelSite: siteMadrid}
 			bsq1 := api.BatchSequence{
 				Sequence: &[]api.Batch{
 					{
-						Selector: &api.LabelSelector{
-							MatchLabels: &map[string]string{labelSite: siteMadrid},
-						},
-						Limit: intLimit(1),
+						Selector: &api.LabelSelector{MatchLabels: &madridSelector},
+						Limit:    intLimit(1),
 					},
 					{
-						Selector: &api.LabelSelector{
-							MatchLabels: &map[string]string{labelSite: siteMadrid},
-						},
-						Limit: percentageLimit("50%"),
+						Selector: &api.LabelSelector{MatchLabels: &madridSelector},
+						Limit:    percentageLimit("50%"),
 					},
 				},
 			}
@@ -82,6 +79,17 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			err := tc.setupFleetAndDevices(ctx, 4, labelsList)
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("Fleet and devices setup completed\n")
+
+			architecture := ""
+			for index, deviceID := range tc.deviceIDs {
+				reportedArchitecture := tc.harness.WaitForDeviceReportedLabel(deviceID, labelSystemInfoArchitecture, util.LONGTIMEOUT)
+				if index == 0 {
+					architecture = reportedArchitecture
+				} else {
+					Expect(reportedArchitecture).To(Equal(architecture), "all pool VMs should report the same architecture")
+				}
+			}
+			madridSelector[labelSystemInfoArchitecture] = architecture
 
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
@@ -99,6 +107,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(1))
 			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
+			Expect((*selectedDevices[0].Metadata.Labels)[labelSystemInfoArchitecture]).To(Equal(architecture))
 
 			tc.harness.WaitForBatchStart(fleetName, 1)
 
@@ -107,6 +116,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(1))
 			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
+			Expect((*selectedDevices[0].Metadata.Labels)[labelSystemInfoArchitecture]).To(Equal(architecture))
 
 			Expect(err).ToNot(HaveOccurred())
 			By("Here we expect remaining 2 devices to be selected")
@@ -114,6 +124,9 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			selectedDevices, err = tc.harness.GetSelectedDevicesForBatch(fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(2))
+			for _, device := range selectedDevices {
+				Expect((*device.Metadata.Labels)[labelSystemInfoArchitecture]).To(Equal(architecture))
+			}
 
 			By("Verifying the application is updated on all devices")
 			tc.harness.WaitForBatchStart(fleetName, 3)
@@ -487,16 +500,17 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 })
 
 const (
-	fleetName        = "rollout"
-	siteMadrid       = "madrid"
-	siteParis        = "paris"
-	siteRome         = "rome"
-	functionWeb      = "web"
-	functionDb       = "db"
-	labelFleet       = "fleet"
-	labelSite        = "site"
-	labelFunction    = "function"
-	SuccessThreshold = "100%"
+	fleetName                   = "rollout"
+	siteMadrid                  = "madrid"
+	siteParis                   = "paris"
+	siteRome                    = "rome"
+	functionWeb                 = "web"
+	functionDb                  = "db"
+	labelFleet                  = "fleet"
+	labelSite                   = "site"
+	labelFunction               = "function"
+	labelSystemInfoArchitecture = "systeminfo.flightctl.io/architecture"
+	SuccessThreshold            = "100%"
 
 	maxConcurrentVMs        = 2
 	pendingDevicesSeparator = "; "
