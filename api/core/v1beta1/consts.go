@@ -218,6 +218,11 @@ const (
 	EnrollmentHooksReasonSucceeded      = "Succeeded"
 	EnrollmentHooksReasonContinued      = "Continued"
 	EnrollmentHooksReasonManualOverride = "ManualOverride"
+
+	// FleetValidReasonFirmwareRenderingUnsupported is the reason of a false
+	// Valid condition of a fleet whose template carries firmware, from which
+	// no template version is created while rendering does not support it.
+	FleetValidReasonFirmwareRenderingUnsupported = "FirmwareRenderingUnsupported"
 )
 
 const (

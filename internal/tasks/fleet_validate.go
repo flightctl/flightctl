@@ -103,14 +103,21 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting repository references: %s", status.Message)
 	}
+	holdFirmware := fleet.Spec.Template.Spec.Firmware != nil
 	if outcome == common.RepositoryRefsIncomplete {
 		refsErr := fmt.Errorf("firmware repository references of fleet %s are not known yet because its updater release is unavailable. Retryable validation error", *fleet.Metadata.Name)
 		if validationErr != nil {
 			refsErr = fmt.Errorf("%v; %w", validationErr, refsErr)
 		}
+		if holdFirmware {
+			return t.setFirmwareHoldStatus(ctx, refsErr)
+		}
 		return t.setStatus(ctx, refsErr)
 	}
 
+	if holdFirmware {
+		return t.setFirmwareHoldStatus(ctx, validationErr)
+	}
 	if validationErr != nil {
 		return t.setStatus(ctx, validationErr)
 	}
@@ -226,7 +233,31 @@ func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error)
 		condition.Reason = "Invalid"
 		condition.Message = validationErr.Error()
 	}
+	return t.setValidCondition(ctx, condition, validationErr)
+}
 
+// setFirmwareHoldStatus marks the fleet invalid because its template carries
+// firmware, which rendering does not support, so no template version is
+// created from it. validationErr, when set, is any other problem of the fleet;
+// it is included in the condition and returned so that it keeps its retry
+// semantics. A hold alone returns nil: the fleet is validated again when it
+// or one of its repositories changes.
+func (t *FleetValidateLogic) setFirmwareHoldStatus(ctx context.Context, validationErr error) error {
+	message := "The fleet template carries firmware, which device rendering does not support yet, so no template version is created from it."
+	if validationErr != nil {
+		message = fmt.Sprintf("%s %v", message, validationErr)
+	}
+	return t.setValidCondition(ctx, domain.Condition{
+		Type:    domain.ConditionTypeFleetValid,
+		Status:  domain.ConditionStatusFalse,
+		Reason:  domain.FleetValidReasonFirmwareRenderingUnsupported,
+		Message: message,
+	}, validationErr)
+}
+
+// setValidCondition writes the Valid condition of the fleet and returns
+// validationErr.
+func (t *FleetValidateLogic) setValidCondition(ctx context.Context, condition domain.Condition, validationErr error) error {
 	status := t.fleetSvc.UpdateFleetConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
