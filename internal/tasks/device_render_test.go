@@ -1878,3 +1878,53 @@ func TestRenderDevice_WhenTheRenderedWriteIsHeldForFirmwareItShouldNotRecordARen
 
 	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 }
+
+func TestRenderDevice_UnchangedSpecFirmwareHoldReconciliation(t *testing.T) {
+	outstanding := &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseStaging}}
+	terminal := &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseSucceeded}}
+	valid := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusTrue, Reason: "Valid"}
+	hold := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusUnknown, Reason: domain.DeviceSpecValidReasonFirmwareUnsupported}
+	tests := []struct {
+		name         string
+		firmware     *domain.FirmwareStatus
+		condition    domain.Condition
+		expectRender bool
+	}{
+		{name: "When the device needs a hold that is not recorded it should render the unchanged spec", firmware: outstanding, condition: valid, expectRender: true},
+		{name: "When the device carries a hold it no longer needs it should render the unchanged spec", firmware: terminal, condition: hold, expectRender: true},
+		{name: "When the device carries a hold and has no firmware state it should render the unchanged spec", condition: hold, expectRender: true},
+		{name: "When a needed hold is already recorded it should skip the unchanged spec", firmware: outstanding, condition: hold},
+		{name: "When a device without firmware state has a valid spec it should skip the unchanged spec", condition: valid},
+		{name: "When a device has only terminal attempt history and a valid spec it should skip the unchanged spec", firmware: terminal, condition: valid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const deviceName = "device-unchanged-spec"
+			orgId := uuid.New()
+			ctrl := gomock.NewController(t)
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/org/image:v1.0"}},
+				Status:   &domain.DeviceStatus{Firmware: tt.firmware, Conditions: []domain.Condition{tt.condition}},
+			}
+			device.Metadata.Annotations = &map[string]string{
+				domain.DeviceAnnotationRenderedSpecHash: hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage),
+				domain.DeviceAnnotationRenderedVersion:  "1",
+			}
+
+			// Without expectations, any call after GetDevice fails a test that
+			// expects the unchanged spec to be skipped.
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+			if tt.expectRender {
+				mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+				mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+			}
+
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonReferencedRepositoryUpdated, deviceName)
+			logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+			require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
+		})
+	}
+}

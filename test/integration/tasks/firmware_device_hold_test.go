@@ -328,6 +328,92 @@ var _ = Describe("Device firmware hold", func() {
 		})
 	})
 
+	Context("renders of an unchanged spec", func() {
+		renderFor := func(name string, reason api.EventReason) error {
+			event := api.Event{Reason: reason, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name}}
+			return tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStore, nil).RenderDevice(ctx, orgId, event)
+		}
+		// reportStatus writes the agent status of the device through the device
+		// service, reporting the rendered version it runs and firmware.
+		reportStatus := func(name string, firmware *api.FirmwareStatus) {
+			status := *getDevice(name).Status
+			status.Config.RenderedVersion = "1"
+			status.Firmware = firmware
+			status.Conditions = lo.Filter(status.Conditions, func(c api.Condition, _ int) bool { return !c.Type.IsServiceConditionType() })
+			_, result := deviceSvc.ReplaceDeviceStatus(ctx, orgId, name, api.Device{Metadata: api.ObjectMeta{Name: lo.ToPtr(name)}, Status: &status}, false)
+			Expect(result.Code).To(BeEquivalentTo(http.StatusOK), result.Message)
+		}
+		expectUpdated := func(name string, want api.DeviceUpdatedStatusType) {
+			Expect(getDevice(name).Status.Updated.Status).To(Equal(want))
+		}
+
+		It("When an outstanding attempt is reported on a rendered device and a render arrives for the unchanged spec it should record the hold", func() {
+			name := renderedDevice("same-hash-attempt")
+			reportStatus(name, nil)
+			expectUpdated(name, api.DeviceUpdatedStatusUpToDate)
+			reportStatus(name, holdFirmwareStatus(api.FirmwareAttemptPhaseStaging))
+			renderedBefore := renderedStateOf(name)
+
+			Expect(renderFor(name, api.EventReasonReferencedRepositoryUpdated)).To(Succeed())
+
+			after := getDevice(name)
+			expectHoldCondition(after)
+			expectUpdated(name, api.DeviceUpdatedStatusOutOfDate)
+			Expect(renderedStateOf(name)).To(Equal(renderedBefore))
+			Expect(after.Status.Firmware).To(Equal(holdFirmwareStatus(api.FirmwareAttemptPhaseStaging)))
+
+			By("rendering the unchanged spec again, nothing is written")
+			Expect(renderFor(name, api.EventReasonReferencedRepositoryUpdated)).To(Succeed())
+			Expect(getDevice(name).Metadata.ResourceVersion).To(Equal(after.Metadata.ResourceVersion))
+		})
+
+		It("When firmware is removed so the spec matches the last render and that render arrives it should mark the spec valid again", func() {
+			name := renderedDevice("same-hash-withdrawn")
+			reportStatus(name, nil)
+			changeSpec(deviceStore, name, func(spec *api.DeviceSpec) { spec.Firmware = holdFirmwareSpec("firmware-repo") })
+			Expect(renderDevice(name)).To(Succeed())
+			expectHoldCondition(getDevice(name))
+			renderedBefore := renderedStateOf(name)
+
+			_, status := deviceSvc.PatchDevice(ctx, orgId, name, api.PatchRequest{{Op: "remove", Path: "/spec/firmware"}}, false, false)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			Expect(renderDevice(name)).To(Succeed())
+
+			after := getDevice(name)
+			expectSpecValid(after)
+			expectUpdated(name, api.DeviceUpdatedStatusUpToDate)
+			Expect(renderedStateOf(name)).To(Equal(renderedBefore), "an unchanged spec renders nothing new")
+			Expect(after.Spec.Firmware).To(BeNil())
+		})
+
+		It("When an outstanding attempt ends and a render arrives for the unchanged spec it should mark the spec valid again", func() {
+			name := renderedDevice("same-hash-ended")
+			reportStatus(name, nil)
+			reportStatus(name, holdFirmwareStatus(api.FirmwareAttemptPhaseVerifying))
+			Expect(renderFor(name, api.EventReasonDependencyChangeDetected)).To(Succeed())
+			expectHoldCondition(getDevice(name))
+			renderedBefore := renderedStateOf(name)
+
+			reportStatus(name, holdFirmwareStatus(api.FirmwareAttemptPhaseSucceeded))
+			Expect(renderFor(name, api.EventReasonReferencedRepositoryUpdated)).To(Succeed())
+
+			after := getDevice(name)
+			expectSpecValid(after)
+			expectUpdated(name, api.DeviceUpdatedStatusUpToDate)
+			Expect(renderedStateOf(name)).To(Equal(renderedBefore))
+			Expect(after.Status.Firmware).To(Equal(holdFirmwareStatus(api.FirmwareAttemptPhaseSucceeded)))
+		})
+
+		It("When a device without firmware state gets a render for the unchanged spec it should skip it as before", func() {
+			name := renderedDevice("same-hash-plain")
+			before := getDevice(name)
+
+			Expect(renderFor(name, api.EventReasonReferencedRepositoryUpdated)).To(Succeed())
+
+			Expect(getDevice(name).Metadata.ResourceVersion).To(Equal(before.Metadata.ResourceVersion))
+		})
+	})
+
 	Context("rendered write races", func() {
 		updateRendered := func(name, specHash string) api.Status {
 			return deviceSvc.UpdateRenderedDevice(ctx, orgId, name, "[]", "[]", specHash, "", nil, false, nil)
