@@ -115,6 +115,36 @@ func firmwareStatusDocument(attemptID string, phase api.FirmwareAttemptPhase, ob
 	return value
 }
 
+// fullFirmwareStatusJSON sets every reported firmware field, with an
+// attempt pinned to the release whose retained schema defines the budgets
+// that its errors name.
+const fullFirmwareStatusJSON = `{
+  "support": {"apiVersion": 1, "supported": true, "profile": "orin-example-profile", "profileRevision": "rev-7",
+    "updaters": [{"name": "nvidia-orin", "version": "0.1.0", "buildDigest": "` + statusDigest + `", "protocol": 1,
+      "schemaDigest": "` + observationSchemaDigest + `", "cached": true}]},
+  "attempt": {
+    "id": "attempt-1", "renderedVersion": "1", "specHash": "` + statusDigest + `", "retryGeneration": 2,
+    "updater": {"name": "nvidia-orin", "version": "0.1.0", "buildDigest": "` + statusDigest + `", "protocol": 1,
+      "schemaDigest": "` + observationSchemaDigest + `", "configDigest": "` + statusDigest + `", "manifestDigest": "` + statusDigest + `"},
+    "phase": "Staging", "startedAt": "2026-11-09T10:00:00Z", "updatedAt": "2026-11-09T10:05:00Z", "changed": true,
+    "error": {"reason": "ResourceLimitExceeded", "message": "artifact too large", "retryable": false,
+      "exceededBudget": "maxArtifactBytes", "phase": "Staging", "component": "system"},
+    "recovery": [{"code": "ConnectConsole", "message": "Connect a serial console", "requiresPhysicalAccess": true,
+      "documentationURL": "https://docs.example.com/firmware/recovery"}]
+  },
+  "components": [{
+    "name": "system", "type": "firmware", "managed": true, "state": "Pending",
+    "selected": {"source": {"kind": "http", "identity": "firmware-artifacts/system.cap", "digest": "` + statusDigest + `"}, "version": "36.4.4"},
+    "actual": {"version": "36.4.3", "rawVersion": "0x0024000403", "active": true},
+    "observation": {"producerIdentity": "esrt", "backend": {"updater": "nvidia-orin", "schemaDigest": "` + observationSchemaDigest + `",
+      "data": {"dmiVersion": "36.4.4", "esrt": {"resourceGuid": "00000000-0000-4000-8000-000000000001", "lastAttemptStatus": 0}}}},
+    "error": {"reason": "ResourceLimitExceeded", "message": "operation timed out", "retryable": true, "exceededBudget": "operationTimeoutSeconds"},
+    "observedAt": "2026-11-09T10:05:00Z", "bootID": "boot-1"
+  }],
+  "observedAt": "2026-11-09T10:05:00Z",
+  "bootID": "boot-1"
+}`
+
 func firmwareStatusOf(document map[string]any) *api.FirmwareStatus {
 	raw, err := json.Marshal(document)
 	Expect(err).ToNot(HaveOccurred())
@@ -625,6 +655,40 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 				Expect(firmware.Components[0].Observation.Backend.Data).To(HaveKey("esrt"))
 				Expect(lo.FromPtr(firmware.Components[0].Error.ExceededBudget)).To(Equal("maxFmpItems"))
 				Expect(firmware.Components[0].Error.Reason).To(Equal("ResourceLimitExceeded"))
+				Expect(evidence.releaseLookups.Load()).To(BeZero())
+			})
+		}
+
+		for _, route := range []string{"user", "agent"} {
+			target := func() *httptest.Server {
+				if route == "agent" {
+					return agentServer
+				}
+				return userServer
+			}
+
+			It("When the "+route+" route reports a firmware status with every field it should read it back unchanged", func() {
+				var document map[string]any
+				Expect(json.Unmarshal([]byte(fullFirmwareStatusJSON), &document)).To(Succeed())
+
+				By("rejecting an unknown key in the observation object before decoding")
+				var unknown map[string]any
+				Expect(json.Unmarshal([]byte(fullFirmwareStatusJSON), &unknown)).To(Succeed())
+				unknown["components"].([]any)[0].(map[string]any)["observation"].(map[string]any)["flash"] = true
+				code, body := send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(unknown))
+				Expect(code).To(Equal(http.StatusBadRequest), body)
+				Expect(body).To(ContainSubstring("flash"))
+				Expect(stored().Status.Firmware).To(BeNil())
+
+				By("storing every reported field")
+				code, body = send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(document))
+				Expect(code).To(Equal(http.StatusOK), body)
+
+				code, body = send(userServer, http.MethodGet, "/devices/"+deviceName+"/status", "")
+				Expect(code).To(Equal(http.StatusOK), body)
+				var read map[string]any
+				Expect(json.Unmarshal([]byte(body), &read)).To(Succeed())
+				Expect(read["status"].(map[string]any)["firmware"]).To(Equal(document))
 				Expect(evidence.releaseLookups.Load()).To(BeZero())
 			})
 		}
