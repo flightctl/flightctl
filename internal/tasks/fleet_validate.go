@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -19,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -93,13 +95,20 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	fingerprint := t.getFingerprint()
 	templateVersionName := generateTemplateVersionName(fleet, fingerprint)
 	t.templateConfig = fleet.Spec.Template.Spec.Config
-	referencedRepos, validationErr := t.validateConfig(ctx)
+	validationErr := t.validateConfig(ctx)
 
 	// Set the many-to-many relationship with the repos (we do this even if the validation failed so that we will
 	// validate the fleet again if the repository is updated, and then it might be fixed).
-	status = t.fleetSvc.OverwriteFleetRepositoryRefs(ctx, t.orgId, *fleet.Metadata.Name, referencedRepos...)
+	outcome, status := t.fleetSvc.ReplaceFleetRepositoryRefsIfCurrent(ctx, t.orgId, *fleet.Metadata.Name, lo.FromPtr(fleet.Metadata.Generation), &fleet.Spec.Template.Spec)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting repository references: %s", status.Message)
+	}
+	if outcome == common.RepositoryRefsIncomplete {
+		refsErr := fmt.Errorf("firmware repository references of fleet %s are not known yet because its updater release is unavailable. Retryable validation error", *fleet.Metadata.Name)
+		if validationErr != nil {
+			refsErr = fmt.Errorf("%v; %w", validationErr, refsErr)
+		}
+		return t.setStatus(ctx, refsErr)
 	}
 
 	if validationErr != nil {
@@ -236,23 +245,18 @@ func (t *FleetValidateLogic) setValidStatusAndReturnError(ctx context.Context, o
 	return errors.Join(operationErr, t.setStatus(ctx, nil))
 }
 
-func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, error) {
+func (t *FleetValidateLogic) validateConfig(ctx context.Context) error {
 	if t.templateConfig == nil {
-		return nil, nil
+		return nil
 	}
 
 	invalidConfigs := []string{}
-	referencedRepos := []string{}
 	var firstError error
 	var retryableError error
 	allErrorsInvalid := true
 	for i := range *t.templateConfig {
 		configItem := (*t.templateConfig)[i]
-		name, repoName, err := t.validateConfigItem(ctx, &configItem)
-
-		if repoName != nil {
-			referencedRepos = append(referencedRepos, *repoName)
-		}
+		name, _, err := t.validateConfigItem(ctx, &configItem)
 
 		if err != nil {
 			invalidConfigs = append(invalidConfigs, util.DefaultIfNil(name, "<unknown>"))
@@ -277,12 +281,12 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 		}
 		validationErr := fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
 		if allErrorsInvalid {
-			return referencedRepos, newInvalidFleetConfigError(validationErr)
+			return newInvalidFleetConfigError(validationErr)
 		}
-		return referencedRepos, fmt.Errorf("%v. Retryable validation error: %w", validationErr, retryableError)
+		return fmt.Errorf("%v. Retryable validation error: %w", validationErr, retryableError)
 	}
 
-	return referencedRepos, nil
+	return nil
 }
 
 func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *domain.ConfigProviderSpec) (*string, *string, error) {

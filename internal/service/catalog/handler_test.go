@@ -129,6 +129,9 @@ func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uu
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) ReplaceRepositoryRefsIfCurrent(context.Context, uuid.UUID, string, int64, ...string) (bool, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
 	panic("not implemented")
 }
@@ -260,6 +263,9 @@ func (f *fakeFleetStore) UnsetOwner(context.Context, *gorm.DB, uuid.UUID, string
 	panic("not implemented")
 }
 func (f *fakeFleetStore) UnsetOwnerByKind(context.Context, *gorm.DB, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) ReplaceRepositoryRefsIfCurrent(context.Context, uuid.UUID, string, int64, ...string) (bool, error) {
 	panic("not implemented")
 }
 func (f *fakeFleetStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {

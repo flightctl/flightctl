@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	common "github.com/flightctl/flightctl/internal/service/common"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"
@@ -355,25 +356,6 @@ func (mr *MockServiceMockRecorder) OverrideDeviceEnrollmentHook(ctx, orgId, name
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverrideDeviceEnrollmentHook", reflect.TypeOf((*MockService)(nil).OverrideDeviceEnrollmentHook), ctx, orgId, name)
 }
 
-// OverwriteDeviceRepositoryRefs mocks base method.
-func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name}
-	for _, a := range repositoryNames {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "OverwriteDeviceRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// OverwriteDeviceRepositoryRefs indicates an expected call of OverwriteDeviceRepositoryRefs.
-func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, name any, repositoryNames ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name}, repositoryNames...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteDeviceRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteDeviceRepositoryRefs), varargs...)
-}
-
 // PatchDevice mocks base method.
 func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
@@ -417,6 +399,21 @@ func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name s
 func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
+}
+
+// ReplaceDeviceRepositoryRefsIfCurrent mocks base method.
+func (m *MockService) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceDeviceRepositoryRefsIfCurrent", ctx, orgId, name, generation, spec)
+	ret0, _ := ret[0].(common.RepositoryRefsOutcome)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceDeviceRepositoryRefsIfCurrent indicates an expected call of ReplaceDeviceRepositoryRefsIfCurrent.
+func (mr *MockServiceMockRecorder) ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, name, generation, spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceRepositoryRefsIfCurrent", reflect.TypeOf((*MockService)(nil).ReplaceDeviceRepositoryRefsIfCurrent), ctx, orgId, name, generation, spec)
 }
 
 // ReplaceDeviceSpec mocks base method.

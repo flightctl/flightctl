@@ -94,6 +94,9 @@ func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
 }
+func (m *MockDevice) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	return false, nil
+}
 func (m *MockDevice) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
 }

@@ -92,6 +92,7 @@ type Store interface {
 	// Used internally
 	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
+	ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error)
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
@@ -191,6 +192,11 @@ type DeviceMutation struct {
 	// PreserveGeneration keeps metadata.generation unchanged on PersistUpdate
 	// even when Spec changes (e.g. decommission historically did not bump it).
 	PreserveGeneration bool
+	// RepositoryRefs, when set, replaces the device's repository references
+	// with exactly these names in the same transaction as the device write,
+	// so neither commits without the other. An empty slice removes every
+	// reference; nil leaves the references unchanged.
+	RepositoryRefs *[]string
 }
 
 func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
@@ -199,6 +205,10 @@ func (m *DeviceMutation) SetResource(device *domain.Device) { m.Device = device 
 
 func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) {
 	out := &DeviceMutation{PreserveGeneration: m.PreserveGeneration}
+	if m.RepositoryRefs != nil {
+		refs := append([]string{}, (*m.RepositoryRefs)...)
+		out.RepositoryRefs = &refs
+	}
 	if m.Device != nil {
 		cloned, err := store.CloneJSON(m.Device)
 		if err != nil {
@@ -385,6 +395,16 @@ func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
 
 func (s *DeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return store.WithTransaction(ctx, s.dbHandler, fn)
+}
+
+// inMutationTransaction runs one mutation attempt in its own transaction, or
+// in the transaction ctx already carries, so that a failed attempt rolls back
+// every write it made.
+func (s *DeviceStore) inMutationTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	if store.InTransaction(ctx) {
+		return fn(ctx)
+	}
+	return s.WithTransaction(ctx, fn)
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c store.IntegrationTestCallback) {
@@ -720,11 +740,40 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Device]) (*domain.Device, error) {
 			dm := m.(*DeviceMutation)
-			return s.Create(ctx, orgId, dm.Device, dm.Rendered)
+			if dm.RepositoryRefs == nil {
+				return s.Create(ctx, orgId, dm.Device, dm.Rendered)
+			}
+			var created *domain.Device
+			err := s.inMutationTransaction(ctx, func(txCtx context.Context) error {
+				var createErr error
+				if created, createErr = s.Create(txCtx, orgId, dm.Device, dm.Rendered); createErr != nil {
+					return createErr
+				}
+				return replaceDeviceRepositoryRefs(s.getDB(txCtx), orgId, name, *dm.RepositoryRefs)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return created, nil
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
+			if dm.RepositoryRefs == nil {
+				return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
+			}
+			retry := false
+			err := s.inMutationTransaction(ctx, func(txCtx context.Context) error {
+				var updateErr error
+				if retry, updateErr = s.update(txCtx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg); updateErr != nil {
+					return updateErr
+				}
+				if refsErr := replaceDeviceRepositoryRefs(s.getDB(txCtx), orgId, name, *dm.RepositoryRefs); refsErr != nil {
+					retry = strings.Contains(refsErr.Error(), "deadlock")
+					return refsErr
+				}
+				return nil
+			})
+			return retry, err
 		},
 	}
 	if cfg.withTimestamp {
@@ -1694,17 +1743,57 @@ func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name str
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
-	repos := []model.Repository{}
+	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
+		return replaceDeviceRepositoryRefs(innerTx, orgId, name, repositoryNames)
+	})
+}
+
+// ReplaceRepositoryRefsIfCurrent replaces the repository references of a
+// standalone device with exactly the given names, but only while the device
+// still has the given generation. It locks the device row and checks the
+// generation and owner in the same transaction as the replacement, joining a
+// transaction already carried by ctx, so a writer that read an older version
+// of the device, or a device that a fleet now owns, leaves the references
+// untouched and gets applied=false.
+func (s *DeviceStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	applied := false
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		var current struct {
+			Generation *int64
+			Owner      *string
+		}
+		result := tx.Raw(`SELECT generation, owner FROM devices WHERE org_id = ? AND name = ? AND deleted_at IS NULL FOR UPDATE`, orgId, name).Scan(&current)
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return flterrors.ErrResourceNotFound
+		}
+		if lo.FromPtr(current.Generation) != generation || lo.FromPtr(current.Owner) != "" {
+			return nil
+		}
+		if err := replaceDeviceRepositoryRefs(tx, orgId, name, repositoryNames); err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// replaceDeviceRepositoryRefs makes db's device_repos rows for the device
+// match exactly repositoryNames. Names without a Repository yet get a
+// placeholder repository row, as references always have.
+func replaceDeviceRepositoryRefs(db *gorm.DB, orgId uuid.UUID, name string, repositoryNames []string) error {
+	repos := make([]model.Repository, 0, len(repositoryNames))
 	for _, repoName := range repositoryNames {
 		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
 	}
-	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
-		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
-			return store.ErrorFromGormError(err)
-		}
-		return nil
-	})
+	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	if err := db.Model(&device).Association("Repositories").Replace(repos); err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	return nil
 }
 
 func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {

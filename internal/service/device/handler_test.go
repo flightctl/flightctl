@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -9,11 +10,13 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -527,39 +530,149 @@ func TestPatchDeviceStatus(t *testing.T) {
 	})
 }
 
-// TestDeviceRepositoryRefs directly exercises AC-2: GetDeviceRepositoryRefs and
-// OverwriteDeviceRepositoryRefs must be present on device.Service and must delegate to (and
-// translate errors from) the Device store's own repository-association methods, with no
-// separate repositorystore.Store dependency.
-func TestDeviceRepositoryRefs(t *testing.T) {
-	t.Run("When overwriting refs for a nonexistent device it should return not found", func(t *testing.T) {
-		_, _, svc := newTestHandler()
-		ctx := context.Background()
-		orgId := uuid.New()
-		status := svc.OverwriteDeviceRepositoryRefs(ctx, orgId, "missing", "repo1")
-		require.Equal(t, int32(http.StatusNotFound), status.Code)
-	})
+// stubFirmwareDescriptors is a test stub of the approved descriptor
+// provider that serves one release.
+type stubFirmwareDescriptors struct {
+	descriptor *common.ApprovedDescriptor
+	err        error
+}
 
-	t.Run("When overwriting and then reading refs it should round-trip", func(t *testing.T) {
-		st, _, svc := newTestHandler()
-		ctx := context.Background()
-		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+func (s stubFirmwareDescriptors) LookupRelease(context.Context, string, string) (*common.ApprovedDescriptor, error) {
+	return s.descriptor, s.err
+}
+
+func (s stubFirmwareDescriptors) LookupSchemaByDigest(context.Context, string, string) (*common.RetainedSchemaEvidence, error) {
+	return nil, common.ErrApprovedDescriptorsUnavailable
+}
+
+const testRefsFirmwareJSON = `{
+  "profile": "orin-example-profile",
+  "updater": {"name": "nvidia-orin", "version": "0.1.0", "config": {
+    "releases": [{"artifact": {"source": {"repository": "firmware-artifacts"}}}],
+    "overlays": [{"artifact": {"authentication": {"signature": {"source": {"repository": "firmware-signatures"}}}}}]
+  }},
+  "components": [{"name": "system", "version": {"latest": true}}],
+  "overlays": []
+}`
+
+func testRefsSpec(t *testing.T, withFirmware bool) *domain.DeviceSpec {
+	t.Helper()
+	var config []domain.ConfigProviderSpec
+	require.NoError(t, json.Unmarshal([]byte(`[{"name": "git", "gitRef": {"repository": "firmware-artifacts", "targetRevision": "main", "path": "/etc"}},
+		{"name": "http", "httpRef": {"repository": "config-http", "filePath": "/etc/http.conf"}}]`), &config))
+	spec := &domain.DeviceSpec{Config: &config}
+	if withFirmware {
+		var firmware domain.FirmwareSpec
+		require.NoError(t, json.Unmarshal([]byte(testRefsFirmwareJSON), &firmware))
+		spec.Firmware = &firmware
+	}
+	return spec
+}
+
+func testRefsDescriptor() *common.ApprovedDescriptor {
+	return &common.ApprovedDescriptor{
+		Name: "nvidia-orin", Version: "0.1.0", Approved: true,
+		ConfigSchema: json.RawMessage(`{"type": "object"}`),
+		ReferencePaths: []common.FirmwareReferencePath{
+			{Path: "releases[].artifact.source.repository", Kind: common.FirmwareReferenceArtifact},
+			{Path: "overlays[].artifact.authentication.signature.source.repository", Kind: common.FirmwareReferenceSignature},
+		},
+	}
+}
+
+func TestReplaceDeviceRepositoryRefsIfCurrent(t *testing.T) {
+	ctx := context.Background()
+	newDevice := func(t *testing.T, st *fakeStore, orgId uuid.UUID, owner *string) int64 {
+		device, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo"), Owner: owner}}, nil)
 		require.NoError(t, err)
-
-		status := svc.OverwriteDeviceRepositoryRefs(ctx, orgId, "foo", "repo1", "repo2")
-		require.Equal(t, int32(http.StatusOK), status.Code)
-
+		return lo.FromPtr(device.Metadata.Generation)
+	}
+	refNames := func(t *testing.T, svc Service, orgId uuid.UUID) []string {
 		refs, status := svc.GetDeviceRepositoryRefs(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusOK), status.Code)
-		require.Len(t, refs.Items, 2)
+		return lo.Map(refs.Items, func(r domain.Repository, _ int) string { return lo.FromPtr(r.Metadata.Name) })
+	}
+
+	t.Run("When the device has no firmware it should store the configuration references", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, nil)
+
+		outcome, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, false))
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsReplaced, outcome)
+		assert.Equal(t, []string{"config-http", "firmware-artifacts"}, refNames(t, svc, orgId))
+	})
+
+	t.Run("When the device has firmware and its release is known it should store configuration and firmware references", func(t *testing.T) {
+		st, ev, _ := newTestHandler()
+		svc := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, nil, "agent.example.com", logrus.New(),
+			WithApprovedDescriptorProvider(stubFirmwareDescriptors{descriptor: testRefsDescriptor()}))
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, nil)
+
+		outcome, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, true))
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsReplaced, outcome)
+		assert.Equal(t, []string{"config-http", "firmware-artifacts", "firmware-signatures"}, refNames(t, svc, orgId))
+	})
+
+	t.Run("When firmware references cannot be known it should leave the stored references unchanged", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, nil)
+		_, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, false))
+		require.Equal(t, int32(http.StatusOK), status.Code)
+
+		outcome, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, true))
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsIncomplete, outcome)
+		assert.Equal(t, []string{"config-http", "firmware-artifacts"}, refNames(t, svc, orgId))
+	})
+
+	t.Run("When the snapshot generation is stale it should leave the stored references unchanged", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, nil)
+
+		outcome, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation+1, testRefsSpec(t, false))
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsStale, outcome)
+		assert.Empty(t, refNames(t, svc, orgId))
+	})
+
+	t.Run("When the device is owned by a fleet it should not store references", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, lo.ToPtr("Fleet/f"))
+
+		outcome, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, false))
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsStale, outcome)
+		assert.Empty(t, refNames(t, svc, orgId))
+	})
+
+	t.Run("When the release lookup fails it should report an internal error and leave the references unchanged", func(t *testing.T) {
+		st, ev, _ := newTestHandler()
+		svc := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, nil, "agent.example.com", logrus.New(),
+			WithApprovedDescriptorProvider(stubFirmwareDescriptors{err: errors.New("descriptor backend timeout")}))
+		orgId := uuid.New()
+		generation := newDevice(t, st, orgId, nil)
+
+		_, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, "foo", generation, testRefsSpec(t, true))
+		assert.Equal(t, int32(http.StatusInternalServerError), status.Code)
+		assert.Empty(t, refNames(t, svc, orgId))
+	})
+
+	t.Run("When the device does not exist it should return not found", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		_, status := svc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, uuid.New(), "missing", 1, testRefsSpec(t, false))
+		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 
 	t.Run("When reading refs for a nonexistent device it should return not found", func(t *testing.T) {
 		_, _, svc := newTestHandler()
-		ctx := context.Background()
-		orgId := uuid.New()
-		_, status := svc.GetDeviceRepositoryRefs(ctx, orgId, "missing")
+		_, status := svc.GetDeviceRepositoryRefs(ctx, uuid.New(), "missing")
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 }

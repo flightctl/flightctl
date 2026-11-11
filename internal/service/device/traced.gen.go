@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -223,14 +224,6 @@ func (_d *TracedDeviceService) OverrideDeviceEnrollmentHook(ctx context.Context,
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) (s1 domain.Status) {
-	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
-
-	s1 = _d.inner.OverwriteDeviceRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	endSpan(span, s1)
-	return s1
-}
-
 func (_d *TracedDeviceService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchDevice")
 
@@ -253,6 +246,14 @@ func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	dp1, s1 = _d.inner.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 	endSpan(span, s1)
 	return dp1, s1
+}
+
+func (_d *TracedDeviceService) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (r1 common.RepositoryRefsOutcome, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceDeviceRepositoryRefsIfCurrent")
+
+	r1, s1 = _d.inner.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, name, generation, spec)
+	endSpan(span, s1)
+	return r1, s1
 }
 
 func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (dp1 *domain.Device, s1 domain.Status) {

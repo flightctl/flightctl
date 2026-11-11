@@ -233,6 +233,18 @@ func (s *fakeDeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uui
 	return nil
 }
 
+func (s *fakeDeviceStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	device, ok := s.devices[name]
+	if !ok {
+		return false, flterrors.ErrResourceNotFound
+	}
+	if lo.FromPtr(device.Metadata.Generation) != generation || lo.FromPtr(device.Metadata.Owner) != "" {
+		return false, nil
+	}
+	s.repoRefs[name] = append([]string{}, repositoryNames...)
+	return true, nil
+}
+
 func (s *fakeDeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
 	if _, ok := s.devices[name]; !ok {
 		return nil, flterrors.ErrResourceNotFound
