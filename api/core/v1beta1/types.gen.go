@@ -2494,7 +2494,7 @@ type FirmwareAttemptUpdater struct {
 	Version string `json:"version"`
 }
 
-// FirmwareBudgetKey Name of the resource budget that a limit-exceeded failure exceeded. The updater release defines the valid budget names.
+// FirmwareBudgetKey Name of the resource budget that a ResourceLimitExceeded failure exceeded. It is required when the reason is ResourceLimitExceeded and must be absent for every other reason. The updater release defines the valid budget names.
 type FirmwareBudgetKey = string
 
 // FirmwareCancellationReason Reason a firmware attempt was canceled. It is required when the attempt phase is Canceled.
@@ -2556,7 +2556,7 @@ type FirmwareError struct {
 	// Component Name of the affected firmware component or overlay, when known.
 	Component *string `json:"component,omitempty"`
 
-	// ExceededBudget Name of the resource budget that a limit-exceeded failure exceeded. The updater release defines the valid budget names.
+	// ExceededBudget Name of the resource budget that a ResourceLimitExceeded failure exceeded. It is required when the reason is ResourceLimitExceeded and must be absent for every other reason. The updater release defines the valid budget names.
 	ExceededBudget *FirmwareBudgetKey `json:"exceededBudget,omitempty"`
 
 	// Message Human-readable description of the failure.
@@ -2565,7 +2565,7 @@ type FirmwareError struct {
 	// Phase Attempt phase in which the failure occurred.
 	Phase *string `json:"phase,omitempty"`
 
-	// Reason Machine-readable reason for the failure.
+	// Reason Machine-readable reason for the failure. ResourceLimitExceeded is the reason for every failure caused by exceeding a resource budget of the updater release, and such an error must name the budget in exceededBudget.
 	Reason string `json:"reason"`
 
 	// Retryable Whether the agent retries preparation automatically. It does not permit retrying activation.

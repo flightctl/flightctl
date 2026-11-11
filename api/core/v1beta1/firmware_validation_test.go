@@ -664,6 +664,55 @@ func TestFirmwareStatusValidate(t *testing.T) {
 	}
 }
 
+func TestFirmwareStatusValidateExceededBudgetPresence(t *testing.T) {
+	type location struct {
+		name  string
+		path  string
+		error func(s *FirmwareStatus) *FirmwareError
+	}
+	locations := []location{
+		{name: "attempt", path: "status.firmware.attempt.error.exceededBudget", error: func(s *FirmwareStatus) *FirmwareError { return s.Attempt.Error }},
+		{name: "component", path: "status.firmware.components[0].error.exceededBudget", error: func(s *FirmwareStatus) *FirmwareError { return s.Components[0].Error }},
+	}
+	tests := []struct {
+		name    string
+		reason  string
+		budget  *string
+		wantErr string
+	}{
+		{name: "a limit failure that names its budget", reason: FirmwareErrorReasonResourceLimitExceeded, budget: lo.ToPtr("maxArtifactBytes")},
+		{name: "a limit failure without a budget", reason: FirmwareErrorReasonResourceLimitExceeded, wantErr: "Required value"},
+		{name: "a limit failure with an empty budget", reason: FirmwareErrorReasonResourceLimitExceeded, budget: lo.ToPtr(""), wantErr: "Required value"},
+		{name: "an unauthenticated artifact failure that names a budget", reason: "ArtifactUnauthenticated", budget: lo.ToPtr("maxArtifactBytes"), wantErr: "Forbidden"},
+		{name: "a digest mismatch that names a budget", reason: "ArtifactDigestMismatch", budget: lo.ToPtr("maxArtifactBytes"), wantErr: "Forbidden"},
+		{name: "a failure with another reason that names an unknown budget", reason: "StagingFailed", budget: lo.ToPtr("noSuchBudget"), wantErr: "Forbidden"},
+		{name: "a failure with another reason and an empty budget", reason: "ArtifactUnauthenticated", budget: lo.ToPtr(""), wantErr: "Forbidden"},
+		{name: "an unauthenticated artifact failure without a budget", reason: "ArtifactUnauthenticated"},
+		{name: "a failure with an unlisted reason and no budget", reason: "VendorSpecificFailure"},
+	}
+	for _, loc := range locations {
+		for _, tt := range tests {
+			outcome := "it should pass"
+			if tt.wantErr != "" {
+				outcome = "it should reject the exceeded budget"
+			}
+			t.Run("When the "+loc.name+" reports "+tt.name+" "+outcome, func(t *testing.T) {
+				status := newTestFirmwareStatus(t)
+				status.Attempt.Error = &FirmwareError{Reason: "StagingFailed", Message: "staging failed", Retryable: false}
+				status.Components[0].Error = &FirmwareError{Reason: "ArtifactDigestMismatch", Message: "digest mismatch", Retryable: false}
+				firmwareErr := loc.error(&status)
+				firmwareErr.Reason = tt.reason
+				firmwareErr.ExceededBudget = tt.budget
+				if tt.wantErr == "" {
+					requireFirmwareErrors(t, status.Validate(), nil)
+					return
+				}
+				requireFirmwareErrors(t, status.Validate(), []string{loc.path + ": " + tt.wantErr})
+			})
+		}
+	}
+}
+
 func TestFirmwareStatusValidateAcceptsEveryEnumValue(t *testing.T) {
 	phases := []FirmwareAttemptPhase{
 		FirmwareAttemptPhasePreparing, FirmwareAttemptPhaseWaitingForPolicy, FirmwareAttemptPhaseStaging,

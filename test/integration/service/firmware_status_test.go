@@ -223,8 +223,14 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 				"status.firmware.components[0].observation.backend.schemaDigest": func(document map[string]any) {
 					document["components"].([]any)[0].(map[string]any)["observation"].(map[string]any)["backend"].(map[string]any)["schemaDigest"] = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 				},
-				"status.firmware.attempt.error.exceededBudget": func(document map[string]any) {
-					document["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ArtifactUnauthenticated", "message": "limit", "retryable": false, "exceededBudget": "maxCapsuleCount"}
+				"status.firmware.attempt.error.exceededBudget: Unsupported value": func(document map[string]any) {
+					document["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ResourceLimitExceeded", "message": "limit", "retryable": false, "exceededBudget": "maxCapsuleCount"}
+				},
+				"status.firmware.attempt.error.exceededBudget: Required value": func(document map[string]any) {
+					document["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ResourceLimitExceeded", "message": "limit", "retryable": false}
+				},
+				"status.firmware.attempt.error.exceededBudget: Forbidden": func(document map[string]any) {
+					document["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ArtifactUnauthenticated", "message": "limit", "retryable": false, "exceededBudget": "maxArtifactBytes"}
 				},
 			}
 			for wantPath, mutate := range cases {
@@ -239,6 +245,30 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 				Expect(after.Status).To(Equal(before.Status), wantPath)
 				Expect(after.Metadata.ResourceVersion).To(Equal(before.Metadata.ResourceVersion), wantPath)
 			}
+		})
+
+		It("When an older stored error names a budget for another reason it should keep it on omitting and untouched writes", func() {
+			older := firmwareStatusOf(firmwareStatusDocument("attempt-1", api.FirmwareAttemptPhaseStaging, observationSchemaDigest))
+			older.Attempt.Error = &api.FirmwareError{Reason: "ArtifactUnauthenticated", Message: "the capsule exceeds the parser size budget", ExceededBudget: lo.ToPtr("maxArtifactBytes")}
+			// Written below the service, as a producer could have reported it before
+			// ResourceLimitExceeded was required.
+			seeded := stored()
+			seeded.Status.Firmware = older
+			_, _, err := devicestore.NewDeviceStore(suite.DB, suite.Log).UpdateStatus(ctx, orgId, seeded, nil)
+			Expect(err).ToNot(HaveOccurred())
+			before := stored()
+			lookupsBefore := evidence.schemaLookups.Load()
+
+			_, status := deviceSvc.ReplaceDeviceStatus(ctx, orgId, deviceName, statusWrite(nil, "quay.io/example/os:2"), true)
+			Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
+			Expect(stored().Status.Firmware).To(Equal(before.Status.Firmware))
+
+			_, status = deviceSvc.PatchDeviceStatus(ctx, orgId, deviceName, api.PatchRequest{{Op: "replace", Path: "/status/os/image", Value: "quay.io/example/os:3"}}, true)
+			Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
+			after := stored()
+			Expect(after.Status.Firmware).To(Equal(before.Status.Firmware))
+			Expect(after.Status.Os.Image).To(Equal("quay.io/example/os:3"))
+			Expect(evidence.schemaLookups.Load()).To(Equal(lookupsBefore))
 		})
 
 		It("When a status write omits the firmware status it should keep the outstanding attempt", func() {
@@ -448,6 +478,22 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 				By("rejecting a null firmware status")
 				code, body = send(target(), http.MethodPut, "/devices/"+deviceName+"/status", strings.Replace(mustJSON(statusBody(nil)), `"os":`, `"firmware": null, "os":`, 1))
 				Expect(code).To(Equal(http.StatusBadRequest), body)
+
+				By("rejecting a limit error that names no budget")
+				noBudget := firmwareStatusDocument("attempt-1", api.FirmwareAttemptPhaseStaging, observationSchemaDigest)
+				noBudget["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ResourceLimitExceeded", "message": "limit", "retryable": false}
+				code, body = send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(noBudget))
+				Expect(code).To(Equal(http.StatusBadRequest), body)
+				Expect(body).To(ContainSubstring("status.firmware.attempt.error.exceededBudget: Required value"))
+				Expect(stored().Status.Firmware).To(BeNil())
+
+				By("rejecting a budget named by an error with another reason")
+				otherReason := firmwareStatusDocument("attempt-1", api.FirmwareAttemptPhaseStaging, observationSchemaDigest)
+				otherReason["attempt"].(map[string]any)["error"] = map[string]any{"reason": "ArtifactDigestMismatch", "message": "digest mismatch", "retryable": false, "exceededBudget": "maxArtifactBytes"}
+				code, body = send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(otherReason))
+				Expect(code).To(Equal(http.StatusBadRequest), body)
+				Expect(body).To(ContainSubstring("status.firmware.attempt.error.exceededBudget: Forbidden"))
+				Expect(stored().Status.Firmware).To(BeNil())
 
 				By("storing a valid firmware status with every observation key")
 				code, body = send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(firmwareStatusDocument("attempt-1", api.FirmwareAttemptPhaseStaging, observationSchemaDigest)))

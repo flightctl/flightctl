@@ -9,6 +9,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
+// FirmwareErrorReasonResourceLimitExceeded is the reason of a firmware error
+// that reports an exceeded resource budget.
+const FirmwareErrorReasonResourceLimitExceeded = "ResourceLimitExceeded"
+
 const (
 	firmwareStandaloneTemplateDetail = "template parameters are only supported in fleet templates"
 	firmwareFixedFieldTemplateDetail = "template parameters are not supported in this field"
@@ -283,6 +287,10 @@ func validateFirmwareAttempt(attempt FirmwareAttemptStatus, path *field.Path) []
 	return errs
 }
 
+// validateFirmwareError checks the required fields of a firmware error and
+// that it names an exceeded budget exactly when its reason is
+// ResourceLimitExceeded. Whether the named budget exists depends on the
+// updater release and is checked by the service.
 func validateFirmwareError(firmwareErr FirmwareError, path *field.Path) []error {
 	var errs []error
 	if firmwareErr.Reason == "" {
@@ -290,6 +298,15 @@ func validateFirmwareError(firmwareErr FirmwareError, path *field.Path) []error 
 	}
 	if firmwareErr.Message == "" {
 		errs = append(errs, field.Required(path.Child("message"), ""))
+	}
+	budgetPath := path.Child("exceededBudget")
+	switch {
+	case firmwareErr.Reason == "":
+		// Without a reason, the budget rule cannot apply; the missing reason is reported above.
+	case firmwareErr.Reason == FirmwareErrorReasonResourceLimitExceeded && lo.FromPtr(firmwareErr.ExceededBudget) == "":
+		errs = append(errs, field.Required(budgetPath, "a "+FirmwareErrorReasonResourceLimitExceeded+" error must name the exceeded budget"))
+	case firmwareErr.Reason != FirmwareErrorReasonResourceLimitExceeded && firmwareErr.ExceededBudget != nil:
+		errs = append(errs, field.Forbidden(budgetPath, "only a "+FirmwareErrorReasonResourceLimitExceeded+" error may name an exceeded budget"))
 	}
 	return errs
 }
