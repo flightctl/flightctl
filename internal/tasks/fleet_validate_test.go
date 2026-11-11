@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
@@ -595,6 +596,91 @@ func TestFleetValidateLogic_RepositoryReferenceOutcomes(t *testing.T) {
 
 		err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
 		require.ErrorContains(t, err, "setting repository references")
+		assert.Empty(t, emit.events)
+	})
+}
+
+func TestFleetValidateLogic_FirmwareTemplateHold(t *testing.T) {
+	const fleetName = "firmware-fleet"
+	setup := func(t *testing.T, configs ...domain.ConfigProviderSpec) (uuid.UUID, *fleetservice.MockService, *k8sclient.MockK8SClient, FleetValidateLogic, *prepareDeltasEmitter) {
+		ctrl := gomock.NewController(t)
+		fleet := createTestFleet(fleetName, nil)
+		fleet.Metadata.ResourceVersion = lo.ToPtr("1")
+		fleet.Spec.Template.Spec.Firmware = &domain.FirmwareSpec{
+			Profile:    "board-a",
+			Updater:    domain.FirmwareUpdaterSpec{Name: "vendor-updater", Version: "1.0.0", Config: map[string]interface{}{}},
+			Components: []api.FirmwareComponentSpec{{Name: "bios", Version: api.FirmwareVersionConstraints{Exact: lo.ToPtr("2.0")}}},
+			Overlays:   []api.FirmwareOverlaySpec{},
+		}
+		if len(configs) > 0 {
+			fleet.Spec.Template.Spec.Config = &configs
+		}
+		orgID := uuid.New()
+		fleets := fleetservice.NewMockService(ctrl)
+		fleets.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.StatusOK())
+		k8s := k8sclient.NewMockK8SClient(ctrl)
+		emit := &prepareDeltasEmitter{}
+		// The template version service has no expectations, so creating or
+		// recovering a template version fails the test.
+		logic := NewFleetValidateLogic(logrus.New(), fleets, templateversionservice.NewMockService(ctrl), deviceservice.NewMockService(ctrl),
+			repositoryservice.NewMockService(ctrl), k8s, orgID, createTestEvent(domain.FleetKind, "some-reason", fleetName))
+		logic.WorkerClient = emit
+		return orgID, fleets, k8s, logic, emit
+	}
+	expectHold := func(t *testing.T, fleets *fleetservice.MockService, orgID uuid.UUID, result domain.Status, messageParts ...string) {
+		fleets.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+				require.Len(t, conditions, 1)
+				assert.Equal(t, domain.ConditionTypeFleetValid, conditions[0].Type)
+				assert.Equal(t, domain.ConditionStatusFalse, conditions[0].Status)
+				assert.Equal(t, domain.FleetValidReasonFirmwareRenderingUnsupported, conditions[0].Reason)
+				for _, part := range messageParts {
+					assert.Contains(t, conditions[0].Message, part)
+				}
+				return result
+			})
+	}
+
+	t.Run("When the template carries firmware it should hold the fleet without creating a template version", func(t *testing.T) {
+		orgID, fleets, _, logic, emit := setup(t)
+		fleets.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, int64(1), gomock.Any()).Return(common.RepositoryRefsReplaced, domain.StatusOK())
+		expectHold(t, fleets, orgID, domain.StatusOK())
+
+		require.NoError(t, logic.CreateNewTemplateVersionIfFleetValid(context.Background()))
+		assert.Empty(t, emit.events)
+	})
+
+	t.Run("When the firmware references are not known yet it should hold the fleet and report a retryable error", func(t *testing.T) {
+		orgID, fleets, _, logic, emit := setup(t)
+		fleets.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, int64(1), gomock.Any()).Return(common.RepositoryRefsIncomplete, domain.StatusOK())
+		expectHold(t, fleets, orgID, domain.StatusOK(), "firmware repository references")
+
+		err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
+		require.Error(t, err)
+		assert.False(t, isInvalidFleetConfigError(err), "unknown references must be retried")
+		assert.Empty(t, emit.events)
+	})
+
+	t.Run("When the template configuration is also invalid it should hold the fleet and keep the permanent configuration error", func(t *testing.T) {
+		orgID, fleets, k8s, logic, emit := setup(t, makeSecretConfigItem(t, "secret-config", "default", "missing-secret"))
+		k8s.EXPECT().GetSecret(gomock.Any(), "default", "missing-secret").Return(nil, apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "missing-secret"))
+		fleets.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, int64(1), gomock.Any()).Return(common.RepositoryRefsReplaced, domain.StatusOK())
+		expectHold(t, fleets, orgID, domain.StatusOK(), "secret-config")
+
+		err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
+		require.Error(t, err)
+		assert.True(t, isInvalidFleetConfigError(err))
+		assert.Empty(t, emit.events)
+	})
+
+	t.Run("When the hold cannot be recorded it should return a retryable error", func(t *testing.T) {
+		orgID, fleets, _, logic, emit := setup(t)
+		fleets.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, int64(1), gomock.Any()).Return(common.RepositoryRefsReplaced, domain.StatusOK())
+		expectHold(t, fleets, orgID, domain.StatusInternalServerError("database unavailable"))
+
+		err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
+		require.Error(t, err)
+		assert.False(t, isInvalidFleetConfigError(err))
 		assert.Empty(t, emit.events)
 	})
 }
