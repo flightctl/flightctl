@@ -371,6 +371,37 @@ const (
 	FileOperationUpdated FileOperation = "updated"
 )
 
+// Defines values for FirmwareAttemptPhase.
+const (
+	FirmwareAttemptPhaseAwaitingReboot   FirmwareAttemptPhase = "AwaitingReboot"
+	FirmwareAttemptPhaseCanceled         FirmwareAttemptPhase = "Canceled"
+	FirmwareAttemptPhaseFailed           FirmwareAttemptPhase = "Failed"
+	FirmwareAttemptPhasePreparing        FirmwareAttemptPhase = "Preparing"
+	FirmwareAttemptPhaseStaging          FirmwareAttemptPhase = "Staging"
+	FirmwareAttemptPhaseSucceeded        FirmwareAttemptPhase = "Succeeded"
+	FirmwareAttemptPhaseVerifying        FirmwareAttemptPhase = "Verifying"
+	FirmwareAttemptPhaseWaitingForPolicy FirmwareAttemptPhase = "WaitingForPolicy"
+)
+
+// Defines values for FirmwareCancellationReason.
+const (
+	FirmwareCancellationReasonSuperseded FirmwareCancellationReason = "Superseded"
+)
+
+// Defines values for FirmwareComponentState.
+const (
+	FirmwareComponentStateActive  FirmwareComponentState = "Active"
+	FirmwareComponentStateFailed  FirmwareComponentState = "Failed"
+	FirmwareComponentStatePending FirmwareComponentState = "Pending"
+	FirmwareComponentStateUnknown FirmwareComponentState = "Unknown"
+)
+
+// Defines values for FirmwareComponentType.
+const (
+	FirmwareComponentTypeFirmware FirmwareComponentType = "firmware"
+	FirmwareComponentTypeOverlay  FirmwareComponentType = "overlay"
+)
+
 // Defines values for FleetRolloutBatchCompletedDetailsDetailType.
 const (
 	FleetRolloutBatchCompleted FleetRolloutBatchCompletedDetailsDetailType = "FleetRolloutBatchCompleted"
@@ -1729,6 +1760,9 @@ type DeviceSpec struct {
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
 
+	// Firmware FirmwareSpec declares the desired firmware of a device: the approved updater release that applies it, the qualified firmware profile, the version intent of each managed firmware component and the device tree overlays that must be active. When firmware is absent, the device firmware is unmanaged and its installed firmware is left unchanged.
+	Firmware *FirmwareSpec `json:"firmware,omitempty"`
+
 	// Os Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
 	Os *DeviceOsSpec `json:"os,omitempty"`
 
@@ -1770,6 +1804,9 @@ type DeviceStatus struct {
 
 	// EnrollmentHooks Enrollment hooks state for a device.
 	EnrollmentHooks *DeviceEnrollmentHooksStatus `json:"enrollmentHooks,omitempty"`
+
+	// Firmware FirmwareStatus reports firmware support on the device, the current or most recent firmware attempt and the observed state of each firmware component and overlay.
+	Firmware *FirmwareStatus `json:"firmware,omitempty"`
 
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
@@ -2367,6 +2404,348 @@ type FileSpec struct {
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
 	User Username `json:"user,omitempty"`
+}
+
+// FirmwareActualState FirmwareActualState reports the firmware observed on the device. Values that cannot be observed are absent.
+type FirmwareActualState struct {
+	// Active Whether an overlay has been verified active by its activation check.
+	Active *bool `json:"active,omitempty"`
+
+	// RawVersion Firmware version text as reported by the device firmware.
+	RawVersion *string `json:"rawVersion,omitempty"`
+
+	// Version Observed firmware version.
+	Version *string `json:"version,omitempty"`
+}
+
+// FirmwareAttemptPhase Phase of a firmware attempt. Succeeded, Failed and Canceled are terminal phases.
+type FirmwareAttemptPhase string
+
+// FirmwareAttemptStatus FirmwareAttemptStatus reports the current or most recent firmware attempt. An attempt canceled because newer desired firmware superseded it keeps its own identity; a cancellation is neither a successful nor a failed activation.
+type FirmwareAttemptStatus struct {
+	// CancellationReason Reason a firmware attempt was canceled. It is required when the attempt phase is Canceled.
+	CancellationReason *FirmwareCancellationReason `json:"cancellationReason,omitempty"`
+
+	// Changed Whether the attempt has changed firmware or boot configuration on the device.
+	Changed bool `json:"changed"`
+
+	// Error FirmwareError describes a firmware failure.
+	Error *FirmwareError `json:"error,omitempty"`
+
+	// Id Identifier of the attempt.
+	Id string `json:"id"`
+
+	// Phase Phase of a firmware attempt. Succeeded, Failed and Canceled are terminal phases.
+	Phase FirmwareAttemptPhase `json:"phase"`
+
+	// Recovery Recovery actions available to the operator.
+	Recovery []FirmwareRecoveryAction `json:"recovery"`
+
+	// RenderedVersion Rendered device version that the attempt applies.
+	RenderedVersion string `json:"renderedVersion"`
+
+	// RetryGeneration Retry generation that the attempt consumed.
+	RetryGeneration int64 `json:"retryGeneration"`
+
+	// SpecHash Hash of the firmware specification that the attempt applies.
+	SpecHash string `json:"specHash"`
+
+	// StartedAt Time at which the attempt started.
+	StartedAt time.Time `json:"startedAt"`
+
+	// UpdatedAt Time at which the attempt status last changed.
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Updater FirmwareAttemptUpdater identifies the updater release pinned for an attempt. It is absent when the attempt was rejected before an updater release was selected.
+	Updater *FirmwareAttemptUpdater `json:"updater,omitempty"`
+}
+
+// FirmwareAttemptUpdater FirmwareAttemptUpdater identifies the updater release pinned for an attempt. It is absent when the attempt was rejected before an updater release was selected.
+type FirmwareAttemptUpdater struct {
+	// BuildDigest Digest of the immutable delivery image of the updater release.
+	BuildDigest string `json:"buildDigest"`
+
+	// ConfigDigest Digest of the updater configuration that the attempt applies.
+	ConfigDigest string `json:"configDigest"`
+
+	// ManifestDigest Digest of the verified extraction manifest of the updater package. It is required before the updater changes the device.
+	ManifestDigest *string `json:"manifestDigest,omitempty"`
+
+	// Name Name of the updater.
+	Name string `json:"name"`
+
+	// Protocol Version of the firmware workflow protocol that the updater release implements.
+	Protocol int `json:"protocol"`
+
+	// SchemaDigest Digest of the configuration schema that the attempt was validated against.
+	SchemaDigest string `json:"schemaDigest"`
+
+	// Version Version of the updater release.
+	Version string `json:"version"`
+}
+
+// FirmwareBudgetKey Name of the resource budget that a limit-exceeded failure exceeded. The updater release defines the valid budget names.
+type FirmwareBudgetKey = string
+
+// FirmwareCancellationReason Reason a firmware attempt was canceled. It is required when the attempt phase is Canceled.
+type FirmwareCancellationReason string
+
+// FirmwareComponentSpec FirmwareComponentSpec declares the version intent for one firmware component.
+type FirmwareComponentSpec struct {
+	// ArtifactDigest SHA-256 digest of the artifact to select when several artifacts provide the requested version.
+	ArtifactDigest *string `json:"artifactDigest,omitempty"`
+
+	// Name Name of the firmware component, a lowercase RFC 1123 label. It must be unique across the components and overlays of the firmware specification.
+	Name string `json:"name"`
+
+	// Version FirmwareVersionConstraints expresses version intent using the firmware's own version semantics rather than semantic versioning. Set at least one of exact, minimum or maximum, or set latest to true. All set constraints apply together. Versions are compared by the updater on the device, not by the service.
+	Version FirmwareVersionConstraints `json:"version"`
+}
+
+// FirmwareComponentState Observed state of a firmware component or overlay.
+type FirmwareComponentState string
+
+// FirmwareComponentStatus FirmwareComponentStatus reports the selected and the observed state of one firmware component or overlay. Selected and observed values are reported separately, and an observed value that is not known is absent.
+type FirmwareComponentStatus struct {
+	// Actual FirmwareActualState reports the firmware observed on the device. Values that cannot be observed are absent.
+	Actual *FirmwareActualState `json:"actual,omitempty"`
+
+	// BootID Boot ID of the device when the component was observed.
+	BootID string `json:"bootID"`
+
+	// Error FirmwareError describes a firmware failure.
+	Error *FirmwareError `json:"error,omitempty"`
+
+	// Managed Whether the firmware specification manages the component.
+	Managed bool `json:"managed"`
+
+	// Name Name of the firmware component or overlay.
+	Name string `json:"name"`
+
+	// Observation FirmwareObservation carries evidence about a firmware component or overlay observed on the device.
+	Observation *FirmwareObservation `json:"observation,omitempty"`
+
+	// ObservedAt Time at which the component was observed.
+	ObservedAt time.Time `json:"observedAt"`
+
+	// Selected FirmwareSelectedArtifact identifies the artifact selected for a firmware component or overlay.
+	Selected *FirmwareSelectedArtifact `json:"selected,omitempty"`
+
+	// State Observed state of a firmware component or overlay.
+	State FirmwareComponentState `json:"state"`
+
+	// Type Type of a firmware status entry, either a firmware component or a device tree overlay.
+	Type FirmwareComponentType `json:"type"`
+}
+
+// FirmwareComponentType Type of a firmware status entry, either a firmware component or a device tree overlay.
+type FirmwareComponentType string
+
+// FirmwareError FirmwareError describes a firmware failure.
+type FirmwareError struct {
+	// Component Name of the affected firmware component or overlay, when known.
+	Component *string `json:"component,omitempty"`
+
+	// ExceededBudget Name of the resource budget that a limit-exceeded failure exceeded. The updater release defines the valid budget names.
+	ExceededBudget *FirmwareBudgetKey `json:"exceededBudget,omitempty"`
+
+	// Message Human-readable description of the failure.
+	Message string `json:"message"`
+
+	// Phase Attempt phase in which the failure occurred.
+	Phase *string `json:"phase,omitempty"`
+
+	// Reason Machine-readable reason for the failure.
+	Reason string `json:"reason"`
+
+	// Retryable Whether the agent retries preparation automatically. It does not permit retrying activation.
+	Retryable bool `json:"retryable"`
+}
+
+// FirmwareObservation FirmwareObservation carries evidence about a firmware component or overlay observed on the device.
+type FirmwareObservation struct {
+	// Backend FirmwareObservationBackend carries updater-specific observation data and identifies the schema that defines it.
+	Backend *FirmwareObservationBackend `json:"backend,omitempty"`
+
+	// ProducerIdentity Identity of the component that produced the observation, when known.
+	ProducerIdentity *string `json:"producerIdentity,omitempty"`
+}
+
+// FirmwareObservationBackend FirmwareObservationBackend carries updater-specific observation data and identifies the schema that defines it.
+type FirmwareObservationBackend struct {
+	// Data Updater-specific observation data. The observation schema identified by updater and schemaDigest defines every allowed field.
+	Data map[string]interface{} `json:"data"`
+
+	// SchemaDigest Digest of the observation schema that defines data.
+	SchemaDigest string `json:"schemaDigest"`
+
+	// Updater Name of the updater that produced the observation.
+	Updater string `json:"updater"`
+}
+
+// FirmwareOverlayCompatibility FirmwareOverlayCompatibility names a firmware component and, optionally, the range of its versions that an overlay is compatible with.
+type FirmwareOverlayCompatibility struct {
+	// Component Name of the firmware component.
+	Component string `json:"component"`
+
+	// Exact Exact compatible firmware version.
+	Exact *string `json:"exact,omitempty"`
+
+	// Maximum Highest compatible firmware version.
+	Maximum *string `json:"maximum,omitempty"`
+
+	// Minimum Lowest compatible firmware version.
+	Minimum *string `json:"minimum,omitempty"`
+}
+
+// FirmwareOverlaySpec FirmwareOverlaySpec declares a required device tree overlay and the firmware it is compatible with. The updater configuration defines the overlay's artifact source, format and signature.
+type FirmwareOverlaySpec struct {
+	// CompatibleFirmware Firmware components, and optionally their version ranges, that the overlay is compatible with.
+	CompatibleFirmware []FirmwareOverlayCompatibility `json:"compatibleFirmware"`
+
+	// Name Name of the overlay. It must be unique across the components and overlays of the firmware specification.
+	Name string `json:"name"`
+}
+
+// FirmwareRecoveryAction FirmwareRecoveryAction describes an operator action that recovers from a firmware failure.
+type FirmwareRecoveryAction struct {
+	// Code Identifier of the recovery action.
+	Code string `json:"code"`
+
+	// DocumentationURL Link to documentation for the recovery action.
+	DocumentationURL *string `json:"documentationURL,omitempty"`
+
+	// Message Description of the recovery action.
+	Message string `json:"message"`
+
+	// RequiresPhysicalAccess Whether the recovery action requires physical access to the device.
+	RequiresPhysicalAccess bool `json:"requiresPhysicalAccess"`
+}
+
+// FirmwareSelectedArtifact FirmwareSelectedArtifact identifies the artifact selected for a firmware component or overlay.
+type FirmwareSelectedArtifact struct {
+	// Source FirmwareSelectedSource identifies where a selected artifact comes from and its immutable digest, without credentials or signed URL parameters.
+	Source FirmwareSelectedSource `json:"source"`
+
+	// Version Firmware version of the selected artifact.
+	Version *string `json:"version,omitempty"`
+}
+
+// FirmwareSelectedSource FirmwareSelectedSource identifies where a selected artifact comes from and its immutable digest, without credentials or signed URL parameters.
+type FirmwareSelectedSource struct {
+	// Digest Digest of the selected artifact.
+	Digest string `json:"digest"`
+
+	// Identity Sanitized identity of the artifact source.
+	Identity string `json:"identity"`
+
+	// Kind Kind of the artifact source, for example http.
+	Kind string `json:"kind"`
+}
+
+// FirmwareSpec FirmwareSpec declares the desired firmware of a device: the approved updater release that applies it, the qualified firmware profile, the version intent of each managed firmware component and the device tree overlays that must be active. When firmware is absent, the device firmware is unmanaged and its installed firmware is left unchanged.
+type FirmwareSpec struct {
+	// Components Firmware components to manage, each with its version intent. Component and overlay names must be unique across the firmware specification. Removing a component stops managing it without restoring earlier firmware.
+	Components []FirmwareComponentSpec `json:"components"`
+
+	// Overlays Device tree overlays that must be active. Every listed overlay is required. An empty list requests the removal of previously managed overlays.
+	Overlays []FirmwareOverlaySpec `json:"overlays"`
+
+	// Profile Name of the qualified firmware profile for the device hardware. In a fleet template the value may use template parameters.
+	Profile string `json:"profile"`
+
+	// RetryGeneration Counter that requests a new firmware attempt with unchanged versions and artifacts. Increase it only after the cause of a failed attempt has been resolved. It is not a command to force flashing.
+	RetryGeneration *int64 `json:"retryGeneration,omitempty"`
+
+	// Updater FirmwareUpdaterSpec selects the approved updater release that applies the firmware, by exact name and version, together with its updater-specific configuration. Executable paths, runtime flags, privileges and trust anchors are not configurable; the approved updater release defines them.
+	Updater FirmwareUpdaterSpec `json:"updater"`
+}
+
+// FirmwareStatus FirmwareStatus reports firmware support on the device, the current or most recent firmware attempt and the observed state of each firmware component and overlay.
+type FirmwareStatus struct {
+	// Attempt FirmwareAttemptStatus reports the current or most recent firmware attempt. An attempt canceled because newer desired firmware superseded it keeps its own identity; a cancellation is neither a successful nor a failed activation.
+	Attempt *FirmwareAttemptStatus `json:"attempt,omitempty"`
+
+	// BootID Boot ID of the device when the firmware status was observed.
+	BootID string `json:"bootID"`
+
+	// Components Observed state of each firmware component and overlay.
+	Components []FirmwareComponentStatus `json:"components"`
+
+	// ObservedAt Time at which the firmware status was observed.
+	ObservedAt time.Time `json:"observedAt"`
+
+	// Support FirmwareSupportStatus reports whether the agent can manage firmware on the device and which updater releases it can run. Agents that support firmware report it even when no firmware is managed.
+	Support FirmwareSupportStatus `json:"support"`
+}
+
+// FirmwareSupportStatus FirmwareSupportStatus reports whether the agent can manage firmware on the device and which updater releases it can run. Agents that support firmware report it even when no firmware is managed.
+type FirmwareSupportStatus struct {
+	// ApiVersion Version of the firmware support contract that the agent reports.
+	ApiVersion int `json:"apiVersion"`
+
+	// Profile Firmware profile detected for the device hardware, when known.
+	Profile *string `json:"profile,omitempty"`
+
+	// ProfileRevision Revision of the detected firmware profile, when known.
+	ProfileRevision *string `json:"profileRevision,omitempty"`
+
+	// Reason Reason firmware management is or is not supported.
+	Reason *string `json:"reason,omitempty"`
+
+	// Supported Whether firmware management is supported on the device.
+	Supported bool `json:"supported"`
+
+	// Updaters Updater releases that the agent can run.
+	Updaters []FirmwareSupportedUpdater `json:"updaters"`
+}
+
+// FirmwareSupportedUpdater FirmwareSupportedUpdater identifies an updater release that the agent can run.
+type FirmwareSupportedUpdater struct {
+	// BuildDigest Digest of the immutable delivery image of the updater release.
+	BuildDigest string `json:"buildDigest"`
+
+	// Cached Whether the updater release is already available on the device. An updater release that is not cached can still be fetched when it is needed.
+	Cached *bool `json:"cached,omitempty"`
+
+	// Name Name of the updater.
+	Name string `json:"name"`
+
+	// Protocol Version of the firmware workflow protocol that the updater release implements.
+	Protocol int `json:"protocol"`
+
+	// SchemaDigest Digest of the configuration schema of the updater release.
+	SchemaDigest string `json:"schemaDigest"`
+
+	// Version Version of the updater release.
+	Version string `json:"version"`
+}
+
+// FirmwareUpdaterSpec FirmwareUpdaterSpec selects the approved updater release that applies the firmware, by exact name and version, together with its updater-specific configuration. Executable paths, runtime flags, privileges and trust anchors are not configurable; the approved updater release defines them.
+type FirmwareUpdaterSpec struct {
+	// Config Updater-specific configuration, such as resource mappings, candidate firmware releases and their artifact sources. The closed configuration schema of the selected updater release defines every allowed field. In a fleet template, only string fields that the updater release designates as templatable may use template parameters.
+	Config map[string]interface{} `json:"config"`
+
+	// Name Name of the approved updater. In a fleet template the value may use template parameters.
+	Name string `json:"name"`
+
+	// Version Exact version of the approved updater release. In a fleet template the value may use template parameters.
+	Version string `json:"version"`
+}
+
+// FirmwareVersionConstraints FirmwareVersionConstraints expresses version intent using the firmware's own version semantics rather than semantic versioning. Set at least one of exact, minimum or maximum, or set latest to true. All set constraints apply together. Versions are compared by the updater on the device, not by the service.
+type FirmwareVersionConstraints struct {
+	// Exact Exact firmware version to select.
+	Exact *string `json:"exact,omitempty"`
+
+	// Latest Whether to select the newest compatible version that satisfies the other constraints.
+	Latest *bool `json:"latest,omitempty"`
+
+	// Maximum Highest acceptable firmware version.
+	Maximum *string `json:"maximum,omitempty"`
+
+	// Minimum Lowest acceptable firmware version.
+	Minimum *string `json:"minimum,omitempty"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -3801,6 +4180,9 @@ type TemplateVersionStatus struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
+
+	// Firmware FirmwareSpec declares the desired firmware of a device: the approved updater release that applies it, the qualified firmware profile, the version intent of each managed firmware component and the device tree overlays that must be active. When firmware is absent, the device firmware is unmanaged and its installed firmware is left unchanged.
+	Firmware *FirmwareSpec `json:"firmware,omitempty"`
 
 	// Os Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
 	Os *DeviceOsSpec `json:"os,omitempty"`
