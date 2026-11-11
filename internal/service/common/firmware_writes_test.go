@@ -138,6 +138,17 @@ func TestValidatePatchedFirmware(t *testing.T) {
 			wantErr: []string{"spec.firmware", `"flashNow"`},
 		},
 		{
+			name:    "When the request adds an unknown field inside a component it should reject it with the component's path",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "add", Path: DeviceFirmwarePatchPath + "/components/0/flashNow", Value: true}},
+			wantErr: []string{"spec.firmware.components[0]", `"flashNow"`},
+		},
+		{
+			name:    "When the request replaces the spec with null it should leave the decision to the caller",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/spec", Value: nil}},
+		},
+		{
 			name:    "When the request replaces the spec with firmware carrying an unknown field it should reject it",
 			current: withoutFirmware,
 			patch: domain.PatchRequest{{Op: "replace", Path: "/spec", Value: map[string]any{

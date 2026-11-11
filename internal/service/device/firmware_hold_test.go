@@ -316,4 +316,27 @@ func TestHoldDeviceForFirmware(t *testing.T) {
 		assert.False(t, held)
 		assert.Equal(t, writes, st.device.deviceWrites)
 	})
+
+	t.Run("When the device does not exist it should report it as not found", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+
+		held, status := svc.HoldDeviceForFirmware(context.Background(), uuid.New(), "dev", owner, true)
+
+		require.Equal(t, int32(http.StatusNotFound), status.Code, status.Message)
+		assert.False(t, held)
+	})
+
+	t.Run("When the device is being decommissioned it should report the conflict and write nothing", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgId := uuid.New()
+		holdTestDevice(t, st, orgId, owner, holdTestFirmware(), nil)
+		st.device.devices["dev"].Spec.Decommissioning = &domain.DeviceDecommission{Target: domain.DeviceDecommissionTargetTypeUnenroll}
+		writes := st.device.deviceWrites
+
+		held, status := svc.HoldDeviceForFirmware(context.Background(), orgId, "dev", owner, true)
+
+		require.Equal(t, int32(http.StatusConflict), status.Code, status.Message)
+		assert.False(t, held)
+		assert.Equal(t, writes, st.device.deviceWrites)
+	})
 }
