@@ -323,6 +323,38 @@ var _ = Describe("DeviceRender", func() {
 				Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate),
 					"status.updated.status must be OutOfDate when device cannot be rendered")
 			})
+
+			It("When a standalone device names a repository that does not exist yet it should record the reference although rendering fails", func() {
+				gitConfig := &api.GitConfigProviderSpec{Name: "git-missing"}
+				gitConfig.GitRef.Repository = "repo-created-later"
+				gitConfig.GitRef.TargetRevision = "main"
+				gitConfig.GitRef.Path = "/etc/app"
+				configProvider := api.ConfigProviderSpec{}
+				Expect(configProvider.FromGitConfigProviderSpec(*gitConfig)).To(Succeed())
+
+				testDeviceName := deviceName + "-missing-repo-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err := deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+				Expect(logic.RenderDevice(ctx, orgId, event)).ToNot(Succeed())
+
+				repos, err := deviceStore.GetRepositoryRefs(ctx, orgId, testDeviceName)
+				Expect(err).ToNot(HaveOccurred())
+				names := lo.Map(repos.Items, func(r api.Repository, _ int) string { return lo.FromPtr(r.Metadata.Name) })
+				Expect(names).To(ConsistOf("repo-created-later"), "the reference must be recorded so that creating the repository triggers rendering again")
+			})
 		})
 	})
 
