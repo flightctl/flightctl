@@ -615,6 +615,111 @@ var _ = Describe("Rollout batch sequence test", func() {
 			Entry("multiple devices some selected devices with template version and mixed completion reasons - all complete", 10, bnds(6), bnds(6), bnds(6), bnds(2), bnds(2, 2), bnds(4, 2), 33),
 			Entry("multiple devices some selected devices with template version and mixed completion reasons - one complete out of selected range", 10, bnds(6), bnds(7), bnds(7), bnds(2), bnds(2, 2), bnds(5, 2), 33),
 		)
+
+		setFirmwareState := func(deviceName string, firmware *api.FirmwareSpec, reported *api.FirmwareStatus) {
+			_, _, _, err := deviceStore.Mutate(ctx, store.NullOrgId, deviceName, nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				spec := lo.FromPtr(m.Device.Spec)
+				spec.Firmware = firmware
+				m.Device.Spec = &spec
+				m.Device.Status.Firmware = reported
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+		}
+		lastCompletionReport := func() api.RolloutBatchCompletionReport {
+			fleet, err := fleetStore.Get(ctx, store.NullOrgId, FleetName)
+			Expect(err).ToNot(HaveOccurred())
+			val, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationLastBatchCompletionReport)
+			Expect(exists).To(BeTrue())
+			var report api.RolloutBatchCompletionReport
+			Expect(json.Unmarshal([]byte(val), &report)).To(Succeed())
+			return report
+		}
+		completionFirmware := &api.FirmwareSpec{
+			Profile:    "board-a",
+			Updater:    api.FirmwareUpdaterSpec{Name: "vendor-updater", Version: "1.0.0", Config: map[string]interface{}{}},
+			Components: []api.FirmwareComponentSpec{{Name: "bios", Version: api.FirmwareVersionConstraints{Exact: lo.ToPtr("2.0")}}},
+			Overlays:   []api.FirmwareOverlaySpec{},
+		}
+		completionAttempt := func(phase api.FirmwareAttemptPhase) *api.FirmwareStatus {
+			return &api.FirmwareStatus{
+				Support:    api.FirmwareSupportStatus{ApiVersion: 1, Updaters: []api.FirmwareSupportedUpdater{}},
+				Components: []api.FirmwareComponentStatus{},
+				Attempt:    &api.FirmwareAttemptStatus{Id: "attempt-1", Phase: phase, Recovery: []api.FirmwareRecoveryAction{}},
+			}
+		}
+
+		DescribeTable("batch completion of a device with firmware state",
+			func(firmware *api.FirmwareSpec, reported *api.FirmwareStatus, held bool) {
+				selector := setupCompletion(3, bnds(3), bnds(3), bnds(3), bnds(3), nil, nil)
+				selection, err := selector.CurrentSelection(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				var devices []*model.Device
+				Expect(db.WithContext(ctx).Order("name").Find(&devices).Error).ToNot(HaveOccurred())
+				name := devices[0].Name
+				setFirmwareState(name, firmware, reported)
+				before, err := deviceStore.Get(ctx, store.NullOrgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				successful := int64(lo.Ternary(held, 2, 3))
+
+				for range 2 {
+					isComplete, err := selection.IsComplete(ctx)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(isComplete).To(Equal(!held), "a held device stays pending in its batch")
+					Expect(selection.SetCompletionReport(ctx)).To(Succeed())
+					report := lastCompletionReport()
+					Expect(report.Total).To(Equal(int64(3)), "a held device stays in the batch total")
+					Expect(report.Successful).To(Equal(successful))
+				}
+				after, err := deviceStore.Get(ctx, store.NullOrgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(after.Metadata.ResourceVersion).To(Equal(before.Metadata.ResourceVersion))
+
+				By("after the update timeout a held device counts as timed out, never as successful")
+				setRenderTimestamp(name, 21*time.Hour)
+				isComplete, err := selection.IsComplete(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(isComplete).To(BeTrue())
+				Expect(selection.SetCompletionReport(ctx)).To(Succeed())
+				report := lastCompletionReport()
+				Expect(report.Successful).To(Equal(successful))
+				Expect(report.TimedOut).To(Equal(int64(lo.Ternary(held, 1, 0))))
+			},
+			Entry("desired firmware", completionFirmware, nil, true),
+			Entry("firmware withdrawn while an attempt is outstanding", nil, completionAttempt(api.FirmwareAttemptPhaseStaging), true),
+			Entry("an attempt in an unknown phase", nil, completionAttempt("Mystery"), true),
+			Entry("an attempt without a phase", nil, completionAttempt(""), true),
+			Entry("only a succeeded attempt", nil, completionAttempt(api.FirmwareAttemptPhaseSucceeded), false),
+			Entry("only a failed attempt", nil, completionAttempt(api.FirmwareAttemptPhaseFailed), false),
+			Entry("only a canceled attempt", nil, completionAttempt(api.FirmwareAttemptPhaseCanceled), false),
+			Entry("no firmware state", nil, nil, false),
+		)
+
+		It("When a device with desired firmware has not rendered the template version it should stay pending after the update timeout", func() {
+			selector := setupCompletion(3, bnds(3), bnds(3), bnds(1, 2), bnds(1, 2), nil, nil)
+			selection, err := selector.CurrentSelection(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			unrendered, found := lo.Find(devices.Items, func(d api.Device) bool {
+				return !lo.HasKey(lo.FromPtr(d.Metadata.Annotations), api.DeviceAnnotationRenderedTemplateVersion)
+			})
+			Expect(found).To(BeTrue())
+			setFirmwareState(lo.FromPtr(unrendered.Metadata.Name), completionFirmware, nil)
+			setRenderTimestamp(lo.FromPtr(unrendered.Metadata.Name), 21*time.Hour)
+
+			isComplete, err := selection.IsComplete(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(isComplete).To(BeFalse())
+			Expect(selection.SetCompletionReport(ctx)).To(Succeed())
+			report := lastCompletionReport()
+			Expect(report.Total).To(Equal(int64(3)))
+			Expect(report.Successful).To(Equal(int64(2)))
+			Expect(report.TimedOut).To(BeZero())
+		})
 	})
 	Context("reconciler", func() {
 		BeforeEach(func() {
