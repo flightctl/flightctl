@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/pkg/jsonpatch"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
@@ -258,6 +259,77 @@ func instanceFieldPath(base *field.Path, data any, pointer string) string {
 		}
 	}
 	return path.String()
+}
+
+// FirmwareStatusPatchOutcome tells how a JSON Patch request leaves the
+// firmware status of a device.
+type FirmwareStatusPatchOutcome int
+
+const (
+	// FirmwareStatusKept means the patched status holds the firmware status
+	// that the request leaves: the stored one when the request does not touch
+	// it, or the one the request wrote.
+	FirmwareStatusKept FirmwareStatusPatchOutcome = iota
+	// FirmwareStatusOmitted means the request replaced an enclosing object
+	// with a value that does not mention the firmware status.
+	FirmwareStatusOmitted
+	// FirmwareStatusRemoved means the request explicitly removed the firmware
+	// status, or an object enclosing it, or set it to null.
+	FirmwareStatusRemoved
+)
+
+const deviceFirmwareStatusPatchPath = "/status/firmware"
+
+// CheckFirmwareAttemptRetained rejects a firmware status that would erase an
+// outstanding attempt of the stored status: no firmware status, one without an
+// attempt, or one with a different attempt. Progress of the same attempt,
+// including to a terminal phase, is accepted, and an attempt that is no longer
+// outstanding may be dropped.
+func CheckFirmwareAttemptRetained(stored, candidate *domain.FirmwareStatus) error {
+	if stored == nil || !domain.FirmwareAttemptOutstanding(stored.Attempt) {
+		return nil
+	}
+	if candidate == nil || candidate.Attempt == nil || candidate.Attempt.Id != stored.Attempt.Id {
+		return fmt.Errorf("%s: cannot erase an outstanding attempt", field.NewPath("status", "firmware", "attempt"))
+	}
+	return nil
+}
+
+// ClassifyFirmwareStatusPatch tells how a JSON Patch request leaves the
+// firmware status of a device, deciding from the raw patched document because
+// decoding turns a removed, a null and an omitted firmware status alike into
+// an absent one. A firmware status that the request writes is checked against
+// its API schema while still raw JSON, so a key that differs from a field only
+// in case is rejected instead of dropped; observation data stays open for the
+// retained observation schema.
+func ClassifyFirmwareStatusPatch[T any](current T, patch domain.PatchRequest) (FirmwareStatusPatchOutcome, error) {
+	if !patchWritesPath(patch, deviceFirmwareStatusPatchPath) {
+		return FirmwareStatusKept, nil
+	}
+	patched, err := jsonpatch.ApplyToJSON(current, patch)
+	if err != nil {
+		return 0, err
+	}
+	var document any
+	if err := json.Unmarshal(patched, &document); err != nil {
+		return 0, fmt.Errorf("patch produced an invalid resource: %w", err)
+	}
+	value, found := jsonPointerValue(document, deviceFirmwareStatusPatchPath)
+	switch {
+	case found && value != nil:
+		if err := validateRawFirmware(value, deviceFirmwareStatusPatchPath, firmwareStatusSchemaName); err != nil {
+			return 0, err
+		}
+		return FirmwareStatusKept, nil
+	case found:
+		return FirmwareStatusRemoved, nil
+	}
+	for _, operation := range patch {
+		if operation.Op == "remove" && (operation.Path == deviceFirmwareStatusPatchPath || operation.Path == "/status") {
+			return FirmwareStatusRemoved, nil
+		}
+	}
+	return FirmwareStatusOmitted, nil
 }
 
 // FirmwareStatusEqual reports whether two firmware statuses have the same

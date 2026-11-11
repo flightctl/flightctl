@@ -404,6 +404,158 @@ func TestValidateFirmwareStatus(t *testing.T) {
 
 func toPtr[T any](v T) *T { return &v }
 
+func firmwareAttempt(id string, phase domain.FirmwareAttemptPhase) *domain.FirmwareStatus {
+	return &domain.FirmwareStatus{
+		Support: domain.FirmwareSupportStatus{ApiVersion: 1},
+		Attempt: &domain.FirmwareAttemptStatus{Id: id, Phase: phase, Recovery: []domain.FirmwareRecoveryAction{}},
+	}
+}
+
+func TestCheckFirmwareAttemptRetained(t *testing.T) {
+	const erasure = "status.firmware.attempt: cannot erase an outstanding attempt"
+	withoutAttempt := &domain.FirmwareStatus{Support: domain.FirmwareSupportStatus{ApiVersion: 1}}
+	tests := []struct {
+		name      string
+		stored    *domain.FirmwareStatus
+		candidate *domain.FirmwareStatus
+		wantErr   bool
+	}{
+		{name: "When nothing is stored it should accept any status", candidate: nil},
+		{name: "When the stored status has no attempt it should accept a status without one", stored: withoutAttempt, candidate: nil},
+		{name: "When the stored attempt is terminal it should accept removing the firmware status", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseSucceeded), candidate: nil},
+		{name: "When the stored attempt is terminal it should accept a status without the attempt", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseFailed), candidate: withoutAttempt},
+		{name: "When an outstanding attempt is stored it should reject removing the firmware status", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseStaging), candidate: nil, wantErr: true},
+		{name: "When an outstanding attempt is stored it should reject a firmware status without the attempt", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseAwaitingReboot), candidate: withoutAttempt, wantErr: true},
+		{name: "When an outstanding attempt is stored it should reject a different attempt", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhasePreparing), candidate: firmwareAttempt("a2", domain.FirmwareAttemptPhasePreparing), wantErr: true},
+		{name: "When an outstanding attempt is stored it should accept progress of the same attempt", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseStaging), candidate: firmwareAttempt("a1", domain.FirmwareAttemptPhaseVerifying)},
+		{name: "When an outstanding attempt is stored it should accept the same attempt becoming terminal", stored: firmwareAttempt("a1", domain.FirmwareAttemptPhaseVerifying), candidate: firmwareAttempt("a1", domain.FirmwareAttemptPhaseCanceled)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckFirmwareAttemptRetained(tt.stored, tt.candidate)
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Equal(t, erasure, err.Error())
+		})
+	}
+}
+
+func TestClassifyFirmwareStatusPatch(t *testing.T) {
+	device := domain.Device{
+		ApiVersion: domain.DeviceAPIVersion,
+		Kind:       domain.DeviceKind,
+		Metadata:   domain.ObjectMeta{Name: toPtr("device-1")},
+		Status:     &domain.DeviceStatus{Firmware: newTestFirmwareStatus(t)},
+	}
+	withoutFirmware := device
+	withoutFirmware.Status = &domain.DeviceStatus{}
+	statusWithoutFirmware := map[string]any{"conditions": []any{}}
+
+	tests := []struct {
+		name    string
+		current domain.Device
+		patch   domain.PatchRequest
+		want    FirmwareStatusPatchOutcome
+		wantErr []string
+	}{
+		{
+			name:    "When the request does not touch the firmware status it should keep it",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "add", Path: "/status/conditions", Value: []any{}}},
+			want:    FirmwareStatusKept,
+		},
+		{
+			name:    "When the request changes the firmware status it should keep it for validation",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/status/firmware/attempt/phase", Value: "Succeeded"}},
+			want:    FirmwareStatusKept,
+		},
+		{
+			name:    "When the request removes the attempt it should keep the firmware status without it",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "remove", Path: "/status/firmware/attempt"}},
+			want:    FirmwareStatusKept,
+		},
+		{
+			name:    "When the request removes the firmware status it should report an explicit removal",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "remove", Path: "/status/firmware"}},
+			want:    FirmwareStatusRemoved,
+		},
+		{
+			name:    "When the request sets the firmware status to null it should report an explicit removal",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/status/firmware", Value: nil}},
+			want:    FirmwareStatusRemoved,
+		},
+		{
+			name:    "When the request removes the whole status it should report an explicit removal",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "remove", Path: "/status"}},
+			want:    FirmwareStatusRemoved,
+		},
+		{
+			name:    "When the request replaces the status with an explicit null firmware it should report an explicit removal",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/status", Value: map[string]any{"conditions": []any{}, "firmware": nil}}},
+			want:    FirmwareStatusRemoved,
+		},
+		{
+			name:    "When the request replaces the status without a firmware status it should report an omission",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/status", Value: statusWithoutFirmware}},
+			want:    FirmwareStatusOmitted,
+		},
+		{
+			name:    "When nothing is stored and the request does not touch the firmware status it should keep the absent status",
+			current: withoutFirmware,
+			patch:   domain.PatchRequest{{Op: "add", Path: "/status/conditions", Value: []any{}}},
+			want:    FirmwareStatusKept,
+		},
+		{
+			name:    "When the request adds observation data keys it should leave them to the retained schema",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "add", Path: "/status/firmware/components/0/observation/backend/data/flashCount", Value: 3}},
+			want:    FirmwareStatusKept,
+		},
+		{
+			name:    "When the request adds an unknown firmware status field it should reject it",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "add", Path: "/status/firmware/flashNow", Value: true}},
+			wantErr: []string{"status.firmware", `"flashNow"`},
+		},
+		{
+			name:    "When the request adds a field that differs from an attempt field only in case it should reject it",
+			current: device,
+			patch:   domain.PatchRequest{{Op: "add", Path: "/status/firmware/attempt/Id", Value: "attempt-2"}},
+			wantErr: []string{"status.firmware.attempt", `"Id"`},
+		},
+		{
+			name:    "When the patch cannot be applied it should report the error",
+			current: withoutFirmware,
+			patch:   domain.PatchRequest{{Op: "replace", Path: "/status/firmware/attempt/phase", Value: "Failed"}},
+			wantErr: []string{"failed to apply JSON patch"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ClassifyFirmwareStatusPatch(&tt.current, tt.patch)
+			if len(tt.wantErr) > 0 {
+				require.Error(t, err)
+				for _, want := range tt.wantErr {
+					assert.Contains(t, err.Error(), want)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestFirmwareStatusEqual(t *testing.T) {
 	a := newTestFirmwareStatus(t)
 	b := newTestFirmwareStatus(t)

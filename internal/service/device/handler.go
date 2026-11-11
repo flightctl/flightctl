@@ -559,6 +559,14 @@ func validateDeviceStatus(d *domain.Device) []error {
 	return allErrs
 }
 
+// firmwareStatusRejection reports a status write that would erase an
+// outstanding firmware attempt.
+type firmwareStatusRejection struct {
+	err error
+}
+
+func (r firmwareStatusRejection) Error() string { return r.err.Error() }
+
 // validateChangedFirmwareStatus validates a firmware status that a write
 // supplies against the retained evidence of the releases that produced it,
 // unless it is unchanged from the stored one, which was validated when it was
@@ -622,8 +630,29 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	deviceToStore.Status = incomingDevice.Status
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
-	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice)
+	// The firmware status is decided against the device stored when each write
+	// attempt runs: an omitted firmware status keeps the stored one, and a
+	// supplied one may not erase an outstanding attempt.
+	reported := deviceToStore.Status
+	mergeFirmware := func(current *domain.Device) (*domain.DeviceStatus, error) {
+		status := *reported
+		stored := storedFirmwareStatus(current)
+		if suppliedFirmware == nil {
+			status.Firmware = stored
+			return &status, nil
+		}
+		if err := common.CheckFirmwareAttemptRetained(stored, suppliedFirmware); err != nil {
+			return nil, firmwareStatusRejection{err: err}
+		}
+		return &status, nil
+	}
+
+	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice, devicestore.WithStatusMerge(mergeFirmware))
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	var rejection firmwareStatusRejection
+	if errors.As(err, &rejection) {
+		return nil, domain.StatusBadRequest(rejection.Error())
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -706,6 +735,10 @@ func (h *DeviceServiceHandler) validateDeviceStatusPatch(ctx context.Context, cu
 }
 
 func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) (*domain.Device, error) {
+	firmwareOutcome, err := common.ClassifyFirmwareStatusPatch(current, patch)
+	if err != nil {
+		return nil, err
+	}
 	patched := &domain.Device{}
 	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
 		return nil, err
@@ -750,9 +783,35 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
+	if err := applyFirmwareStatusPatchOutcome(firmwareOutcome, storedFirmwareStatus(current), patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+// applyFirmwareStatusPatchOutcome keeps the stored firmware status when a
+// status patch omits it, and rejects a patch whose firmware status, removed or
+// rewritten, would erase an outstanding attempt.
+func applyFirmwareStatusPatchOutcome(outcome common.FirmwareStatusPatchOutcome, stored *domain.FirmwareStatus, patched *domain.Device) error {
+	switch outcome {
+	case common.FirmwareStatusOmitted:
+		if patched.Status != nil {
+			patched.Status.Firmware = stored
+		}
+		return nil
+	case common.FirmwareStatusRemoved:
+		if err := common.CheckFirmwareAttemptRetained(stored, nil); err != nil {
+			return err
+		}
+		if patched.Status != nil {
+			patched.Status.Firmware = nil
+		}
+		return nil
+	default:
+		return common.CheckFirmwareAttemptRetained(stored, storedFirmwareStatus(patched))
+	}
 }
 
 func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) error {

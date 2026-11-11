@@ -216,13 +216,22 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	return deepCopyDevice(d), before, creating, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
+	merge := devicestore.StatusMergeOf(opts...)
 	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		m.Device.Status = device.Status
+		if merge == nil {
+			m.Device.Status = device.Status
+			return nil
+		}
+		status, err := merge(deepCopyDevice(m.Device))
+		if err != nil {
+			return err
+		}
+		m.Device.Status = status
 		return nil
 	})
 	if err == nil {

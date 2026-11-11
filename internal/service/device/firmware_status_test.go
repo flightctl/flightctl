@@ -19,6 +19,7 @@ import (
 const (
 	statusSchemaDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	statusDigest       = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	attemptErasure     = "status.firmware.attempt: cannot erase an outstanding attempt"
 )
 
 const statusObservationSchema = `{
@@ -149,6 +150,18 @@ func TestReplaceDeviceStatusFirmware(t *testing.T) {
 			assert.Equal(t, "attempt-1", f.stored(t).Status.Firmware.Attempt.Id)
 		})
 
+		t.Run("When the "+route+" route would erase an outstanding attempt it should reject the write and keep the stored status", func(t *testing.T) {
+			f := newStatusFixture(t, outstandingFirmwareStatus(t))
+			before := f.stored(t)
+			firmware := outstandingFirmwareStatus(t)
+			firmware.Attempt = nil
+
+			_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), agent)
+
+			require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+			assert.Equal(t, attemptErasure, status.Message)
+			assert.Equal(t, before.Status, f.stored(t).Status)
+		})
 	}
 
 	t.Run("When observation data has an unknown field it should reject the write and keep the stored status", func(t *testing.T) {
@@ -163,6 +176,56 @@ func TestReplaceDeviceStatusFirmware(t *testing.T) {
 		assert.Contains(t, status.Message, "status.firmware.components[0].observation.backend.data")
 		assert.Contains(t, status.Message, "flashCount")
 		assert.Equal(t, before.Status, f.stored(t).Status)
+	})
+
+	t.Run("When the write omits the firmware status it should keep the stored firmware status without lookups", func(t *testing.T) {
+		f := newStatusFixture(t, outstandingFirmwareStatus(t))
+		before := f.stored(t)
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(nil), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		after := f.stored(t)
+		assert.Equal(t, before.Status.Firmware, after.Status.Firmware)
+		assert.Equal(t, "quay.io/example/os:reported", after.Status.Os.Image)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When a different attempt replaces an outstanding one it should reject the write", func(t *testing.T) {
+		f := newStatusFixture(t, outstandingFirmwareStatus(t))
+		before := f.stored(t)
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt.Id = "attempt-2"
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Equal(t, attemptErasure, status.Message)
+		assert.Equal(t, before.Status, f.stored(t).Status)
+	})
+
+	t.Run("When the outstanding attempt progresses to a terminal phase it should accept the write", func(t *testing.T) {
+		f := newStatusFixture(t, outstandingFirmwareStatus(t))
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt.Phase = domain.FirmwareAttemptPhaseSucceeded
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, domain.FirmwareAttemptPhaseSucceeded, f.stored(t).Status.Firmware.Attempt.Phase)
+	})
+
+	t.Run("When only a terminal attempt is stored it should accept a firmware status without it", func(t *testing.T) {
+		stored := outstandingFirmwareStatus(t)
+		stored.Attempt.Phase = domain.FirmwareAttemptPhaseFailed
+		f := newStatusFixture(t, stored)
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt = nil
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Nil(t, f.stored(t).Status.Firmware.Attempt)
 	})
 
 	t.Run("When the reported firmware status is unchanged it should keep it without needing retained evidence", func(t *testing.T) {
@@ -198,6 +261,23 @@ func TestReplaceDeviceStatusFirmware(t *testing.T) {
 	})
 }
 
+// statusValueWithoutFirmware is a complete device status value, as a JSON
+// Patch request carries it, that does not mention the firmware status.
+func statusValueWithoutFirmware() map[string]any {
+	status := domain.NewDeviceStatus()
+	status.Os.Image = "quay.io/example/os:patched"
+	raw, err := json.Marshal(status)
+	if err != nil {
+		panic(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		panic(err)
+	}
+	delete(value, "firmware")
+	return value
+}
+
 func TestPatchDeviceStatusFirmware(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -210,6 +290,44 @@ func TestPatchDeviceStatusFirmware(t *testing.T) {
 		wantLookups int
 	}{
 		{
+			name:     "When a patch removes an outstanding attempt it should reject it",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "remove", Path: "/status/firmware/attempt"}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  attemptErasure,
+		},
+		{
+			name:     "When a patch removes the firmware status with an outstanding attempt it should reject it",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "remove", Path: "/status/firmware"}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  attemptErasure,
+		},
+		{
+			name:     "When a patch sets the firmware status to null with an outstanding attempt it should reject it",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "replace", Path: "/status/firmware", Value: nil}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  attemptErasure,
+		},
+		{
+			name:     "When a patch replaces an outstanding attempt with a different one it should reject it",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "replace", Path: "/status/firmware/attempt/id", Value: "attempt-2"}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  attemptErasure,
+		},
+		{
+			name:     "When a patch replaces the status without a firmware status it should keep the stored firmware status",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "replace", Path: "/status", Value: statusValueWithoutFirmware()}},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, before, after *domain.Device) {
+				assert.Equal(t, "quay.io/example/os:patched", after.Status.Os.Image)
+				assert.Equal(t, before.Status.Firmware, after.Status.Firmware)
+			},
+		},
+		{
 			name:     "When a patch moves the outstanding attempt to a terminal phase it should accept it",
 			stored:   outstandingFirmwareStatus,
 			patch:    domain.PatchRequest{{Op: "replace", Path: "/status/firmware/attempt/phase", Value: "Succeeded"}},
@@ -221,6 +339,19 @@ func TestPatchDeviceStatusFirmware(t *testing.T) {
 			wantLookups: 2,
 		},
 		{
+			name: "When a patch removes the firmware status after the attempt finished it should accept it",
+			stored: func(t *testing.T) *domain.FirmwareStatus {
+				status := outstandingFirmwareStatus(t)
+				status.Attempt.Phase = domain.FirmwareAttemptPhaseFailed
+				return status
+			},
+			patch:    domain.PatchRequest{{Op: "remove", Path: "/status/firmware"}},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, before, after *domain.Device) {
+				assert.Nil(t, after.Status.Firmware)
+			},
+		},
+		{
 			name:     "When a patch adds an unknown observation data field it should reject it with the retained schema",
 			stored:   outstandingFirmwareStatus,
 			patch:    domain.PatchRequest{{Op: "add", Path: "/status/firmware/components/0/observation/backend/data/flashCount", Value: 3}},
@@ -228,6 +359,13 @@ func TestPatchDeviceStatusFirmware(t *testing.T) {
 			wantErr:  "flashCount",
 			// The early check rejects the request before the write.
 			wantLookups: 1,
+		},
+		{
+			name:     "When a patch adds a field that differs from an attempt field only in case it should reject it",
+			stored:   outstandingFirmwareStatus,
+			patch:    domain.PatchRequest{{Op: "add", Path: "/status/firmware/attempt/Id", Value: "attempt-2"}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  `status.firmware.attempt: property "Id" is unsupported`,
 		},
 	}
 	for _, tt := range tests {
