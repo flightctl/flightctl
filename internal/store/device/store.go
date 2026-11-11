@@ -1384,12 +1384,21 @@ func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams sto
 	return devicesCount, nil
 }
 
+// firmwareHoldSQL is true for a device row with desired firmware or with a
+// firmware attempt whose phase is not terminal, as domain.DeviceRequiresFirmwareHold
+// decides for a loaded device: a missing, empty or unknown phase counts as
+// outstanding, and JSON null counts as absent.
+var firmwareHoldSQL = fmt.Sprintf(`(COALESCE(jsonb_typeof(spec -> 'firmware'), 'null') <> 'null' OR
+	(COALESCE(jsonb_typeof(status -> 'firmware' -> 'attempt'), 'null') <> 'null' AND
+	COALESCE(status -> 'firmware' -> 'attempt' ->> 'phase', '') NOT IN ('%s', '%s', '%s')))`,
+	domain.FirmwareAttemptPhaseSucceeded, domain.FirmwareAttemptPhaseFailed, domain.FirmwareAttemptPhaseCanceled)
+
 // CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
 // The result is a count of devices grouped by some fields:
 // - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
 // - summary_status: taken from the field 'status.summary.status'
 // - updating_reason: it is the reason field from a condition having type 'Updating'
-// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
+// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion', and is false for a device held because of its firmware state (see firmwareHoldSQL), which stays in the counts but never completes successfully
 // - update_timed_out: it is a boolean value indicating if the update of the device has been timed out
 func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, error) {
 	var (
@@ -1403,7 +1412,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 		updateTimeoutValue = gorm.Expr("false")
 	}
 	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count,
-                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version,
+                                 (status -> 'config' ->> 'renderedVersion' = annotations->>'%s') AND NOT %s AS same_rendered_version,
                                  elem ->> 'reason' as updating_reason,
                                  annotations->>'%s' = ? as same_template_version,
 								 ? as update_timed_out
@@ -1416,7 +1425,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 						     where
 						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null
 						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
-		domain.DeviceAnnotationRenderedVersion, domain.DeviceAnnotationRenderedTemplateVersion, domain.DeviceAnnotationSelectedForRollout),
+		domain.DeviceAnnotationRenderedVersion, firmwareHoldSQL, domain.DeviceAnnotationRenderedTemplateVersion, domain.DeviceAnnotationSelectedForRollout),
 		templateVersion,
 		updateTimeoutValue,
 		orgId,
