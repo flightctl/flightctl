@@ -272,82 +272,84 @@ const (
 
 // Defines values for EventReason.
 const (
-	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
-	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
-	EventReasonDeltaGenerationFailed           EventReason = "DeltaGenerationFailed"
-	EventReasonDeltaGenerationProgress         EventReason = "DeltaGenerationProgress"
-	EventReasonDeltaGenerationRejected         EventReason = "DeltaGenerationRejected"
-	EventReasonDeltaGenerationSucceeded        EventReason = "DeltaGenerationSucceeded"
-	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
-	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
-	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
-	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
-	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
-	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
-	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
-	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
-	EventReasonDeviceConflictPaused            EventReason = "DeviceConflictPaused"
-	EventReasonDeviceConflictResolved          EventReason = "DeviceConflictResolved"
-	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
-	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
-	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
-	EventReasonDeviceContentUpdating           EventReason = "DeviceContentUpdating"
-	EventReasonDeviceDecommissionFailed        EventReason = "DeviceDecommissionFailed"
-	EventReasonDeviceDecommissioned            EventReason = "DeviceDecommissioned"
-	EventReasonDeviceDisconnected              EventReason = "DeviceDisconnected"
-	EventReasonDeviceDiskCritical              EventReason = "DeviceDiskCritical"
-	EventReasonDeviceDiskNormal                EventReason = "DeviceDiskNormal"
-	EventReasonDeviceDiskWarning               EventReason = "DeviceDiskWarning"
-	EventReasonDeviceIsRebooting               EventReason = "DeviceIsRebooting"
-	EventReasonDeviceMemoryCritical            EventReason = "DeviceMemoryCritical"
-	EventReasonDeviceMemoryNormal              EventReason = "DeviceMemoryNormal"
-	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
-	EventReasonDeviceMultipleOwnersDetected    EventReason = "DeviceMultipleOwnersDetected"
-	EventReasonDeviceMultipleOwnersResolved    EventReason = "DeviceMultipleOwnersResolved"
-	EventReasonDeviceOSImageChanged            EventReason = "DeviceOSImageChanged"
-	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
-	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
-	EventReasonDeviceUpdateFailed              EventReason = "DeviceUpdateFailed"
-	EventReasonDeviceVulnerabilityCVECritical  EventReason = "DeviceVulnerabilityCVECritical"
-	EventReasonDeviceVulnerabilityCVEResolved  EventReason = "DeviceVulnerabilityCVEResolved"
-	EventReasonDeviceVulnerabilityCVEWarning   EventReason = "DeviceVulnerabilityCVEWarning"
-	EventReasonEncryptionMigrationCompleted    EventReason = "EncryptionMigrationCompleted"
-	EventReasonEncryptionMigrationStarted      EventReason = "EncryptionMigrationStarted"
-	EventReasonEnrollmentHookFailed            EventReason = "EnrollmentHookFailed"
-	EventReasonEnrollmentHookManualOverride    EventReason = "EnrollmentHookManualOverride"
-	EventReasonEnrollmentHookNotifyFailed      EventReason = "EnrollmentHookNotifyFailed"
-	EventReasonEnrollmentHookSucceeded         EventReason = "EnrollmentHookSucceeded"
-	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
-	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
-	EventReasonFleetInvalid                    EventReason = "FleetInvalid"
-	EventReasonFleetRolloutBatchCompleted      EventReason = "FleetRolloutBatchCompleted"
-	EventReasonFleetRolloutBatchDispatched     EventReason = "FleetRolloutBatchDispatched"
-	EventReasonFleetRolloutCompleted           EventReason = "FleetRolloutCompleted"
-	EventReasonFleetRolloutCreated             EventReason = "FleetRolloutCreated"
-	EventReasonFleetRolloutDeviceSelected      EventReason = "FleetRolloutDeviceSelected"
-	EventReasonFleetRolloutFailed              EventReason = "FleetRolloutFailed"
-	EventReasonFleetRolloutStarted             EventReason = "FleetRolloutStarted"
-	EventReasonFleetValid                      EventReason = "FleetValid"
-	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
-	EventReasonInternalTaskPermanentlyFailed   EventReason = "InternalTaskPermanentlyFailed"
-	EventReasonPrepareDeltas                   EventReason = "PrepareDeltas"
-	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
-	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
-	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
-	EventReasonResourceCreated                 EventReason = "ResourceCreated"
-	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
-	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
-	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
-	EventReasonResourceSyncAccessible          EventReason = "ResourceSyncAccessible"
-	EventReasonResourceSyncCommitDetected      EventReason = "ResourceSyncCommitDetected"
-	EventReasonResourceSyncInaccessible        EventReason = "ResourceSyncInaccessible"
-	EventReasonResourceSyncParsed              EventReason = "ResourceSyncParsed"
-	EventReasonResourceSyncParsingFailed       EventReason = "ResourceSyncParsingFailed"
-	EventReasonResourceSyncSyncFailed          EventReason = "ResourceSyncSyncFailed"
-	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
-	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
-	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
-	EventReasonSystemRestored                  EventReason = "SystemRestored"
+	EventReasonApplicationLifecycleChanged        EventReason = "ApplicationLifecycleChanged"
+	EventReasonDeltaGenerationCompleted           EventReason = "DeltaGenerationCompleted"
+	EventReasonDeltaGenerationFailed              EventReason = "DeltaGenerationFailed"
+	EventReasonDeltaGenerationProgress            EventReason = "DeltaGenerationProgress"
+	EventReasonDeltaGenerationRejected            EventReason = "DeltaGenerationRejected"
+	EventReasonDeltaGenerationSucceeded           EventReason = "DeltaGenerationSucceeded"
+	EventReasonDependencyChangeDetected           EventReason = "DependencyChangeDetected"
+	EventReasonDependencySyncProbeFailed          EventReason = "DependencySyncProbeFailed"
+	EventReasonDeviceApplicationDegraded          EventReason = "DeviceApplicationDegraded"
+	EventReasonDeviceApplicationError             EventReason = "DeviceApplicationError"
+	EventReasonDeviceApplicationHealthy           EventReason = "DeviceApplicationHealthy"
+	EventReasonDeviceCPUCritical                  EventReason = "DeviceCPUCritical"
+	EventReasonDeviceCPUNormal                    EventReason = "DeviceCPUNormal"
+	EventReasonDeviceCPUWarning                   EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConflictPaused               EventReason = "DeviceConflictPaused"
+	EventReasonDeviceConflictResolved             EventReason = "DeviceConflictResolved"
+	EventReasonDeviceConnected                    EventReason = "DeviceConnected"
+	EventReasonDeviceContentOutOfDate             EventReason = "DeviceContentOutOfDate"
+	EventReasonDeviceContentUpToDate              EventReason = "DeviceContentUpToDate"
+	EventReasonDeviceContentUpdating              EventReason = "DeviceContentUpdating"
+	EventReasonDeviceDecommissionFailed           EventReason = "DeviceDecommissionFailed"
+	EventReasonDeviceDecommissioned               EventReason = "DeviceDecommissioned"
+	EventReasonDeviceDisconnected                 EventReason = "DeviceDisconnected"
+	EventReasonDeviceDiskCritical                 EventReason = "DeviceDiskCritical"
+	EventReasonDeviceDiskNormal                   EventReason = "DeviceDiskNormal"
+	EventReasonDeviceDiskWarning                  EventReason = "DeviceDiskWarning"
+	EventReasonDeviceIsRebooting                  EventReason = "DeviceIsRebooting"
+	EventReasonDeviceLabelReconciliationRequested EventReason = "DeviceLabelReconciliationRequested"
+	EventReasonDeviceMemoryCritical               EventReason = "DeviceMemoryCritical"
+	EventReasonDeviceMemoryNormal                 EventReason = "DeviceMemoryNormal"
+	EventReasonDeviceMemoryWarning                EventReason = "DeviceMemoryWarning"
+	EventReasonDeviceMultipleOwnersDetected       EventReason = "DeviceMultipleOwnersDetected"
+	EventReasonDeviceMultipleOwnersResolved       EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceOSImageChanged               EventReason = "DeviceOSImageChanged"
+	EventReasonDeviceSpecInvalid                  EventReason = "DeviceSpecInvalid"
+	EventReasonDeviceSpecValid                    EventReason = "DeviceSpecValid"
+	EventReasonDeviceUpdateFailed                 EventReason = "DeviceUpdateFailed"
+	EventReasonDeviceVulnerabilityCVECritical     EventReason = "DeviceVulnerabilityCVECritical"
+	EventReasonDeviceVulnerabilityCVEResolved     EventReason = "DeviceVulnerabilityCVEResolved"
+	EventReasonDeviceVulnerabilityCVEWarning      EventReason = "DeviceVulnerabilityCVEWarning"
+	EventReasonEncryptionMigrationCompleted       EventReason = "EncryptionMigrationCompleted"
+	EventReasonEncryptionMigrationStarted         EventReason = "EncryptionMigrationStarted"
+	EventReasonEnrollmentCredentialRevoked        EventReason = "EnrollmentCredentialRevoked"
+	EventReasonEnrollmentHookFailed               EventReason = "EnrollmentHookFailed"
+	EventReasonEnrollmentHookManualOverride       EventReason = "EnrollmentHookManualOverride"
+	EventReasonEnrollmentHookNotifyFailed         EventReason = "EnrollmentHookNotifyFailed"
+	EventReasonEnrollmentHookSucceeded            EventReason = "EnrollmentHookSucceeded"
+	EventReasonEnrollmentRequestApprovalFailed    EventReason = "EnrollmentRequestApprovalFailed"
+	EventReasonEnrollmentRequestApproved          EventReason = "EnrollmentRequestApproved"
+	EventReasonFleetInvalid                       EventReason = "FleetInvalid"
+	EventReasonFleetRolloutBatchCompleted         EventReason = "FleetRolloutBatchCompleted"
+	EventReasonFleetRolloutBatchDispatched        EventReason = "FleetRolloutBatchDispatched"
+	EventReasonFleetRolloutCompleted              EventReason = "FleetRolloutCompleted"
+	EventReasonFleetRolloutCreated                EventReason = "FleetRolloutCreated"
+	EventReasonFleetRolloutDeviceSelected         EventReason = "FleetRolloutDeviceSelected"
+	EventReasonFleetRolloutFailed                 EventReason = "FleetRolloutFailed"
+	EventReasonFleetRolloutStarted                EventReason = "FleetRolloutStarted"
+	EventReasonFleetValid                         EventReason = "FleetValid"
+	EventReasonInternalTaskFailed                 EventReason = "InternalTaskFailed"
+	EventReasonInternalTaskPermanentlyFailed      EventReason = "InternalTaskPermanentlyFailed"
+	EventReasonPrepareDeltas                      EventReason = "PrepareDeltas"
+	EventReasonReferencedRepositoryUpdated        EventReason = "ReferencedRepositoryUpdated"
+	EventReasonRepositoryAccessible               EventReason = "RepositoryAccessible"
+	EventReasonRepositoryInaccessible             EventReason = "RepositoryInaccessible"
+	EventReasonResourceCreated                    EventReason = "ResourceCreated"
+	EventReasonResourceCreationFailed             EventReason = "ResourceCreationFailed"
+	EventReasonResourceDeleted                    EventReason = "ResourceDeleted"
+	EventReasonResourceDeletionFailed             EventReason = "ResourceDeletionFailed"
+	EventReasonResourceSyncAccessible             EventReason = "ResourceSyncAccessible"
+	EventReasonResourceSyncCommitDetected         EventReason = "ResourceSyncCommitDetected"
+	EventReasonResourceSyncInaccessible           EventReason = "ResourceSyncInaccessible"
+	EventReasonResourceSyncParsed                 EventReason = "ResourceSyncParsed"
+	EventReasonResourceSyncParsingFailed          EventReason = "ResourceSyncParsingFailed"
+	EventReasonResourceSyncSyncFailed             EventReason = "ResourceSyncSyncFailed"
+	EventReasonResourceSyncSynced                 EventReason = "ResourceSyncSynced"
+	EventReasonResourceUpdateFailed               EventReason = "ResourceUpdateFailed"
+	EventReasonResourceUpdated                    EventReason = "ResourceUpdated"
+	EventReasonSystemRestored                     EventReason = "SystemRestored"
 )
 
 // Defines values for EventType.
@@ -1111,6 +1113,9 @@ type CertificateSigningRequestStatus struct {
 
 	// IssuedAt Server-owned enrollment certificate publication time, immutable once published and unknown for historical issuance.
 	IssuedAt *time.Time `json:"issuedAt,omitempty"`
+
+	// Revocation Server-owned immutable enrollment credential revocation state.
+	Revocation *EnrollmentCertificateRevocation `json:"revocation,omitempty"`
 }
 
 // CheckRepositoryOciImageRequest Request to check if a specific OCI image is accessible in a registry.
@@ -1977,6 +1982,27 @@ type Duration = string
 
 // EncodingType Specifies the encoding type used for data representation.
 type EncodingType string
+
+// EnrollmentCertificateRevocation Immutable server-owned enrollment credential revocation state.
+type EnrollmentCertificateRevocation struct {
+	// FlaggingCompletedAt The time at which affected-device flagging completed.
+	FlaggingCompletedAt *time.Time `json:"flaggingCompletedAt,omitempty"`
+
+	// Reason The security reason supplied by the authenticated actor.
+	Reason string `json:"reason"`
+
+	// RevokedAt The time at which the enrollment credential was revoked.
+	RevokedAt time.Time `json:"revokedAt"`
+
+	// RevokedBy The authenticated actor that revoked the enrollment credential.
+	RevokedBy string `json:"revokedBy"`
+}
+
+// EnrollmentCertificateRevocationRequest Request to revoke an issued enrollment credential.
+type EnrollmentCertificateRevocationRequest struct {
+	// Reason The security reason for revoking the enrollment credential.
+	Reason string `json:"reason"`
+}
 
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
@@ -4191,6 +4217,9 @@ type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
 // UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
 type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
+
+// RevokeCertificateSigningRequestJSONRequestBody defines body for RevokeCertificateSigningRequest for application/json ContentType.
+type RevokeCertificateSigningRequestJSONRequestBody = EnrollmentCertificateRevocationRequest
 
 // ResumeDevicesJSONRequestBody defines body for ResumeDevices for application/json ContentType.
 type ResumeDevicesJSONRequestBody = DeviceResumeRequest

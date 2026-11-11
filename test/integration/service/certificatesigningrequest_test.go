@@ -1,13 +1,22 @@
 package service_test
 
 import (
+	"context"
+	"encoding/pem"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -362,6 +371,99 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			Expect(replaced.Metadata.Labels).To(PointTo(HaveKeyWithValue("updated", "true")))
 			Expect(api.IsStatusConditionTrue(replaced.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue(), "Approved status should be preserved")
 		})
+
+		Context("Revocation operations", func() {
+			It("When revoking an issued enrollment CSR it should persist immutable metadata and stay tenant-scoped", func() {
+				csr := CreateTestCSR()
+				csrName := lo.FromPtr(csr.Metadata.Name)
+
+				By("creating an issued enrollment credential")
+				created, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, csr)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				Expect(created.Status.Certificate).NotTo(BeNil())
+
+				By("refusing to resolve the credential in another tenant")
+				_, status = suite.CertificateSigningRequest.RevokeCertificateSigningRequest(suite.Ctx, uuid.New(), csrName,
+					api.EnrollmentCertificateRevocationRequest{Reason: "Credential compromised"})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+
+				By("revoking the credential in its own tenant")
+				revoked, status := suite.CertificateSigningRequest.RevokeCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName,
+					api.EnrollmentCertificateRevocationRequest{Reason: "Credential compromised"})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(revoked.Status.Revocation).NotTo(BeNil())
+				Expect(revoked.Status.Revocation.Reason).To(Equal("Credential compromised"))
+				Expect(revoked.Status.Revocation.RevokedBy).To(Equal("test-admin"))
+				Expect(revoked.Status.Revocation.RevokedAt).NotTo(BeZero())
+				Expect(revoked.Status.Revocation.FlaggingCompletedAt).To(BeNil())
+				Expect(revoked.Status.Certificate).To(Equal(created.Status.Certificate))
+				Expect(revoked.Status.IssuedAt).To(Equal(created.Status.IssuedAt))
+
+				By("returning the original metadata for a repeated revocation")
+				repeated, status := suite.CertificateSigningRequest.RevokeCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName,
+					api.EnrollmentCertificateRevocationRequest{Reason: "Different reason"})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(repeated.Status.Revocation).To(Equal(revoked.Status.Revocation))
+
+				By("persisting the revocation through the standard CSR read")
+				retrieved, status := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(retrieved.Status.Revocation).To(Equal(revoked.Status.Revocation))
+
+				By("persisting one durable revocation event")
+				events, err := suite.EventStore.List(suite.Ctx, suite.OrgID, store.ListParams{})
+				Expect(err).NotTo(HaveOccurred())
+				var revocationEvents []domain.Event
+				for _, event := range events.Items {
+					if event.Reason == domain.EventReasonEnrollmentCredentialRevoked {
+						revocationEvents = append(revocationEvents, event)
+					}
+				}
+				Expect(revocationEvents).To(HaveLen(1))
+				Expect(revocationEvents[0].Actor).To(Equal("user:test-admin"))
+				Expect(revocationEvents[0].InvolvedObject.Name).To(Equal(csrName))
+
+			})
+
+			It("When revoking a service-client CSR it should refuse without mutation", func() {
+				csr := CreateTestCSR()
+				csrName := lo.FromPtr(csr.Metadata.Name)
+				csr.Spec.SignerName = suite.caClient.Cfg.DeviceSvcClientSignerName
+
+				provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+				_, err := provider.Create(suite.Ctx, suite.OrgID, &csr)
+				Expect(err).NotTo(HaveOccurred())
+				parsed, err := fcrypto.ParseCSR(csr.Spec.Request)
+				Expect(err).NotTo(HaveOccurred())
+				leaf, err := suite.caClient.IssueRequestedClientCertificate(suite.Ctx, parsed, 3600)
+				Expect(err).NotTo(HaveOccurred())
+				certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+				issued, _, _, err := provider.Mutate(suite.Ctx, suite.OrgID, csrName, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+					if err := mutation.RequireExisting(); err != nil {
+						return err
+					}
+					mutation.CertificateSigningRequest.Status = &api.CertificateSigningRequestStatus{
+						Conditions: []api.Condition{{
+							Type:   api.ConditionTypeCertificateSigningRequestApproved,
+							Status: api.ConditionStatusTrue,
+						}},
+						Certificate: lo.ToPtr(certificate),
+					}
+					return nil
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				_, status := suite.CertificateSigningRequest.RevokeCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName,
+					api.EnrollmentCertificateRevocationRequest{Reason: "Credential compromised"})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
+				Expect(status.Message).To(Equal("only enrollment credentials may be revoked"))
+
+				retrieved, status := suite.CertificateSigningRequest.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(retrieved.Status.Revocation).To(BeNil())
+				Expect(retrieved.Status.Certificate).To(Equal(issued.Status.Certificate))
+			})
+		})
 	})
 
 	Context("Enrollment credential issuance", func() {
@@ -443,3 +545,74 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 	})
 
 })
+
+var _ = Describe("Enrollment credential leaf resolution", func() {
+	var suite *ServiceTestSuite
+
+	BeforeEach(func() {
+		suite = NewServiceTestSuite()
+		suite.Setup()
+	})
+
+	AfterEach(func() {
+		suite.Teardown()
+	})
+
+	It("When organizations retain the same certificate it should resolve only within the requested tenant", func() {
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		otherOrgID := uuid.New()
+		Expect(suite.DB.Create(&model.Organization{ID: otherOrgID, ExternalID: otherOrgID.String(), DisplayName: "Other organization"}).Error).NotTo(HaveOccurred())
+
+		firstRequest := CreateTestCSR()
+		first, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, firstRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(first.Status.Certificate).NotTo(BeNil())
+		leaf, err := fcrypto.ParseCertificatePEM(*first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		secondRequest := CreateTestCSR()
+		second, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, otherOrgID, secondRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		second, err = setCSRStatusCertificate(provider, suite.Ctx, otherOrgID, *second.Metadata.Name, first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		resolved, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, suite.OrgID, leaf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(resolved.Metadata.Name)).To(Equal(lo.FromPtr(first.Metadata.Name)))
+
+		resolvedOther, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, otherOrgID, leaf)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(resolvedOther.Metadata.Name)).To(Equal(lo.FromPtr(second.Metadata.Name)))
+	})
+
+	It("When multiple CSRs in one tenant retain the same certificate it should fail closed", func() {
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		firstRequest := CreateTestCSR()
+		first, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, firstRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		Expect(first.Status.Certificate).NotTo(BeNil())
+		leaf, err := fcrypto.ParseCertificatePEM(*first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		duplicateRequest := CreateTestCSR()
+		duplicate, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, duplicateRequest)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		_, err = setCSRStatusCertificate(provider, suite.Ctx, suite.OrgID, *duplicate.Metadata.Name, first.Status.Certificate)
+		Expect(err).NotTo(HaveOccurred())
+
+		resolved, err := csrservice.CSRForLeaf(suite.Ctx, suite.CertificateSigningRequest, suite.OrgID, leaf)
+		Expect(resolved).To(BeNil())
+		Expect(errors.Is(err, csrservice.ErrAmbiguousCertificate)).To(BeTrue())
+	})
+})
+
+func setCSRStatusCertificate(provider csrstore.Store, ctx context.Context, orgID uuid.UUID, name string, certificate *[]byte) (*api.CertificateSigningRequest, error) {
+	updated, _, _, err := provider.Mutate(ctx, orgID, name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		mutation.CertificateSigningRequest.Status.Certificate = certificate
+		return nil
+	})
+	return updated, err
+}

@@ -59,12 +59,15 @@ details:
 
 | Category              | Event Reasons                                                                                     |
 |-----------------------|--------------------------------------------------------------------------------------------------|
+| **Label Reconciliation** | `DeviceLabelReconciliationRequested` |
 | **Connection Status** | `DeviceConnected`, `DeviceDisconnected`                                                          |
 | **Resource Monitoring** | `DeviceCPUCritical`, `DeviceCPUWarning`, `DeviceCPUNormal`, `DeviceMemoryCritical`, `DeviceMemoryWarning`, `DeviceMemoryNormal`, `DeviceDiskCritical`, `DeviceDiskWarning`, `DeviceDiskNormal` |
 | **Application Status** | `DeviceApplicationError`, `DeviceApplicationDegraded`, `DeviceApplicationHealthy`              |
 | **Device Lifecycle**  | `DeviceIsRebooting`, `DeviceDecommissioned`, `DeviceDecommissionFailed`, `DeviceMultipleOwnersDetected`, `DeviceMultipleOwnersResolved`, `DeviceSpecInvalid`, `DeviceSpecValid` |
 | **Content Management** | `DeviceContentUpdating`, `DeviceContentUpToDate`, `DeviceContentOutOfDate`                     |
 | **Vulnerability (CVE)** | `DeviceVulnerabilityCVEWarning`, `DeviceVulnerabilityCVECritical`, `DeviceVulnerabilityCVEResolved` *(see below)* |
+
+`DeviceLabelReconciliationRequested` records a request to reconcile dynamic labels after device status changes. The event is persisted for auditing before publication to the label sync queue. It does not indicate that labels changed or reconciliation succeeded. Changes only to the liveness timestamp (`LastSeen`) do not produce this event. Focused lifecycle events, such as `DeviceConnected`, are emitted independently.
 
 ### Vulnerability (CVE) events
 
@@ -81,7 +84,7 @@ The event `details` contain `detailType: DeviceVulnerabilityCVE` with the follow
 | Category               | Event Reasons                                                                                  |
 |------------------------|------------------------------------------------------------------------------------------------|
 | **General**           | `ResourceCreated`, `ResourceCreationFailed`, `ResourceUpdated`, `ResourceUpdateFailed`, `ResourceDeleted`, `ResourceDeletionFailed` |
-| **Enrollment**        | `EnrollmentRequestApproved`, `EnrollmentRequestApprovalFailed`                                 |
+| **Enrollment**        | `EnrollmentRequestApproved`, `EnrollmentRequestApprovalFailed`, `EnrollmentCredentialRevoked`  |
 | **Fleet Rollouts**    | `FleetRolloutCreated`, `FleetRolloutStarted`, `FleetRolloutBatchCompleted`                     |
 | **Repositories**      | `RepositoryAccessible`, `RepositoryInaccessible`                                              |
 | **ResourceSync**      | `ResourceSyncAccessible`, `ResourceSyncInaccessible`, `ResourceSyncCommitDetected`, `ResourceSyncParsed`, `ResourceSyncParsingFailed`, `ResourceSyncSynced`, `ResourceSyncSyncFailed`, `ResourceSyncCompleted` |

@@ -32,17 +32,21 @@ import (
 )
 
 const (
-	statusSuccessCode    = int32(200)
-	statusCreatedCode    = int32(201)
-	statusBadRequestCode = int32(400)
-	statusNotFoundCode   = int32(404)
-	statusConflictCode   = int32(409)
+	statusSuccessCode     = int32(200)
+	statusCreatedCode     = int32(201)
+	statusBadRequestCode  = int32(400)
+	statusForbiddenCode   = int32(403)
+	statusNotFoundCode    = int32(404)
+	statusConflictCode    = int32(409)
+	statusServerErrorCode = int32(500)
 )
 
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
-	items map[string]*domain.CertificateSigningRequest
+	items             map[string]*domain.CertificateSigningRequest
+	revokeErr         error
+	casMissRevocation *domain.EnrollmentCertificateRevocation
 }
 
 var _ csrstore.Store = (*fakeCertificateSigningRequestStore)(nil)
@@ -165,6 +169,54 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 	return nil
 }
 
+func (f *fakeCertificateSigningRequestStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	snapshot := make(map[string]*domain.CertificateSigningRequest, len(f.items))
+	for name, csr := range f.items {
+		clone, err := store.CloneJSON(csr)
+		if err != nil {
+			return err
+		}
+		snapshot[name] = clone
+	}
+	if err := fn(ctx); err != nil {
+		f.items = snapshot
+		return err
+	}
+	return nil
+}
+
+func (f *fakeCertificateSigningRequestStore) Revoke(ctx context.Context, orgId uuid.UUID, name string, revocation domain.EnrollmentCertificateRevocation, validate func(*domain.CertificateSigningRequest) error) (*domain.CertificateSigningRequest, bool, error) {
+	if f.revokeErr != nil {
+		return nil, false, f.revokeErr
+	}
+	if f.casMissRevocation != nil {
+		item, ok := f.items[name]
+		if !ok {
+			return nil, false, flterrors.ErrResourceNotFound
+		}
+		if item.Status == nil {
+			item.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		item.Status.Revocation = f.casMissRevocation
+		f.casMissRevocation = nil
+		return item, false, nil
+	}
+	updated, before, _, err := f.Mutate(ctx, orgId, name, nil, func(mutation *csrstore.CertificateSigningRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		if validate != nil {
+			if err := validate(mutation.Resource()); err != nil {
+				return err
+			}
+		}
+		return mutation.ApplyRevocation(revocation)
+	})
+	changed := err == nil && updated != nil && updated.Status != nil && updated.Status.HasRevocation() &&
+		(before == nil || before.Status == nil || !before.Status.HasRevocation())
+	return updated, changed, err
+}
+
 // fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
 // verification tests (GetEnrollmentRequest only).
 type fakeEnrollmentRequestService struct {
@@ -183,25 +235,32 @@ func (f *fakeEnrollmentRequestService) GetEnrollmentRequest(ctx context.Context,
 	return er, domain.StatusOK()
 }
 
-// fakeEventsService is a recording fake for events.Service. CertificateSigningRequest's own
-// event decision logic (in handler.go's callbackCertificateSigningRequestUpdated) now calls
-// CreateEvent directly, so tests assert on the actual emitted events rather than intercepting
-// the removed HandleCertificateSigningRequestUpdatedEvents method.
-type fakeEventsService struct {
-	events.Service
-	created []*domain.Event
-	deleted []string
+// fakeEventStore records events written by the real events service handler.
+type fakeEventStore struct {
+	events    []*domain.Event
+	createErr error
 }
 
-func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
-	if event == nil {
-		return
+func (f *fakeEventStore) InitialMigration(context.Context) error { return nil }
+
+func (f *fakeEventStore) Create(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	if f.createErr != nil {
+		return f.createErr
 	}
-	f.created = append(f.created, event)
+	if event != nil {
+		f.events = append(f.events, event)
+	}
+	return nil
 }
 
-func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.deleted = append(f.deleted, name)
+func (f *fakeEventStore) List(context.Context, uuid.UUID, store.ListParams) (*domain.EventList, error) {
+	return &domain.EventList{Items: lo.Map(f.events, func(event *domain.Event, _ int) domain.Event { return *event })}, nil
+}
+
+func (f *fakeEventStore) DeleteOlderThan(context.Context, time.Time) (int64, error) { return 0, nil }
+
+func newTestEventService(logger logrus.FieldLogger) *events.ServiceHandler {
+	return events.NewServiceHandler(&fakeEventStore{}, nil, logger)
 }
 
 func newTestCA(t *testing.T) (*crypto.CAClient, *cacfg.Config) {
@@ -211,14 +270,14 @@ func newTestCA(t *testing.T) (*crypto.CAClient, *cacfg.Config) {
 	return caClient, cfg
 }
 
-func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestService, *fakeEventsService, *cacfg.Config) {
+func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestService, *fakeEventStore, *cacfg.Config) {
 	csrStore := newFakeCertificateSigningRequestStore()
 	erSvc := newFakeEnrollmentRequestService()
-	ev := &fakeEventsService{}
+	ev := &fakeEventStore{}
 	caClient, cfg := newTestCA(t)
 	logger := logrus.New()
 	verifier := tpmcsr.NewVerifier(erSvc)
-	return NewServiceHandler(csrStore, verifier, caClient, ev, logger, "", ""), csrStore, erSvc, ev, cfg
+	return NewServiceHandler(csrStore, verifier, caClient, events.NewServiceHandler(ev, nil, logger), logger, "", ""), csrStore, erSvc, ev, cfg
 }
 
 type fakeCertificateService struct {
@@ -554,8 +613,8 @@ func TestCertificateSigningRequestSnapshots(testingT *testing.T) {
 	require.Equal(testingT, statusSuccessCode, status.Code)
 	require.Equal(testingT, map[string]string{"phase": "replacement"}, *current.Metadata.Labels)
 	require.Equal(testingT, "Approved", current.Status.Conditions[0].Reason)
-	require.Len(testingT, eventRecorder.created, 2)
-	updateEvent := eventRecorder.created[1]
+	require.Len(testingT, eventRecorder.events, 2)
+	updateEvent := eventRecorder.events[1]
 	require.Equal(testingT, domain.EventReasonResourceUpdated, updateEvent.Reason)
 	require.NotNil(testingT, updateEvent.Details)
 	details, err := updateEvent.Details.AsResourceUpdatedDetails()
@@ -578,8 +637,8 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 		require.True(t, domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved))
 		require.NotNil(t, result.Status.Certificate)
 		require.Contains(t, fakeStore.items, cn)
-		require.Len(t, fakeEvents.created, 1)
-		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
+		require.Len(t, fakeEvents.events, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.events[0].Reason)
 	})
 
 	t.Run("When managed metadata fields are set by the caller CreateCertificateSigningRequestFromUntrusted should clear them before creation", func(t *testing.T) {
@@ -725,7 +784,7 @@ func (s *recreatedCertificatePublishStore) Mutate(ctx context.Context, orgId uui
 func TestEnrollmentIssuanceWhenCSRIsRecreatedWithCertificate(t *testing.T) {
 	baseStore := newFakeCertificateSigningRequestStore()
 	caClient, cfg := newTestCA(t)
-	handler := NewServiceHandler(baseStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+	handler := NewServiceHandler(baseStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, newTestEventService(logrus.New()), logrus.New(), "", "")
 	ctx := context.Background()
 	orgID := uuid.New()
 	name := "recreated-publish"
@@ -779,7 +838,7 @@ func TestEnrollmentIssuanceSafeguards(t *testing.T) {
 					pendingConflicts:                   1,
 				}
 				caClient, cfg := newTestCA(t)
-				handler := NewServiceHandler(conflictingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+				handler := NewServiceHandler(conflictingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, newTestEventService(logrus.New()), logrus.New(), "", "")
 				ctx := context.Background()
 				orgID := uuid.New()
 				name := "issuance-conflict"
@@ -847,7 +906,7 @@ func TestEnrollmentIssuanceSafeguards(t *testing.T) {
 				publishErr := errors.New("publication failed")
 				failingStore := &failingMutationStore{fakeCertificateSigningRequestStore: baseStore, err: publishErr}
 				caClient, cfg := newTestCA(t)
-				handler := NewServiceHandler(failingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, &fakeEventsService{}, logrus.New(), "", "")
+				handler := NewServiceHandler(failingStore, tpmcsr.NewVerifier(newFakeEnrollmentRequestService()), caClient, newTestEventService(logrus.New()), logrus.New(), "", "")
 				ctx := context.Background()
 				orgID := uuid.New()
 				name := "publication-failure"
@@ -947,7 +1006,8 @@ func TestDeleteCertificateSigningRequest(t *testing.T) {
 	status := h.DeleteCertificateSigningRequest(context.Background(), uuid.New(), "foo")
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.NotContains(t, fakeStore.items, "foo")
-	require.Len(t, fakeEvents.deleted, 1)
+	require.Len(t, fakeEvents.events, 1)
+	require.Equal(t, domain.EventReasonResourceDeleted, fakeEvents.events[0].Reason)
 }
 
 func TestPatchCertificateSigningRequest(t *testing.T) {

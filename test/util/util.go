@@ -56,8 +56,15 @@ func InitLogsWithDebug() *logrus.Logger {
 	return flightlog.InitLogs()
 }
 
+type testQueue struct {
+	queue chan []byte
+	done  <-chan struct{}
+	wg    *sync.WaitGroup
+}
+
 type testProvider struct {
-	queue       chan []byte
+	queues      map[string]*testQueue
+	queuesMu    sync.Mutex
 	pubsubQueue chan []byte
 	// done is closed by Stop to signal shutdown. Senders select on it rather
 	// than relying on the queues being closed, so a send can never race a
@@ -81,7 +88,7 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	return &testProvider{
-		queue:       make(chan []byte, 20),
+		queues:      make(map[string]*testQueue),
 		pubsubQueue: make(chan []byte, 20),
 		done:        make(chan struct{}),
 		wg:          &wg,
@@ -89,12 +96,23 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	}
 }
 
-func (t *testProvider) NewQueueProducer(_ context.Context, _ string) (queues.QueueProducer, error) {
-	return t, nil
+func (t *testProvider) NewQueueProducer(_ context.Context, name string) (queues.QueueProducer, error) {
+	return t.getQueue(name), nil
 }
 
-func (t *testProvider) NewQueueConsumer(_ context.Context, _ string) (queues.QueueConsumer, error) {
-	return t, nil
+func (t *testProvider) NewQueueConsumer(_ context.Context, name string) (queues.QueueConsumer, error) {
+	return t.getQueue(name), nil
+}
+
+func (t *testProvider) getQueue(name string) *testQueue {
+	t.queuesMu.Lock()
+	defer t.queuesMu.Unlock()
+	queue, ok := t.queues[name]
+	if !ok {
+		queue = &testQueue{queue: make(chan []byte, 20), done: t.done, wg: t.wg}
+		t.queues[name] = queue
+	}
+	return queue
 }
 
 func (t *testProvider) Stop() {
@@ -118,7 +136,7 @@ func (t *testProvider) CheckHealth(_ context.Context) error {
 // Enqueue publishes to the work queue. Once Stop has been called the message
 // is dropped instead of being delivered: the consumers are on their way down,
 // and a test provider has nowhere to put it.
-func (t *testProvider) Enqueue(_ context.Context, b []byte, timestamp int64) error {
+func (t *testQueue) Enqueue(_ context.Context, b []byte, timestamp int64) error {
 	// Check shutdown first so that a stopped provider always drops, rather
 	// than enqueueing whenever select happens to pick the ready send.
 	select {
@@ -138,7 +156,10 @@ func (t *testProvider) Enqueue(_ context.Context, b []byte, timestamp int64) err
 func (t *testProvider) Close() {
 }
 
-func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandler) error {
+func (t *testQueue) Close() {
+}
+
+func (t *testQueue) Consume(ctx context.Context, handler queues.ConsumeHandler) error {
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
@@ -186,7 +207,7 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 	return nil
 }
 
-func (t *testProvider) Complete(ctx context.Context, entryID string, body []byte, err error) error {
+func (t *testQueue) Complete(ctx context.Context, entryID string, body []byte, err error) error {
 	// For test provider, this is a no-op since we don't track in-flight messages
 	return nil
 }

@@ -128,3 +128,9 @@ var _ CatalogItemRefSource = (*QuadletApplication)(nil)
 var _ CatalogItemRefSource = (*ContainerApplication)(nil)
 var _ CatalogItemRefSource = (*ComposeApplication)(nil)
 var _ CatalogItemRefSource = (*HelmApplication)(nil)
+
+// HasRevocation reports whether the status carries an enrollment credential
+// revocation.
+func (s CertificateSigningRequestStatus) HasRevocation() bool {
+	return s.Revocation != nil
+}

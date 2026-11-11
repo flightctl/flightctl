@@ -229,7 +229,7 @@ var _ = Describe("Device label update dispatch", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		statusEvent := domain.Event{
-			Reason: domain.EventReasonResourceUpdated,
+			Reason: domain.EventReasonDeviceLabelReconciliationRequested,
 			InvolvedObject: domain.ObjectReference{
 				Kind: domain.DeviceKind,
 				Name: "promoted-device",
@@ -283,7 +283,14 @@ func runDeviceTaskEvent(
 	Expect(err).NotTo(HaveOccurred())
 	consumer := &oneEventTaskConsumer{payload: payload}
 	provider := queues.NewMockProvider(ctrl)
-	provider.EXPECT().NewQueueConsumer(gomock.Any(), consts.TaskQueue).Return(consumer, nil).Times(1)
+	queueName, otherQueueName := consts.TaskQueue, consts.DeviceLabelSyncTaskQueue
+	if worker_client.IsDeviceLabelSyncQueueEvent(event) {
+		queueName, otherQueueName = otherQueueName, queueName
+	}
+	provider.EXPECT().NewQueueConsumer(gomock.Any(), queueName).Return(consumer, nil).Times(1)
+	otherConsumer := queues.NewMockQueueConsumer(ctrl)
+	provider.EXPECT().NewQueueConsumer(gomock.Any(), otherQueueName).Return(otherConsumer, nil).Times(1)
+	otherConsumer.EXPECT().Consume(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	Expect(tasks.LaunchConsumers(ctx, provider, taskConsumer, 1, 1)).To(Succeed())
 	Expect(consumer.handlerErr).NotTo(HaveOccurred())
 	Expect(consumer.processingErr).NotTo(HaveOccurred())

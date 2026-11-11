@@ -117,6 +117,21 @@ func (mr *MockStoreMockRecorder) Get(arg0, arg1, arg2 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockStore)(nil).Get), arg0, arg1, arg2)
 }
 
+// GetDeviceMappingsRevision mocks base method.
+func (m *MockStore) GetDeviceMappingsRevision(arg0 context.Context, arg1 uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceMappingsRevision", arg0, arg1)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceMappingsRevision indicates an expected call of GetDeviceMappingsRevision.
+func (mr *MockStoreMockRecorder) GetDeviceMappingsRevision(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceMappingsRevision", reflect.TypeOf((*MockStore)(nil).GetDeviceMappingsRevision), arg0, arg1)
+}
+
 // GetDeviceMappingsSnapshot mocks base method.
 func (m *MockStore) GetDeviceMappingsSnapshot(arg0 context.Context, arg1 uuid.UUID) (DeviceMappingsSnapshot, error) {
 	m.ctrl.T.Helper()

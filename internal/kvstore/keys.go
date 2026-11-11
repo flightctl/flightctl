@@ -120,6 +120,15 @@ type AwaitingReconnectionKey struct {
 	DeviceName string
 }
 
+type EnrollmentCSRStatusKey struct {
+	OrgID             uuid.UUID
+	CertificateDigest string
+}
+
+func (e *EnrollmentCSRStatusKey) ComposeKey() string {
+	return fmt.Sprintf("v1/%s/enrollment-csr-status/%s", e.OrgID, e.CertificateDigest)
+}
+
 func (a *AwaitingReconnectionKey) ComposeKey() string {
 	return fmt.Sprintf("v1/%s/device/%s/awaiting-reconnect", a.OrgID, a.DeviceName)
 }
