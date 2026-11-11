@@ -223,7 +223,8 @@ func (s *Server) Run(ctx context.Context) error {
 		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log,
 			deviceservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	fleetSvc := fleetservice.WrapWithTracing(
-		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
+		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log,
+			fleetservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
