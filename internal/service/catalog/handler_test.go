@@ -168,6 +168,9 @@ func (f *fakeDeviceStore) Summary(context.Context, uuid.UUID, store.ListParams) 
 func (f *fakeDeviceStore) ListDevicesByServiceCondition(context.Context, uuid.UUID, string, string, store.ListParams) (*domain.DeviceList, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) RevokeDevicesForEnrollmentCredential(context.Context, uuid.UUID, string) (int64, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {
 	panic("not implemented")
 }

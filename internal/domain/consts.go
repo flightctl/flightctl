@@ -287,8 +287,9 @@ const (
 // ========== Condition Reasons ==========
 
 const (
-	DeviceConditionBootstrapReason    = v1beta1.DeviceConditionBootstrapReason
-	EnrollmentCredentialRevokedReason = v1beta1.EnrollmentCredentialRevokedReason
+	DeviceConditionBootstrapReason     = v1beta1.DeviceConditionBootstrapReason
+	EnrollmentCredentialRevokedReason  = v1beta1.EnrollmentCredentialRevokedReason
+	EnrollmentCredentialRevokedMessage = "The enrollment credential that admitted this device was revoked"
 )
 
 // ========== Template Functions ==========

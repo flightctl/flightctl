@@ -114,39 +114,10 @@ func listEnrollmentRequestsByCredential(ctx context.Context, orgId uuid.UUID, cr
 }
 
 func flagDevicesForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service, log logrus.FieldLogger) error {
-	names, err := listDeviceNamesByCredential(ctx, orgId, credentialName, svc)
-	if err != nil {
-		return err
+	count, status := svc.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("flag devices: %s", status.Message)
 	}
-	for _, name := range names {
-		if status := svc.RevokeDeviceEnrollmentCredential(ctx, orgId, name); status.Code != http.StatusOK {
-			return fmt.Errorf("flag device %q: %s", name, status.Message)
-		}
-		log.Infof("Flagged device %q for revoked enrollment credential %q", name, credentialName)
-	}
+	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", count, credentialName)
 	return nil
-}
-
-func listDeviceNamesByCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service) ([]string, error) {
-	fieldSelector := fmt.Sprintf("status.enrollmentCredential.certificateName=%s", credentialName)
-	params := domain.ListDevicesParams{FieldSelector: &fieldSelector}
-	var names []string
-	for {
-		list, status := svc.ListDevices(ctx, orgId, params, nil)
-		if status.Code != http.StatusOK {
-			return nil, fmt.Errorf("list devices: %s", status.Message)
-		}
-		if list == nil {
-			return nil, fmt.Errorf("list devices: empty response")
-		}
-		for i := range list.Items {
-			if name := lo.FromPtr(list.Items[i].Metadata.Name); name != "" {
-				names = append(names, name)
-			}
-		}
-		if list.Metadata.Continue == nil || *list.Metadata.Continue == "" {
-			return names, nil
-		}
-		params.Continue = list.Metadata.Continue
-	}
 }

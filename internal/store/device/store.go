@@ -108,6 +108,10 @@ type Store interface {
 
 	// Used by fleet selector
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, error)
+	// RevokeDevicesForEnrollmentCredential flags every device whose
+	// enrollmentCredential projection references credentialName. The update is
+	// a single statement and is idempotent.
+	RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error)
 
 	// Used by catalog
 	ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
@@ -367,6 +371,65 @@ func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uu
 		return false, store.ErrorFromGormError(result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// RevokeDevicesForEnrollmentCredential flags every device whose
+// enrollmentCredential projection references credentialName. Conditions are
+// merged in place so unrelated service conditions survive, and already-flagged
+// devices are skipped to preserve the original transition time.
+func (s *DeviceStore) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+	if credentialName == "" {
+		return 0, nil
+	}
+	result := s.getDB(ctx).Exec(`
+		UPDATE devices
+		SET service_conditions = jsonb_set(
+				jsonb_set(
+					COALESCE(service_conditions, '{}'::jsonb),
+					'{enrollmentCredential,revoked}',
+					'true'::jsonb,
+					true
+				),
+				'{conditions}',
+				COALESCE((
+					SELECT jsonb_agg(condition_json ORDER BY ordinal)
+					FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb))
+						WITH ORDINALITY AS condition_rows(condition_json, ordinal)
+					WHERE condition_json->>'type' <> CAST(@condition_type AS text)
+				), '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+					'type', CAST(@condition_type AS text),
+					'status', CAST(@condition_status AS text),
+					'reason', CAST(@condition_reason AS text),
+					'message', CAST(@condition_message AS text),
+					'lastTransitionTime', to_jsonb(now())
+				)),
+				true
+			),
+			resource_version = resource_version + 1
+		WHERE org_id = CAST(@org_id AS uuid)
+		  AND deleted_at IS NULL
+		  AND service_conditions->'enrollmentCredential'->>'certificateName' = CAST(@credential_name AS text)
+		  AND (
+			  COALESCE(service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
+			  OR NOT EXISTS (
+				  SELECT 1
+				  FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
+				  WHERE condition_json->>'type' = CAST(@condition_type AS text)
+				    AND condition_json->>'status' = CAST(@condition_status AS text)
+			  )
+		  )
+	`, map[string]interface{}{
+		"org_id":            orgId,
+		"credential_name":   credentialName,
+		"condition_type":    string(domain.ConditionTypeDeviceEnrollmentCredentialRevoked),
+		"condition_status":  string(domain.ConditionStatusTrue),
+		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
+		"condition_message": domain.EnrollmentCredentialRevokedMessage,
+	})
+	if result.Error != nil {
+		return 0, store.ErrorFromGormError(result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store.EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *domain.Device, created bool, err error) {

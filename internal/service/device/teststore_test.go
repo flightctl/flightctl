@@ -267,6 +267,31 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 	return &domain.DeviceList{}, nil
 }
 
+func (s *fakeDeviceStore) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+	var count int64
+	for name, stored := range s.devices {
+		if stored.Status == nil || stored.Status.EnrollmentCredential == nil || lo.FromPtr(stored.Status.EnrollmentCredential.CertificateName) != credentialName {
+			continue
+		}
+		alreadyRevoked := lo.FromPtr(stored.Status.EnrollmentCredential.Revoked)
+		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		if alreadyRevoked && condition != nil && condition.Status == domain.ConditionStatusTrue {
+			continue
+		}
+		device := deepCopyDevice(stored)
+		device.Status.EnrollmentCredential.Revoked = lo.ToPtr(true)
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedMessage,
+		})
+		s.devices[name] = device
+		count++
+	}
+	return count, nil
+}
+
 func (s *fakeDeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {
 	items := make([]domain.Device, 0, len(s.devices))
 	for _, d := range s.devices {

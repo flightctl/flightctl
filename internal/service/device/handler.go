@@ -1048,34 +1048,12 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	return domain.StatusOK()
 }
 
-func (h *DeviceServiceHandler) RevokeDeviceEnrollmentCredential(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	_, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
-		if err := m.RequireExisting(); err != nil {
-			return err
-		}
-		if m.Device.Status == nil || m.Device.Status.EnrollmentCredential == nil {
-			return store.ErrMutateSkipWrite
-		}
-
-		existingConditions := serviceConditionsFromDevice(m.Device)
-		mergedConditions, conditionChanged := common.MergeStatusConditions(existingConditions, []domain.Condition{
-			{
-				Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
-				Status:  domain.ConditionStatusTrue,
-				Reason:  domain.EnrollmentCredentialRevokedReason,
-				Message: "The enrollment credential that admitted this device was revoked",
-			},
-		})
-		alreadyRevoked := lo.FromPtr(m.Device.Status.EnrollmentCredential.Revoked)
-		if alreadyRevoked && !conditionChanged {
-			return store.ErrMutateSkipWrite
-		}
-
-		replaceServiceConditionsOnDevice(m.Device, mergedConditions)
-		m.Device.Status.EnrollmentCredential.Revoked = lo.ToPtr(true)
-		return nil
-	})
-	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+func (h *DeviceServiceHandler) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
+	count, err := h.deviceStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &credentialName)
+	}
+	return count, domain.StatusOK()
 }
 
 // enrollmentHooksConditionChanged reports whether the EnrollmentHooks condition

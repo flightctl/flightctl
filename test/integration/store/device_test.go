@@ -765,6 +765,60 @@ var _ = Describe("DeviceStore create", func() {
 			}
 		})
 
+		It("Revokes enrollment credentials for all matching devices in one update", func() {
+			createDevice := func(name, credentialName string, revoked bool, conditions []api.Condition) {
+				status := api.NewDeviceStatus()
+				status.Conditions = conditions
+				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
+					CertificateName: lo.ToPtr(credentialName),
+					Revoked:         lo.ToPtr(revoked),
+				}
+				_, err := devStore.Create(ctx, orgId, &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Status:   &status,
+				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			existingCondition := api.Condition{
+				Type:               api.ConditionTypeDeviceSpecValid,
+				Status:             api.ConditionStatusTrue,
+				Reason:             "Valid",
+				Message:            "valid",
+				LastTransitionTime: time.Now().UTC(),
+			}
+			createDevice("credential-a-one", "credential-a", false, []api.Condition{existingCondition})
+			createDevice("credential-a-two", "credential-a", false, nil)
+			createDevice("credential-b-one", "credential-b", false, nil)
+
+			count, err := devStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(int64(2)))
+
+			for _, name := range []string{"credential-a-one", "credential-a-two"} {
+				device, err := devStore.Get(ctx, orgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(device.Status.EnrollmentCredential).ToNot(BeNil())
+				Expect(lo.FromPtr(device.Status.EnrollmentCredential.Revoked)).To(BeTrue())
+				condition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)
+				Expect(condition).ToNot(BeNil())
+				Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
+				Expect(condition.Reason).To(Equal(api.EnrollmentCredentialRevokedReason))
+			}
+
+			deviceA, err := devStore.Get(ctx, orgId, "credential-a-one")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(api.FindStatusCondition(deviceA.Status.Conditions, api.ConditionTypeDeviceSpecValid)).ToNot(BeNil())
+
+			deviceB, err := devStore.Get(ctx, orgId, "credential-b-one")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(deviceB.Status.EnrollmentCredential.Revoked)).To(BeFalse())
+			Expect(api.FindStatusCondition(deviceB.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
+
+			count, err = devStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(BeZero())
+		})
+
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)
