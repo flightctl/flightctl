@@ -455,6 +455,20 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 		assert.Equal(t, completeSet, f.store.device.repoRefs["foo"])
 	})
 
+	t.Run("When the request would create the device with firmware of an unknown release it should create nothing", func(t *testing.T) {
+		f := newAdmissionFixture(t)
+		firmware := admissionFirmware(t)
+		firmware.Updater.Version = "0.2.0"
+
+		_, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", newAdmissionDevice("foo", admissionSpec(t, firmware)), nil, true, true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "updater release nvidia-orin/0.2.0 not found")
+		assert.NotContains(t, f.store.device.devices, "foo")
+		assert.Zero(t, f.store.device.repoRefWrites)
+		assert.Empty(t, f.successEvents())
+	})
+
 	t.Run("When the replacement omits firmware it should keep the stored firmware without lookups or reference writes", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), nil, completeSet...)

@@ -535,6 +535,19 @@ func TestReplaceFleetFirmwareAdmission(t *testing.T) {
 		assert.Equal(t, []string{releaseLookup}, f.descriptors.lookups)
 		assert.Zero(t, f.store.replaceRepositoryRefsCalls)
 	})
+
+	t.Run("When the request would create the fleet with an invalid literal target GUID it should create nothing", func(t *testing.T) {
+		f := newAdmissionFixture(t)
+		firmware := admissionFirmware(t)
+		admissionConfig(firmware, "resources", 0)["targetGuid"] = "not-a-guid"
+
+		_, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", admissionFleet("fleet-1", firmware), true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "resources[0].targetGuid")
+		assert.NotContains(t, f.store.fleets, "fleet-1")
+		assert.Zero(t, f.store.replaceRepositoryRefsCalls)
+	})
 }
 
 func TestPatchFleetFirmwareAdmission(t *testing.T) {
