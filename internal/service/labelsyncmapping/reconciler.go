@@ -149,7 +149,7 @@ func labelReconciliationCondition(failure error) domain.Condition {
 }
 
 func (h *ServiceHandler) emitLabelChange(ctx context.Context, orgID uuid.UUID, name string, applied domain.DeviceLabelApplyResult) {
-	if applied.LabelsChanged {
+	if applied.LabelsChanged || applied.ManagedLabelsChanged {
 		updates := &domain.ResourceUpdatedDetails{UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels}}
 		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind, name, updates, h.log, nil)
 		if event != nil {
