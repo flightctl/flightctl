@@ -85,6 +85,13 @@ type fakeDeviceStore struct {
 	// repoRefsWriteErr fails reference writes, after the device write they
 	// accompany, to exercise rollback.
 	repoRefsWriteErr error
+	// mutateCalls counts Mutate calls. beforeMutate, when set, runs at the
+	// start of each call, before the device is loaded, so a test can change
+	// the stored device between two mutations.
+	mutateCalls  int
+	beforeMutate func(call int)
+	// deviceWrites counts the device writes that Mutate persisted.
+	deviceWrites int
 }
 
 // WithTransaction runs fn and, when it fails, restores the devices and
@@ -169,6 +176,10 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	if s.mutateErr != nil {
 		return nil, nil, false, s.mutateErr
 	}
+	s.mutateCalls++
+	if s.beforeMutate != nil {
+		s.beforeMutate(s.mutateCalls)
+	}
 	old, ok := s.devices[name]
 	creating := !ok
 	var before *domain.Device
@@ -205,6 +216,7 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	}
 	d := deepCopyDevice(mutation.Device)
 	s.devices[name] = d
+	s.deviceWrites++
 	s.rememberLastSeen(name, d)
 	if mutation.Rendered != nil {
 		if s.rendered == nil {
