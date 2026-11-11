@@ -550,12 +550,12 @@ func (h *DeviceServiceHandler) GetDeviceLastSeen(ctx context.Context, orgId uuid
 	}, domain.StatusOK()
 }
 
+// validateDeviceStatus validates a status write. A supplied firmware status is
+// validated by validateChangedFirmwareStatus, only when it differs from the
+// stored one, so that unchanged stored evidence is not judged again.
 func validateDeviceStatus(d *domain.Device) []error {
 	allErrs := append([]error{}, validation.ValidateResourceName(d.Metadata.Name)...)
 	// TODO: implement validation of agent's status updates
-	if d.Status != nil && d.Status.Firmware != nil {
-		allErrs = append(allErrs, d.Status.Firmware.Validate()...)
-	}
 	return allErrs
 }
 
@@ -567,10 +567,10 @@ type firmwareStatusRejection struct {
 
 func (r firmwareStatusRejection) Error() string { return r.err.Error() }
 
-// validateChangedFirmwareStatus validates a firmware status that a write
-// supplies against the retained evidence of the releases that produced it,
-// unless it is unchanged from the stored one, which was validated when it was
-// stored.
+// validateChangedFirmwareStatus validates the structure of a firmware status
+// that a write supplies, and its contents against the retained evidence of the
+// releases that produced it, unless it is unchanged from the stored one, which
+// was validated when it was stored.
 func (h *DeviceServiceHandler) validateChangedFirmwareStatus(ctx context.Context, stored, supplied *domain.FirmwareStatus) domain.Status {
 	if supplied == nil || common.FirmwareStatusEqual(stored, supplied) {
 		return domain.StatusOK()

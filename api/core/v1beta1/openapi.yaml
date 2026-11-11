@@ -9274,7 +9274,10 @@ components:
       properties:
         reason:
           type: string
-          description: Machine-readable reason for the failure.
+          description: >-
+            Machine-readable reason for the failure. ResourceLimitExceeded is the reason for every
+            failure caused by exceeding a resource budget of the updater release, and such an error
+            must name the budget in exceededBudget.
         message:
           type: string
           description: Human-readable description of the failure.
@@ -9292,7 +9295,10 @@ components:
       additionalProperties: false
     FirmwareBudgetKey:
       type: string
-      description: Name of the resource budget that a limit-exceeded failure exceeded. The updater release defines the valid budget names.
+      description: >-
+        Name of the resource budget that a ResourceLimitExceeded failure exceeded. It is required
+        when the reason is ResourceLimitExceeded and must be absent for every other reason. The
+        updater release defines the valid budget names.
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
