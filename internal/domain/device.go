@@ -45,6 +45,8 @@ type FirmwareSpec = v1beta1.FirmwareSpec
 type FirmwareStatus = v1beta1.FirmwareStatus
 type FirmwareAttemptStatus = v1beta1.FirmwareAttemptStatus
 type FirmwareAttemptPhase = v1beta1.FirmwareAttemptPhase
+type FirmwareError = v1beta1.FirmwareError
+type FirmwareObservationBackend = v1beta1.FirmwareObservationBackend
 
 const (
 	FirmwareAttemptPhasePreparing        = v1beta1.FirmwareAttemptPhasePreparing
