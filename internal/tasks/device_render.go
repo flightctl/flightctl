@@ -341,8 +341,10 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render, unless
-		// bypassHashCheck says this event must always produce a fresh render.
-		if !bypassHashCheck {
+		// bypassHashCheck says this event must always produce a fresh render, or the firmware
+		// hold condition does not match the device's firmware state, which the rendered write
+		// must then record or clear.
+		if !bypassHashCheck && firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
 					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
@@ -449,6 +451,16 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 }
 
 var errIgnitionConversion = errors.New("failed converting ignition config to rendered config")
+
+// firmwareHoldRecorded reports whether the device carries the condition of a
+// firmware hold.
+func firmwareHoldRecorded(device *domain.Device) bool {
+	if device.Status == nil {
+		return false
+	}
+	condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceSpecValid)
+	return condition != nil && condition.Reason == domain.DeviceSpecValidReasonFirmwareUnsupported
+}
 
 type RenderedSpec struct {
 	OsImage      string
