@@ -538,3 +538,30 @@ func TestFirmwareStatusComponentBudgetWithoutAttempt(t *testing.T) {
 		assert.Equal(t, before.Status, f.stored(t).Status)
 	})
 }
+
+func TestServerSideStatusPreservesConcurrentFirmware(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		name := "When server status retries it should preserve a concurrent attempt"
+		if force {
+			name = "When forced server status retries it should preserve a concurrent attempt"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newStatusFixture(t, nil)
+			concurrent := outstandingFirmwareStatus(t)
+			calls := 0
+			f.store.device.beforeMutate = func(int) {
+				calls++
+				f.store.device.devices["foo"].Status.Firmware = concurrent
+			}
+			var err error
+			if force {
+				err = f.svc.ForceUpdateServerSideDeviceStatus(context.Background(), f.orgId, "foo")
+			} else {
+				err = f.svc.UpdateServerSideDeviceStatus(context.Background(), f.orgId, "foo")
+			}
+			require.NoError(t, err)
+			require.Positive(t, calls)
+			require.Equal(t, concurrent, f.stored(t).Status.Firmware)
+		})
+	}
+}

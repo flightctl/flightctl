@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -327,6 +328,24 @@ func CheckFirmwareAttemptRetained(stored, candidate *domain.FirmwareStatus) erro
 	if candidate == nil || candidate.Attempt == nil || candidate.Attempt.Id != stored.Attempt.Id {
 		return fmt.Errorf("%s: cannot erase an outstanding attempt", field.NewPath("status", "firmware", "attempt"))
 	}
+	old, next := stored.Attempt, candidate.Attempt
+	if old.Id == "" || old.RenderedVersion != next.RenderedVersion || old.SpecHash != next.SpecHash ||
+		old.RetryGeneration != next.RetryGeneration || !old.StartedAt.Equal(next.StartedAt) {
+		return fmt.Errorf("status.firmware.attempt: cannot change the identity of an outstanding attempt")
+	}
+	if old.Updater != nil {
+		if next.Updater == nil {
+			return fmt.Errorf("status.firmware.attempt.updater: cannot discard a pinned updater")
+		}
+		left, right := *old.Updater, *next.Updater
+		// The extraction manifest is learned after the updater release is pinned.
+		if left.ManifestDigest == nil {
+			right.ManifestDigest = nil
+		}
+		if !reflect.DeepEqual(left, right) {
+			return fmt.Errorf("status.firmware.attempt.updater: cannot change a pinned updater")
+		}
+	}
 	return nil
 }
 
@@ -359,12 +378,16 @@ func ClassifyFirmwareStatusPatch[T any](current T, patch domain.PatchRequest) (F
 	case found:
 		return FirmwareStatusRemoved, nil
 	}
+	outcome := FirmwareStatusOmitted
 	for _, operation := range patch {
-		if operation.Op == "remove" && (operation.Path == deviceFirmwareStatusPatchPath || operation.Path == "/status") {
-			return FirmwareStatusRemoved, nil
+		switch {
+		case operation.Op == "remove" && (operation.Path == deviceFirmwareStatusPatchPath || operation.Path == "/status"):
+			outcome = FirmwareStatusRemoved
+		case (operation.Op == "add" || operation.Op == "replace" || operation.Op == "copy" || operation.Op == "move") && (operation.Path == "" || operation.Path == "/status"):
+			outcome = FirmwareStatusOmitted
 		}
 	}
-	return FirmwareStatusOmitted, nil
+	return outcome, nil
 }
 
 // FirmwareStatusEqual reports whether two firmware statuses have the same
