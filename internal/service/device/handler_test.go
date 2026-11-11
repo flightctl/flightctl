@@ -1141,7 +1141,6 @@ func TestRevokeDeviceEnrollmentCredential(t *testing.T) {
 				Conditions: []domain.Condition{},
 				EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
 					CertificateName: lo.ToPtr("commissioning-credential"),
-					PolicyName:      lo.ToPtr("factory-policy"),
 					Revoked:         lo.ToPtr(false),
 				},
 			},
@@ -1154,7 +1153,6 @@ func TestRevokeDeviceEnrollmentCredential(t *testing.T) {
 		stored := st.device.devices["automatic-device"]
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("commissioning-credential"),
-			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(true),
 		}, *stored.Status.EnrollmentCredential)
 		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
@@ -1172,7 +1170,6 @@ func TestReplaceDeviceStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
 		orgId := uuid.New()
 		projection := domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("commissioning-credential"),
-			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(true),
 		}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
@@ -1203,7 +1200,6 @@ func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing
 		orgId := uuid.New()
 		projection := domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("commissioning-credential"),
-			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(true),
 		}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
@@ -1215,7 +1211,6 @@ func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing
 		forgedStatus := domain.NewDeviceStatus()
 		forgedStatus.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("forged-credential"),
-			PolicyName:      lo.ToPtr("forged-policy"),
 			Revoked:         lo.ToPtr(false),
 		}
 		result, status := svc.ReplaceServiceOwnedStatus(ctx, orgId, "admin-status-device", domain.Device{

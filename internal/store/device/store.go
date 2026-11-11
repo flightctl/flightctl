@@ -626,9 +626,6 @@ func (s *DeviceStore) createDeviceEnrollmentCredentialIndexes(db *gorm.DB) error
 		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_certificate_name
 			ON devices ((service_conditions->'enrollmentCredential'->>'certificateName'))
 			WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_policy_name
-			ON devices ((service_conditions->'enrollmentCredential'->>'policyName'))
-			WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_revoked
 			ON devices ((service_conditions->'enrollmentCredential'->>'revoked'))
 			WHERE deleted_at IS NULL`,

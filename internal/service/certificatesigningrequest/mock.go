@@ -106,6 +106,21 @@ func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, pa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), varargs...)
 }
 
+// MarkEnrollmentCredentialFlaggingCompleted mocks base method.
+func (m *MockService) MarkEnrollmentCredentialFlaggingCompleted(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkEnrollmentCredentialFlaggingCompleted", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// MarkEnrollmentCredentialFlaggingCompleted indicates an expected call of MarkEnrollmentCredentialFlaggingCompleted.
+func (mr *MockServiceMockRecorder) MarkEnrollmentCredentialFlaggingCompleted(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkEnrollmentCredentialFlaggingCompleted", reflect.TypeOf((*MockService)(nil).MarkEnrollmentCredentialFlaggingCompleted), ctx, orgId, name)
+}
+
 // PatchCertificateSigningRequest mocks base method.
 func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()

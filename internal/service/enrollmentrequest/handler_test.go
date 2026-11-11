@@ -678,10 +678,10 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
 
-	t.Run("When automatic approval provenance is committed it should project credential and policy onto the device", func(t *testing.T) {
+	t.Run("When an enrollment credential is referenced it should project the credential onto the device", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
 		cn := "test-device-automatic-projection"
-		er := automaticProjectionRequest(t, cn)
+		er := projectionRequest(t, cn)
 		fakeStore.items[cn] = &er
 		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
 
@@ -693,7 +693,6 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("commissioning-credential"),
-			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(false),
 		}, *device.Status.EnrollmentCredential)
 	})
@@ -701,7 +700,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 	t.Run("When the referenced enrollment credential is revoked it should project the revoked state", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
 		cn := "test-device-revoked-projection"
-		er := automaticProjectionRequest(t, cn)
+		er := projectionRequest(t, cn)
 		fakeStore.items[cn] = &er
 		credential := issuedEnrollmentCredential("commissioning-credential")
 		credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{Reason: "Compromised", RevokedBy: "security-officer"}
@@ -715,15 +714,18 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
 			CertificateName: lo.ToPtr("commissioning-credential"),
-			PolicyName:      lo.ToPtr("factory-policy"),
 			Revoked:         lo.ToPtr(true),
 		}, *device.Status.EnrollmentCredential)
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		require.NotNil(t, condition)
+		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+		require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
 	})
 
 	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, _, _ := newTestHandlerWithCSR(t)
 		cn := "test-device-missing-credential"
-		er := automaticProjectionRequest(t, cn)
+		er := projectionRequest(t, cn)
 		fakeStore.items[cn] = &er
 
 		orgId := uuid.New()
@@ -738,7 +740,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 	t.Run("When the referenced enrollment credential is unissued it should not project provenance", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
 		cn := "test-device-unissued-credential"
-		er := automaticProjectionRequest(t, cn)
+		er := projectionRequest(t, cn)
 		fakeStore.items[cn] = &er
 		csrs.items["commissioning-credential"] = &domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("commissioning-credential")}, Status: &domain.CertificateSigningRequestStatus{}}
 
@@ -814,6 +816,36 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 
 	_, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), "missing", er)
 	require.Equal(t, statusNotFoundCode, status.Code)
+}
+
+func TestReplaceEnrollmentRequestStatusPreservesRevocationDenial(t *testing.T) {
+	h, store, _, _, _ := newTestHandler(t)
+	name := "revoked-pending"
+	credentialName := "credential-1"
+	store.items[name] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status: &domain.EnrollmentRequestStatus{
+			EnrollmentCertificateName: lo.ToPtr(credentialName),
+			Conditions: []domain.Condition{{
+				Type:    domain.ConditionTypeEnrollmentRequestDenied,
+				Status:  domain.ConditionStatusTrue,
+				Reason:  domain.EnrollmentCredentialRevokedReason,
+				Message: "Enrollment credential was revoked",
+			}},
+		},
+	}
+
+	result, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), name, domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status:   &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}},
+	})
+
+	require.Equal(t, statusSuccessCode, status.Code)
+	require.NotNil(t, result)
+	require.Equal(t, &credentialName, result.Status.EnrollmentCertificateName)
+	condition := domain.FindStatusCondition(result.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	require.NotNil(t, condition)
+	require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
 }
 
 func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
@@ -1142,14 +1174,13 @@ func TestGetEnrollmentConfigRestored(t *testing.T) {
 	}
 }
 
-func automaticProjectionRequest(t *testing.T, name string) domain.EnrollmentRequest {
+func projectionRequest(t *testing.T, name string) domain.EnrollmentRequest {
 	return domain.EnrollmentRequest{
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
 		Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, name), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
 		Status: &domain.EnrollmentRequestStatus{
 			Conditions:                []domain.Condition{},
 			EnrollmentCertificateName: lo.ToPtr("commissioning-credential"),
-			EnrollmentPolicyName:      lo.ToPtr("factory-policy"),
 		},
 	}
 }

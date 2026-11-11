@@ -8359,13 +8359,6 @@ components:
           maxLength: 253
           pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
           description: Optional tenant-local enrollment credential CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
-        enrollmentPolicyName:
-          type: string
-          readOnly: true
-          minLength: 1
-          maxLength: 253
-          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-          description: Optional enrollment approval policy that automatically approved the request.
         certificate:
           type: string
           description: 'The PEM-encoded signed certificate.'
@@ -9228,7 +9221,7 @@ components:
       - 'Approved'              # EnrollmentRequest
       - 'TPMVerified'           # EnrollmentRequest
       - 'Approved'              # CertificateSigningRequest
-      - 'Denied'                # CertificateSigningRequest
+      - 'Denied'                # EnrollmentRequest, CertificateSigningRequest
       - 'Failed'                # CertificateSigningRequest
       - 'TPMVerified'           # CertificateSigningRequest
       - 'Accessible'            # Repository
@@ -10718,17 +10711,12 @@ components:
       description: Server-owned enrollment credential provenance for a device.
       required:
         - certificateName
-        - policyName
         - revoked
       properties:
         certificateName:
           type: string
           readOnly: true
           description: Name of the enrollment credential CSR that admitted the device.
-        policyName:
-          type: string
-          readOnly: true
-          description: Name of the enrollment approval policy that admitted the device.
         revoked:
           type: boolean
           readOnly: true

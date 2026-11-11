@@ -16,7 +16,6 @@ type selectorToTypeMap map[selector.SelectorName]selector.SelectorType
 var (
 	deviceEnrollmentCredentialSelectors = selectorToTypeMap{
 		selector.NewSelectorName("status.enrollmentCredential.certificateName"): selector.String,
-		selector.NewSelectorName("status.enrollmentCredential.policyName"):      selector.String,
 		selector.NewSelectorName("status.enrollmentCredential.revoked"):         selector.Bool,
 	}
 	deviceStatusSelectors = selectorToTypeMap{
@@ -28,7 +27,6 @@ var (
 		selector.NewSelectorName("status.systemInfo.osMode"):                    selector.String,
 		selector.NewSelectorName("status.systemInfo.deltaEligible"):             selector.Bool,
 		selector.NewSelectorName("status.enrollmentCredential.certificateName"): selector.String,
-		selector.NewSelectorName("status.enrollmentCredential.policyName"):      selector.String,
 		selector.NewSelectorName("status.enrollmentCredential.revoked"):         selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{

@@ -94,12 +94,6 @@ func TestDeviceEnrollmentCredentialSelectors(t *testing.T) {
 			wantFieldName: "service_conditions -> 'enrollmentCredential' ->> 'certificateName'",
 		},
 		{
-			name:          "When the policy selector is resolved it should map to the server-owned credential path",
-			selectorName:  "status.enrollmentCredential.policyName",
-			wantType:      selector.String,
-			wantFieldName: "service_conditions -> 'enrollmentCredential' ->> 'policyName'",
-		},
-		{
 			name:          "When the revoked selector is resolved it should map to the server-owned credential path",
 			selectorName:  "status.enrollmentCredential.revoked",
 			wantType:      selector.Bool,

@@ -1492,9 +1492,6 @@ type DeviceEnrollmentCredentialStatus struct {
 	// CertificateName Name of the enrollment credential CSR that admitted the device.
 	CertificateName *string `json:"certificateName,omitempty"`
 
-	// PolicyName Name of the enrollment approval policy that admitted the device.
-	PolicyName *string `json:"policyName,omitempty"`
-
 	// Revoked Whether the credential that admitted the device was revoked.
 	Revoked *bool `json:"revoked,omitempty"`
 }
@@ -2240,9 +2237,6 @@ type EnrollmentRequestStatus struct {
 
 	// EnrollmentCertificateName Optional tenant-local enrollment credential CSR reference. Consumers must resolve authoritative state before use; absence does not prevent enrollment.
 	EnrollmentCertificateName *string `json:"enrollmentCertificateName,omitempty"`
-
-	// EnrollmentPolicyName Optional enrollment approval policy that automatically approved the request.
-	EnrollmentPolicyName *string `json:"enrollmentPolicyName,omitempty"`
 }
 
 // EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.

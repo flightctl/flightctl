@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -28,6 +29,7 @@ import (
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -127,6 +129,8 @@ func (s *Server) Run(ctx context.Context) error {
 	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
+	csrSvc := certificatesigningrequestservice.WrapWithTracing(certificatesigningrequestservice.NewServiceHandler(csrStore, nil, nil, eventsSvc, s.log, "", ""))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
 	if err != nil {
@@ -186,6 +190,7 @@ func (s *Server) Run(ctx context.Context) error {
 		CatalogSvc:           catalogSvc,
 		EventSvc:             eventSvc,
 		EnrollmentRequestSvc: enrollmentRequestSvc,
+		CSRService:           csrSvc,
 		NotifySecretsStore:   notifySecretsStore,
 		K8sClient:            s.k8sClient,
 		KVStore:              kvStore,

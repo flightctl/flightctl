@@ -715,11 +715,10 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with indexed enrollment credential field filters", func() {
-			createProjectedDevice := func(name, certificateName, policyName string, revoked bool) {
+			createProjectedDevice := func(name, certificateName string, revoked bool) {
 				status := api.NewDeviceStatus()
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
 					CertificateName: lo.ToPtr(certificateName),
-					PolicyName:      lo.ToPtr(policyName),
 					Revoked:         lo.ToPtr(revoked),
 				}
 				_, err := devStore.Create(ctx, orgId, &api.Device{
@@ -728,9 +727,9 @@ var _ = Describe("DeviceStore create", func() {
 				}, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
-			createProjectedDevice("credential-a-policy-a", "credential-a", "policy-a", true)
-			createProjectedDevice("credential-a-policy-b", "credential-a", "policy-b", false)
-			createProjectedDevice("credential-b-policy-b", "credential-b", "policy-b", false)
+			createProjectedDevice("credential-a-revoked", "credential-a", true)
+			createProjectedDevice("credential-a-active", "credential-a", false)
+			createProjectedDevice("credential-b-active", "credential-b", false)
 
 			deviceNames := func(items []api.Device) []string {
 				names := make([]string, 0, len(items))
@@ -747,16 +746,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deviceNames(credentialList.Items)).To(ConsistOf("credential-a-policy-a", "credential-a-policy-b"))
-
-			policyList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
-				ListParams: store.ListParams{
-					Limit:         1000,
-					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.policyName=policy-b", selector.WithPrivateSelectors()),
-				},
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(deviceNames(policyList.Items)).To(ConsistOf("credential-a-policy-b", "credential-b-policy-b"))
+			Expect(deviceNames(credentialList.Items)).To(ConsistOf("credential-a-revoked", "credential-a-active"))
 
 			revocationList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
@@ -765,11 +755,10 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deviceNames(revocationList.Items)).To(ConsistOf("credential-a-policy-a"))
+			Expect(deviceNames(revocationList.Items)).To(ConsistOf("credential-a-revoked"))
 
 			for _, indexName := range []string{
 				"idx_devices_enrollment_credential_certificate_name",
-				"idx_devices_enrollment_credential_policy_name",
 				"idx_devices_enrollment_credential_revoked",
 			} {
 				Expect(db.Migrator().HasIndex(&model.Device{}, indexName)).To(BeTrue())

@@ -154,13 +154,11 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 	}
 
 	enrollmentCertificateName := enrollmentRequest.Status.EnrollmentCertificateName
-	enrollmentPolicyName := enrollmentRequest.Status.EnrollmentPolicyName
 	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
 		Certificate:               lo.ToPtr(string(certData)),
 		Conditions:                existingConditions,
 		Approval:                  approval,
 		EnrollmentCertificateName: enrollmentCertificateName,
-		EnrollmentPolicyName:      enrollmentPolicyName,
 	}
 
 	// Merge user-provided labels with agent-provided labels (only if not replacing)
@@ -198,7 +196,6 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) (*domain.DeviceEnrollmentCredentialStatus, error) {
 	if enrollmentRequest.Status == nil ||
 		enrollmentRequest.Status.EnrollmentCertificateName == nil ||
-		enrollmentRequest.Status.EnrollmentPolicyName == nil ||
 		h.csrService == nil {
 		return nil, nil
 	}
@@ -215,9 +212,21 @@ func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, o
 	}
 	return &domain.DeviceEnrollmentCredentialStatus{
 		CertificateName: enrollmentRequest.Status.EnrollmentCertificateName,
-		PolicyName:      enrollmentRequest.Status.EnrollmentPolicyName,
 		Revoked:         lo.ToPtr(csr.Status.Revocation != nil),
 	}, nil
+}
+
+func setDeviceEnrollmentCredentialStatus(deviceStatus *domain.DeviceStatus, credential *domain.DeviceEnrollmentCredentialStatus) {
+	deviceStatus.EnrollmentCredential = credential
+	if credential == nil || !lo.FromPtr(credential.Revoked) {
+		return
+	}
+	domain.SetStatusCondition(&deviceStatus.Conditions, domain.Condition{
+		Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+		Status:  domain.ConditionStatusTrue,
+		Reason:  domain.EnrollmentCredentialRevokedReason,
+		Message: "The enrollment credential that admitted this device was revoked",
+	})
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
@@ -318,7 +327,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	deviceStatus.EnrollmentCredential = enrollmentCredential
+	setDeviceEnrollmentCredentialStatus(&deviceStatus, enrollmentCredential)
 
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)

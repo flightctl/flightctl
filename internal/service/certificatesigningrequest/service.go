@@ -17,4 +17,5 @@ type Service interface {
 	ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status)
 	UpdateCertificateSigningRequestApproval(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status)
 	RevokeCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, request domain.EnrollmentCertificateRevocationRequest) (*domain.CertificateSigningRequest, domain.Status)
+	MarkEnrollmentCredentialFlaggingCompleted(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status)
 }
