@@ -72,6 +72,28 @@ const firmwareJSON = `{
   "overlays": []
 }`
 
+// fullFirmwareJSON sets every desired firmware field. Version values are
+// vendor strings that the server stores without ordering them, so the camera
+// minimum is deliberately above its maximum in plain string order.
+const fullFirmwareJSON = `{
+  "profile": "orin-example-profile",
+  "retryGeneration": 3,
+  "updater": {"name": "nvidia-orin", "version": "0.1.0", "config": {
+    "resources": [{"component": "system", "targetGuid": "00000000-0000-4000-8000-000000000001"},
+                  {"component": "camera", "targetGuid": "00000000-0000-4000-8000-000000000002"}],
+    "releases": [{"artifact": {"source": {"repository": "firmware-artifacts"}}}],
+    "overlays": [{"artifact": {"authentication": {"signature": {"source": {"repository": "firmware-signatures"}}}}}]
+  }},
+  "components": [
+    {"name": "system", "version": {"exact": "36.4.4-rc.1+build.7"}, "artifactDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+    {"name": "camera", "version": {"minimum": "1.10.0", "maximum": "1.2.0"}},
+    {"name": "uefi", "version": {"latest": true, "minimum": "2024.05"}}
+  ],
+  "overlays": [{"name": "camera-overlay", "compatibleFirmware": [
+    {"component": "camera", "minimum": "1.2.0", "maximum": "1.10.0"},
+    {"component": "system", "exact": "36.4.4-rc.1+build.7"}]}]
+}`
+
 // firmwareDescriptors is a test stub of the approved descriptor provider that
 // serves one release and counts its lookups.
 type firmwareDescriptors struct {
@@ -258,6 +280,25 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(calls.Load()).To(Equal(int32(1)))
 			_, err := devStore.Get(ctx, orgId, "device-1")
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		})
+
+		It("When writing the references of a replacement fails it should keep the device and its references", func() {
+			_, status := deviceSvc.CreateDevice(ctx, orgId, newDevice("device-1", deviceSpec(firmware())))
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)), status.Message)
+			before := storedDevice("device-1")
+			calls := failDeviceRefWrites("injected join table failure")
+			fw := firmware()
+			fw.Updater.Config["overlays"] = []any{}
+
+			_, status = deviceSvc.ReplaceDevice(ctx, orgId, "device-1", newDevice("device-1", deviceSpec(fw)), nil, true, true)
+
+			Expect(status.Code).To(Equal(int32(http.StatusInternalServerError)), status.Message)
+			Expect(calls.Load()).To(BeNumerically(">=", 1))
+			after := storedDevice("device-1")
+			Expect(after.Spec).To(Equal(before.Spec))
+			Expect(after.Metadata.Generation).To(Equal(before.Metadata.Generation))
+			Expect(after.Metadata.ResourceVersion).To(Equal(before.Metadata.ResourceVersion))
+			Expect(deviceRefs("device-1")).To(Equal(completeSet))
 		})
 
 		It("When writing the references of a new device deadlocks it should roll back once without retrying", func() {
@@ -569,6 +610,264 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 
 			Expect(code).To(Equal(http.StatusCreated), body)
 			Expect(descriptors.lookups.Load()).To(BeZero())
+		})
+
+		decodedJSON := func(document string) any {
+			var value any
+			Expect(json.Unmarshal([]byte(document), &value)).To(Succeed())
+			return value
+		}
+		// withSchemaDefaults decodes a firmware document and adds the API schema
+		// defaults that the request validator applies before storing it.
+		withSchemaDefaults := func(document string) any {
+			firmware := decodedJSON(document).(map[string]any)
+			if _, ok := firmware["retryGeneration"]; !ok {
+				firmware["retryGeneration"] = float64(0)
+			}
+			for _, entry := range firmware["components"].([]any) {
+				version := entry.(map[string]any)["version"].(map[string]any)
+				if _, ok := version["latest"]; !ok {
+					version["latest"] = false
+				}
+			}
+			return firmware
+		}
+		read := func(path string) map[string]any {
+			code, body := send(http.MethodGet, path, "")
+			Expect(code).To(Equal(http.StatusOK), body)
+			var value map[string]any
+			Expect(json.Unmarshal([]byte(body), &value)).To(Succeed())
+			return value
+		}
+		member := func(value any, path ...string) any {
+			for _, key := range path {
+				object, ok := value.(map[string]any)
+				if !ok {
+					return nil
+				}
+				value = object[key]
+			}
+			return value
+		}
+		editedDocument := func(document string, edit func(firmware map[string]any)) string {
+			value := decodedJSON(document).(map[string]any)
+			edit(value)
+			raw, err := json.Marshal(value)
+			Expect(err).ToNot(HaveOccurred())
+			return string(raw)
+		}
+		component := func(firmware map[string]any, index int) map[string]any {
+			return firmware["components"].([]any)[index].(map[string]any)
+		}
+		updaterConfig := func(firmware map[string]any) map[string]any {
+			return firmware["updater"].(map[string]any)["config"].(map[string]any)
+		}
+		configResource := func(firmware map[string]any, index int) map[string]any {
+			return updaterConfig(firmware)["resources"].([]any)[index].(map[string]any)
+		}
+		fleetRefsOf := func(name string) []string {
+			refs := fleetRefs(name)
+			slices.Sort(refs)
+			return refs
+		}
+
+		It("When a device with every firmware field is created, replaced and patched over HTTP it should read back every field exactly", func() {
+			code, body := send(http.MethodPost, "/devices", deviceBody("device-full", fullFirmwareJSON))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			Expect(member(read("/devices/device-full"), "spec", "firmware")).To(Equal(withSchemaDefaults(fullFirmwareJSON)))
+
+			replaced := editedDocument(fullFirmwareJSON, func(fw map[string]any) {
+				fw["retryGeneration"] = 4
+				component(fw, 1)["version"] = map[string]any{"exact": "1.11.0-beta.2"}
+				component(fw, 2)["artifactDigest"] = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+			})
+			code, body = send(http.MethodPut, "/devices/device-full", deviceBody("device-full", replaced))
+			Expect(code).To(Equal(http.StatusOK), body)
+			Expect(member(read("/devices/device-full"), "spec", "firmware")).To(Equal(withSchemaDefaults(replaced)))
+
+			code, body = send(http.MethodPatch, "/devices/device-full", `[
+				{"op": "replace", "path": "/spec/firmware/components/0/version/exact", "value": "36.4.5"},
+				{"op": "add", "path": "/spec/firmware/overlays/0/compatibleFirmware/-", "value": {"component": "uefi", "minimum": "2024.05"}}]`)
+			Expect(code).To(Equal(http.StatusOK), body)
+			patched := editedDocument(replaced, func(fw map[string]any) {
+				component(fw, 0)["version"] = map[string]any{"exact": "36.4.5"}
+				overlay := fw["overlays"].([]any)[0].(map[string]any)
+				overlay["compatibleFirmware"] = append(overlay["compatibleFirmware"].([]any), map[string]any{"component": "uefi", "minimum": "2024.05"})
+			})
+			Expect(member(read("/devices/device-full"), "spec", "firmware")).To(Equal(withSchemaDefaults(patched)))
+			Expect(deviceRefs("device-full")).To(Equal(completeSet))
+
+			code, body = send(http.MethodPost, "/devices", `{"apiVersion": "v1beta1", "kind": "Device", "metadata": {"name": "device-plain"}, "spec": {}}`)
+			Expect(code).To(Equal(http.StatusCreated), body)
+			Expect(read("/devices/device-plain")["spec"]).ToNot(HaveKey("firmware"))
+		})
+
+		It("When a fleet with every firmware field is created, replaced and patched over HTTP it should read back every field exactly", func() {
+			created := editedDocument(fullFirmwareJSON, func(fw map[string]any) {
+				configResource(fw, 1)["targetGuid"] = "{{ .metadata.labels.cameraGuid }}"
+			})
+			code, body := send(http.MethodPost, "/fleets", fleetBody("fleet-full", created))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			Expect(member(read("/fleets/fleet-full"), "spec", "template", "spec", "firmware")).To(Equal(withSchemaDefaults(created)))
+
+			replaced := editedDocument(created, func(fw map[string]any) {
+				fw["profile"] = "orin-example-profile-b"
+				component(fw, 2)["version"] = map[string]any{"maximum": "2025.01"}
+			})
+			code, body = send(http.MethodPut, "/fleets/fleet-full", fleetBody("fleet-full", replaced))
+			Expect(code).To(Equal(http.StatusOK), body)
+			Expect(member(read("/fleets/fleet-full"), "spec", "template", "spec", "firmware")).To(Equal(withSchemaDefaults(replaced)))
+
+			code, body = send(http.MethodPatch, "/fleets/fleet-full", `[{"op": "replace", "path": "/spec/template/spec/firmware/retryGeneration", "value": 5}]`)
+			Expect(code).To(Equal(http.StatusOK), body)
+			patched := editedDocument(replaced, func(fw map[string]any) { fw["retryGeneration"] = 5 })
+			Expect(member(read("/fleets/fleet-full"), "spec", "template", "spec", "firmware")).To(Equal(withSchemaDefaults(patched)))
+		})
+
+		It("When a device body has unknown or case-variant keys in nested firmware objects it should reject each and store nothing", func() {
+			for _, tc := range []struct {
+				key  string
+				edit func(fw map[string]any)
+			}{
+				{key: "flash", edit: func(fw map[string]any) { fw["updater"].(map[string]any)["flash"] = true }},
+				{key: "Exact", edit: func(fw map[string]any) { component(fw, 0)["version"] = map[string]any{"Exact": "36.4.4"} }},
+				{key: "rollback", edit: func(fw map[string]any) { component(fw, 1)["rollback"] = true }},
+				{key: "required", edit: func(fw map[string]any) {
+					fw["overlays"].([]any)[0].(map[string]any)["compatibleFirmware"].([]any)[0].(map[string]any)["required"] = true
+				}},
+			} {
+				code, body := send(http.MethodPost, "/devices", deviceBody("device-nested", editedDocument(fullFirmwareJSON, tc.edit)))
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %s", tc.key, body)
+				Expect(body).To(ContainSubstring(tc.key))
+				Expect(deviceExists("device-nested")).To(BeFalse())
+			}
+			Expect(descriptors.lookups.Load()).To(BeZero())
+		})
+
+		It("When a device body has an invalid version constraint or digest it should reject it with the field path and store nothing", func() {
+			for _, tc := range []struct {
+				path string
+				edit func(fw map[string]any)
+			}{
+				{path: "spec.firmware.components[1].version", edit: func(fw map[string]any) { component(fw, 1)["version"] = map[string]any{} }},
+				{path: "spec.firmware.components[1].version", edit: func(fw map[string]any) { component(fw, 1)["version"] = map[string]any{"latest": false} }},
+				{path: "components", edit: func(fw map[string]any) { component(fw, 1)["version"] = map[string]any{"minimum": ""} }},
+				{path: "artifactDigest", edit: func(fw map[string]any) { component(fw, 0)["artifactDigest"] = "sha256:XYZ" }},
+			} {
+				code, body := send(http.MethodPost, "/devices", deviceBody("device-invalid", editedDocument(fullFirmwareJSON, tc.edit)))
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %s", tc.path, body)
+				Expect(body).To(ContainSubstring(tc.path))
+				Expect(deviceExists("device-invalid")).To(BeFalse())
+			}
+		})
+
+		It("When a fleet body has a literal updater identity it should reject an unknown configuration field, a forbidden template and a missing repository now", func() {
+			for _, tc := range []struct {
+				name     string
+				fragment string
+				edit     func(fw map[string]any)
+			}{
+				{name: "fleet-unknown", fragment: "flash", edit: func(fw map[string]any) { configResource(fw, 0)["flash"] = true }},
+				{name: "fleet-template", fragment: "resources[0].component", edit: func(fw map[string]any) { configResource(fw, 0)["component"] = "{{ .metadata.labels.component }}" }},
+				{name: "fleet-missing", fragment: "releases[0].artifact.source.repository", edit: func(fw map[string]any) {
+					updaterConfig(fw)["releases"].([]any)[0].(map[string]any)["artifact"].(map[string]any)["source"].(map[string]any)["repository"] = "missing-artifacts"
+				}},
+			} {
+				code, body := send(http.MethodPost, "/fleets", fleetBody(tc.name, editedDocument(firmwareJSON, tc.edit)))
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %s", tc.name, body)
+				Expect(body).To(ContainSubstring(tc.fragment))
+				Expect(fleetExists(tc.name)).To(BeFalse())
+			}
+			Expect(repositoryRowExists(orgId, "missing-artifacts")).To(BeFalse())
+		})
+
+		It("When a fleet body templates only part of the updater identity it should skip the release lookup and still apply every common check now", func() {
+			templatedVersion := func(fw map[string]any) {
+				fw["updater"].(map[string]any)["version"] = "{{ .metadata.labels.updaterVersion }}"
+			}
+
+			code, body := send(http.MethodPost, "/fleets", fleetBody("fleet-digest", editedDocument(fullFirmwareJSON, func(fw map[string]any) {
+				templatedVersion(fw)
+				component(fw, 0)["artifactDigest"] = "sha256:XYZ"
+			})))
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("artifactDigest"))
+			Expect(fleetExists("fleet-digest")).To(BeFalse())
+
+			code, body = send(http.MethodPost, "/fleets", fleetBody("fleet-templated-digest", editedDocument(fullFirmwareJSON, func(fw map[string]any) {
+				templatedVersion(fw)
+				component(fw, 0)["artifactDigest"] = "{{ .metadata.labels.digest }}"
+			})))
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(fleetExists("fleet-templated-digest")).To(BeFalse())
+
+			accepted := editedDocument(fullFirmwareJSON, templatedVersion)
+			code, body = send(http.MethodPost, "/fleets", fleetBody("fleet-1", accepted))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			Expect(member(read("/fleets/fleet-1"), "spec", "template", "spec", "firmware")).To(Equal(withSchemaDefaults(accepted)))
+			Expect(descriptors.lookups.Load()).To(BeZero())
+		})
+
+		It("When a fleet body templates a designated repository name it should defer it, but reject a missing literal repository beside it", func() {
+			templatedArtifacts := func(fw map[string]any) {
+				updaterConfig(fw)["releases"].([]any)[0].(map[string]any)["artifact"].(map[string]any)["source"].(map[string]any)["repository"] = "{{ .metadata.labels.artifacts }}"
+			}
+			code, body := send(http.MethodPost, "/fleets", fleetBody("fleet-missing", editedDocument(firmwareJSON, func(fw map[string]any) {
+				templatedArtifacts(fw)
+				updaterConfig(fw)["overlays"].([]any)[0].(map[string]any)["artifact"].(map[string]any)["authentication"].(map[string]any)["signature"].(map[string]any)["source"].(map[string]any)["repository"] = "missing-signatures"
+			})))
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("overlays[0].artifact.authentication.signature.source.repository"))
+			Expect(fleetExists("fleet-missing")).To(BeFalse())
+
+			accepted := editedDocument(firmwareJSON, templatedArtifacts)
+			code, body = send(http.MethodPost, "/fleets", fleetBody("fleet-1", accepted))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			Expect(member(read("/fleets/fleet-1"), "spec", "template", "spec", "firmware")).To(Equal(withSchemaDefaults(accepted)))
+			Expect(repositoryRowExists(orgId, "{{ .metadata.labels.artifacts }}")).To(BeFalse())
+			Expect(repositoryRowExists(orgId, "missing-signatures")).To(BeFalse())
+		})
+
+		It("When a fleet with references is replaced or patched with a templated GUID beside invalid data it should leave the fleet and its references unchanged", func() {
+			code, body := send(http.MethodPost, "/fleets", fleetBody("fleet-1", firmwareJSON))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			stored, err := fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			outcome, status := fleetSvc.ReplaceFleetRepositoryRefsIfCurrent(ctx, orgId, "fleet-1", lo.FromPtr(stored.Metadata.Generation), &stored.Spec.Template.Spec)
+			Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
+			Expect(outcome).To(Equal(common.RepositoryRefsReplaced))
+			Expect(fleetRefsOf("fleet-1")).To(Equal([]string{"firmware-artifacts", "firmware-signatures"}))
+			expectUnchanged := func() {
+				after, err := fleetStore.Get(ctx, orgId, "fleet-1")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(after.Spec).To(Equal(stored.Spec))
+				Expect(after.Metadata.Generation).To(Equal(stored.Metadata.Generation))
+				Expect(after.Metadata.ResourceVersion).To(Equal(stored.Metadata.ResourceVersion))
+				Expect(fleetRefsOf("fleet-1")).To(Equal([]string{"firmware-artifacts", "firmware-signatures"}))
+			}
+
+			code, body = send(http.MethodPut, "/fleets/fleet-1", fleetBody("fleet-1", editedDocument(firmwareJSON, func(fw map[string]any) {
+				configResource(fw, 0)["targetGuid"] = "{{ .metadata.labels.guid }}"
+				configResource(fw, 0)["flash"] = true
+			})))
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("flash"))
+			expectUnchanged()
+
+			code, body = send(http.MethodPatch, "/fleets/fleet-1", `[
+				{"op": "replace", "path": "/spec/template/spec/firmware/updater/config/resources/0/targetGuid", "value": "{{ .metadata.labels.guid }}"},
+				{"op": "replace", "path": "/spec/template/spec/firmware/updater/config/resources/1/targetGuid", "value": "not-a-guid"}]`)
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("resources[1].targetGuid"))
+			expectUnchanged()
+
+			code, body = send(http.MethodPatch, "/fleets/fleet-1", `[
+				{"op": "replace", "path": "/spec/template/spec/firmware/updater/config/resources/0/targetGuid", "value": "{{ .metadata.labels.guid }}"}]`)
+			Expect(code).To(Equal(http.StatusOK), body)
+			after, err := fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(firmwareConfig(after.Spec.Template.Spec.Firmware, "resources", 0)["targetGuid"]).To(Equal("{{ .metadata.labels.guid }}"))
+			Expect(fleetRefsOf("fleet-1")).To(Equal([]string{"firmware-artifacts", "firmware-signatures"}), "admission leaves fleet references to fleet validation")
 		})
 
 		It("When a fleet replacement sets the template firmware to null it should reject it", func() {
