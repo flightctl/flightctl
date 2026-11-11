@@ -83,7 +83,7 @@ func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, *de
 func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Device, devicestore.DeviceApplyFunc, ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
+func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device, ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {

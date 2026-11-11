@@ -754,6 +754,9 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentCredentialChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
+	if err := applyFirmwareStatusPatchOutcome(firmwareOutcome, storedFirmwareStatus(current), patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
