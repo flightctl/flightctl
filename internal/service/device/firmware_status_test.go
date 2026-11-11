@@ -402,3 +402,103 @@ func TestPatchDeviceCannotWriteFirmwareStatus(t *testing.T) {
 	assert.Contains(t, status.Message, "status is immutable")
 	assert.Equal(t, before.Status, f.stored(t).Status)
 }
+
+// olderBudgetFirmwareStatus is a stored firmware status whose attempt error
+// names an exceeded budget under a reason other than ResourceLimitExceeded, as
+// a producer could report before that reason was required.
+func olderBudgetFirmwareStatus(t *testing.T) *domain.FirmwareStatus {
+	t.Helper()
+	status := outstandingFirmwareStatus(t)
+	status.Attempt.Error = &domain.FirmwareError{Reason: "ArtifactUnauthenticated", Message: "the capsule exceeds the parser size budget", ExceededBudget: lo.ToPtr("maxArtifactBytes")}
+	return status
+}
+
+func TestFirmwareStatusExceededBudgetOnStatusWrites(t *testing.T) {
+	ctx := context.Background()
+	const budgetPath = "status.firmware.attempt.error.exceededBudget"
+
+	t.Run("When an older stored error names a budget and the status write omits the firmware status it should keep it without validation", func(t *testing.T) {
+		f := newStatusFixture(t, olderBudgetFirmwareStatus(t))
+		before := f.stored(t)
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(nil), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, before.Status.Firmware, f.stored(t).Status.Firmware)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When an older stored error names a budget and a status patch leaves the firmware status untouched it should keep it without validation", func(t *testing.T) {
+		f := newStatusFixture(t, olderBudgetFirmwareStatus(t))
+		before := f.stored(t)
+
+		_, status := f.svc.PatchDeviceStatus(ctx, f.orgId, "foo", domain.PatchRequest{{Op: "replace", Path: "/status/os/image", Value: "quay.io/example/os:patched"}}, true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		after := f.stored(t)
+		assert.Equal(t, before.Status.Firmware, after.Status.Firmware)
+		assert.Equal(t, "quay.io/example/os:patched", after.Status.Os.Image)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When an older stored error names a budget and the same firmware status is sent again it should keep it without validation", func(t *testing.T) {
+		f := newStatusFixture(t, olderBudgetFirmwareStatus(t))
+		before := f.stored(t)
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(olderBudgetFirmwareStatus(t)), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, before.Status.Firmware, f.stored(t).Status.Firmware)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When a new firmware status names a budget for another reason it should reject it before any lookup", func(t *testing.T) {
+		f := newStatusFixture(t, nil)
+		before := f.stored(t)
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(olderBudgetFirmwareStatus(t)), true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, budgetPath+": Forbidden")
+		assert.Equal(t, before.Status, f.stored(t).Status)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When a new limit error names no budget it should reject it before any lookup", func(t *testing.T) {
+		f := newStatusFixture(t, nil)
+		before := f.stored(t)
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt.Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "the capsule exceeds the parser size budget"}
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, budgetPath+": Required value")
+		assert.Equal(t, before.Status, f.stored(t).Status)
+		assert.Empty(t, f.evidence.schemaLookups)
+	})
+
+	t.Run("When a status patch adds an error that names a budget for another reason it should reject it", func(t *testing.T) {
+		f := newStatusFixture(t, outstandingFirmwareStatus(t))
+		before := f.stored(t)
+
+		_, status := f.svc.PatchDeviceStatus(ctx, f.orgId, "foo", domain.PatchRequest{{Op: "add", Path: "/status/firmware/attempt/error", Value: map[string]any{
+			"reason": "ArtifactDigestMismatch", "message": "digest mismatch", "retryable": false, "exceededBudget": "maxArtifactBytes",
+		}}}, true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, budgetPath+": Forbidden")
+		assert.Equal(t, before.Status, f.stored(t).Status)
+	})
+
+	t.Run("When a new limit error names a budget of the pinned release it should accept it", func(t *testing.T) {
+		f := newStatusFixture(t, nil)
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt.Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "the capsule exceeds the parser size budget", ExceededBudget: lo.ToPtr("maxArtifactBytes")}
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, "maxArtifactBytes", lo.FromPtr(f.stored(t).Status.Firmware.Attempt.Error.ExceededBudget))
+	})
+}

@@ -17,7 +17,9 @@ import (
 const firmwareObservationSchemaURL = "file:///firmware-observation.json"
 
 // ValidateFirmwareStatus validates reported firmware status against the
-// retained schema evidence of the updater releases that produced it.
+// retained schema evidence of the updater releases that produced it, after
+// checking its structure, including that only ResourceLimitExceeded errors
+// name an exceeded budget.
 //
 // Each observation is validated against the observation schema that its own
 // backend.updater and backend.schemaDigest identify. That release may differ
@@ -35,6 +37,9 @@ const firmwareObservationSchemaURL = "file:///firmware-observation.json"
 func ValidateFirmwareStatus(ctx context.Context, provider ApprovedDescriptorProvider, status *domain.FirmwareStatus) domain.Status {
 	if status == nil {
 		return domain.StatusOK()
+	}
+	if errs := status.Validate(); len(errs) > 0 {
+		return domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	check := &firmwareStatusCheck{ctx: ctx, provider: provider, retained: map[string]*retainedFirmwareSchema{}}
 	path := field.NewPath("status", "firmware")
