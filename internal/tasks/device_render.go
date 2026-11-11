@@ -438,6 +438,10 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
+	if deviceservice.IsFirmwareHold(status) {
+		t.log.Infof("Rendered output of device %s/%s is held: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+		return nil
+	}
 	if err := common.ApiStatusToErr(status); err != nil {
 		return t.setErrorStatus(ctx, err)
 	}

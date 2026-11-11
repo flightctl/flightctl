@@ -176,6 +176,14 @@ func (_d *TracedDeviceService) HealthcheckDevices(ctx context.Context, orgId uui
 	return err
 }
 
+func (_d *TracedDeviceService) HoldDeviceForFirmware(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, sourceHasFirmware bool) (b1 bool, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "HoldDeviceForFirmware")
+
+	b1, s1 = _d.inner.HoldDeviceForFirmware(ctx, orgId, name, expectedOwner, sourceHasFirmware)
+	endSpan(span, s1)
+	return b1, s1
+}
+
 func (_d *TracedDeviceService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (dp1 *domain.DeviceList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListConnectivityChangedDevices")
 
