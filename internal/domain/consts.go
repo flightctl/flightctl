@@ -275,6 +275,8 @@ const (
 	EnrollmentHooksReasonSucceeded      = v1beta1.EnrollmentHooksReasonSucceeded
 	EnrollmentHooksReasonContinued      = v1beta1.EnrollmentHooksReasonContinued
 	EnrollmentHooksReasonManualOverride = v1beta1.EnrollmentHooksReasonManualOverride
+
+	FleetValidReasonFirmwareRenderingUnsupported = v1beta1.FleetValidReasonFirmwareRenderingUnsupported
 )
 
 // ========== Device Text ==========
