@@ -702,6 +702,56 @@ func TestApplicationVolumeType(t *testing.T) {
 	}
 }
 
+func TestRepositoryDevicePullAccessSensitiveData(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		flag *bool
+	}{
+		{name: "omitted"},
+		{name: "false", flag: lo.ToPtr(false)},
+		{name: "true", flag: lo.ToPtr(true)},
+	} {
+		t.Run("When delivery is "+tc.name+" it should preserve masking and password updates", func(t *testing.T) {
+			var stored Repository
+			require.NoError(t, stored.Spec.FromOciRepoSpec(OciRepoSpec{
+				Type: OciRepoSpecTypeOci, Registry: "quay.io", DevicePullAccess: lo.ToPtr(true),
+				OciAuth: newOciAuth("user", "original-secret"),
+			}))
+			var edited Repository
+			require.NoError(t, edited.Spec.FromOciRepoSpec(OciRepoSpec{
+				Type: OciRepoSpecTypeOci, Registry: "quay.io", DevicePullAccess: tc.flag,
+				OciAuth: newOciAuth("user", "*****"),
+			}))
+			require.NoError(t, edited.PreserveSensitiveData(&stored))
+			spec, err := edited.Spec.AsOciRepoSpec()
+			require.NoError(t, err)
+			require.Equal(t, tc.flag, spec.DevicePullAccess)
+			auth, err := spec.OciAuth.AsDockerAuth()
+			require.NoError(t, err)
+			require.Equal(t, "original-secret", auth.Password)
+			require.NoError(t, edited.HideSensitiveData())
+			list := RepositoryList{Items: []Repository{edited}}
+			require.NoError(t, list.HideSensitiveData())
+			for _, repo := range []Repository{edited, list.Items[0]} {
+				spec, err := repo.Spec.AsOciRepoSpec()
+				require.NoError(t, err)
+				require.Equal(t, tc.flag, spec.DevicePullAccess)
+				auth, err := spec.OciAuth.AsDockerAuth()
+				require.NoError(t, err)
+				require.Equal(t, "*****", auth.Password)
+			}
+			spec.OciAuth = newOciAuth("user", "rotated-secret")
+			require.NoError(t, edited.Spec.FromOciRepoSpec(spec))
+			require.NoError(t, edited.PreserveSensitiveData(&stored))
+			spec, err = edited.Spec.AsOciRepoSpec()
+			require.NoError(t, err)
+			auth, err = spec.OciAuth.AsDockerAuth()
+			require.NoError(t, err)
+			require.Equal(t, "rotated-secret", auth.Password)
+		})
+	}
+}
+
 func TestRepositoryHideSensitiveData(t *testing.T) {
 	tests := []struct {
 		name            string

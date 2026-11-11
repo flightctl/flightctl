@@ -16,6 +16,9 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -115,6 +118,47 @@ func captureStdout(t *testing.T, fn func()) string {
 	w.Close()
 	<-done
 	return buf.String()
+}
+
+func repositoryWithDelivery(t *testing.T, flag *bool) api.Repository {
+	t.Helper()
+	auth := &api.OciAuth{}
+	require.NoError(t, auth.FromDockerAuth(api.DockerAuth{Username: "user", Password: "*****"}))
+	repo := api.Repository{ApiVersion: "flightctl.io/v1beta1", Kind: api.RepositoryKind, Metadata: api.ObjectMeta{Name: lo.ToPtr("registry"), ResourceVersion: lo.ToPtr("1")}}
+	require.NoError(t, repo.Spec.FromOciRepoSpec(api.OciRepoSpec{Type: api.OciRepoSpecTypeOci, Registry: "quay.io", OciAuth: auth, DevicePullAccess: flag}))
+	return repo
+}
+
+func getRepositoryYAML(t *testing.T, repo api.Repository) string {
+	t.Helper()
+	c, recorder := newRecordingClient(t, http.StatusOK, repo)
+	opts := DefaultGetOptions()
+	opts.Output = string(display.YAMLFormat)
+	output := captureStdout(t, func() {
+		err := opts.handleSingle(t.Context(), display.NewFormatter(display.YAMLFormat), RepositoryKind, "registry", func(name string) (interface{}, error) {
+			return GetSingleResource(t.Context(), c, RepositoryKind, name)
+		})
+		require.NoError(t, err)
+	})
+	require.Len(t, recorder.requests, 1)
+	require.Equal(t, http.MethodGet, recorder.requests[0].Method)
+	require.Equal(t, "/repositories/registry", recorder.requests[0].URL.Path)
+	return output
+}
+
+func TestGetRepositoryDevicePullAccess(t *testing.T) {
+	for _, flag := range []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)} {
+		state, err := json.Marshal(flag)
+		require.NoError(t, err)
+		t.Run("When delivery is "+string(state)+" it should appear faithfully in repository YAML", func(t *testing.T) {
+			repo := repositoryWithDelivery(t, flag)
+			output := getRepositoryYAML(t, repo)
+			var result api.Repository
+			require.NoError(t, yaml.Unmarshal([]byte(output), &result))
+			require.Equal(t, repo.Spec, result.Spec)
+			require.Contains(t, output, "*****")
+		})
+	}
 }
 
 func TestHandleListBatching(t *testing.T) {

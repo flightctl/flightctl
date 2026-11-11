@@ -15,6 +15,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRepositoryRolePermissions(t *testing.T) {
+	authorizer := NewStaticAuthZ(logrus.New())
+	orgID := uuid.New()
+	orgs := []*model.Organization{{ID: orgID}}
+	for _, role := range []string{v1beta1.RoleAdmin, v1beta1.RoleOrgAdmin, v1beta1.RoleOperator, v1beta1.RoleViewer} {
+		for _, operation := range []string{"get", "list", "create", "update", "patch", "delete"} {
+			t.Run("When "+role+" requests repository "+operation+" it should retain existing permissions", func(t *testing.T) {
+				ctx := ctxWithOrgRoles(t, orgs, map[string][]string{orgID.String(): {role}}, orgID)
+				allowed, err := authorizer.CheckPermission(ctx, "repositories", operation)
+				require.NoError(t, err)
+				require.Equal(t, role != v1beta1.RoleViewer || operation == "get" || operation == "list", allowed)
+			})
+		}
+	}
+}
+
 func TestStaticAuthZ_CheckPermission(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)

@@ -131,6 +131,27 @@ func TestResolveDeltaPushPath(t *testing.T) {
 	}
 }
 
+func TestRepositoryDevicePullAccessPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		flag *bool
+	}{
+		{name: "omitted"},
+		{name: "false", flag: lo.ToPtr(false)},
+		{name: "true", flag: lo.ToPtr(true)},
+	} {
+		t.Run("When delivery is "+tc.name+" it should preserve image and delta destinations", func(t *testing.T) {
+			spec := &domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", Namespace: lo.ToPtr("team"), DevicePullAccess: tc.flag}
+			image, err := RegistryObjectRef(spec, "os")
+			require.NoError(t, err)
+			require.Equal(t, "registry.example/team/os", image)
+			delta, err := ResolveDeltaPushPath(spec, "quay.io/images/os")
+			require.NoError(t, err)
+			require.Equal(t, "registry.example/team/os", delta)
+		})
+	}
+}
+
 func TestImageDestRef(t *testing.T) {
 	require.Equal(t, "my-registry.com/nginx/nginx:latest", ImageDestRef("my-registry.com", "nginx/nginx", "latest"))
 }

@@ -3195,6 +3195,9 @@ type OciRepoSpec struct {
 	// DeltaStorageTarget When true, generated deltas are pushed to this object (at most one per org). Auth is the existing ociAuth / accessMode. Placement follows repository / namespace / registry-only as above.
 	DeltaStorageTarget *bool `json:"deltaStorageTarget,omitempty"`
 
+	// DevicePullAccess Allow delivery of this Repository's credentials, CA and transport settings to devices. False or omitted disables delivery for both Read and ReadWrite access modes. Service-side Repository access is unchanged.
+	DevicePullAccess *bool `json:"devicePullAccess,omitempty"`
+
 	// Namespace Optional org/subpath under spec.registry (e.g. my-org). Concrete names are spec.registry/namespace/<name>. Mutually exclusive with repository. Used by delta push (`{registry}/{namespace}/{imageName}`). Invalid on an ImageBuild or ImageExport destination Repository.
 	Namespace *string `json:"namespace,omitempty"`
 
