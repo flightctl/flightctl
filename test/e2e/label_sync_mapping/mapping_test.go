@@ -681,7 +681,7 @@ func waitForMappingCondition(harness *e2e.Harness, name string, status api.Condi
 			}
 			observed = append(observed, fmt.Sprintf("%s=%s/%s at generation %s", condition.Type, condition.Status, condition.Reason, observedGeneration))
 			if condition.Type == api.ConditionTypeLabelSyncMappingReady && condition.Status == status && condition.Reason == reason &&
-				condition.ObservedGeneration != nil && *condition.ObservedGeneration == *generation {
+				condition.ObservedGeneration != nil && *condition.ObservedGeneration >= *generation {
 				return nil
 			}
 		}

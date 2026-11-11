@@ -27,7 +27,6 @@ type RolloutDeviceSelector interface {
 }
 
 type Selection interface {
-	BatchNumber() int
 	Devices(ctx context.Context) (*domain.DeviceList, error)
 	Approve(ctx context.Context) error
 	IsApproved() bool

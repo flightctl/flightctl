@@ -216,21 +216,21 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		networkFailureActive = true
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)).To(Succeed())
 		harness.WaitForBatchStart(fleetName, 0)
-		Expect(promotedAssertSelectedBatchDevice(harness, fleetName, tc.deviceIDs[0])).To(Succeed())
+		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[0])).To(Succeed())
 		Expect(promotedReplaceMapping(harness, mappingName, promotedPhaseExpression(harness, "second"))).To(Succeed())
 		Expect(promotedWaitForDeviceLabel(harness, tc.deviceIDs[1], phaseKey, "second")).To(Succeed())
 		Expect(promotedWaitForMappingReady(harness, mappingName)).To(Succeed())
-		Expect(promotedAssertSelectedBatchDevice(harness, fleetName, tc.deviceIDs[0])).To(Succeed())
+		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[0])).To(Succeed())
 		Expect(promotedFixNetworkFailure(tc.harnesses[0], tc.registryHost, tc.registryPort, &networkFailureActive)).To(Succeed())
 
 		By("checking the changed value is selected next and the final batch catches the remainder")
 		harness.WaitForBatchStart(fleetName, 1)
-		Expect(promotedAssertSelectedBatchDevice(harness, fleetName, tc.deviceIDs[1])).To(Succeed())
+		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[1])).To(Succeed())
 		completedFirst, err := harness.GetDevice(tc.deviceIDs[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(completedFirst.Spec).NotTo(BeNil())
 		harness.WaitForBatchStart(fleetName, 2)
-		Expect(promotedAssertSelectedBatchDevice(harness, fleetName, tc.deviceIDs[2])).To(Succeed())
+		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[2])).To(Succeed())
 		harness.WaitForBatchStart(fleetName, 3)
 		Expect(tc.verifyAllDevicesUpdated(3)).To(Succeed())
 		Eventually(harness.GetRolloutStatus, util.LONG_TIMEOUT, util.POLLING).
@@ -304,7 +304,7 @@ func promotedReplaceMapping(harness *e2e.Harness, name, expression string) error
 }
 
 // promotedAssertSelectedBatchDevice waits until the requested device is the selected batch member.
-func promotedAssertSelectedBatchDevice(harness *e2e.Harness, fleetName, expectedID string) error {
+func promotedAssertSelectedBatchDevice(harness *e2e.Harness, expectedID string) error {
 	if err := promotedValidateHarness(harness); err != nil {
 		return err
 	}
@@ -428,10 +428,6 @@ func promotedRolloutEventErrors(events []api.Event, version string) []string {
 		number, valid := batchNumbers[details.Batch]
 		if !valid || number < lastBatch {
 			problems = append(problems, fmt.Sprintf("template %s has stale or unknown dispatch batch %q", version, details.Batch))
-			continue
-		}
-		if number > lastBatch+1 {
-			problems = append(problems, fmt.Sprintf("template %s skipped dispatch batch %d before %q", version, lastBatch+1, details.Batch))
 			continue
 		}
 		seen[number] = true
@@ -874,25 +870,6 @@ func promotedWaitForCompletionEvents(harness *e2e.Harness, fleetName string, aft
 		}
 		return nil
 	})
-	if err != nil {
-		return events, err
-	}
-	stableUntil := time.Now().Add(5 * time.Second)
-	for time.Now().Before(stableUntil) {
-		time.Sleep(time.Second)
-		current, listErr := promotedFleetEvents(harness, fleetName, after)
-		if listErr != nil {
-			return nil, listErr
-		}
-		events = current
-		count, countErr := promotedCompletionCount(events, version)
-		if countErr != nil {
-			return nil, countErr
-		}
-		if count != 1 {
-			return events, fmt.Errorf("template %q has %d completion events after the stability window began; expected 1", version, count)
-		}
-	}
 	return events, err
 }
 

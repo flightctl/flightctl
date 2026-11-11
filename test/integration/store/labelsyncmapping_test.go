@@ -458,11 +458,13 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 			{Key: "old.key", Owners: []string{"shared-owner"}},
 			{Key: "null.key", Owners: []string{"shared-owner"}},
 			{Key: "shared.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
 		}))
 		otherOrgInitial, status := service.GetLabelSyncProvenance(ctx, otherOrgID, []string{"other-org.key", "old.key", "shared.key"})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(otherOrgInitial.Items).To(Equal([]domain.LabelSyncProvenanceItem{
 			{Key: "other-org.key", Owners: []string{"shared-owner"}},
+			{Key: "old.key", Owners: []string{}},
 			{Key: "shared.key", Owners: []string{"shared-owner"}},
 		}))
 
@@ -486,8 +488,11 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		afterUpdate, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"old.key", "null.key", "new.key", "shared.key", "other-org.key"})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(afterUpdate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "old.key", Owners: []string{}},
+			{Key: "null.key", Owners: []string{}},
 			{Key: "new.key", Owners: []string{"shared-owner"}},
 			{Key: "shared.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
 		}))
 		deviceAfterUpdate, status := service.GetDeviceLabelSyncProvenance(ctx, orgID, "shared-device")
 		Expect(status.Code).To(Equal(int32(200)))
@@ -510,7 +515,10 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		deletedProvenance, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"new.key", "shared.key"})
 		Expect(status.Code).To(Equal(int32(200)))
-		Expect(deletedProvenance.Items).To(BeEmpty())
+		Expect(deletedProvenance.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "new.key", Owners: []string{}},
+			{Key: "shared.key", Owners: []string{}},
+		}))
 		finalized, err := mappingStore.FinalizeDelete(ctx, orgID, "shared-owner")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(finalized).To(BeTrue())
@@ -534,13 +542,17 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		afterRecreate, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"new.key", "shared.key", "recreated.key", "other-org.key"})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(afterRecreate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "new.key", Owners: []string{}},
+			{Key: "shared.key", Owners: []string{}},
 			{Key: "recreated.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
 		}))
 
 		otherOrgAfterRecreate, status := service.GetLabelSyncProvenance(ctx, otherOrgID, []string{"other-org.key", "recreated.key"})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(otherOrgAfterRecreate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
 			{Key: "other-org.key", Owners: []string{"shared-owner"}},
+			{Key: "recreated.key", Owners: []string{}},
 		}))
 	})
 	It("When a mapping scan token changes it should fence only that mapping completion", func() {

@@ -118,22 +118,17 @@ func TestGetLabelSyncProvenance(t *testing.T) {
 	betaID := uuid.New()
 	deletingID := uuid.New()
 	staleID := uuid.New()
-	reservedKey := "reserved.key"
-	reserved := provenanceMapping(uuid.New(), "reserved", false)
-	reserved.Mapping.Spec.ResourceType = domain.LabelSyncMappingDevice
-	reserved.Mapping.Spec.Key = &reservedKey
 	mappingStore := &provenanceMappingStoreStub{snapshot: labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{
 		provenanceMapping(betaID, "beta", false),
 		provenanceMapping(alphaID, "alpha", false),
 		provenanceMapping(deletingID, "deleting", true),
-		reserved,
 	}}}
 	devices := &provenanceDeviceStoreStub{ownersByKey: map[string][]uuid.UUID{
 		"shared.key": {betaID, alphaID, betaID},
 		"stale.key":  {staleID, deletingID},
 	}}
 	service := newProvenanceService(t, mappingStore, devices)
-	keys := []string{"shared.key", "reserved.key", "unowned.key", "stale.key", "shared.key"}
+	keys := []string{"shared.key", "unowned.key", "stale.key", "shared.key"}
 
 	result, status := service.GetLabelSyncProvenance(context.Background(), orgID, keys)
 
@@ -141,7 +136,8 @@ func TestGetLabelSyncProvenance(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, []domain.LabelSyncProvenanceItem{
 		{Key: "shared.key", Owners: []string{"alpha", "beta"}},
-		{Key: "reserved.key", Owners: []string{"reserved"}},
+		{Key: "unowned.key", Owners: []string{}},
+		{Key: "stale.key", Owners: []string{}},
 		{Key: "shared.key", Owners: []string{"alpha", "beta"}},
 	}, result.Items)
 	assert.Equal(t, []uuid.UUID{orgID}, mappingStore.orgIDs)

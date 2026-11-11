@@ -615,8 +615,6 @@ func (b *batchSelection) Devices(ctx context.Context) (*domain.DeviceList, error
 	return result, common.ApiStatusToErr(status)
 }
 
-func (b *batchSelection) BatchNumber() int { return b.batchNum }
-
 func (b *batchSelection) OnRollout(ctx context.Context) error {
 	return b.conditionEmitter.active(ctx)
 }

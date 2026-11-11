@@ -92,7 +92,7 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.UploadImages(ctx); err != nil {
 				return nil, fmt.Errorf("failed to upload images: %w", err)
 			}
-			if err := s.UploadCharts(ctx); err != nil {
+			if err := s.UploadCharts(); err != nil {
 				return nil, fmt.Errorf("failed to upload charts: %w", err)
 			}
 			if !s.Registry.Reused {

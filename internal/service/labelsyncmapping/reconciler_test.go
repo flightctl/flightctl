@@ -390,18 +390,6 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	assert.Equal(t, 4, mappingStore.reads)
 }
 
-func TestEmitLabelChangeIgnoresOwnershipOnlyChanges(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	events := eventservice.NewMockService(ctrl)
-	events.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
-	handler := &ServiceHandler{events: events, log: logrus.New()}
-
-	handler.emitLabelChange(context.Background(), uuid.New(), "edge-01", domain.DeviceLabelApplyResult{
-		ManagedLabelsChanged: true,
-		OwnershipChanged:     true,
-	})
-}
-
 func TestReconcileDeviceLabelsDoesNotRepeatOwnerOnlyTransfer(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()

@@ -67,7 +67,6 @@ func (h *ServiceHandler) GetLabelSyncProvenance(ctx context.Context, orgID uuid.
 		return nil, common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, nil)
 	}
 	mappingNames := currentMappingNamesByID(mappingSnapshot)
-	declaredOwnersByKey := declaredScalarMappingOwners(mappingSnapshot)
 
 	items := make([]domain.LabelSyncProvenanceItem, 0, len(labelKeys))
 	for _, key := range labelKeys {
@@ -77,30 +76,9 @@ func (h *ServiceHandler) GetLabelSyncProvenance(ctx context.Context, orgID uuid.
 				owners[mappingName] = struct{}{}
 			}
 		}
-		for _, mappingName := range declaredOwnersByKey[key] {
-			owners[mappingName] = struct{}{}
-		}
-		if len(owners) == 0 {
-			continue
-		}
 		items = append(items, domain.LabelSyncProvenanceItem{Key: key, Owners: sortedOwnerNames(owners)})
 	}
 	return &domain.LabelSyncProvenanceList{Items: items}, domain.StatusOK()
-}
-
-func declaredScalarMappingOwners(snapshot labelsyncmappingstore.DeviceMappingsSnapshot) map[string][]string {
-	ownersByKey := make(map[string][]string)
-	for _, entry := range snapshot.Mappings {
-		mapping := entry.Mapping
-		if mapping.Metadata.DeletionTimestamp != nil || mapping.Spec.ResourceType != domain.LabelSyncMappingDevice || mapping.Spec.Key == nil {
-			continue
-		}
-		if mapping.Metadata.Name == nil || *mapping.Metadata.Name == "" {
-			continue
-		}
-		ownersByKey[*mapping.Spec.Key] = append(ownersByKey[*mapping.Spec.Key], *mapping.Metadata.Name)
-	}
-	return ownersByKey
 }
 
 func currentMappingNamesByID(snapshot labelsyncmappingstore.DeviceMappingsSnapshot) map[uuid.UUID]string {

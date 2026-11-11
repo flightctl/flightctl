@@ -1,7 +1,6 @@
 package auxiliary
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,10 +17,7 @@ var testAppVersions = map[string]string{
 }
 
 // UploadCharts uploads helm charts to the registry.
-func (s *Services) UploadCharts(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+func (s *Services) UploadCharts() error {
 	// Check if helm is available on the test runner (not in the agent VM)
 	if _, err := exec.LookPath("helm"); err != nil {
 		logrus.Warn("helm not found in PATH, attempting to install...")
@@ -37,11 +33,8 @@ func (s *Services) UploadCharts(ctx context.Context) error {
 		}
 
 		logrus.Infof("Running %s to install helm...", installScript)
-		installCmd := exec.CommandContext(ctx, "bash", installScript)
+		installCmd := exec.Command("bash", installScript)
 		if out, err := installCmd.CombinedOutput(); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
 			logrus.Warnf("failed to install helm: %v, output: %s, skipping chart upload", err, string(out))
 			return nil
 		}
@@ -71,9 +64,6 @@ func (s *Services) UploadCharts(ctx context.Context) error {
 
 	chartCount := 0
 	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if !entry.IsDir() {
 			continue
 		}
@@ -85,13 +75,13 @@ func (s *Services) UploadCharts(ctx context.Context) error {
 		chartName := entry.Name()
 		if chartName == "test-app" {
 			for version, message := range testAppVersions {
-				if err := s.uploadTestAppChart(ctx, chartDir, version, message); err != nil {
+				if err := s.uploadTestAppChart(chartDir, version, message); err != nil {
 					return err
 				}
 				chartCount++
 			}
 		} else {
-			if err := s.uploadChart(ctx, chartDir); err != nil {
+			if err := s.uploadChart(chartDir); err != nil {
 				return err
 			}
 			chartCount++
@@ -102,7 +92,7 @@ func (s *Services) UploadCharts(ctx context.Context) error {
 	return nil
 }
 
-func (s *Services) uploadTestAppChart(ctx context.Context, chartDir, version, message string) error {
+func (s *Services) uploadTestAppChart(chartDir, version, message string) error {
 	tmpDir, err := os.MkdirTemp("", "chart-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
@@ -124,7 +114,7 @@ func (s *Services) uploadTestAppChart(ctx context.Context, chartDir, version, me
 	}
 
 	logrus.Infof("Packaging chart: test-app (version: %s, message: %s)", version, message)
-	pkgCmd := exec.CommandContext(ctx, "helm", "package", workDir, "--destination", tmpDir)
+	pkgCmd := exec.Command("helm", "package", workDir, "--destination", tmpDir)
 	if out, err := pkgCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("helm package failed: %w, output: %s", err, string(out))
 	}
@@ -132,7 +122,7 @@ func (s *Services) uploadTestAppChart(ctx context.Context, chartDir, version, me
 	pkgFile := filepath.Join(tmpDir, fmt.Sprintf("test-app-%s.tgz", version))
 	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.Registry.URL)
 	logrus.Infof("Pushing test-app:%s to %s", version, ociRef)
-	pushCmd := exec.CommandContext(ctx, "helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
+	pushCmd := exec.Command("helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
 	if out, err := pushCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("helm push failed: %w, output: %s", err, string(out))
 	}
@@ -140,7 +130,7 @@ func (s *Services) uploadTestAppChart(ctx context.Context, chartDir, version, me
 	return nil
 }
 
-func (s *Services) uploadChart(ctx context.Context, chartDir string) error {
+func (s *Services) uploadChart(chartDir string) error {
 	chartYamlPath := filepath.Join(chartDir, "Chart.yaml")
 	content, err := os.ReadFile(chartYamlPath)
 	if err != nil {
@@ -167,7 +157,7 @@ func (s *Services) uploadChart(ctx context.Context, chartDir string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	pkgCmd := exec.CommandContext(ctx, "helm", "package", chartDir, "--destination", tmpDir)
+	pkgCmd := exec.Command("helm", "package", chartDir, "--destination", tmpDir)
 	if out, err := pkgCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("helm package failed: %w, output: %s", err, string(out))
 	}
@@ -175,7 +165,7 @@ func (s *Services) uploadChart(ctx context.Context, chartDir string) error {
 	pkgFile := filepath.Join(tmpDir, fmt.Sprintf("%s-%s.tgz", chartName, version))
 	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.Registry.URL)
 	logrus.Infof("Pushing %s:%s to %s", chartName, version, ociRef)
-	pushCmd := exec.CommandContext(ctx, "helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
+	pushCmd := exec.Command("helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
 	if out, err := pushCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("helm push failed: %w, output: %s", err, string(out))
 	}

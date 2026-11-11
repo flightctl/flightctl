@@ -1,6 +1,7 @@
 package label_sync_mapping
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,9 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -25,7 +29,7 @@ const (
 )
 
 var _ = Describe("Label sync security and audit", Serial, Label("integration", "sanity", "mapping-security"), func() {
-	It("reports a declared scalar key even when the mapping currently emits no value", func() {
+	It("reserves a scalar key even when the mapping currently emits no value", func() {
 		h := workerHarness
 		key := managedLabelPrefix + uniqueName(h, "empty")
 		name := uniqueName(h, "empty-map")
@@ -35,18 +39,9 @@ var _ = Describe("Label sync security and audit", Serial, Label("integration", "
 		Expect(waitForMappingReady(h, name)).To(Succeed())
 		Expect(waitForDeviceLabels(h, deviceName, nil, key)).To(Succeed())
 
-		By("allowing an operator label until the mapping owns a value on this device")
-		device, err := getDevice(h, deviceName)
-		Expect(err).NotTo(HaveOccurred())
-		labels := cloneLabels(device.Metadata.Labels)
-		labels[key] = "operator"
-		device.Metadata.Labels = &labels
-		updated, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceName, *device)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(updated.StatusCode()).To(Equal(http.StatusOK), string(updated.Body))
-		Expect(waitForDeviceLabels(h, deviceName, map[string]string{key: "operator"})).To(Succeed())
+		By("rejecting an operator write and another mapping for the reserved key")
+		Expect(rejectManagedLabelWrite(h, deviceName, key, "operator")).To(Succeed())
 
-		By("rejecting another mapping for the declared scalar key")
 		duplicate, err := newLabelSyncMapping(h, uniqueName(h, "duplicate"), &key, scopedScalarExpression(h, architectureField))
 		Expect(err).NotTo(HaveOccurred())
 		created, err := h.Client.CreateLabelSyncMappingWithResponse(h.Context, duplicate)
@@ -209,7 +204,7 @@ var _ = Describe("Label sync organization isolation", Serial, Label("integration
 		originalOrgDevice, otherOrgDevice := uniqueName(h, "original-org-device"), uniqueName(h, "other-org-device")
 
 		By("creating another organization and granting the test user access")
-		Expect(providers.RBAC.CreateOrganization(e2e.GetWorkerContext(), secondOrg)).To(Succeed())
+		Expect(createOrganizationIsolationNamespace(e2e.GetWorkerContext(), providers.RBAC, providers.Infra.GetExternalNamespace(), secondOrg)).To(Succeed())
 		secondOrgID := ""
 		DeferCleanup(cleanupOrganizationIsolation, h, providers.RBAC, secondOrg, &secondOrgID, originalOrg, originalOrgMapping, otherOrgMapping, otherOrgDevice)
 		Expect(providers.RBAC.AddUserToOrg(e2e.GetWorkerContext(), secondOrg, username)).To(Succeed())
@@ -561,6 +556,31 @@ func restoreOrganizationPreference(harness *e2e.Harness) error {
 		return fmt.Errorf("persist default organization preference: %w", err)
 	}
 	return harness.RefreshClient()
+}
+
+// createOrganizationIsolationNamespace creates an organization with the Helm release label the API discovers.
+func createOrganizationIsolationNamespace(ctx context.Context, rbac infra.RBACProvider, apiNamespace, name string) error {
+	clientProvider, ok := rbac.(interface{ GetClient() kubernetes.Interface })
+	if !ok {
+		return fmt.Errorf("RBAC provider does not expose a Kubernetes client")
+	}
+	client := clientProvider.GetClient()
+	deployment, err := client.AppsV1().Deployments(apiNamespace).Get(ctx, "flightctl-api", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get API deployment in namespace %s: %w", apiNamespace, err)
+	}
+	releaseName := deployment.Labels["app.kubernetes.io/instance"]
+	if releaseName == "" {
+		return fmt.Errorf("API deployment in namespace %s has no Helm release label", apiNamespace)
+	}
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   name,
+		Labels: map[string]string{infra.OrgLabelKey: releaseName},
+	}}
+	if _, err := client.CoreV1().Namespaces().Create(ctx, namespace, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create organization namespace %s: %w", name, err)
+	}
+	return nil
 }
 
 // cleanupOrganizationIsolation removes test mappings, the temporary device, and the temporary organization.
