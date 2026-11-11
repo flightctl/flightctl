@@ -51,7 +51,7 @@ func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain
 func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	return nil, nil, false, nil
 }
-func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
 func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
