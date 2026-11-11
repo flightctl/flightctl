@@ -67,6 +67,11 @@ func ValidatePatchedFirmware[T any](current T, patch domain.PatchRequest, path s
 	if err != nil {
 		return err
 	}
+	return ValidatePatchedFirmwareJSON(patched, path)
+}
+
+// ValidatePatchedFirmwareJSON checks raw firmware without applying a patch again.
+func ValidatePatchedFirmwareJSON(patched []byte, path string) error {
 	var document any
 	if err := json.Unmarshal(patched, &document); err != nil {
 		return fmt.Errorf("patch produced an invalid resource: %w", err)

@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -82,11 +83,31 @@ func (s FirmwareStatus) Validate() []error {
 	if s.Support.ApiVersion < 1 {
 		errs = append(errs, field.Invalid(path.Child("support", "apiVersion"), s.Support.ApiVersion, "must be greater than or equal to 1"))
 	}
+	errs = append(errs, validateFirmwareRequiredStrings(path, map[string]string{"bootID": s.BootID})...)
+	for i, updater := range s.Support.Updaters {
+		errs = append(errs, validateFirmwareRequiredStrings(path.Child("support", "updaters").Index(i), map[string]string{
+			"name": updater.Name, "version": updater.Version, "buildDigest": updater.BuildDigest, "schemaDigest": updater.SchemaDigest,
+		})...)
+	}
 	if s.Attempt != nil {
 		errs = append(errs, validateFirmwareAttempt(*s.Attempt, path.Child("attempt"))...)
 	}
+	names := map[string]struct{}{}
 	for i, component := range s.Components {
 		componentPath := path.Child("components").Index(i)
+		errs = append(errs, validateFirmwareRequiredStrings(componentPath, map[string]string{"name": component.Name, "bootID": component.BootID})...)
+		if component.Name != "" && !firmwareComponentNamePattern.MatchString(component.Name) {
+			errs = append(errs, field.Invalid(componentPath.Child("name"), component.Name, "must be a lowercase RFC 1123 label"))
+		}
+		errs = append(errs, checkFirmwareNameUnique(component.Name, componentPath.Child("name"), names)...)
+		if component.Selected != nil {
+			source := component.Selected.Source
+			errs = append(errs, validateFirmwareRequiredStrings(componentPath.Child("selected", "source"), map[string]string{"kind": source.Kind, "identity": source.Identity, "digest": source.Digest})...)
+		}
+		if component.Observation != nil && component.Observation.Backend != nil {
+			backend := component.Observation.Backend
+			errs = append(errs, validateFirmwareRequiredStrings(componentPath.Child("observation", "backend"), map[string]string{"updater": backend.Updater, "schemaDigest": backend.SchemaDigest})...)
+		}
 		errs = append(errs, validateFirmwareEnum(component.Type, firmwareComponentTypes, componentPath.Child("type"))...)
 		errs = append(errs, validateFirmwareEnum(component.State, firmwareComponentStates, componentPath.Child("state"))...)
 		if component.Error != nil {
@@ -270,6 +291,14 @@ func checkFirmwareNameUnique(name string, path *field.Path, names map[string]str
 
 func validateFirmwareAttempt(attempt FirmwareAttemptStatus, path *field.Path) []error {
 	var errs []error
+	errs = append(errs, validateFirmwareRequiredStrings(path, map[string]string{"id": attempt.Id, "renderedVersion": attempt.RenderedVersion, "specHash": attempt.SpecHash})...)
+	if attempt.Updater != nil {
+		u := attempt.Updater
+		errs = append(errs, validateFirmwareRequiredStrings(path.Child("updater"), map[string]string{"name": u.Name, "version": u.Version, "buildDigest": u.BuildDigest, "schemaDigest": u.SchemaDigest, "configDigest": u.ConfigDigest})...)
+	}
+	for i, action := range attempt.Recovery {
+		errs = append(errs, validateFirmwareRequiredStrings(path.Child("recovery").Index(i), map[string]string{"code": action.Code, "message": action.Message})...)
+	}
 	errs = append(errs, validateFirmwareEnum(attempt.Phase, firmwareAttemptPhases, path.Child("phase"))...)
 	if attempt.RetryGeneration < 0 {
 		errs = append(errs, field.Invalid(path.Child("retryGeneration"), attempt.RetryGeneration, "must be greater than or equal to 0"))
@@ -299,6 +328,9 @@ func validateFirmwareError(firmwareErr FirmwareError, path *field.Path) []error 
 	if firmwareErr.Message == "" {
 		errs = append(errs, field.Required(path.Child("message"), ""))
 	}
+	if firmwareErr.Phase != nil {
+		errs = append(errs, validateFirmwareEnum(*firmwareErr.Phase, firmwareAttemptPhases, path.Child("phase"))...)
+	}
 	budgetPath := path.Child("exceededBudget")
 	switch {
 	case firmwareErr.Reason == "":
@@ -319,4 +351,14 @@ func validateFirmwareEnum[T ~string](value T, allowed []T, path *field.Path) []e
 		return []error{field.NotSupported(path, value, allowed)}
 	}
 	return nil
+}
+
+func validateFirmwareRequiredStrings(path *field.Path, values map[string]string) []error {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		if values[name] == "" {
+			errs = append(errs, field.Required(path.Child(name), ""))
+		}
+	}
+	return errs
 }

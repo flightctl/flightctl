@@ -8922,6 +8922,7 @@ components:
           description: Time at which the firmware status was observed.
         bootID:
           type: string
+          minLength: 1
           description: Boot ID of the device when the firmware status was observed.
       additionalProperties: false
     FirmwareSupportStatus:
@@ -8969,18 +8970,22 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           description: Name of the updater.
         version:
           type: string
+          minLength: 1
           description: Version of the updater release.
         buildDigest:
           type: string
+          minLength: 1
           description: Digest of the immutable delivery image of the updater release.
         protocol:
           type: integer
           description: Version of the firmware workflow protocol that the updater release implements.
         schemaDigest:
           type: string
+          minLength: 1
           description: Digest of the configuration schema of the updater release.
         cached:
           type: boolean
@@ -9005,12 +9010,15 @@ components:
       properties:
         id:
           type: string
+          minLength: 1
           description: Identifier of the attempt.
         renderedVersion:
           type: string
+          minLength: 1
           description: Rendered device version that the attempt applies.
         specHash:
           type: string
+          minLength: 1
           description: Hash of the firmware specification that the attempt applies.
         retryGeneration:
           type: integer
@@ -9057,21 +9065,26 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           description: Name of the updater.
         version:
           type: string
+          minLength: 1
           description: Version of the updater release.
         buildDigest:
           type: string
+          minLength: 1
           description: Digest of the immutable delivery image of the updater release.
         protocol:
           type: integer
           description: Version of the firmware workflow protocol that the updater release implements.
         schemaDigest:
           type: string
+          minLength: 1
           description: Digest of the configuration schema that the attempt was validated against.
         configDigest:
           type: string
+          minLength: 1
           description: Digest of the updater configuration that the attempt applies.
         manifestDigest:
           type: string
@@ -9115,9 +9128,11 @@ components:
       properties:
         code:
           type: string
+          minLength: 1
           description: Identifier of the recovery action.
         message:
           type: string
+          minLength: 1
           description: Description of the recovery action.
         documentationURL:
           type: string
@@ -9143,6 +9158,8 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
           description: Name of the firmware component or overlay.
         type:
           $ref: '#/components/schemas/FirmwareComponentType'
@@ -9163,6 +9180,7 @@ components:
           description: Time at which the component was observed.
         bootID:
           type: string
+          minLength: 1
           description: Boot ID of the device when the component was observed.
         error:
           $ref: '#/components/schemas/FirmwareError'
@@ -9213,12 +9231,15 @@ components:
       properties:
         kind:
           type: string
+          minLength: 1
           description: Kind of the artifact source, for example http.
         identity:
           type: string
+          minLength: 1
           description: Sanitized identity of the artifact source.
         digest:
           type: string
+          minLength: 1
           description: Digest of the selected artifact.
       additionalProperties: false
     FirmwareActualState:
@@ -9255,9 +9276,11 @@ components:
       properties:
         updater:
           type: string
+          minLength: 1
           description: Name of the updater that produced the observation.
         schemaDigest:
           type: string
+          minLength: 1
           description: Digest of the observation schema that defines data.
         data:
           type: object
@@ -9274,12 +9297,14 @@ components:
       properties:
         reason:
           type: string
+          minLength: 1
           description: >-
             Machine-readable reason for the failure. ResourceLimitExceeded is the reason for every
             failure caused by exceeding a resource budget of the updater release, and such an error
             must name the budget in exceededBudget.
         message:
           type: string
+          minLength: 1
           description: Human-readable description of the failure.
         retryable:
           type: boolean
@@ -9288,8 +9313,7 @@ components:
           type: string
           description: Name of the affected firmware component or overlay, when known.
         phase:
-          type: string
-          description: Attempt phase in which the failure occurred.
+          $ref: '#/components/schemas/FirmwareAttemptPhase'
         exceededBudget:
           $ref: '#/components/schemas/FirmwareBudgetKey'
       additionalProperties: false

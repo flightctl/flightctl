@@ -2552,8 +2552,8 @@ type FirmwareError struct {
 	// Message Human-readable description of the failure.
 	Message string `json:"message"`
 
-	// Phase Attempt phase in which the failure occurred.
-	Phase *string `json:"phase,omitempty"`
+	// Phase Phase of a firmware attempt. Succeeded, Failed and Canceled are terminal phases.
+	Phase *FirmwareAttemptPhase `json:"phase,omitempty"`
 
 	// Reason Machine-readable reason for the failure. ResourceLimitExceeded is the reason for every failure caused by exceeding a resource budget of the updater release, and such an error must name the budget in exceededBudget.
 	Reason string `json:"reason"`

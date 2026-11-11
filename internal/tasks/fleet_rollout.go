@@ -155,25 +155,16 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	failureCount := 0
-	var allDeviceRefs []model.DependencyRef
 	for {
-		pageFailures, pageRefs, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
+		pageFailures, _, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
 		if err != nil {
 			return err
 		}
 		failureCount += pageFailures
-		allDeviceRefs = append(allDeviceRefs, pageRefs...)
 		if nextContinue == nil {
 			break
 		}
 		listParams.Continue = nextContinue
-	}
-
-	// Transactionally replace all device-level dependency refs for this fleet
-	// so readers never see a partially empty set.
-	fleetName := f.event.InvolvedObject.Name
-	if st := f.dependencyrefSvc.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
-		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
 
 	if failureCount != 0 {
@@ -211,6 +202,13 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 		}
 		if updateErr != nil {
 			f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
+			pageFailures++
+			continue
+		}
+		// Replace only devices whose spec was processed. Held devices retain
+		// the dependency references of the spec they still run.
+		if st := f.dependencyrefSvc.ReplaceFleetScopedDeviceDependencyRefs(iterCtx, f.orgId, *device.Metadata.Name, refs); st.Code != http.StatusOK {
+			f.log.Errorf("failed to replace dependency refs for device %s: %s", *device.Metadata.Name, st.Message)
 			pageFailures++
 		}
 		pageRefs = append(pageRefs, refs...)
