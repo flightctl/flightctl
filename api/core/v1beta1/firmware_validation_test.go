@@ -741,3 +741,32 @@ func TestFirmwareStatusValidateAcceptsEveryEnumValue(t *testing.T) {
 		}
 	}
 }
+
+func TestFirmwareStatusIdentityValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*FirmwareStatus)
+		path   string
+	}{
+		{"When an attempt ID is empty it should reject it", func(s *FirmwareStatus) { s.Attempt.Id = "" }, "attempt.id"},
+		{"When a target hash is empty it should reject it", func(s *FirmwareStatus) { s.Attempt.SpecHash = "" }, "attempt.specHash"},
+		{"When a boot ID is empty it should reject it", func(s *FirmwareStatus) { s.BootID = "" }, "firmware.bootID"},
+		{"When a component name is empty it should reject it", func(s *FirmwareStatus) { s.Components[0].Name = "" }, "components[0].name"},
+		{"When a component name is invalid it should reject it", func(s *FirmwareStatus) { s.Components[0].Name = "Bad_Name" }, "components[0].name"},
+		{"When status names repeat across component types it should reject them", func(s *FirmwareStatus) {
+			c := s.Components[0]
+			c.Type = FirmwareComponentTypeOverlay
+			s.Components = append(s.Components, c)
+		}, "name"},
+		{"When an error phase is unknown it should reject it", func(s *FirmwareStatus) {
+			s.Attempt.Error = &FirmwareError{Reason: "Failed", Message: "failure", Phase: lo.ToPtr(FirmwareAttemptPhase("Stagging"))}
+		}, "attempt.error.phase"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status := newTestFirmwareStatus(t)
+			tc.mutate(&status)
+			requireFirmwareErrors(t, status.Validate(), []string{tc.path})
+		})
+	}
+}

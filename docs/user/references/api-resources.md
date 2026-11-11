@@ -173,3 +173,40 @@ erDiagram
     ImageBuild}o..|| Repository : "destination (oci)"
     ImageExport}o..|| ImageBuild : "source (required)"
 ```
+
+## Firmware intent and observations
+
+Devices accept optional `spec.firmware`; fleets use `spec.template.spec.firmware`.
+The firmware contract declares a hardware profile, an approved updater release and its
+configuration, component version constraints, artifact digests, required overlays, and a
+nonnegative `retryGeneration`. Version ordering belongs to the updater, not the API server.
+
+Firmware delivery is not enabled by this API extension. The service currently has no
+production source of approved updater descriptors. Requests needing concrete release
+authorization are rejected. Fleet templates whose updater identity uses template parameters can be
+stored, but descriptor-dependent checks remain deferred and rollout is held.
+
+Fixed firmware objects reject unknown fields. Updater configuration and backend
+observation data use the closed schemas of their identified releases. Artifact and
+signature repositories must belong to the same organization. Repository dependencies
+include both configuration and firmware references so that repository changes notify
+referencing resources.
+
+Replacement writes that omit firmware preserve the stored value. To deliberately withdraw
+management, use JSON Patch with `remove` at `/spec/firmware` for a device or
+`/spec/template/spec/firmware` for a fleet. Withdrawal does not restore installed firmware
+or remove boot artifacts. Status writes that omit firmware preserve it, and writes cannot
+erase or change the identity of an outstanding attempt. Progress of that attempt is allowed.
+
+`status.firmware` distinguishes selected artifacts from observed component state and
+includes support, attempt identity, phase, observation time, boot identity, errors, and
+recovery guidance. Observations use their own retained schema identity, including after
+an updater release loses authorization. `ResourceLimitExceeded` errors must name an
+`exceededBudget` key authorized by the pinned release or the component observation.
+
+Until firmware rendering is integrated, devices with desired firmware or an outstanding
+attempt retain their spec and rendered output. Their `SpecValid` condition is `Unknown`
+with reason `FirmwareUnsupported`; they cannot count as successfully rolled out. Fleets
+with firmware templates report `FleetValid=False` with reason
+`FirmwareRenderingUnsupported`, and no template version is created. Devices without
+firmware retain their existing behavior.

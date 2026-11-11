@@ -22,6 +22,7 @@ import (
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/flightctl/flightctl/internal/store/model"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -134,6 +135,32 @@ var _ = Describe("Device firmware hold", func() {
 		device.Status.Firmware = firmware
 		_, _, err := s.UpdateStatus(ctx, orgId, device, nil)
 		Expect(err).ToNot(HaveOccurred())
+	}
+	for _, force := range []bool{false, true} {
+		label := "When server-owned status races with agent firmware it should retain the attempt"
+		if force {
+			label = "When forced server-owned status races with agent firmware it should retain the attempt"
+		}
+		It(label, func() {
+			name := uniqueName("status-race")
+			createDevice(name, nil, api.DeviceSpec{})
+			firmware := holdFirmwareStatus(api.FirmwareAttemptPhaseStaging)
+			calls := 0
+			deviceStore.SetIntegrationTestCreateOrUpdateCallback(func() {
+				calls++
+				if calls == 1 {
+					setFirmwareStatus(concurrentStore, name, firmware)
+				}
+			})
+			defer deviceStore.SetIntegrationTestCreateOrUpdateCallback(nil)
+			if force {
+				Expect(deviceSvc.ForceUpdateServerSideDeviceStatus(ctx, orgId, name)).To(Succeed())
+			} else {
+				Expect(deviceSvc.UpdateServerSideDeviceStatus(ctx, orgId, name)).To(Succeed())
+			}
+			Expect(calls).To(BeNumerically(">=", 2))
+			Expect(getDevice(name).Status.Firmware).To(Equal(firmware))
+		})
 	}
 	changeSpec := func(s devicestore.Store, name string, change func(*api.DeviceSpec)) {
 		_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
@@ -581,9 +608,14 @@ var _ = Describe("Device firmware hold", func() {
 			createDevice(plain, owner, api.DeviceSpec{Config: inlineConfig("v1")})
 			setFirmwareStatus(deviceStore, held, holdFirmwareStatus(api.FirmwareAttemptPhaseWaitingForPolicy))
 			before := getDevice(held)
+			refs := []model.DependencyRef{{OrgID: orgId, ResourceKey: "git:held-repo/main", FleetName: lo.ToPtr(fleetName), DeviceName: lo.ToPtr(held), RefType: "git", RepositoryName: lo.ToPtr("held-repo"), Revision: lo.ToPtr("main")}}
+			Expect(dependencyrefSvc.ReplaceFleetDeviceDependencyRefs(ctx, orgId, fleetName, held, refs).Code).To(Equal(int32(http.StatusOK)))
 
 			Expect(rollout(api.FleetKind, fleetName)).To(Succeed())
 
+			retained, status := dependencyrefSvc.ListDependencyRefsByRefType(ctx, orgId, "git")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(retained).To(ContainElement(HaveField("DeviceName", lo.ToPtr(held))))
 			expectHeldRollout(held, before)
 			rolledOut := getDevice(plain)
 			Expect(lo.FromPtr(rolledOut.Metadata.Annotations)).To(HaveKeyWithValue(api.DeviceAnnotationTemplateVersion, "1.0.0"))

@@ -411,7 +411,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			},
 			wantCode:    http.StatusBadRequest,
 			wantErr:     []string{"status.firmware.attempt.updater.schemaDigest", "Required value"},
-			wantLookups: []string{"nvidia-orin@" + current},
+			wantLookups: nil,
 		},
 		{
 			name: "When an observation names no updater it should reject it with the missing field",
@@ -420,7 +420,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			},
 			wantCode:    http.StatusBadRequest,
 			wantErr:     []string{"status.firmware.components[0].observation.backend.updater", "Required value"},
-			wantLookups: []string{"nvidia-orin@" + current},
+			wantLookups: nil,
 		},
 		{
 			name: "When a retained observation schema is not valid JSON it should fail closed",
@@ -756,7 +756,7 @@ func TestValidateFirmwareStatusBudgetAuthority(t *testing.T) {
 				status.Components[0].Error = limitError("maxArtifactBytes")
 			},
 			wantCode: http.StatusBadRequest,
-			wantErr:  []string{"status.firmware.components[0].observation.backend.schemaDigest: Required value", "status.firmware.components[0].error.exceededBudget: Forbidden", "own observation"},
+			wantErr:  []string{"status.firmware.components[0].observation.backend.schemaDigest: Required value"},
 		},
 		{
 			name: "When the own observation of a component without an attempt cannot be resolved it should reject its budget",
@@ -796,15 +796,15 @@ func TestValidateFirmwareStatusBudgetAuthority(t *testing.T) {
 			wantLookups: []string{"nvidia-orin@" + historical, "nvidia-orin@" + current},
 		},
 		{
-			name: "When components without an attempt share a name their budgets should use their own observations",
+			name: "When components without an attempt share a name it should reject the duplicate identities",
 			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
 				status.Attempt = nil
 				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", current), componentWithObservation(t, "system", historical)}
 				status.Components[1].Error = limitError("maxArtifactBytes")
 			},
 			wantCode:    http.StatusBadRequest,
-			wantErr:     []string{`status.firmware.components[1].error.exceededBudget: Unsupported value: "maxArtifactBytes"`},
-			wantLookups: []string{"nvidia-orin@" + current, "nvidia-orin@" + historical},
+			wantErr:     []string{`status.firmware.components[1].name: Duplicate value`},
+			wantLookups: nil,
 		},
 		{
 			name: "When the attempt has a pinned updater a component budget should use the pinned release even if its observation differs",
@@ -866,4 +866,41 @@ func TestValidateFirmwareStatusBudgetAuthority(t *testing.T) {
 			assert.Empty(t, recorder.releaseLookups, "status validation must never look up current release authorization")
 		})
 	}
+}
+
+func TestOutstandingFirmwareAttemptIdentity(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*domain.FirmwareAttemptStatus)
+	}{
+		{"When the target version changes it should reject it", func(a *domain.FirmwareAttemptStatus) { a.RenderedVersion = "other" }},
+		{"When the target hash changes it should reject it", func(a *domain.FirmwareAttemptStatus) { a.SpecHash = "other" }},
+		{"When the retry generation changes it should reject it", func(a *domain.FirmwareAttemptStatus) { a.RetryGeneration++ }},
+		{"When the pinned updater changes it should reject it", func(a *domain.FirmwareAttemptStatus) { a.Updater.Version = "other" }},
+		{"When the pinned updater disappears it should reject it", func(a *domain.FirmwareAttemptStatus) { a.Updater = nil }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stored := newTestFirmwareStatus(t)
+			stored.Attempt.Phase = domain.FirmwareAttemptPhaseStaging
+			candidate := newTestFirmwareStatus(t)
+			tc.mutate(candidate.Attempt)
+			require.Error(t, CheckFirmwareAttemptRetained(stored, candidate))
+		})
+	}
+	t.Run("When a pinned updater first learns its manifest it should accept progress", func(t *testing.T) {
+		stored := newTestFirmwareStatus(t)
+		stored.Attempt.Phase = domain.FirmwareAttemptPhaseStaging
+		candidate := newTestFirmwareStatus(t)
+		candidate.Attempt.Updater.ManifestDigest = toPtr(testFirmwareSHA)
+		require.NoError(t, CheckFirmwareAttemptRetained(stored, candidate))
+	})
+	t.Run("When an enclosing status is removed then added without firmware it should preserve omission", func(t *testing.T) {
+		device := &domain.Device{Status: &domain.DeviceStatus{Firmware: newTestFirmwareStatus(t)}}
+		outcome, err := ClassifyFirmwareStatusPatch(device, domain.PatchRequest{
+			{Op: "remove", Path: "/status"}, {Op: "add", Path: "/status", Value: map[string]any{"conditions": []any{}}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, FirmwareStatusOmitted, outcome)
+	})
 }

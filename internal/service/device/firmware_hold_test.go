@@ -340,3 +340,16 @@ func TestHoldDeviceForFirmware(t *testing.T) {
 		assert.Equal(t, writes, st.device.deviceWrites)
 	})
 }
+
+func TestServiceConditionsPreserveFirmwareHold(t *testing.T) {
+	t.Run("When a held device has a render error it should retain its firmware hold", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgID := uuid.New()
+		holdTestDevice(t, st, orgID, nil, holdTestFirmware(), nil)
+		status := svc.SetDeviceServiceConditions(context.Background(), orgID, "dev", []domain.Condition{
+			{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse, Reason: "Invalid"},
+		})
+		require.EqualValues(t, http.StatusOK, status.Code)
+		requireFirmwareHoldCondition(t, st.device.devices["dev"])
+	})
+}

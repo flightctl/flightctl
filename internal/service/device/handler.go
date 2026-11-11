@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/flightctl/flightctl/pkg/jsonpatch"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -521,7 +522,17 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 			return err
 		}
 		if device.Spec != nil {
-			current.Spec = device.Spec
+			spec := common.PreserveOmittedFirmware(device.Spec, current.Spec)
+			owner := current.Metadata.Owner
+			if device.Metadata.Owner != nil || lo.Contains(fieldsToUnset, "owner") {
+				owner = device.Metadata.Owner
+			}
+			refs, status := h.admitFirmware(ctx, orgId, current.Spec, spec, false, owner)
+			if status.Code != http.StatusOK {
+				return common.ApiStatusToErr(status)
+			}
+			m.RepositoryRefs = refs
+			current.Spec = spec
 		}
 		if device.Metadata.Labels != nil || lo.Contains(fieldsToUnset, "labels") {
 			current.Metadata.Labels = device.Metadata.Labels
@@ -1019,11 +1030,15 @@ func (h *DeviceServiceHandler) validateDevicePatch(ctx context.Context, orgId uu
 }
 
 func applyDevicePatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
-	if err := common.ValidatePatchedFirmware(current, patch, common.DeviceFirmwarePatchPath); err != nil {
+	raw, err := jsonpatch.ApplyToJSON(current, patch)
+	if err != nil {
+		return nil, err
+	}
+	if err := common.ValidatePatchedFirmwareJSON(raw, common.DeviceFirmwarePatchPath); err != nil {
 		return nil, err
 	}
 	patched := &domain.Device{}
-	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
+	if err := common.DecodePatchedJSON(ctx, raw, patched, "/devices/"+name); err != nil {
 		return nil, err
 	}
 	// Only an explicit removal withdraws the firmware; any other patch that
@@ -1078,7 +1093,11 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	}
 	previous := snapshotDeviceForStatusUpdate(device)
 	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
-		result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous)
+		result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous, devicestore.WithStatusMerge(func(current *domain.Device) (*domain.DeviceStatus, error) {
+			fresh := snapshotDeviceForStatusUpdate(current)
+			common.UpdateServiceSideStatus(ctx, orgId, fresh, h.fleetStore, h.log)
+			return fresh.Status, nil
+		}))
 		h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
@@ -1095,7 +1114,11 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	}
 	previous := snapshotDeviceForStatusUpdate(device)
 	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous)
+	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous, devicestore.WithStatusMerge(func(current *domain.Device) (*domain.DeviceStatus, error) {
+		fresh := snapshotDeviceForStatusUpdate(current)
+		common.UpdateServiceSideStatus(ctx, orgId, fresh, h.fleetStore, h.log)
+		return fresh.Status, nil
+	}))
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil {
 		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
@@ -1291,7 +1314,13 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	return h.setServiceConditions(ctx, orgId, name, func(*domain.Device) []domain.Condition { return conditions })
+	return h.setServiceConditions(ctx, orgId, name, func(device *domain.Device) []domain.Condition {
+		if domain.DeviceRequiresFirmwareHold(device) {
+			merged, _ := common.MergeStatusConditions(conditions, []domain.Condition{firmwareHoldCondition()})
+			return merged
+		}
+		return conditions
+	})
 }
 
 // setServiceConditions merges into the service conditions of the device the

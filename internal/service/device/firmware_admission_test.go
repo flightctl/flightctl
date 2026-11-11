@@ -672,3 +672,26 @@ func TestPatchDeviceFirmwareAdmission(t *testing.T) {
 		assert.Zero(t, f.store.device.repoRefWrites)
 	})
 }
+
+func TestLegacyUpdateDeviceFirmware(t *testing.T) {
+	t.Run("When a legacy writer omits firmware it should preserve the stored intent", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgID := uuid.New()
+		holdTestDevice(t, st, orgID, nil, holdTestFirmware(), nil)
+		incoming := deepCopyDevice(st.device.devices["dev"])
+		incoming.Spec.Firmware = nil
+		result, err := svc.UpdateDevice(context.Background(), orgID, "dev", *incoming, nil)
+		require.NoError(t, err)
+		require.Equal(t, holdTestFirmware(), result.Spec.Firmware)
+	})
+	t.Run("When a legacy writer introduces an unauthorized updater it should reject the write", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		orgID := uuid.New()
+		holdTestDevice(t, st, orgID, nil, nil, nil)
+		incoming := deepCopyDevice(st.device.devices["dev"])
+		incoming.Spec.Firmware = holdTestFirmware()
+		_, err := svc.UpdateDevice(context.Background(), orgID, "dev", *incoming, nil)
+		require.Error(t, err)
+		require.Nil(t, st.device.devices["dev"].Spec.Firmware)
+	})
+}

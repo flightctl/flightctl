@@ -245,7 +245,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			templateVersion.Status.Config = nil
 			templateVersion.Status.Applications = nil
 			mockTemplateVersionSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), fleetName).Return(templateVersion, domain.Status{Code: http.StatusOK})
-			mockDependencyRefSvc.EXPECT().ReplaceDeviceDependencyRefsByFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+			mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK}).AnyTimes()
 
 			// Create test device with owner that matches what f.owner will be set to
 			// f.owner will be set to "Fleet/test-fleet" from util.SetResourceOwner(domain.FleetKind, "test-fleet")
@@ -1250,6 +1250,7 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 		mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
 		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(okStatus).AnyTimes()
 
 		owner := "Fleet/my-fleet"
 		devices := &domain.DeviceList{

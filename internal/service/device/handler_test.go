@@ -748,7 +748,7 @@ func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 
 	err = svc.UpdateServerSideDeviceStatus(ctx, orgId, "foo")
 	require.NoError(t, err)
-	require.Equal(t, 1, st.fleet.getCalls, "expected UpdateServiceSideStatus to reach fleet.Service.GetFleet() for a managed device")
+	require.Equal(t, 2, st.fleet.getCalls, "service-side status is recomputed against the freshly stored device")
 }
 
 func TestUpdateServerSideDeviceStatus_UnmanagedDevice(t *testing.T) {
