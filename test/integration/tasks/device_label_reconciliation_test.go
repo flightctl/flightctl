@@ -327,6 +327,63 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Entry("When publication fails it should retain the audit record", errors.New("label sync queue unavailable")),
 	)
 
+	It("reserves a scalar mapping key when the mapping emits no value", func() {
+		const mappingName = "null-output-reservation"
+		const deviceName = "null-output-device"
+		const key = "org-reserved"
+		createMapping(mappingName, key, "dyn(null)")
+		createDevice(deviceName, "amd64", map[string]string{}, nil)
+		Expect(newWorkerLogic(mappingSvc, createEventForDevice(deviceName)).Reconcile(ctx)).To(Succeed())
+
+		persisted, err := deviceStore.Get(ctx, orgID, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).NotTo(HaveKey(key))
+
+		organizationProvenance, status := mappingSvc.GetLabelSyncProvenance(ctx, orgID, []string{key})
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(organizationProvenance.Items).To(ConsistOf(domain.LabelSyncProvenanceItem{
+			Key: key, Owners: []string{mappingName},
+		}))
+		deviceProvenance, status := mappingSvc.GetDeviceLabelSyncProvenance(ctx, orgID, deviceName)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(deviceProvenance.Items).To(BeEmpty())
+
+		device, status := deviceSvc.GetDevice(ctx, orgID, deviceName)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		device.Metadata.Labels = lo.ToPtr(map[string]string{key: "operator"})
+		_, status = deviceSvc.ReplaceDevice(ctx, orgID, deviceName, *device, nil, false, false)
+		Expect(status.Code).To(Equal(int32(409)), status.Message)
+	})
+
+	It("does not emit a label event when a mapping takes over the same value", func() {
+		const mappingName = "same-value-takeover"
+		const deviceName = "same-value-device"
+		const key = "same-value"
+		createMapping(mappingName, key, "status.systemInfo.architecture")
+		createDevice(deviceName, "amd64", map[string]string{key: "amd64"}, nil)
+		Expect(newWorkerLogic(mappingSvc, createEventForDevice(deviceName)).Reconcile(ctx)).To(Succeed())
+
+		persisted, err := deviceStore.Get(ctx, orgID, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue(key, "amd64"))
+		provenance, status := mappingSvc.GetDeviceLabelSyncProvenance(ctx, orgID, deviceName)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(provenance.Items).To(ConsistOf(domain.LabelSyncProvenanceItem{
+			Key: key, Owners: []string{mappingName},
+		}))
+
+		events, err := eventStore.List(ctx, orgID, store.ListParams{Limit: 100})
+		Expect(err).NotTo(HaveOccurred())
+		for _, event := range events.Items {
+			if event.InvolvedObject.Kind != domain.DeviceKind || event.InvolvedObject.Name != deviceName || event.Reason != domain.EventReasonResourceUpdated || event.Details == nil {
+				continue
+			}
+			details, err := event.Details.AsResourceUpdatedDetails()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(details.UpdatedFields).NotTo(ContainElement(domain.Labels))
+		}
+	})
+
 	It("publishes reconciliation requests and reconciles reported labels into fleet membership", func() {
 		name := "reported-status-device"
 		createMapping("reported-architecture", "architecture", "status.systemInfo.architecture")

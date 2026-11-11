@@ -55,7 +55,8 @@ func (s *DeviceStore) GetLabelSnapshot(ctx context.Context, orgID uuid.UUID, nam
 	return snapshot, nil
 }
 
-// GetLabelSyncMappingIDsByKeys returns distinct current mapping IDs for exact label keys in orgID.
+// GetLabelSyncMappingIDsByKeys returns distinct mapping IDs that own or reserve
+// exact label keys in orgID.
 func (s *DeviceStore) GetLabelSyncMappingIDsByKeys(ctx context.Context, orgID uuid.UUID, labelKeys []string) (map[string][]uuid.UUID, error) {
 	ownersByKey := make(map[string][]uuid.UUID)
 	keys := lo.Uniq(labelKeys)
@@ -78,9 +79,50 @@ func (s *DeviceStore) GetLabelSyncMappingIDsByKeys(ctx context.Context, orgID uu
 		if label.LabelSyncMappingID == nil {
 			continue
 		}
-		ownersByKey[label.LabelKey] = append(ownersByKey[label.LabelKey], *label.LabelSyncMappingID)
+		ownersByKey[label.LabelKey] = appendUniqueMappingID(ownersByKey[label.LabelKey], *label.LabelSyncMappingID)
+	}
+
+	reservedByKey, err := s.scalarMappingOwnersByKeys(ctx, orgID, keys)
+	if err != nil {
+		return nil, err
+	}
+	for key, mappingIDs := range reservedByKey {
+		for _, mappingID := range mappingIDs {
+			ownersByKey[key] = appendUniqueMappingID(ownersByKey[key], mappingID)
+		}
 	}
 	return ownersByKey, nil
+}
+
+func (s *DeviceStore) scalarMappingOwnersByKeys(ctx context.Context, orgID uuid.UUID, keys []string) (map[string][]uuid.UUID, error) {
+	ownersByKey := make(map[string][]uuid.UUID)
+	if len(keys) == 0 {
+		return ownersByKey, nil
+	}
+	var mappings []struct {
+		ID  uuid.UUID
+		Key string `gorm:"column:label_key"`
+	}
+	if err := s.getDB(ctx).Model(&model.LabelSyncMapping{}).
+		Select("id, spec->>'key' AS label_key").
+		Where("org_id = ? AND spec->>'resourceType' = ? AND spec->>'key' IN ?", orgID, domain.LabelSyncMappingDevice, keys).
+		Order("label_key ASC, id ASC").
+		Find(&mappings).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+	for _, mapping := range mappings {
+		ownersByKey[mapping.Key] = appendUniqueMappingID(ownersByKey[mapping.Key], mapping.ID)
+	}
+	return ownersByKey, nil
+}
+
+func appendUniqueMappingID(mappingIDs []uuid.UUID, mappingID uuid.UUID) []uuid.UUID {
+	for _, existing := range mappingIDs {
+		if existing == mappingID {
+			return mappingIDs
+		}
+	}
+	return append(mappingIDs, mappingID)
 }
 
 type labelApplyPlan struct {
@@ -357,6 +399,15 @@ func (s *DeviceStore) rejectManagedLabelChanges(ctx context.Context, orgID uuid.
 	}
 	if ownedCount > 0 {
 		return flterrors.ErrManagedLabelConflict
+	}
+	reservedByKey, err := s.scalarMappingOwnersByKeys(ctx, orgID, changedKeys)
+	if err != nil {
+		return err
+	}
+	for _, mappingIDs := range reservedByKey {
+		if len(mappingIDs) > 0 {
+			return flterrors.ErrManagedLabelConflict
+		}
 	}
 	return nil
 }

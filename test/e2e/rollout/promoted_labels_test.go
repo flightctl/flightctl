@@ -218,8 +218,8 @@ var _ = Describe("Promoted label runtime selection", Serial, Label("integration"
 		harness.WaitForBatchStart(fleetName, 0)
 		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[0])).To(Succeed())
 		Expect(promotedReplaceMapping(harness, mappingName, promotedPhaseExpression(harness, "second"))).To(Succeed())
-		Expect(promotedWaitForDeviceLabel(harness, tc.deviceIDs[1], phaseKey, "second")).To(Succeed())
 		Expect(promotedWaitForMappingReady(harness, mappingName)).To(Succeed())
+		Expect(promotedWaitForDeviceLabel(harness, tc.deviceIDs[1], phaseKey, "second")).To(Succeed())
 		Expect(promotedAssertSelectedBatchDevice(harness, tc.deviceIDs[0])).To(Succeed())
 		Expect(promotedFixNetworkFailure(tc.harnesses[0], tc.registryHost, tc.registryPort, &networkFailureActive)).To(Succeed())
 
