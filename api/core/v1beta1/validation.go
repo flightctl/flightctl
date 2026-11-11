@@ -127,6 +127,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateSystemdName(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i))...)
 		}
 	}
+	if r.Firmware != nil {
+		allErrs = append(allErrs, r.Firmware.Validate(fleetTemplate)...)
+	}
 	return allErrs
 }
 
