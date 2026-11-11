@@ -133,7 +133,10 @@ required - everything is managed by the test framework.
   `testdb.CreateTestRedis()`.
 - **Alertmanager**: Shared integration container for alert-related tests.
 
-The test framework handles all setup, migrations, and teardown automatically.
+The test framework handles service setup, migrations, and teardown automatically.
+Some suites also obtain external tool images. See
+[Running VM-render integration tests](integration/tasks/vmrender/README.md)
+for the pinned VM conversion image, local build option, and image-download troubleshooting.
 Requires Podman (or Docker) to be available.
 
 ## E2E testing

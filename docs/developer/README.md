@@ -21,7 +21,9 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 To run integration tests, use `make integration-test`. This requires Podman (or Docker) - the test
 framework uses testcontainers to automatically start ephemeral Postgres, Redis, and Alertmanager
-instances. No manual setup is required.
+instances. No manual service deployment is required. Some suites also download tool images;
+see [Running VM-render integration tests](../../test/integration/tasks/vmrender/README.md)
+for the VM conversion image dependency and recovery steps.
 
 Key options for integration tests:
 - `INTEGRATION_PROCS=N` - Number of parallel processes (default: 4)
