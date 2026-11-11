@@ -81,6 +81,11 @@ type fakeDeviceStore struct {
 	getRenderedCalls  int
 	getRenderedErr    error
 	mutateErr         error
+	// repoRefWrites counts the reference sets written together with a device.
+	repoRefWrites int
+	// repoRefsWriteErr fails reference writes, after the device write they
+	// accompany, to exercise rollback.
+	repoRefsWriteErr error
 }
 
 func (s *fakeDeviceStore) setEnrollmentCredential(deviceName, credentialName string) {
@@ -88,6 +93,24 @@ func (s *fakeDeviceStore) setEnrollmentCredential(deviceName, credentialName str
 		s.deviceCredentials = map[string]string{}
 	}
 	s.deviceCredentials[deviceName] = credentialName
+}
+
+// WithTransaction runs fn and, when it fails, restores the devices and
+// references it changed, as a rolled back store transaction would.
+func (s *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	devices := map[string]*domain.Device{}
+	for name, device := range s.devices {
+		devices[name] = deepCopyDevice(device)
+	}
+	repoRefs := map[string][]string{}
+	for name, refs := range s.repoRefs {
+		repoRefs[name] = append([]string{}, refs...)
+	}
+	if err := fn(ctx); err != nil {
+		s.devices, s.repoRefs = devices, repoRefs
+		return err
+	}
+	return nil
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
