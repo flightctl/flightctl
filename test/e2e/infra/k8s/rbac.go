@@ -32,7 +32,7 @@ type RBACProvider struct {
 }
 
 // NewRBACProvider creates a new K8s RBACProvider.
-// releaseName is the external namespace (e.g. from InfraProvider.GetExternalNamespace()) used for CreateOrganization labels; may be empty.
+// releaseName is the external namespace used to find the API deployment's Helm release label; may be empty.
 // If client is nil, it will be created from the default kubeconfig.
 func NewRBACProvider(client kubernetes.Interface, releaseName string) (*RBACProvider, error) {
 	if client == nil {
@@ -270,7 +270,15 @@ func (p *RBACProvider) CreateOrganization(ctx context.Context, name string) erro
 	}
 	labels := map[string]string{}
 	if p.releaseName != "" {
-		labels[infra.OrgLabelKey] = p.releaseName
+		deployment, err := p.client.AppsV1().Deployments(p.releaseName).Get(ctx, "flightctl-api", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get API deployment in namespace %s to determine release name: %w", p.releaseName, err)
+		}
+		releaseName := deployment.Labels["app.kubernetes.io/instance"]
+		if releaseName == "" {
+			return fmt.Errorf("API deployment in namespace %s has no Helm release label", p.releaseName)
+		}
+		labels[infra.OrgLabelKey] = releaseName
 	}
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{

@@ -163,6 +163,9 @@ func emitFleetRolloutCompletedEvent(ctx context.Context, eventsService events.Se
 	if newFleet == nil || newFleet.Status == nil {
 		return
 	}
+	if hasFinalBatchCompletionReport(newFleet) {
+		return
+	}
 	newCondition := domain.FindStatusCondition(newFleet.Status.Conditions, domain.ConditionTypeFleetRolloutInProgress)
 	if newCondition == nil || newCondition.Reason != domain.RolloutInactiveReason {
 		return
@@ -177,6 +180,11 @@ func emitFleetRolloutCompletedEvent(ctx context.Context, eventsService events.Se
 	}
 
 	eventsService.CreateEvent(ctx, orgId, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
+}
+
+func hasFinalBatchCompletionReport(fleet *domain.Fleet) bool {
+	_, report := fleet.IsRolloutBatchCompleted(nil)
+	return report != nil && report.BatchName == domain.FinalImplicitBatchName
 }
 
 func emitFleetRolloutFailedEvent(ctx context.Context, eventsService events.Service, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *domain.Fleet) {

@@ -218,6 +218,34 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.Contains(t, reasons, domain.EventReasonFleetRolloutCompleted)
 	})
 
+	t.Run("When the final batch report precedes the inactive condition it should emit only one completion event", func(t *testing.T) {
+		ev := &fakeEventsService{}
+		name := "f1"
+		report := `{"batchName":"` + domain.FinalImplicitBatchName + `","successPercentage":100,"total":1,"successful":1}`
+		oldActive := &domain.Fleet{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr(name),
+				Annotations: &map[string]string{
+					domain.FleetAnnotationDeployingTemplateVersion:  "v2",
+					domain.FleetAnnotationLastBatchCompletionReport: report,
+				},
+			},
+			Status: &domain.FleetStatus{Conditions: []domain.Condition{{
+				Type: domain.ConditionTypeFleetRolloutInProgress, Status: domain.ConditionStatusTrue, Reason: "Active",
+			}}},
+		}
+		newInactive := &domain.Fleet{
+			Metadata: oldActive.Metadata,
+			Status: &domain.FleetStatus{Conditions: []domain.Condition{{
+				Type: domain.ConditionTypeFleetRolloutInProgress, Status: domain.ConditionStatusFalse, Reason: domain.RolloutInactiveReason,
+			}}},
+		}
+		EmitFleetUpdatedEvent(context.Background(), ev, logrus.New(), domain.FleetKind, uuid.New(), name, oldActive, newInactive, false, nil)
+		for _, event := range ev.created {
+			require.NotEqual(t, domain.EventReasonFleetRolloutCompleted, event.Reason)
+		}
+	})
+
 	t.Run("When the rollout-in-progress condition becomes suspended it should emit a FleetRolloutFailed event", func(t *testing.T) {
 		ev := &fakeEventsService{}
 		name := "f1"

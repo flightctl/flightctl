@@ -3,13 +3,13 @@ package device_selection
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -47,17 +47,12 @@ func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.
 	r.eventSvc.CreateEvent(ctx, orgId, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
 }
 
-func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet, templateVersionName string) {
+func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet, templateVersionName string, batchNumber int) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
-	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), domain.FleetAnnotationBatchNumber)
-	if exists {
-		if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr); evt != nil {
-			r.eventSvc.CreateEvent(ctx, orgId, evt)
-		} else {
-			r.log.Warnf("%v/%s: Failed to build FleetRolloutBatchDispatched event", orgId, fleetName)
-		}
+	if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, strconv.Itoa(batchNumber)); evt != nil {
+		r.eventSvc.CreateEvent(ctx, orgId, evt)
 	} else {
-		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", orgId, fleetName)
+		r.log.Warnf("%v/%s: Failed to build FleetRolloutBatchDispatched event", orgId, fleetName)
 	}
 }
 
@@ -152,7 +147,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, fleetName)
 			}
 			// Send the current batch to be rolled out.
-			r.emitFleetRolloutBatchDispatchedEvent(ctx, orgId, fleet, templateVersionName)
+			r.emitFleetRolloutBatchDispatchedEvent(ctx, orgId, fleet, templateVersionName, selection.BatchNumber())
 		}
 
 		// Is the current batch complete
