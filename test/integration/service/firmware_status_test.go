@@ -77,10 +77,16 @@ func (p *retainedFirmwareEvidence) LookupSchemaByDigest(_ context.Context, updat
 	if updater != "nvidia-orin" || (schemaDigest != observationSchemaDigest && schemaDigest != historicalSchemaDigest) {
 		return nil, nil
 	}
+	// The current release defines maxArtifactBytes and operationTimeoutSeconds;
+	// the older release that produced historical observations defines maxFmpItems.
+	budgetKeys := []string{"maxArtifactBytes", "operationTimeoutSeconds"}
+	if schemaDigest == historicalSchemaDigest {
+		budgetKeys = []string{"maxFmpItems"}
+	}
 	return &common.RetainedSchemaEvidence{
 		SchemaDigest:      schemaDigest,
 		ObservationSchema: json.RawMessage(retainedObservationSchema),
-		BudgetKeySet:      []string{"maxArtifactBytes", "operationTimeoutSeconds"},
+		BudgetKeySet:      budgetKeys,
 	}, nil
 }
 
@@ -541,6 +547,84 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 				code, body = send(target(), http.MethodPatch, "/devices/"+deviceName+"/status", `[{"op": "replace", "path": "/status/firmware/attempt/phase", "value": "Verifying"}]`)
 				Expect(code).To(Equal(http.StatusOK), body)
 				Expect(stored().Status.Firmware.Attempt.Phase).To(Equal(api.FirmwareAttemptPhaseVerifying))
+				Expect(evidence.releaseLookups.Load()).To(BeZero())
+			})
+		}
+
+		for _, route := range []string{"user", "agent"} {
+			target := func() *httptest.Server {
+				if route == "agent" {
+					return agentServer
+				}
+				return userServer
+			}
+
+			It("When the "+route+" route reports budgets of components without an attempt it should judge each by its own observation", func() {
+				type snapshot struct {
+					spec            *api.DeviceSpec
+					status          *api.DeviceStatus
+					generation      *int64
+					resourceVersion *string
+					refs            []string
+				}
+				take := func() snapshot {
+					device := stored()
+					repos, err := devStore.GetRepositoryRefs(ctx, orgId, deviceName)
+					Expect(err).ToNot(HaveOccurred())
+					refs := lo.Map(repos.Items, func(r api.Repository, _ int) string { return lo.FromPtr(r.Metadata.Name) })
+					return snapshot{device.Spec, device.Status, device.Metadata.Generation, device.Metadata.ResourceVersion, refs}
+				}
+				noAttempt := func(observationDigest string, componentError map[string]any) map[string]any {
+					document := firmwareStatusDocument("unused", api.FirmwareAttemptPhaseStaging, observationDigest)
+					delete(document, "attempt")
+					component := document["components"].([]any)[0].(map[string]any)
+					if componentError != nil {
+						component["error"] = componentError
+					}
+					return document
+				}
+				limit := func(key string) map[string]any {
+					return map[string]any{"reason": "ResourceLimitExceeded", "message": "a resource budget was exceeded", "retryable": false, "exceededBudget": key}
+				}
+				rejects := []struct {
+					by       string
+					document map[string]any
+					want     string
+				}{
+					{"a budget that only the current release defines", noAttempt(historicalSchemaDigest, limit("maxArtifactBytes")), `status.firmware.components[0].error.exceededBudget: Unsupported value: \"maxArtifactBytes\"`},
+					{"an unknown own observation schema", noAttempt("sha256:3333333333333333333333333333333333333333333333333333333333333333", limit("maxFmpItems")), "status.firmware.components[0].error.exceededBudget: Forbidden"},
+				}
+				withoutObservation := noAttempt(historicalSchemaDigest, limit("maxFmpItems"))
+				delete(withoutObservation["components"].([]any)[0].(map[string]any), "observation")
+				rejects = append(rejects, struct {
+					by       string
+					document map[string]any
+					want     string
+				}{"no own observation", withoutObservation, "status.firmware.components[0].error.exceededBudget: Forbidden"})
+
+				before := take()
+				for _, reject := range rejects {
+					By("rejecting " + reject.by + " before anything is stored")
+					code, body := send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(reject.document))
+					Expect(code).To(Equal(http.StatusBadRequest), body)
+					Expect(body).To(ContainSubstring(reject.want))
+					after := take()
+					Expect(after.spec).To(Equal(before.spec))
+					Expect(after.status).To(Equal(before.status))
+					Expect(after.generation).To(Equal(before.generation))
+					Expect(after.resourceVersion).To(Equal(before.resourceVersion))
+					Expect(after.refs).To(Equal(before.refs))
+				}
+
+				By("accepting a budget of the component's own historical observation")
+				code, body := send(target(), http.MethodPut, "/devices/"+deviceName+"/status", statusBody(noAttempt(historicalSchemaDigest, limit("maxFmpItems"))))
+				Expect(code).To(Equal(http.StatusOK), body)
+				firmware := stored().Status.Firmware
+				Expect(firmware.Attempt).To(BeNil())
+				Expect(firmware.Components[0].Observation.Backend.SchemaDigest).To(Equal(historicalSchemaDigest))
+				Expect(firmware.Components[0].Observation.Backend.Data).To(HaveKey("esrt"))
+				Expect(lo.FromPtr(firmware.Components[0].Error.ExceededBudget)).To(Equal("maxFmpItems"))
+				Expect(firmware.Components[0].Error.Reason).To(Equal("ResourceLimitExceeded"))
 				Expect(evidence.releaseLookups.Load()).To(BeZero())
 			})
 		}
