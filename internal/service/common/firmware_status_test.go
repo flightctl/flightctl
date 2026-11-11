@@ -86,8 +86,10 @@ const testFirmwareStatusJSON = `{
 // lookups are recorded too, so tests can check that status validation never
 // asks for current authorization.
 type schemaEvidenceProvider struct {
-	evidence       map[string]*RetainedSchemaEvidence
-	err            error
+	evidence map[string]*RetainedSchemaEvidence
+	err      error
+	// errFor fails only the lookups of the listed updater@digest keys.
+	errFor         map[string]error
 	schemaLookups  []string
 	releaseLookups []string
 }
@@ -106,11 +108,15 @@ func (p *schemaEvidenceProvider) LookupRelease(_ context.Context, name, version 
 }
 
 func (p *schemaEvidenceProvider) LookupSchemaByDigest(_ context.Context, updater, schemaDigest string) (*RetainedSchemaEvidence, error) {
-	p.schemaLookups = append(p.schemaLookups, updater+"@"+schemaDigest)
+	key := updater + "@" + schemaDigest
+	p.schemaLookups = append(p.schemaLookups, key)
 	if p.err != nil {
 		return nil, p.err
 	}
-	return p.evidence[updater+"@"+schemaDigest], nil
+	if err := p.errFor[key]; err != nil {
+		return nil, err
+	}
+	return p.evidence[key], nil
 }
 
 func retainedEvidence(schemaDigest string) *RetainedSchemaEvidence {
@@ -141,6 +147,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 		mutate      func(status *domain.FirmwareStatus)
 		provider    func() *schemaEvidenceProvider
 		unavailable bool
+		nilProvider bool
 		nilStatus   bool
 		wantCode    int32
 		wantErr     []string
@@ -377,6 +384,77 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantErr:  []string{"status.firmware.attempt.error.exceededBudget", "Required value"},
 		},
+		{
+			name:        "When no descriptor provider is configured it should fail closed",
+			nilProvider: true,
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"retained updater schemas are unavailable"},
+		},
+		{
+			name: "When looking up the retained schema of the pinned release fails it should return an internal error",
+			mutate: func(status *domain.FirmwareStatus) {
+				status.Attempt.Updater.SchemaDigest = historical
+			},
+			provider: func() *schemaEvidenceProvider {
+				p := newSchemaEvidenceProvider(retainedEvidence(current))
+				p.errFor = map[string]error{"nvidia-orin@" + historical: errors.New("retained schema store unreachable")}
+				return p
+			},
+			wantCode:    http.StatusInternalServerError,
+			wantErr:     []string{"failed to look up retained schema " + historical},
+			wantLookups: []string{"nvidia-orin@" + current, "nvidia-orin@" + historical},
+		},
+		{
+			name: "When the pinned updater has no schema digest it should reject a reported budget with the missing field",
+			mutate: func(status *domain.FirmwareStatus) {
+				status.Attempt.Updater.SchemaDigest = ""
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"status.firmware.attempt.updater.schemaDigest", "Required value"},
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
+		{
+			name: "When an observation names no updater it should reject it with the missing field",
+			mutate: func(status *domain.FirmwareStatus) {
+				status.Components[0].Observation.Backend.Updater = ""
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"status.firmware.components[0].observation.backend.updater", "Required value"},
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
+		{
+			name: "When a retained observation schema is not valid JSON it should fail closed",
+			provider: func() *schemaEvidenceProvider {
+				evidence := retainedEvidence(current)
+				evidence.ObservationSchema = json.RawMessage(`{"type":`)
+				return newSchemaEvidenceProvider(evidence)
+			},
+			wantCode:    http.StatusInternalServerError,
+			wantErr:     []string{"is not usable", "not valid JSON"},
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
+		{
+			name: "When observation data violates the retained schema inside a list it should name the list element",
+			mutate: func(status *domain.FirmwareStatus) {
+				observationData(status, 0)["capsules"] = []any{map[string]any{"version": "36.4.4"}, map[string]any{"version": 7}}
+			},
+			provider: func() *schemaEvidenceProvider {
+				evidence := retainedEvidence(current)
+				evidence.ObservationSchema = json.RawMessage(`{
+				  "type": "object",
+				  "additionalProperties": false,
+				  "properties": {
+				    "dmiVersion": {"type": "string"},
+				    "esrt": {"type": "object"},
+				    "capsules": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"version": {"type": "string"}}}}
+				  }
+				}`)
+				return newSchemaEvidenceProvider(evidence)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"status.firmware.components[0].observation.backend.data.capsules[1].version"},
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -393,6 +471,8 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			var provider ApprovedDescriptorProvider
 			var recorder *schemaEvidenceProvider
 			switch {
+			case tt.nilProvider:
+				provider = nil
 			case tt.unavailable:
 				provider = UnavailableDescriptorProvider{}
 			case tt.provider != nil:

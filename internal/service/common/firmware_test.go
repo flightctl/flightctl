@@ -503,6 +503,26 @@ func TestValidateFirmwareIntentResolvesTheUpdaterRelease(t *testing.T) {
 			wantLookups: testRelease,
 		},
 		{
+			name: "When a descriptor GUID path is malformed it should fail closed",
+			descriptor: func(t *testing.T) *ApprovedDescriptor {
+				d := newTestDescriptor()
+				d.GUIDPaths = append(d.GUIDPaths, "resources[]..targetGuid")
+				return d
+			},
+			wantCode:    http.StatusInternalServerError,
+			wantLookups: testRelease,
+		},
+		{
+			name: "When a descriptor reference path is malformed it should fail closed",
+			descriptor: func(t *testing.T) *ApprovedDescriptor {
+				d := newTestDescriptor()
+				d.ReferencePaths = append(d.ReferencePaths, FirmwareReferencePath{Path: "releases[].[]", Kind: FirmwareReferenceArtifact})
+				return d
+			},
+			wantCode:    http.StatusInternalServerError,
+			wantLookups: testRelease,
+		},
+		{
 			name:     "When a required firmware field is missing it should reject it before any lookup",
 			mutate:   func(t *testing.T, f *domain.FirmwareSpec) { f.Profile = "" },
 			wantCode: http.StatusBadRequest,
@@ -658,6 +678,15 @@ func TestValidateFirmwareIntentValidatesTheClosedConfiguration(t *testing.T) {
 func TestValidateFirmwareIntentAuthorizesRepositoryReferences(t *testing.T) {
 	tests := []firmwareIntentCase{
 		{
+			name: "When the release declares no reference paths it should accept the firmware without repository lookups",
+			descriptor: func(t *testing.T) *ApprovedDescriptor {
+				d := newTestDescriptor()
+				d.ReferencePaths = nil
+				return d
+			},
+			wantLookups: testRelease,
+		},
+		{
 			name:         "When an artifact repository does not exist in the organization it should reject the reference",
 			repositories: []string{"firmware-signatures"},
 			wantCode:     http.StatusBadRequest,
@@ -788,6 +817,18 @@ func TestValidateFirmwareIntentChecksDescriptorPathsIndependentlyOfTheSchema(t *
 			},
 			wantCode:    http.StatusBadRequest,
 			wantErrs:    []string{configPath + `.resources[0].targetGuid: Invalid value: "not-a-guid": must be a GUID`},
+			wantLookups: testRelease,
+		},
+		{
+			name: "When the schema does not constrain a GUID path it should reject a value that is not a string",
+			descriptor: func(t *testing.T) *ApprovedDescriptor {
+				return withGUIDSchema(t, newTestDescriptor(), `{}`)
+			},
+			mutate: func(t *testing.T, f *domain.FirmwareSpec) {
+				configObject(f, "resources", 0)["targetGuid"] = 42
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErrs:    []string{configPath + ".resources[0].targetGuid: Invalid value: 42: must be a GUID string"},
 			wantLookups: testRelease,
 		},
 		{
@@ -1170,6 +1211,24 @@ func TestExtractFirmwareRepositoryRefs(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, complete)
 		assert.Equal(t, []string{"firmware-artifacts"}, refs)
+	})
+
+	t.Run("When the release declares no reference paths it should return a complete empty set", func(t *testing.T) {
+		descriptor := newTestDescriptor()
+		descriptor.ReferencePaths = nil
+		refs, complete, err := ExtractFirmwareRepositoryRefs(ctx, newStubProvider(descriptor), newTestFirmware(t), FirmwareStandalone)
+		require.NoError(t, err)
+		assert.True(t, complete)
+		assert.Empty(t, refs)
+	})
+
+	t.Run("When a descriptor reference path is malformed it should report an error and no references", func(t *testing.T) {
+		descriptor := newTestDescriptor()
+		descriptor.ReferencePaths = append(descriptor.ReferencePaths, FirmwareReferencePath{Path: "releases[].[]", Kind: FirmwareReferenceArtifact})
+		refs, complete, err := ExtractFirmwareRepositoryRefs(ctx, newStubProvider(descriptor), newTestFirmware(t), FirmwareStandalone)
+		require.Error(t, err)
+		assert.False(t, complete)
+		assert.Nil(t, refs)
 	})
 
 	t.Run("When the release is unknown it should report the references as incomplete", func(t *testing.T) {

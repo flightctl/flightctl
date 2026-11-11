@@ -1019,6 +1019,18 @@ func TestReplaceFleetRepositoryRefsIfCurrent(t *testing.T) {
 		assert.Zero(t, fakeStore.replaceRepositoryRefsCalls)
 	})
 
+	t.Run("When the release descriptor has a malformed reference path it should report an internal error and not write", func(t *testing.T) {
+		fakeStore := newFakeFleetStore()
+		descriptor := &common.ApprovedDescriptor{Name: "nvidia-orin", Version: "0.1.0", Approved: true,
+			ConfigSchema:   json.RawMessage(`{"type": "object"}`),
+			ReferencePaths: []common.FirmwareReferencePath{{Path: "releases[].[]", Kind: common.FirmwareReferenceArtifact}}}
+		h := NewServiceHandler(fakeStore, nil, &fakeEventsService{}, logrus.New(), WithApprovedDescriptorProvider(stubFirmwareDescriptors{descriptor: descriptor}))
+
+		_, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, true))
+		require.Equal(t, int32(http.StatusInternalServerError), status.Code, status.Message)
+		assert.Zero(t, fakeStore.replaceRepositoryRefsCalls)
+	})
+
 	t.Run("When the fleet changed since it was read it should report a stale outcome", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		fakeStore.replaceRepositoryRefsStale = true
