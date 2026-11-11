@@ -321,7 +321,7 @@ func TestValidateFirmwareStatus(t *testing.T) {
 			wantErr:  []string{"status.firmware.attempt.error.exceededBudget", "pinned updater"},
 		},
 		{
-			name: "When a component reports an exceeded budget without any attempt it should reject it",
+			name: "When a component without an attempt reports an exceeded budget and has no observation it should reject it",
 			mutate: func(status *domain.FirmwareStatus) {
 				status.Attempt = nil
 				status.Components[0].Observation = nil
@@ -582,4 +582,208 @@ func TestFirmwareStatusEqual(t *testing.T) {
 	assert.False(t, FirmwareStatusEqual(a, nil))
 	b.Attempt.Phase = domain.FirmwareAttemptPhaseSucceeded
 	assert.False(t, FirmwareStatusEqual(a, b))
+}
+
+// evidenceWithKeys returns retained evidence for a schema digest whose release
+// defines exactly the given budget keys.
+func evidenceWithKeys(schemaDigest string, keys ...string) *RetainedSchemaEvidence {
+	evidence := retainedEvidence(schemaDigest)
+	evidence.BudgetKeySet = keys
+	return evidence
+}
+
+// componentWithObservation returns a component status whose observation was
+// produced under the given schema digest.
+func componentWithObservation(t *testing.T, name, schemaDigest string) domain.FirmwareComponentStatus {
+	t.Helper()
+	component := newTestFirmwareStatus(t).Components[0]
+	component.Name = name
+	component.Observation.Backend.SchemaDigest = schemaDigest
+	return component
+}
+
+func limitError(key string) *domain.FirmwareError {
+	return &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "a resource budget was exceeded", ExceededBudget: toPtr(key)}
+}
+
+func TestValidateFirmwareStatusBudgetAuthority(t *testing.T) {
+	ctx := context.Background()
+	current := currentSchemaDigest
+	historical := historicalSchemaDigest
+	// The pinned and desired release defines maxArtifactBytes; the older
+	// release that produced historical observations defines maxFmpItems.
+	provider := func() *schemaEvidenceProvider {
+		return newSchemaEvidenceProvider(evidenceWithKeys(current, "maxArtifactBytes"), evidenceWithKeys(historical, "maxFmpItems"))
+	}
+	unpinned := func(status *domain.FirmwareStatus) {
+		status.Attempt.Updater = nil
+		status.Attempt.Error = nil
+	}
+	tests := []struct {
+		name        string
+		mutate      func(t *testing.T, status *domain.FirmwareStatus)
+		provider    func() *schemaEvidenceProvider
+		wantCode    int32
+		wantErr     []string
+		wantLookups []string
+	}{
+		{
+			name: "When a component without an attempt names a budget of its own historical observation it should accept it",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+				status.Components[0].Error = limitError("maxFmpItems")
+			},
+			wantCode:    http.StatusOK,
+			wantLookups: []string{"nvidia-orin@" + historical},
+		},
+		{
+			name: "When the attempt has no pinned updater a component should fall back to its own observation",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				unpinned(status)
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+				status.Components[0].Error = limitError("maxFmpItems")
+			},
+			wantCode:    http.StatusOK,
+			wantLookups: []string{"nvidia-orin@" + historical},
+		},
+		{
+			name: "When a component without an attempt names a budget that only the current release defines it should reject it",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{`status.firmware.components[0].error.exceededBudget: Unsupported value: "maxArtifactBytes"`},
+			wantLookups: []string{"nvidia-orin@" + historical},
+		},
+		{
+			name: "When a component without an attempt has an observation without backend data it should reject its budget",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components[0].Observation.Backend = nil
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			wantCode: http.StatusBadRequest,
+			wantErr:  []string{"status.firmware.components[0].error.exceededBudget: Forbidden", "own observation"},
+		},
+		{
+			name: "When a component without an attempt has an observation without a schema digest it should reject its budget",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components[0].Observation.Backend.SchemaDigest = ""
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			wantCode: http.StatusBadRequest,
+			wantErr:  []string{"status.firmware.components[0].observation.backend.schemaDigest: Required value", "status.firmware.components[0].error.exceededBudget: Forbidden", "own observation"},
+		},
+		{
+			name: "When the own observation of a component without an attempt cannot be resolved it should reject its budget",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components[0].Observation.Backend.SchemaDigest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"status.firmware.components[0].observation.backend.schemaDigest", "status.firmware.components[0].error.exceededBudget: Forbidden", "own observation"},
+			wantLookups: []string{"nvidia-orin@sha256:3333333333333333333333333333333333333333333333333333333333333333"},
+		},
+		{
+			name: "When the own evidence of a component without an attempt describes another digest it should fail closed",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			provider: func() *schemaEvidenceProvider {
+				p := newSchemaEvidenceProvider()
+				p.evidence["nvidia-orin@"+current] = evidenceWithKeys(historical, "maxArtifactBytes")
+				return p
+			},
+			wantCode:    http.StatusInternalServerError,
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
+		{
+			name: "When components without an attempt have different observations each should use its own budget keys",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical), componentWithObservation(t, "camera", current)}
+				status.Components[0].Error = limitError("maxArtifactBytes")
+				status.Components[1].Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{`status.firmware.components[0].error.exceededBudget: Unsupported value: "maxArtifactBytes"`},
+			wantLookups: []string{"nvidia-orin@" + historical, "nvidia-orin@" + current},
+		},
+		{
+			name: "When components without an attempt share a name their budgets should use their own observations",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", current), componentWithObservation(t, "system", historical)}
+				status.Components[1].Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{`status.firmware.components[1].error.exceededBudget: Unsupported value: "maxArtifactBytes"`},
+			wantLookups: []string{"nvidia-orin@" + current, "nvidia-orin@" + historical},
+		},
+		{
+			name: "When the attempt has a pinned updater a component budget should use the pinned release even if its observation differs",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt.Error = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+				status.Components[0].Error = limitError("maxFmpItems")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{`status.firmware.components[0].error.exceededBudget: Unsupported value: "maxFmpItems"`},
+			wantLookups: []string{"nvidia-orin@" + historical, "nvidia-orin@" + current},
+		},
+		{
+			name: "When the attempt has a pinned updater a component budget of the pinned release should be accepted even if its observation differs",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt.Error = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+				status.Components[0].Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusOK,
+			wantLookups: []string{"nvidia-orin@" + historical, "nvidia-orin@" + current},
+		},
+		{
+			name: "When an attempt without a pinned updater names a budget it should not use a component's observation",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt.Updater = nil
+				status.Attempt.Error = limitError("maxArtifactBytes")
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErr:     []string{"status.firmware.attempt.error.exceededBudget: Forbidden"},
+			wantLookups: []string{"nvidia-orin@" + current},
+		},
+		{
+			name: "When a component without an attempt reports a valid observation and no error it should accept it",
+			mutate: func(t *testing.T, status *domain.FirmwareStatus) {
+				status.Attempt = nil
+				status.Components = []domain.FirmwareComponentStatus{componentWithObservation(t, "system", historical)}
+			},
+			wantCode:    http.StatusOK,
+			wantLookups: []string{"nvidia-orin@" + historical},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := newTestFirmwareStatus(t)
+			tt.mutate(t, status)
+			recorder := provider()
+			if tt.provider != nil {
+				recorder = tt.provider()
+			}
+
+			result := ValidateFirmwareStatus(ctx, recorder, status)
+
+			require.Equal(t, tt.wantCode, result.Code, result.Message)
+			for _, want := range tt.wantErr {
+				assert.Contains(t, result.Message, want)
+			}
+			assert.Equal(t, tt.wantLookups, recorder.schemaLookups)
+			assert.Empty(t, recorder.releaseLookups, "status validation must never look up current release authorization")
+		})
+	}
 }
