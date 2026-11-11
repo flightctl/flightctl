@@ -1845,3 +1845,36 @@ func TestRenderDeviceRepositoryReferenceOutcomes(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderDevice_WhenTheRenderedWriteIsHeldForFirmwareItShouldNotRecordARenderFailure(t *testing.T) {
+	const deviceName = "device-with-firmware"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{Image: "quay.io/org/image:v1.0"},
+			Firmware: &domain.FirmwareSpec{
+				Profile:    "board-a",
+				Updater:    domain.FirmwareUpdaterSpec{Name: "vendor-updater", Version: "1.0.0", Config: map[string]interface{}{}},
+				Components: []api.FirmwareComponentSpec{{Name: "bios", Version: api.FirmwareVersionConstraints{Exact: lo.ToPtr("2.0")}}},
+				Overlays:   []api.FirmwareOverlaySpec{},
+			},
+		},
+	}
+
+	// SetDeviceServiceConditions has no expectation: recording a render
+	// failure would replace the hold condition and fail the test.
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsIncomplete, statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(domain.NewFailureStatus(http.StatusConflict, domain.DeviceSpecValidReasonFirmwareUnsupported, "device is held"))
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
+}

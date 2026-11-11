@@ -279,6 +279,7 @@ const (
 	EnrollmentHooksReasonManualOverride = v1beta1.EnrollmentHooksReasonManualOverride
 
 	FleetValidReasonFirmwareRenderingUnsupported = v1beta1.FleetValidReasonFirmwareRenderingUnsupported
+	DeviceSpecValidReasonFirmwareUnsupported     = v1beta1.DeviceSpecValidReasonFirmwareUnsupported
 )
 
 // ========== Device Text ==========

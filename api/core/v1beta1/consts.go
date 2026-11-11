@@ -223,6 +223,11 @@ const (
 	// Valid condition of a fleet whose template carries firmware, from which
 	// no template version is created while rendering does not support it.
 	FleetValidReasonFirmwareRenderingUnsupported = "FirmwareRenderingUnsupported"
+	// DeviceSpecValidReasonFirmwareUnsupported is the reason of an unknown
+	// SpecValid condition of a device whose desired firmware, outstanding
+	// firmware attempt or source template firmware holds its spec and
+	// rendered output unchanged while rendering does not support firmware.
+	DeviceSpecValidReasonFirmwareUnsupported = "FirmwareUnsupported"
 )
 
 const (

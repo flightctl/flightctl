@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -28,6 +29,32 @@ func holdFirmwareSpec(repository string) *api.FirmwareSpec {
 		},
 		Components: []api.FirmwareComponentSpec{{Name: "bios", Version: api.FirmwareVersionConstraints{Exact: lo.ToPtr("2.0")}}},
 		Overlays:   []api.FirmwareOverlaySpec{},
+	}
+}
+
+// holdFirmwareStatus returns reported firmware with an attempt in phase.
+func holdFirmwareStatus(phase api.FirmwareAttemptPhase) *api.FirmwareStatus {
+	observedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	return &api.FirmwareStatus{
+		BootID:     "boot-1",
+		ObservedAt: observedAt,
+		Support:    api.FirmwareSupportStatus{ApiVersion: 1, Supported: true, Updaters: []api.FirmwareSupportedUpdater{}},
+		Components: []api.FirmwareComponentStatus{{
+			Name:       "bios",
+			Type:       api.FirmwareComponentTypeFirmware,
+			State:      api.FirmwareComponentStateActive,
+			Managed:    true,
+			BootID:     "boot-1",
+			ObservedAt: observedAt,
+		}},
+		Attempt: &api.FirmwareAttemptStatus{
+			Id:              "attempt-1",
+			Phase:           phase,
+			RenderedVersion: "3",
+			SpecHash:        "spec-hash",
+			StartedAt:       observedAt,
+			Recovery:        []api.FirmwareRecoveryAction{},
+		},
 	}
 }
 
