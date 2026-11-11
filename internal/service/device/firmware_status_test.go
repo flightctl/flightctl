@@ -502,3 +502,39 @@ func TestFirmwareStatusExceededBudgetOnStatusWrites(t *testing.T) {
 		assert.Equal(t, "maxArtifactBytes", lo.FromPtr(f.stored(t).Status.Firmware.Attempt.Error.ExceededBudget))
 	})
 }
+
+func TestFirmwareStatusComponentBudgetWithoutAttempt(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("When a component without an attempt names a budget of its own observation while the desired firmware names another release it should accept it without a release lookup", func(t *testing.T) {
+		f := newStatusFixture(t, nil)
+		f.store.device.devices["foo"].Spec.Firmware = &domain.FirmwareSpec{
+			Profile: "orin-example-profile",
+			Updater: domain.FirmwareUpdaterSpec{Name: "other-updater", Version: "9.9.9", Config: map[string]any{}},
+		}
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt = nil
+		firmware.Components[0].Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "a resource budget was exceeded", ExceededBudget: lo.ToPtr("maxArtifactBytes")}
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		assert.Equal(t, "maxArtifactBytes", lo.FromPtr(f.stored(t).Status.Firmware.Components[0].Error.ExceededBudget))
+		assert.Equal(t, []string{"nvidia-orin@" + statusSchemaDigest}, f.evidence.schemaLookups)
+		assert.Empty(t, f.evidence.releaseLookups)
+	})
+
+	t.Run("When a component without an attempt names a budget its own observation does not define it should reject it and keep the stored status", func(t *testing.T) {
+		f := newStatusFixture(t, nil)
+		before := f.stored(t)
+		firmware := outstandingFirmwareStatus(t)
+		firmware.Attempt = nil
+		firmware.Components[0].Error = &domain.FirmwareError{Reason: domain.FirmwareErrorReasonResourceLimitExceeded, Message: "a resource budget was exceeded", ExceededBudget: lo.ToPtr("maxFmpItems")}
+
+		_, status := f.svc.ReplaceDeviceStatus(ctx, f.orgId, "foo", statusWrite(firmware), true)
+
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, `status.firmware.components[0].error.exceededBudget: Unsupported value: "maxFmpItems"`)
+		assert.Equal(t, before.Status, f.stored(t).Status)
+	})
+}

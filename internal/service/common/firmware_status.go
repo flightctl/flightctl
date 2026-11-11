@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/pkg/jsonpatch"
@@ -25,8 +26,9 @@ const firmwareObservationSchemaURL = "file:///firmware-observation.json"
 // backend.updater and backend.schemaDigest identify. That release may differ
 // from the desired updater and from the release of the current attempt, and an
 // observation needs no attempt. A reported exceeded budget must be a budget
-// key of the release that the attempt pinned; without a pinned release no
-// budget applies, so none may be reported.
+// key of the release that the attempt pinned; without a pinned release, a
+// component's budget must be a key of the release that produced its own
+// observation, and the attempt cannot report one.
 //
 // Only retained schema evidence is looked up. It stays available after a
 // release loses its authorization, so validating status neither needs nor
@@ -122,53 +124,81 @@ func (c *firmwareStatusCheck) validateObservation(backend *domain.FirmwareObserv
 }
 
 // validateExceededBudgets checks every reported exceeded budget against the
-// budget keys of the release that the attempt pinned.
+// budget keys of the release that defines it. When the attempt has a pinned
+// updater, that release defines the budgets of the attempt and of every
+// component. Otherwise an attempt cannot report a budget, and each component
+// reports budgets of the release that produced its own observation, so a
+// component without an attempt is judged by its own evidence only, never by
+// another component's or by the desired release.
 func (c *firmwareStatusCheck) validateExceededBudgets(status *domain.FirmwareStatus, path *field.Path) *domain.Status {
 	type reported struct {
-		path *field.Path
-		key  string
+		path      *field.Path
+		key       string
+		component int
 	}
 	var budgets []reported
 	if status.Attempt != nil && status.Attempt.Error != nil && status.Attempt.Error.ExceededBudget != nil {
-		budgets = append(budgets, reported{path.Child("attempt", "error", "exceededBudget"), *status.Attempt.Error.ExceededBudget})
+		budgets = append(budgets, reported{path: path.Child("attempt", "error", "exceededBudget"), key: *status.Attempt.Error.ExceededBudget, component: -1})
 	}
 	for i, component := range status.Components {
 		if component.Error != nil && component.Error.ExceededBudget != nil {
-			budgets = append(budgets, reported{path.Child("components").Index(i).Child("error", "exceededBudget"), *component.Error.ExceededBudget})
+			budgets = append(budgets, reported{path: path.Child("components").Index(i).Child("error", "exceededBudget"), key: *component.Error.ExceededBudget, component: i})
 		}
 	}
 	if len(budgets) == 0 {
 		return nil
 	}
 
-	if status.Attempt == nil || status.Attempt.Updater == nil {
+	if status.Attempt != nil && status.Attempt.Updater != nil {
+		pinned := status.Attempt.Updater
+		pinnedPath := path.Child("attempt", "updater")
+		if !c.requireIdentity(pinned.Name, pinned.SchemaDigest, pinnedPath.Child("name"), pinnedPath.Child("schemaDigest")) {
+			return nil
+		}
+		retained, failure := c.lookup(pinned.Name, pinned.SchemaDigest)
+		if failure != nil {
+			return failure
+		}
+		if !c.usable(retained, pinned.Name, pinned.SchemaDigest, pinnedPath, pinnedPath.Child("schemaDigest")) {
+			return nil
+		}
 		for _, budget := range budgets {
-			c.errs = append(c.errs, field.Forbidden(budget.path, "only an attempt with a pinned updater can report an exceeded budget"))
+			c.checkBudgetKey(budget.path, budget.key, retained.evidence.BudgetKeySet)
 		}
 		return nil
 	}
-	pinned := status.Attempt.Updater
-	pinnedPath := path.Child("attempt", "updater")
-	if !c.requireIdentity(pinned.Name, pinned.SchemaDigest, pinnedPath.Child("name"), pinnedPath.Child("schemaDigest")) {
-		return nil
-	}
-	retained, failure := c.lookup(pinned.Name, pinned.SchemaDigest)
-	if failure != nil {
-		return failure
-	}
-	if !c.usable(retained, pinned.Name, pinned.SchemaDigest, pinnedPath, pinnedPath.Child("schemaDigest")) {
-		return nil
-	}
-	allowed := map[string]bool{}
-	for _, key := range retained.evidence.BudgetKeySet {
-		allowed[key] = true
-	}
+
 	for _, budget := range budgets {
-		if !allowed[budget.key] {
-			c.errs = append(c.errs, field.NotSupported(budget.path, budget.key, retained.evidence.BudgetKeySet))
+		if budget.component < 0 {
+			c.errs = append(c.errs, field.Forbidden(budget.path, "only an attempt with a pinned updater can report an exceeded budget"))
+			continue
 		}
+		var backend *domain.FirmwareObservationBackend
+		if observation := status.Components[budget.component].Observation; observation != nil {
+			backend = observation.Backend
+		}
+		if backend == nil || backend.Updater == "" || backend.SchemaDigest == "" {
+			c.errs = append(c.errs, field.Forbidden(budget.path, "without an attempt with a pinned updater, the component's own observation must identify the updater release that defines the budget"))
+			continue
+		}
+		retained, failure := c.lookup(backend.Updater, backend.SchemaDigest)
+		if failure != nil {
+			return failure
+		}
+		if retained.unavailable || retained.evidence == nil {
+			c.errs = append(c.errs, field.Forbidden(budget.path, "the retained schema of the component's own observation is unavailable or unknown, so the budget cannot be validated"))
+			continue
+		}
+		c.checkBudgetKey(budget.path, budget.key, retained.evidence.BudgetKeySet)
 	}
 	return nil
+}
+
+// checkBudgetKey records an error unless key is one of the budget keys.
+func (c *firmwareStatusCheck) checkBudgetKey(path *field.Path, key string, budgetKeys []string) {
+	if !slices.Contains(budgetKeys, key) {
+		c.errs = append(c.errs, field.NotSupported(path, key, budgetKeys))
+	}
 }
 
 // requireIdentity reports whether both parts of a retained-evidence identity
