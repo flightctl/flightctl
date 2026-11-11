@@ -657,6 +657,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
+func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
+	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
+	}
+	return count, domain.StatusOK()
+}
+
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 

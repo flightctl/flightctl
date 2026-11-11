@@ -10,7 +10,6 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,70 +46,12 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 }
 
 func rejectPendingEnrollmentRequests(ctx context.Context, orgId uuid.UUID, credentialName string, svc enrollmentrequestservice.Service, log logrus.FieldLogger) error {
-	requests, err := listEnrollmentRequestsByCredential(ctx, orgId, credentialName, svc)
-	if err != nil {
-		return err
+	count, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("deny enrollment requests: %s", status.Message)
 	}
-	for i := range requests {
-		request := requests[i]
-		if enrollmentRequestAlreadyDecided(request) || enrollmentRequestAlreadyDenied(request) {
-			continue
-		}
-		name := lo.FromPtr(request.Metadata.Name)
-		if name == "" {
-			continue
-		}
-		updated := request
-		if updated.Status == nil {
-			updated.Status = &domain.EnrollmentRequestStatus{}
-		}
-		domain.SetStatusCondition(&updated.Status.Conditions, domain.Condition{
-			Type:    domain.ConditionTypeEnrollmentRequestDenied,
-			Status:  domain.ConditionStatusTrue,
-			Reason:  domain.EnrollmentCredentialRevokedReason,
-			Message: fmt.Sprintf("Enrollment credential %q was revoked; enrollment request rejected", credentialName),
-		})
-		if _, status := svc.ReplaceEnrollmentRequestStatus(ctx, orgId, name, updated); status.Code != http.StatusOK {
-			return fmt.Errorf("update enrollment request %q: %s", name, status.Message)
-		}
-		log.Infof("Rejected pending enrollment request %q for revoked enrollment credential %q", name, credentialName)
-	}
+	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", count, credentialName)
 	return nil
-}
-
-func enrollmentRequestAlreadyDecided(request domain.EnrollmentRequest) bool {
-	if request.Status != nil && domain.IsStatusConditionTrue(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) {
-		return true
-	}
-	return request.Status != nil && request.Status.Approval != nil && request.Status.Approval.Approved
-}
-
-func enrollmentRequestAlreadyDenied(request domain.EnrollmentRequest) bool {
-	if request.Status == nil {
-		return false
-	}
-	condition := domain.FindStatusCondition(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
-	return condition != nil && condition.Status == domain.ConditionStatusTrue
-}
-
-func listEnrollmentRequestsByCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc enrollmentrequestservice.Service) ([]domain.EnrollmentRequest, error) {
-	fieldSelector := fmt.Sprintf("status.enrollmentCertificateName=%s", credentialName)
-	params := domain.ListEnrollmentRequestsParams{FieldSelector: &fieldSelector}
-	var requests []domain.EnrollmentRequest
-	for {
-		list, status := svc.ListEnrollmentRequests(ctx, orgId, params)
-		if status.Code != http.StatusOK {
-			return nil, fmt.Errorf("list enrollment requests: %s", status.Message)
-		}
-		if list == nil {
-			return nil, fmt.Errorf("list enrollment requests: empty response")
-		}
-		requests = append(requests, list.Items...)
-		if list.Metadata.Continue == nil || *list.Metadata.Continue == "" {
-			return requests, nil
-		}
-		params.Continue = list.Metadata.Continue
-	}
 }
 
 func flagDevicesForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service, log logrus.FieldLogger) error {

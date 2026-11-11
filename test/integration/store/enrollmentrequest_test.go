@@ -287,5 +287,71 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
 			Expect(dev.Status.Conditions[0].Type).To(Equal(api.ConditionTypeEnrollmentRequestApproved))
 		})
+
+		It("Denies pending enrollment requests for a revoked credential in one update", func() {
+			createRequest := func(name, credentialName string, conditions []api.Condition, approval *api.EnrollmentRequestApprovalStatus) {
+				request := api.EnrollmentRequest{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     api.EnrollmentRequestSpec{Csr: "csr"},
+					Status: &api.EnrollmentRequestStatus{
+						EnrollmentCertificateName: lo.ToPtr(credentialName),
+						Conditions:                conditions,
+						Approval:                  approval,
+					},
+				}
+				_, err := enrollmentRequestStore.Create(ctx, orgId, &request)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			existingCondition := api.Condition{
+				Type:               api.ConditionTypeEnrollmentRequestTPMVerified,
+				Status:             api.ConditionStatusTrue,
+				Reason:             "Verified",
+				Message:            "verified",
+				LastTransitionTime: time.Now().UTC(),
+			}
+			createRequest("pending-a", "credential-a", []api.Condition{existingCondition}, nil)
+			createRequest("approved-a", "credential-a", []api.Condition{{
+				Type:   api.ConditionTypeEnrollmentRequestApproved,
+				Status: api.ConditionStatusTrue,
+			}}, &api.EnrollmentRequestApprovalStatus{Approved: true, ApprovedAt: time.Now().UTC(), ApprovedBy: "admin"})
+			createRequest("already-denied-a", "credential-a", []api.Condition{{
+				Type:    api.ConditionTypeCertificateSigningRequestDenied,
+				Status:  api.ConditionStatusTrue,
+				Reason:  "ManualRejection",
+				Message: "kept",
+			}}, nil)
+			createRequest("pending-b", "credential-b", nil, nil)
+
+			count, err := enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(int64(1)))
+
+			pending, err := enrollmentRequestStore.Get(ctx, orgId, "pending-a")
+			Expect(err).ToNot(HaveOccurred())
+			condition := api.FindStatusCondition(pending.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
+			Expect(condition).ToNot(BeNil())
+			Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
+			Expect(condition.Reason).To(Equal(api.EnrollmentCredentialRevokedReason))
+			Expect(api.FindStatusCondition(pending.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified)).ToNot(BeNil())
+			Expect(pending.Status.EnrollmentCertificateName).To(Equal(lo.ToPtr("credential-a")))
+
+			approved, err := enrollmentRequestStore.Get(ctx, orgId, "approved-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(api.FindStatusCondition(approved.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)).To(BeNil())
+
+			alreadyDenied, err := enrollmentRequestStore.Get(ctx, orgId, "already-denied-a")
+			Expect(err).ToNot(HaveOccurred())
+			alreadyDeniedCondition := api.FindStatusCondition(alreadyDenied.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
+			Expect(alreadyDeniedCondition).ToNot(BeNil())
+			Expect(alreadyDeniedCondition.Message).To(Equal("kept"))
+
+			other, err := enrollmentRequestStore.Get(ctx, orgId, "pending-b")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(api.FindStatusCondition(other.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)).To(BeNil())
+
+			count, err = enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(BeZero())
+		})
 	})
 })

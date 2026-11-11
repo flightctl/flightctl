@@ -163,6 +163,30 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	return true, nil
 }
 
+func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+	var count int64
+	for name, request := range f.items {
+		if request.Status == nil || lo.FromPtr(request.Status.EnrollmentCertificateName) != credentialName {
+			continue
+		}
+		if domain.IsStatusConditionTrue(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) ||
+			domain.IsStatusConditionTrue(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied) ||
+			(request.Status.Approval != nil && request.Status.Approval.Approved) {
+			continue
+		}
+		updated := *request
+		domain.SetStatusCondition(&updated.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeEnrollmentRequestDenied,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: "Enrollment credential " + credentialName + " was revoked; enrollment request rejected",
+		})
+		f.items[name] = &updated
+		count++
+	}
+	return count, nil
+}
+
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
 // used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
@@ -816,6 +840,41 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 
 	_, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), "missing", er)
 	require.Equal(t, statusNotFoundCode, status.Code)
+}
+
+func TestDenyEnrollmentRequestsForRevokedCredential(t *testing.T) {
+	h, store, _, _, _ := newTestHandler(t)
+	orgId := uuid.New()
+	credentialName := "credential-1"
+	store.items["pending"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("pending")},
+		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr(credentialName)},
+	}
+	store.items["approved"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("approved")},
+		Status: &domain.EnrollmentRequestStatus{
+			EnrollmentCertificateName: lo.ToPtr(credentialName),
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeEnrollmentRequestApproved,
+				Status: domain.ConditionStatusTrue,
+			}},
+		},
+	}
+	store.items["other-credential"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("other-credential")},
+		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("credential-2")},
+	}
+
+	count, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName)
+
+	require.Equal(t, statusSuccessCode, status.Code)
+	require.Equal(t, int64(1), count)
+	condition := domain.FindStatusCondition(store.items["pending"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	require.NotNil(t, condition)
+	require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+	require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	require.Nil(t, domain.FindStatusCondition(store.items["approved"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied))
+	require.Nil(t, domain.FindStatusCondition(store.items["other-credential"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied))
 }
 
 func TestReplaceEnrollmentRequestStatusPreservesRevocationDenial(t *testing.T) {

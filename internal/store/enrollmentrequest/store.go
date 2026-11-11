@@ -2,6 +2,7 @@ package enrollmentrequest
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -25,6 +26,9 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
+	// DenyEnrollmentRequestsForRevokedCredential denies every pending
+	// Enrollment Request bound to credentialName in one statement.
+	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -205,4 +209,61 @@ func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid
 	updated, err := record.ToApiResource()
 	mutation.SetResource(updated)
 	return false, err
+}
+
+// DenyEnrollmentRequestsForRevokedCredential denies every pending Enrollment
+// Request bound to credentialName. Approved and already-denied requests are
+// left unchanged, and the denial condition is merged in place.
+func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+	if credentialName == "" {
+		return 0, nil
+	}
+	result := s.getDB(ctx).Exec(`
+		UPDATE enrollment_requests
+		SET status = jsonb_set(
+				COALESCE(status, '{}'::jsonb),
+				'{conditions}',
+				COALESCE((
+					SELECT jsonb_agg(condition_json ORDER BY ordinal)
+					FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb))
+						WITH ORDINALITY AS condition_rows(condition_json, ordinal)
+					WHERE condition_json->>'type' <> CAST(@condition_type AS text)
+				), '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+					'type', CAST(@condition_type AS text),
+					'status', CAST(@condition_status AS text),
+					'reason', CAST(@condition_reason AS text),
+					'message', CAST(@condition_message AS text),
+					'lastTransitionTime', to_jsonb(now())
+				)),
+				true
+			),
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE org_id = CAST(@org_id AS uuid)
+		  AND deleted_at IS NULL
+		  AND status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
+		  AND COALESCE(status->'approval'->>'approved', 'false') <> 'true'
+		  AND NOT EXISTS (
+			  SELECT 1
+			  FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
+			  WHERE condition_json->>'type' = 'Approved'
+			    AND condition_json->>'status' = 'True'
+		  )
+		  AND NOT EXISTS (
+			  SELECT 1
+			  FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
+			  WHERE condition_json->>'type' = 'Denied'
+			    AND condition_json->>'status' = 'True'
+		  )
+	`, map[string]interface{}{
+		"org_id":            orgId,
+		"credential_name":   credentialName,
+		"condition_type":    string(domain.ConditionTypeEnrollmentRequestDenied),
+		"condition_status":  string(domain.ConditionStatusTrue),
+		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
+		"condition_message": fmt.Sprintf("Enrollment credential %q was revoked; enrollment request rejected", credentialName),
+	})
+	if result.Error != nil {
+		return 0, store.ErrorFromGormError(result.Error)
+	}
+	return result.RowsAffected, nil
 }
