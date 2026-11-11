@@ -405,9 +405,13 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		return t.setErrorStatus(ctx, renderErr)
 	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, rendered.referencedRepos...)
+		var outcome common.RepositoryRefsOutcome
+		outcome, status = t.deviceSvc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, t.orgId, *device.Metadata.Name, lo.FromPtr(device.Metadata.Generation), device.Spec)
 		if status.Code != http.StatusOK {
 			return t.setErrorStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
+		}
+		if outcome != common.RepositoryRefsReplaced {
+			t.log.Infof("Repository references of device %s/%s left unchanged (%s): the device changed since it was read or its firmware references are not known yet", t.orgId, *device.Metadata.Name, outcome)
 		}
 	}
 	if renderErr != nil {
@@ -447,7 +451,6 @@ type RenderedSpec struct {
 	Config       []byte
 	Applications []byte
 
-	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
 	// delta payload size.
@@ -478,14 +481,13 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 		}
 	}
 
-	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx, deviceConfig)
+	ignitionConfig, configFingerprints, renderErr := t.renderConfig(ctx, deviceConfig)
 	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
 	if err != nil {
-		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
+		return RenderedSpec{configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
 	}
 	result := RenderedSpec{
 		Config:             renderedConfig,
-		referencedRepos:    referencedRepos,
 		configFingerprints: configFingerprints,
 	}
 	if renderErr != nil {
@@ -590,7 +592,7 @@ func (t *deviceRenderState) renderApplications(ctx context.Context, applications
 	return renderedApplicationBytes, nil
 }
 
-func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {
+func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []ConfigRefFingerprint, error) {
 	ignitionConfig := &config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
 			Version: config_latest_types.MaxVersion.String(),
@@ -598,20 +600,15 @@ func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]do
 	}
 
 	if deviceConfig == nil {
-		return ignitionConfig, nil, nil, nil
+		return ignitionConfig, nil, nil
 	}
 
 	invalidConfigs := []string{}
-	referencedRepos := []string{}
 	var fingerprints []ConfigRefFingerprint
 	var firstError error
 	for i := range *deviceConfig {
 		configItem := (*deviceConfig)[i]
-		name, repoName, fingerprint, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
-
-		if repoName != nil {
-			referencedRepos = append(referencedRepos, *repoName)
-		}
+		name, _, fingerprint, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
 
 		if err != nil {
 			invalidConfigs = append(invalidConfigs, util.DefaultIfNil(name, "<unknown>"))
@@ -633,10 +630,10 @@ func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]do
 			configurationStr += "s"
 			errorStr = "First error"
 		}
-		return nil, referencedRepos, nil, fmt.Errorf("%d invalid %s: %s. %s: %w", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		return nil, nil, fmt.Errorf("%d invalid %s: %s. %s: %w", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
 	}
 
-	return ignitionConfig, referencedRepos, fingerprints, nil
+	return ignitionConfig, fingerprints, nil
 }
 
 // ConfigRefFingerprint holds the fingerprint captured for one config provider at render time.
