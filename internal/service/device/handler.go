@@ -553,7 +553,28 @@ func (h *DeviceServiceHandler) GetDeviceLastSeen(ctx context.Context, orgId uuid
 func validateDeviceStatus(d *domain.Device) []error {
 	allErrs := append([]error{}, validation.ValidateResourceName(d.Metadata.Name)...)
 	// TODO: implement validation of agent's status updates
+	if d.Status != nil && d.Status.Firmware != nil {
+		allErrs = append(allErrs, d.Status.Firmware.Validate()...)
+	}
 	return allErrs
+}
+
+// validateChangedFirmwareStatus validates a firmware status that a write
+// supplies against the retained evidence of the releases that produced it,
+// unless it is unchanged from the stored one, which was validated when it was
+// stored.
+func (h *DeviceServiceHandler) validateChangedFirmwareStatus(ctx context.Context, stored, supplied *domain.FirmwareStatus) domain.Status {
+	if supplied == nil || common.FirmwareStatusEqual(stored, supplied) {
+		return domain.StatusOK()
+	}
+	return common.ValidateFirmwareStatus(ctx, h.descriptors, supplied)
+}
+
+func storedFirmwareStatus(device *domain.Device) *domain.FirmwareStatus {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	return device.Status.Firmware
 }
 
 func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, incomingDevice domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
@@ -587,6 +608,11 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	originalDevice, err := h.deviceStore.GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+
+	suppliedFirmware := incomingDevice.Status.Firmware
+	if status := h.validateChangedFirmwareStatus(ctx, storedFirmwareStatus(originalDevice), suppliedFirmware); status.Code != http.StatusOK {
+		return nil, status
 	}
 
 	deviceToStore := &domain.Device{}
@@ -628,7 +654,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 
 	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback
 	// reapplies the patch against the CAS-fresh current on every attempt.
-	if status := validateDeviceStatusPatch(ctx, currentObj, patch, name, refreshLastSeen); status.Code != http.StatusOK {
+	if status := h.validateDeviceStatusPatch(ctx, currentObj, patch, name, refreshLastSeen); status.Code != http.StatusOK {
 		return nil, status
 	}
 
@@ -656,6 +682,10 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 			callbackStatus = domain.StatusBadRequest(err.Error())
 			return err
 		}
+		if status := h.validateChangedFirmwareStatus(ctx, storedFirmwareStatus(m.Device), storedFirmwareStatus(patched)); status.Code != http.StatusOK {
+			callbackStatus = status
+			return common.ApiStatusToErr(status)
+		}
 		m.Device.Status = patched.Status
 		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 		return nil
@@ -667,12 +697,12 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) domain.Status {
-	_, err := applyDeviceStatusPatch(ctx, current, patch, name, refreshLastSeen)
+func (h *DeviceServiceHandler) validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) domain.Status {
+	patched, err := applyDeviceStatusPatch(ctx, current, patch, name, refreshLastSeen)
 	if err != nil {
 		return domain.StatusBadRequest(err.Error())
 	}
-	return domain.StatusOK()
+	return h.validateChangedFirmwareStatus(ctx, storedFirmwareStatus(current), storedFirmwareStatus(patched))
 }
 
 func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) (*domain.Device, error) {
