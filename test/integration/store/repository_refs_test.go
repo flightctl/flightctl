@@ -86,6 +86,7 @@ var _ = Describe("Repository reference sets", func() {
 		callbackName := "test:fail-" + table
 		Expect(db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
 			if tx.Statement.Table == table {
+				// AddError records the injected failure on the statement; its return repeats that error.
 				_ = tx.AddError(errors.New("injected join table failure"))
 			}
 		})).To(Succeed())

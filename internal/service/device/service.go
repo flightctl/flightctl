@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
@@ -26,8 +27,9 @@ type Service interface {
 	// attempt; a mismatch returns a conflict so callers can detect it exactly as they
 	// would a resourceVersion conflict today. A device with desired firmware or an
 	// outstanding firmware attempt is held instead: its spec and annotations are left
-	// unchanged and the returned status satisfies IsFirmwareHold.
-	ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status)
+	// unchanged and the returned status satisfies IsFirmwareHold. When supplied,
+	// fleet dependency references commit atomically with the spec and annotations.
+	ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string, options ...SpecUpdateOptions) (*domain.Device, domain.Status)
 	// HoldDeviceForFirmware records the firmware hold condition on a device that
 	// an internal reconciler owning it (fleet rollout) must not roll out:
 	// because sourceHasFirmware reports that the source of its new spec
@@ -63,7 +65,8 @@ type Service interface {
 	// UpdateRenderedDevice stores a new rendered output of the device. A device with
 	// desired firmware or an outstanding firmware attempt is held instead: its rendered
 	// output is left unchanged and the returned status satisfies IsFirmwareHold.
-	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status
+	// ExpectedGeneration, when supplied, is checked inside the rendered mutation.
+	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status
 	SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status
 	ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status)
 	GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status)
@@ -92,4 +95,16 @@ type RenderedOSHints struct {
 	DeltaImage    *string
 	DeltaSize     *string
 	AppDeltaSizes map[string]*string
+}
+
+// SpecUpdateOptions binds fleet dependency references to the same owner-checked
+// mutation as the spec and rollout annotations. Nil leaves references unchanged;
+// an empty set clears fleet references, including those left by a previous owner.
+type SpecUpdateOptions struct {
+	FleetDependencyRefs *[]model.DependencyRef
+}
+
+// RenderedDeviceOptions rejects output rendered from a superseded generation.
+type RenderedDeviceOptions struct {
+	ExpectedGeneration *int64
 }

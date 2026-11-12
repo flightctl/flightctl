@@ -433,7 +433,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 // requiring the caller's resourceVersion to match. Ownership is re-verified against the
 // freshly-loaded device on every retry attempt (not a stale caller-held snapshot), so a
 // concurrent owner change is still caught. Labels are never touched.
-func (h *DeviceServiceHandler) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string, options ...SpecUpdateOptions) (*domain.Device, domain.Status) {
 	var held bool
 	var oldConditions, newConditions []domain.Condition
 	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
@@ -453,6 +453,9 @@ func (h *DeviceServiceHandler) ReplaceDeviceSpec(ctx context.Context, orgId uuid
 			var err error
 			oldConditions, newConditions, err = h.holdForFirmware(ctx, orgId, current)
 			return err
+		}
+		for _, option := range options {
+			m.FleetDependencyRefs = option.FleetDependencyRefs
 		}
 		current.Spec = &spec
 		ann := util.EnsureMap(lo.FromPtr(current.Metadata.Annotations))
@@ -1215,7 +1218,7 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status {
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status {
 	specValid := domain.Condition{
 		Type:   domain.ConditionTypeDeviceSpecValid,
 		Status: domain.ConditionStatusTrue,
@@ -1228,6 +1231,11 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	_, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {
 			return err
+		}
+		for _, option := range options {
+			if option.ExpectedGeneration != nil && lo.FromPtr(m.Device.Metadata.Generation) != *option.ExpectedGeneration {
+				return flterrors.ErrResourceVersionConflict
+			}
 		}
 		// Capture pre-render conditions before applyRenderedUpdate sets SpecValid.
 		previous = snapshotDeviceForStatusUpdate(m.Device)

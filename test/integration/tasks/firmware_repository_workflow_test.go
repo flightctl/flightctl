@@ -159,7 +159,9 @@ var _ = Describe("Firmware repository references in the reconcile workflow", fun
 			fleetservice.WithApprovedDescriptorProvider(workflowDescriptors{}), fleetservice.WithRepositoryGetter(repositorySvc.GetRepository))
 		tvSvc = templateversionservice.NewServiceHandler(tvStore, kvStore, eventsSvc, log)
 		configServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("setting=value\n"))
+			if _, err := w.Write([]byte("setting=value\n")); err != nil {
+				log.WithError(err).Error("writing test repository response")
+			}
 		}))
 		DeferCleanup(configServer.Close)
 		if queuesProvider == nil {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -66,6 +67,7 @@ func holdTestDevice(t *testing.T, st *fakeStore, orgId uuid.UUID, owner *string,
 		Status: &status,
 	}, nil)
 	require.NoError(t, err)
+	st.device.rendered["dev"] = &devicestore.DeviceRendered{Config: "previous-config", Applications: "previous-apps", OsImage: "os:1"}
 }
 
 func requireFirmwareHoldCondition(t *testing.T, device *domain.Device) {
@@ -81,7 +83,7 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 		t.Helper()
 		require.True(t, IsFirmwareHold(status), status.Message)
 		after := st.device.devices["dev"]
-		assert.Nil(t, st.device.rendered["dev"], "a held device gets no rendered output")
+		assert.Equal(t, &devicestore.DeviceRendered{Config: "previous-config", Applications: "previous-apps", OsImage: "os:1"}, st.device.rendered["dev"], "a held device retains its rendered output")
 		assert.Equal(t, before.Metadata.Annotations, after.Metadata.Annotations)
 		assert.Equal(t, before.Spec, after.Spec)
 		assert.Equal(t, before.Status.Firmware, after.Status.Firmware)
