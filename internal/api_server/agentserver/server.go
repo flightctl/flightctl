@@ -31,6 +31,7 @@ import (
 	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
+	updatercatalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -129,6 +130,11 @@ func (s *AgentServer) init(ctx context.Context) error {
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 
+	updaterProvider, err := updatercatalogservice.Bootstrap(ctx, s.db, s.cfg.FirmwareUpdaterCatalogFile)
+	if err != nil {
+		return fmt.Errorf("initialize approved updater catalog: %w", err)
+	}
+
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
@@ -137,7 +143,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	}
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider)))
 	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	ehPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	ehPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
