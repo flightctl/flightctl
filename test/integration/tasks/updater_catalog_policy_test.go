@@ -62,10 +62,12 @@ var _ = Describe("Durable updater policy fanout", func() {
 		input         catalogservice.AdministratorConfig
 		cancel        context.CancelFunc
 		subscriptions []queues.Subscription
+		renderedKeys  []string
 	)
 	BeforeEach(func() {
 		ctx, cancel = context.WithCancel(testutil.StartSpecTracerForGinkgo(suiteCtx))
 		subscriptions = nil
+		renderedKeys = nil
 		log := flightlog.InitLogs()
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
@@ -102,7 +104,9 @@ var _ = Describe("Durable updater policy fanout", func() {
 				created, err := devices.Create(ctx, org, device, nil)
 				Expect(err).NotTo(HaveOccurred())
 				recipients = append(recipients, policyRecipient{Org: org, Name: name, Before: created})
-				Expect(kv.Set(ctx, fmt.Sprintf("v1/%s/device/%s/rendered", org, name), []byte("7"), 0)).To(Succeed())
+				renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", org, name)
+				Expect(kv.Set(ctx, renderedKey, []byte("7"), 0)).To(Succeed())
+				renderedKeys = append(renderedKeys, renderedKey)
 			}
 		}
 		input, err = firmwarecatalog.New()
@@ -117,6 +121,10 @@ var _ = Describe("Durable updater policy fanout", func() {
 		}
 		broker.Stop()
 		broker.Wait()
+		cleanupCtx := context.WithoutCancel(ctx)
+		for _, key := range renderedKeys {
+			Expect(kv.Delete(cleanupCtx, key)).To(Succeed())
+		}
 		kv.Close()
 		Expect(testdb.DeleteTestDB(context.WithoutCancel(ctx), flightlog.InitLogs(), cfg, db, dbName)).To(Succeed())
 	})

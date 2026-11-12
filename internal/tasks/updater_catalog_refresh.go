@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -32,28 +33,28 @@ func (t *UpdaterCatalogRefresh) DispatchPending(ctx context.Context, limit int) 
 	defer span.End()
 	work, err := t.catalog.ExpandPendingRefresh(ctx, limit)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("expand pending policy refresh: %w", err)
 	}
 	pending, err := t.catalog.PendingNotifications(ctx, limit)
 	if err != nil {
-		return work, err
+		return work, fmt.Errorf("list pending policy notifications: %w", err)
 	}
 	if len(pending) == 0 {
 		return work, nil
 	}
 	revision, err := t.catalog.CurrentRevision(ctx)
 	if err != nil {
-		return work, err
+		return work, fmt.Errorf("read current policy revision: %w", err)
 	}
 	for _, target := range pending {
 		if revision < target.Revision {
 			return work, errors.New("accepted policy revision is older than pending delivery")
 		}
 		if err = t.notifier.Notify(ctx, target.OrgID, target.DeviceName, revision); err != nil {
-			return work, err
+			return work, fmt.Errorf("publish policy notification for %s/%s: %w", target.OrgID, target.DeviceName, err)
 		}
 		if err = t.catalog.MarkNotified(ctx, target.OrgID, target.DeviceName, revision); err != nil {
-			return work, err
+			return work, fmt.Errorf("mark policy notification for %s/%s: %w", target.OrgID, target.DeviceName, err)
 		}
 	}
 	return true, nil
@@ -63,7 +64,9 @@ func (t *UpdaterCatalogRefresh) Run(ctx context.Context) {
 	retry := time.NewTicker(5 * time.Second)
 	defer retry.Stop()
 	for ctx.Err() == nil {
-		work, err := t.DispatchPending(ctx, 256)
+		dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		work, err := t.DispatchPending(dispatchCtx, 256)
+		cancel()
 		if err != nil && ctx.Err() == nil {
 			t.log.WithError(err).Error("failed to refresh updater catalog policy; durable work retained")
 		}

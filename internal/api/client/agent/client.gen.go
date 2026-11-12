@@ -885,6 +885,7 @@ type GetFirmwarePolicyResponse struct {
 	JSON404      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON500      *externalRef0.Status
 	JSON503      *externalRef0.Status
 }
 
@@ -921,6 +922,7 @@ type AcknowledgeFirmwarePolicyResponse struct {
 	JSON404      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON500      *externalRef0.Status
 	JSON503      *externalRef0.Status
 }
 
@@ -1436,6 +1438,13 @@ func ParseGetFirmwarePolicyResponse(rsp *http.Response) (*GetFirmwarePolicyRespo
 		}
 		response.JSON429 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1503,6 +1512,13 @@ func ParseAcknowledgeFirmwarePolicyResponse(rsp *http.Response) (*AcknowledgeFir
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest externalRef0.Status

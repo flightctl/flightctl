@@ -107,7 +107,10 @@ func validateConfig(c *AdministratorConfig) error {
 		if err := validateRelease(r); err != nil {
 			return fmt.Errorf("release %d: %w", i, err)
 		}
-		evidence, _ := r.RetainedEvidence()
+		evidence, err := r.RetainedEvidence()
+		if err != nil {
+			return fmt.Errorf("release %d retained evidence: %w", i, err)
+		}
 		for d, e := range evidence {
 			hash, err := canonicalDigest(struct {
 				Schema  string
@@ -324,7 +327,13 @@ func validateClosedSchema(value any) error {
 	switch v := value.(type) {
 	case map[string]any:
 		typ, _ := v["type"].(string)
-		objectType := typ == "object"
+		_, typePresent := v["type"]
+		_, hasProperties := v["properties"]
+		_, hasPatternProperties := v["patternProperties"]
+		objectType := !typePresent && (hasProperties || hasPatternProperties)
+		if typ == "object" {
+			objectType = true
+		}
 		if types, ok := v["type"].([]any); ok {
 			for _, typ := range types {
 				if typ == "object" {

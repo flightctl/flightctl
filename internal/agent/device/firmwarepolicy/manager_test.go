@@ -184,18 +184,22 @@ func TestPolicyDurabilityFailure(t *testing.T) {
 func TestPolicyCorruptState(t *testing.T) {
 	one, _, b := views(t)
 	for _, tc := range []struct {
-		name string
-		data []byte
-		err  error
-	}{{"When retained JSON is corrupt it should withhold authorization", []byte("corrupt"), nil}, {"When retained state is unreadable it should withhold authorization", nil, os.ErrPermission}} {
+		name    string
+		data    []byte
+		err     error
+		context string
+	}{
+		{"When retained JSON is corrupt it should withhold authorization", []byte("corrupt"), nil, "decode retained firmware policy"},
+		{"When retained state is unreadable it should withhold authorization", nil, os.ErrPermission, "read retained firmware policy"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			rw := fileio.NewMockReadWriter(ctrl)
 			rw.EXPECT().ReadFileLimited("/data/firmware/policy.json", int64(policy.MaxWireBytes)).Return(tc.data, tc.err)
 			n := newNetwork(t)
 			m := manager(t, "/data", rw, n)
-			_, err := m.Current()
-			require.Error(t, err)
+			_, currentErr := m.Current()
+			require.ErrorContains(t, currentErr, tc.context)
 			require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 			ctx := run(t, m)
 			n.views <- one
@@ -243,6 +247,7 @@ func TestPolicyConstructorValidation(t *testing.T) {
 	}
 	_, err := receiver.New("device", t.TempDir(), rw, n.client, logger, receiver.WithPollConfig(poll.Config{}))
 	require.Error(t, err)
+	require.ErrorContains(t, err, "validate firmware policy retry config")
 }
 
 func TestPolicyOfflineRetention(t *testing.T) {
