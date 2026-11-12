@@ -120,9 +120,9 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:                 tt.schedule,
+				At:                 lo.ToPtr(CronExpression(tt.schedule)),
 				TimeZone:           lo.ToPtr("America/New_York"),
-				StartGraceDuration: "30s",
+				StartGraceDuration: lo.ToPtr(Duration("30s")),
 			}
 
 			errs := schedule.Validate()
@@ -193,9 +193,9 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:                 "* * * * *",
+				At:                 lo.ToPtr(CronExpression("* * * * *")),
 				TimeZone:           lo.ToPtr(tt.timeZone),
-				StartGraceDuration: "30s",
+				StartGraceDuration: lo.ToPtr(Duration("30s")),
 			}
 
 			errs := schedule.Validate()
@@ -302,8 +302,8 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			schedule := UpdateSchedule{
-				At:                 tt.cronExpression,
-				StartGraceDuration: tt.duration,
+				At:                 lo.ToPtr(CronExpression(tt.cronExpression)),
+				StartGraceDuration: lo.ToPtr(Duration(tt.duration)),
 			}
 
 			errs := schedule.Validate()
