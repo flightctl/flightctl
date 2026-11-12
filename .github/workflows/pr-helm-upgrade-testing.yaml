@@ -72,6 +72,7 @@ jobs:
     with:
       repository: flightctl/flightctl
       ref: ${{ github.base_ref || 'main' }}
+      repair_ubi9_netavark: true
       # The baseline ref is the target branch, which predates the fips-validate
       # Makefile target; FIPS validation only applies to the PR's images.
       validate_fips: false

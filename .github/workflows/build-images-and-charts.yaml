@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: true
+      repair_ubi9_netavark:
+        description: "Apply the temporary Netavark package-install repair when building an older upgrade baseline."
+        required: false
+        type: boolean
+        default: false
       build_catalog_collector:
         description: "Also build the catalog collector image. It is not part of the default backend build; only runs that can select the collector e2e suite need it. Defaults to false so existing callers are unaffected."
         required: false
@@ -51,6 +56,25 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           fetch-tags: true
+
+      # The workflow comes from the caller, but the checkout above can be main
+      # or a release branch that predates the UBI9 dependency repair.
+      - name: Checkout baseline dependency repair
+        if: inputs.repair_ubi9_netavark
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: .baseline-build-tools
+          persist-credentials: false
+          sparse-checkout: |
+            hack/prepare-upgrade-baseline.sh
+            hack/upgrade-baseline-ubi9.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Repair baseline UBI9 package installation
+        if: inputs.repair_ubi9_netavark
+        run: bash .baseline-build-tools/hack/prepare-upgrade-baseline.sh "$GITHUB_WORKSPACE"
 
       - name: Free disk space
         run: |

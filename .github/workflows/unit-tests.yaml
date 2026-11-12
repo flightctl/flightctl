@@ -59,6 +59,7 @@ jobs:
         run: |
           bash hack/test-rpm-builder.sh
           bash hack/test-install-fips-validator.sh
+          bash hack/test-upgrade-baseline.sh
 
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'

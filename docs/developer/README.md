@@ -63,6 +63,13 @@ Use `sudo ./hack/build_rpms.sh --rebuild-image` to refresh all configured roots.
 delivery targets such as the ARMv7 build. It does not change runtime settings
 for previously built binaries.
 
+Helm upgrade tests build the target branch as the baseline. For older baseline
+recipes, CI applies `hack/upgrade-baseline-ubi9.patch` to select the verified
+epoch-2 Netavark RPM while the rolling UBI9 repository has mismatched Netavark
+and Aardvark epochs. The baseline retains its application source and Go toolset.
+The repair is idempotent and fails if the recipe no longer matches the reviewed
+patch. Remove this temporary repair once the UBI9 package set is consistent.
+
 To run integration tests, use `make integration-test`. This requires Podman (or Docker) - the test
 framework uses testcontainers to automatically start ephemeral Postgres, Redis, and Alertmanager
 instances. No manual setup is required.
