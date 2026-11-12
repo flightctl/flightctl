@@ -1,0 +1,47 @@
+package model
+
+// UpdaterCatalogHead serializes installation-wide administrator policy activation.
+type UpdaterCatalogHead struct {
+	ID           int    `gorm:"primaryKey;check:updater_catalog_singleton,id = 1"`
+	Revision     int64  `gorm:"not null;default:0"`
+	InputDigest  string `gorm:"not null"`
+	PolicyDigest string `gorm:"not null"`
+}
+
+func (UpdaterCatalogHead) TableName() string { return "updater_catalog_heads" }
+
+type UpdaterRelease struct {
+	Name             string `gorm:"primaryKey;size:128"`
+	Version          string `gorm:"primaryKey;size:128"`
+	DescriptorDigest string `gorm:"not null;size:71"`
+	Descriptor       []byte `gorm:"not null;type:bytea"`
+}
+
+func (UpdaterRelease) TableName() string { return "updater_releases" }
+
+type UpdaterRevocation struct {
+	Name             string `gorm:"primaryKey;size:128"`
+	Version          string `gorm:"primaryKey;size:128"`
+	DescriptorDigest string `gorm:"not null;size:71"`
+	Reason           string `gorm:"not null;size:1024"`
+	Revision         int64  `gorm:"not null"`
+}
+
+func (UpdaterRevocation) TableName() string { return "updater_revocations" }
+
+type UpdaterSchemaEvidence struct {
+	Name              string   `gorm:"primaryKey;size:128"`
+	Digest            string   `gorm:"primaryKey;size:71"`
+	ObservationSchema []byte   `gorm:"not null;type:bytea"`
+	BudgetKeys        []string `gorm:"not null;type:jsonb;serializer:json"`
+}
+
+func (UpdaterSchemaEvidence) TableName() string { return "updater_schema_evidence" }
+
+// UpdaterCatalogRefresh remains durable until recipient fanout has completed.
+type UpdaterCatalogRefresh struct {
+	Revision   int64 `gorm:"primaryKey;autoIncrement:false"`
+	Dispatched bool  `gorm:"not null;default:false;index"`
+}
+
+func (UpdaterCatalogRefresh) TableName() string { return "updater_catalog_refreshes" }
