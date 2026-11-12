@@ -133,3 +133,37 @@ Revision high-water marks live in PostgreSQL. The separate
 full integer revision precision and isolating rendered-target subscribers. A
 successful publish records notification, not agent receipt. Authenticated policy
 reads and durable receiving state must establish delivery independently.
+
+## Private policy delivery
+
+Enrolled devices read `/api/v1/devices/{name}/firmwarepolicy` on the agent
+endpoint using their management certificate. The authenticated device and
+organization must match the request. The public resource API exposes no
+writable authorization view. Policy reads check device identity without decoding
+desired intent, rendering a target, or waiting for a rendered version. A paused
+or enrollment-hook-gated device can receive revocation while its mutation target
+remains gated.
+
+A first GET returns the complete view. Later reads send `knownRevision` and
+`knownDigest`, representing durably retained state. An unchanged view waits up to
+a bounded timeout and returns 204. The API registers for refresh hints before
+reading the database head and rechecks the head after hints or timeout, so losing
+a hint does not lose policy. Multiple requests for one device remain independent.
+An accepted head older than the supplied revision, or the same revision with a
+different digest, returns conflict.
+
+The private response contains revision, digest, and base64 document bytes. The
+canonical `firmware-policy/v1` document binds the revision, every retained binding
+(including exact descriptor bytes and descriptor digest), and every tombstone.
+Identity ordering is deterministic; empty collections are arrays. Its SHA-256
+matches the database delivery digest. Migration normalizes older materialization
+digests without changing accepted input, revision, or immutable history. The
+receiver validates the complete document and its history before accepting it;
+notification and HTTP success alone are insufficient.
+
+PUT to the same private path acknowledges only the revision and digest after
+durable retention. Acknowledging the current view is idempotent. An older or
+conflicting acknowledgement returns 409 and requires a fresh read. Receipt
+revision/digest are stored separately from publication bookkeeping and never
+modify Device spec/status, retry generation, or rendered version. None of these
+operations invokes an updater or grants reboot permission.

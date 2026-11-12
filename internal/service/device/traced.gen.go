@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -46,6 +47,14 @@ func endSpan(span trace.Span, st domain.Status) {
 	}
 
 	span.End()
+}
+
+func (_d *TracedDeviceService) AcknowledgeFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, receipt firmwarepolicy.Receipt) (s1 domain.Status) {
+	ctx, span := startSpan(ctx, "AcknowledgeFirmwarePolicy")
+
+	s1 = _d.inner.AcknowledgeFirmwarePolicy(ctx, orgId, name, receipt)
+	endSpan(span, s1)
+	return s1
 }
 
 func (_d *TracedDeviceService) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (b1 bool, s1 domain.Status) {
@@ -154,6 +163,14 @@ func (_d *TracedDeviceService) GetDevicesSummary(ctx context.Context, orgId uuid
 	dp1, s1 = _d.inner.GetDevicesSummary(ctx, orgId, params, annotationSelector)
 	endSpan(span, s1)
 	return dp1, s1
+}
+
+func (_d *TracedDeviceService) GetFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, knownRevision int64, knownDigest string) (vp1 *firmwarepolicy.View, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "GetFirmwarePolicy")
+
+	vp1, s1 = _d.inner.GetFirmwarePolicy(ctx, orgId, name, knownRevision, knownDigest)
+	endSpan(span, s1)
+	return vp1, s1
 }
 
 func (_d *TracedDeviceService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (dp1 *domain.Device, s1 domain.Status) {

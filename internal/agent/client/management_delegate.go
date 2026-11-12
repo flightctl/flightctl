@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 )
 
 // Reloadable is an optional interface that callers can use to force recreating
@@ -174,4 +175,19 @@ func (d *ManagementDelegate) GetCertificateSigningRequest(
 		return nil, 0, err
 	}
 	return m.GetCertificateSigningRequest(ctx, name, rcb...)
+}
+
+func (d *ManagementDelegate) GetFirmwarePolicy(ctx context.Context, name string, known firmwarepolicy.Receipt, rcb ...agentclient.RequestEditorFn) (*firmwarepolicy.View, int, error) {
+	m, err := d.mgmt()
+	if err != nil {
+		return nil, 0, err
+	}
+	return m.GetFirmwarePolicy(ctx, name, known, rcb...)
+}
+func (d *ManagementDelegate) AcknowledgeFirmwarePolicy(ctx context.Context, name string, receipt firmwarepolicy.Receipt, rcb ...agentclient.RequestEditorFn) (int, error) {
+	m, err := d.mgmt()
+	if err != nil {
+		return 0, err
+	}
+	return m.AcknowledgeFirmwarePolicy(ctx, name, receipt, rcb...)
 }
