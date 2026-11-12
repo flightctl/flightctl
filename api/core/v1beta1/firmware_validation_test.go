@@ -3,6 +3,7 @@ package v1beta1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -199,6 +200,15 @@ func TestFirmwareSpecValidateStructure(t *testing.T) {
 			wantErrs: []string{"spec.firmware.overlays[0].name: Required value"},
 		},
 		{
+			name:     "When an overlay name is not an RFC 1123 label it should be rejected",
+			mutate:   func(f *FirmwareSpec) { f.Overlays[0].Name = "camera.dtbo" },
+			wantErrs: []string{"spec.firmware.overlays[0].name: Invalid value"},
+		},
+		{
+			name:   "When an overlay name is an RFC 1123 label it should pass",
+			mutate: func(f *FirmwareSpec) { f.Overlays[0].Name = "camera-overlay" },
+		},
+		{
 			name:     "When an overlay lists no compatible firmware it should be rejected",
 			mutate:   func(f *FirmwareSpec) { f.Overlays[0].CompatibleFirmware = []FirmwareOverlayCompatibility{} },
 			wantErrs: []string{"spec.firmware.overlays[0].compatibleFirmware: Required value"},
@@ -254,6 +264,46 @@ func TestFirmwareSpecValidateStructure(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFirmwareConfigTemplateValidationBounds(t *testing.T) {
+	t.Run("When configuration nesting exceeds the depth limit it should be rejected", func(t *testing.T) {
+		value := any("{{ .metadata.labels.value }}")
+		for range 65 {
+			value = map[string]any{"nested": value}
+		}
+		spec := newTestFirmwareSpec(t)
+		spec.Updater.Config = map[string]any{"deep": value}
+
+		errs := spec.Validate(true)
+		requireFirmwareErrors(t, errs, []string{"spec.firmware.updater.config.deep"})
+		assert.Contains(t, errors.Join(errs...).Error(), "must not nest deeper than 64 levels")
+	})
+
+	t.Run("When configuration size exceeds the node limit it should be rejected", func(t *testing.T) {
+		config := make(map[string]any, firmwareConfigMaxNodes+1)
+		for i := range firmwareConfigMaxNodes + 1 {
+			config[fmt.Sprintf("key-%d", i)] = "value"
+		}
+		spec := newTestFirmwareSpec(t)
+		spec.Updater.Config = config
+
+		errs := spec.Validate(true)
+		require.Len(t, errs, 1)
+		assert.Contains(t, errors.Join(errs...).Error(), "must contain at most 10000 values")
+	})
+
+	t.Run("When configuration validation produces too many errors it should cap them", func(t *testing.T) {
+		config := make(map[string]any, firmwareConfigMaxErrors+1)
+		for i := range firmwareConfigMaxErrors + 1 {
+			config[fmt.Sprintf("{{ .metadata.labels.key%d }}", i)] = "value"
+		}
+		spec := newTestFirmwareSpec(t)
+		spec.Updater.Config = config
+
+		errs := spec.Validate(true)
+		require.Len(t, errs, firmwareConfigMaxErrors)
+	})
 }
 
 func TestFirmwareSpecValidateVersionConstraintShapes(t *testing.T) {

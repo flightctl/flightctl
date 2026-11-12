@@ -8865,6 +8865,7 @@ components:
         name:
           type: string
           minLength: 1
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
           description: Name of the overlay. It must be unique across the components and overlays of the firmware specification.
         compatibleFirmware:
           type: array
@@ -10264,7 +10265,7 @@ components:
           type: array
           items:
             type: string
-            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks]
+            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks, status.firmware]
           description: List of fields that were updated in the resource.
         previousOwner:
           type: string

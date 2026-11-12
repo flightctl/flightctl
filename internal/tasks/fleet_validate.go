@@ -103,6 +103,9 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting repository references: %s", status.Message)
 	}
+	if outcome == common.RepositoryRefsStale {
+		return nil
+	}
 	holdFirmware := fleet.Spec.Template.Spec.Firmware != nil
 	if outcome == common.RepositoryRefsIncomplete {
 		refsErr := fmt.Errorf("firmware repository references of fleet %s are not known yet because its updater release is unavailable. Retryable validation error", *fleet.Metadata.Name)

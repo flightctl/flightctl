@@ -39,6 +39,14 @@ func createTestEventWithAnnotations(kind domain.ResourceKind, reason domain.Even
 	return event
 }
 
+func createTestEventWithDetailsAndAnnotations(kind domain.ResourceKind, reason domain.EventReason, name string, details *domain.EventDetails, annotations map[string]string) domain.Event {
+	event := createTestEventWithDetails(kind, reason, name, details)
+	event.Metadata = domain.ObjectMeta{
+		Annotations: &annotations,
+	}
+	return event
+}
+
 func createResourceUpdatedDetails(t *testing.T, updatedFields ...domain.ResourceUpdatedDetailsUpdatedFields) *domain.EventDetails {
 	details := domain.EventDetails{}
 	err := details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
@@ -80,6 +88,11 @@ func TestShouldRolloutFleet(t *testing.T) {
 		{
 			name:     "DeviceUpdatedWithLabelsOnly",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
+			expected: true,
+		},
+		{
+			name:     "DeviceUpdatedWithFirmwareStatus",
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatusFirmware)),
 			expected: true,
 		},
 		{
@@ -383,6 +396,17 @@ func TestShouldRenderDevice(t *testing.T) {
 			name:     "DeviceUpdatedWithoutSpec",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: false,
+		},
+		{
+			name: "DeviceUpdatedWithFirmwareStatusAndRenderDelay",
+			event: createTestEventWithDetailsAndAnnotations(
+				domain.DeviceKind,
+				domain.EventReasonResourceUpdated,
+				"device1",
+				createResourceUpdatedDetails(t, domain.UpdatedFieldStatusFirmware),
+				map[string]string{domain.EventAnnotationDelayDeviceRender: "true"},
+			),
+			expected: true,
 		},
 		{
 			name:     "FleetEvent",
