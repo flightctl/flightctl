@@ -328,6 +328,17 @@ func TestPatchDeviceStatusFirmware(t *testing.T) {
 			},
 		},
 		{
+			name: "When a patch removes the whole status after the attempt finished it should reject it",
+			stored: func(t *testing.T) *domain.FirmwareStatus {
+				status := outstandingFirmwareStatus(t)
+				status.Attempt.Phase = domain.FirmwareAttemptPhaseFailed
+				return status
+			},
+			patch:    domain.PatchRequest{{Op: "remove", Path: "/status"}},
+			wantCode: http.StatusBadRequest,
+			wantErr:  "status cannot be removed while firmware status exists",
+		},
+		{
 			name:     "When a patch moves the outstanding attempt to a terminal phase it should accept it",
 			stored:   outstandingFirmwareStatus,
 			patch:    domain.PatchRequest{{Op: "replace", Path: "/status/firmware/attempt/phase", Value: "Succeeded"}},

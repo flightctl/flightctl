@@ -821,6 +821,9 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 // status patch omits it, and rejects a patch whose firmware status, removed or
 // rewritten, would erase an outstanding attempt.
 func applyFirmwareStatusPatchOutcome(outcome common.FirmwareStatusPatchOutcome, stored *domain.FirmwareStatus, patched *domain.Device) error {
+	if (outcome == common.FirmwareStatusOmitted || outcome == common.FirmwareStatusRemoved) && patched.Status == nil && stored != nil {
+		return errors.New("status cannot be removed while firmware status exists")
+	}
 	switch outcome {
 	case common.FirmwareStatusOmitted:
 		if patched.Status != nil {

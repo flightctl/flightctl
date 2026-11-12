@@ -262,7 +262,7 @@ func runTaskWithMetrics(name string, workerMetrics *worker.WorkerCollector, fn f
 func shouldRolloutFleet(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a devices's owner or labels were updated return true
 	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.DeviceKind {
-		return hasUpdatedFields(event.Details, log, domain.Owner, domain.Labels)
+		return hasUpdatedFields(event.Details, log, domain.Owner, domain.Labels, domain.UpdatedFieldStatusFirmware)
 	}
 
 	if event.Reason == domain.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == domain.FleetKind {
@@ -358,6 +358,9 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
 	if event.Reason == domain.EventReasonResourceUpdated {
+		if hasUpdatedFields(event.Details, log, domain.UpdatedFieldStatusFirmware) {
+			return true
+		}
 		if !hasUpdatedFields(event.Details, log, domain.Spec) {
 			return false
 		}
