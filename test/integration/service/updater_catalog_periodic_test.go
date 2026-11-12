@@ -71,7 +71,8 @@ var _ = Describe("Updater catalog periodic runtime", func() {
 		cfg.KV.Port = redisPort
 		cfg.KV.Password = redisPassword
 		cfg.Metrics.Enabled = false
-		Expect(json.Unmarshal([]byte(`{"periodic":{"consumers":2,"clusterLevelSecretAccess":false,"tasks":{"resourceSync":{"schedule":{"interval":"500ms"}}}}}`), cfg)).To(Succeed())
+		// Task request-ID prefixes are process-global; this fixture tests provider wiring.
+		Expect(json.Unmarshal([]byte(`{"periodic":{"consumers":1,"clusterLevelSecretAccess":false,"tasks":{"resourceSync":{"schedule":{"interval":"500ms"}}}}}`), cfg)).To(Succeed())
 		dir := GinkgoT().TempDir()
 		input := approvedCatalog()
 		data, err := json.Marshal(input)

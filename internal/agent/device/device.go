@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	firmwarepolicy "github.com/flightctl/flightctl/internal/agent/device/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -31,6 +32,7 @@ import (
 
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
+	firmwarePolicy         *firmwarepolicy.Manager
 	name                   string
 	systemdClient          *client.Systemd
 	deviceWriter           fileio.Writer
@@ -61,6 +63,12 @@ type Agent struct {
 	log     *log.PrefixLogger
 }
 
+type AgentOption func(*Agent)
+
+func WithFirmwarePolicyReceiver(receiver *firmwarepolicy.Manager) AgentOption {
+	return func(a *Agent) { a.firmwarePolicy = receiver }
+}
+
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
@@ -89,8 +97,9 @@ func NewAgent(
 	criticalCh <-chan struct{},
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
+	opts ...AgentOption,
 ) *Agent {
-	return &Agent{
+	agent := &Agent{
 		name:                   name,
 		systemdClient:          systemdClient,
 		deviceWriter:           deviceWriter,
@@ -118,6 +127,10 @@ func NewAgent(
 		backoff:                backoff,
 		log:                    log,
 	}
+	for _, opt := range opts {
+		opt(agent)
+	}
+	return agent
 }
 
 // Run starts the device agent reconciliation loop.
@@ -158,7 +171,16 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 	return nil
 }
 
+func (a *Agent) syncFirmwarePolicy(ctx context.Context) {
+	if a.firmwarePolicy != nil {
+		if err := a.firmwarePolicy.Sync(ctx); err != nil {
+			a.log.WithError(err).Warn("firmware policy receipt unavailable")
+		}
+	}
+}
+
 func (a *Agent) syncDeviceSpec(ctx context.Context) {
+	a.syncFirmwarePolicy(ctx)
 	startTime := time.Now()
 	a.log.Trace("Starting sync of device spec")
 	defer func() {

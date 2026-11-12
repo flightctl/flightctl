@@ -167,3 +167,35 @@ conflicting acknowledgement returns 409 and requires a fresh read. Receipt
 revision/digest are stored separately from publication bookkeeping and never
 modify Device spec/status, retry generation, or rendered version. None of these
 operations invokes an updater or grants reboot permission.
+
+## Agent policy retention
+
+The agent polls policy independently of rendered specifications, using its
+reloadable management client. Network I/O places a complete view into a bounded
+queue. The sequential device engine accepts queued policy before desired-spec
+processing, so an invalid, unchanged or unavailable target cannot skip receipt.
+Existing bootstrap and enrollment gates remain in place.
+
+Accepted policy is separate from target and attempt data at
+`<DataDir>/firmware/policy.json` (normally
+`/var/lib/flightctl/firmware/policy.json`). The agent uses a private directory and
+file, bounded reads, and an atomic file replacement that syncs file bytes,
+its directory, and every ancestor directory, including on retries after failed
+directory creation or syncing.
+Only after durable write success does the accepted in-memory view change and an
+acknowledgement become eligible.
+
+Corrupt or unreadable retained state withholds firmware authorization. A write or
+sync failure also withholds authorization, preserves prior accepted evidence,
+and prevents acknowledgement. While running, the validated newer view remains
+a revision/history floor so replaying an older approval cannot clear that hold.
+A successful retry can retain the newer view. Failed acknowledgements do not
+prevent fresh reads and revocation receipt. Restart reloads and validates the
+complete retained view; offline requests preserve the last accepted policy.
+
+Exact release name, version and immutable descriptor digest must be currently
+approved. A retained tombstone removes that authorization, including for later
+read-only invocations; retained evidence does not restore approval. The receiver
+never changes spec, retry generation, rollback or pinned attempt data and never
+executes code or arms a reboot. Mutation remains fenced pending execution and
+post-arm hold integration and qualification.
