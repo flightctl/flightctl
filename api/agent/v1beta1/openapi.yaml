@@ -19,6 +19,148 @@ tags:
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
 paths:
+  /devices/{name}/firmwarepolicy:
+    get:
+      tags:
+        - device
+      description: Read current updater authorization independently of rendered targets. An unchanged view waits for a bounded interval; refresh hints are not authority.
+      operationId: getFirmwarePolicy
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The authenticated Device identity.
+          schema:
+            type: string
+        - name: knownRevision
+          in: query
+          required: false
+          description: Last durably accepted policy revision, paired with knownDigest.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: knownDigest
+          in: query
+          required: false
+          description: Digest of the last durably accepted policy, paired with knownRevision.
+          schema:
+            type: string
+            pattern: '^sha256:[a-f0-9]{64}$'
+      responses:
+        "200":
+          description: Complete accepted authorization view, including retained bindings and revocations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwarePolicy'
+        "204":
+          description: The accepted policy is unchanged.
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflicting policy revision or digest
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Policy unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+    put:
+      tags:
+        - device
+      description: Acknowledge a policy revision only after the agent has retained its complete view durably. Receipt never authorizes a target or updater invocation.
+      operationId: acknowledgeFirmwarePolicy
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The authenticated Device identity.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FirmwarePolicyReceipt'
+      responses:
+        "204":
+          description: Durable receipt recorded, including an identical repeated acknowledgement.
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflicting policy revision or digest
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Policy unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /devices/{name}/status:
     put:
       tags:
@@ -401,3 +543,42 @@ paths:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 
 
+
+components:
+  schemas:
+    FirmwarePolicy:
+      type: object
+      additionalProperties: false
+      description: Private updater authorization view. The canonical document is bounded to 8 MiB before base64 encoding and its digest binds all retained evidence.
+      required: [revision, digest, document]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Monotonic accepted catalog revision.
+        digest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          description: SHA-256 of the exact canonical document bytes.
+        document:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 11184812
+          description: Base64-encoded firmware-policy/v1 canonical JSON, including revision, immutable descriptor bytes and retained tombstones. Contains no repository credentials.
+    FirmwarePolicyReceipt:
+      type: object
+      additionalProperties: false
+      description: Acknowledgement of a complete durably retained private authorization view.
+      required: [revision, digest]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Durably accepted catalog revision.
+        digest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          description: Digest of the durably retained canonical document.

@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -90,7 +92,31 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 			return err
 		}
 	}
-	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.UpdaterCatalogHead{ID: 1}).Error
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.UpdaterCatalogHead{ID: 1}).Error; err != nil {
+		return err
+	}
+	// Normalize the delivery digest when the private wire encoding changes.
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "UPDATE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return nil
+		}
+		snapshot, err := readSnapshot(tx, head)
+		if err != nil {
+			return err
+		}
+		view, err := snapshot.PolicyView()
+		if err != nil {
+			return err
+		}
+		if head.PolicyDigest == view.Digest {
+			return nil
+		}
+		return tx.Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Update("policy_digest", view.Digest).Error
+	})
 }
 
 // Validate checks persistence metadata. Descriptor schemas and phase permissions
@@ -297,15 +323,11 @@ func mergeHistory(old Snapshot, c Candidate) (Snapshot, error) {
 	if err := boundPolicy(next); err != nil {
 		return Snapshot{}, err
 	}
-	data, err := json.Marshal(struct {
-		Revision   int64
-		Releases   []model.UpdaterRelease
-		Tombstones []model.UpdaterRevocation
-	}{next.Revision, next.Releases, next.Tombstones})
+	view, err := next.PolicyView()
 	if err != nil {
 		return Snapshot{}, err
 	}
-	next.PolicyDigest = hash(data)
+	next.PolicyDigest = view.Digest
 	return next, nil
 }
 
@@ -529,4 +551,104 @@ func (s *Store) MarkNotified(ctx context.Context, orgID uuid.UUID, name string, 
 		return errors.New("notification requires a device and positive revision")
 	}
 	return store.DB(ctx, s.db).Model(&model.UpdaterPolicyTarget{}).Where("org_id = ? AND device_name = ?", orgID, name).Updates(map[string]any{"revision": gorm.Expr("GREATEST(revision, ?)", revision), "notified_revision": gorm.Expr("GREATEST(notified_revision, ?)", revision)}).Error
+}
+
+func (s Snapshot) PolicyView() (firmwarepolicy.View, error) {
+	bindings := make([]firmwarepolicy.Binding, 0, len(s.Releases))
+	for _, r := range s.Releases {
+		bindings = append(bindings, firmwarepolicy.Binding{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Descriptor: r.Descriptor})
+	}
+	tombstones := make([]firmwarepolicy.Tombstone, 0, len(s.Tombstones))
+	for _, r := range s.Tombstones {
+		tombstones = append(tombstones, firmwarepolicy.Tombstone{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Reason: r.Reason, Revision: r.Revision})
+	}
+	return firmwarepolicy.New(s.Revision, bindings, tombstones)
+}
+
+var ErrPolicyConflict = errors.New("policy revision or digest differs from accepted head")
+
+func requirePolicyDevice(tx *gorm.DB, org uuid.UUID, name string) error {
+	var count int64
+	if err := tx.Table("devices").Where("org_id = ? AND name = ? AND deleted_at IS NULL", org, name).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+func (s *Store) PolicyForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.View, error) {
+	var view firmwarepolicy.View
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		snapshot, err := readSnapshot(tx, head)
+		if err != nil {
+			return err
+		}
+		view, err = snapshot.PolicyView()
+		if err != nil {
+			return err
+		}
+		if view.Digest != head.PolicyDigest {
+			return errors.New("accepted policy digest is inconsistent")
+		}
+		return nil
+	})
+	if err != nil {
+		return firmwarepolicy.View{}, err
+	}
+	return view, nil
+}
+
+func (s *Store) AcknowledgePolicy(ctx context.Context, org uuid.UUID, name string, receipt firmwarepolicy.Receipt) error {
+	if name == "" || receipt.Revision <= 0 || !digestPattern.MatchString(receipt.Digest) {
+		return errors.New("invalid policy receipt")
+	}
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision != receipt.Revision || head.PolicyDigest != receipt.Digest {
+			return ErrPolicyConflict
+		}
+		row := model.UpdaterPolicyTarget{OrgID: org, DeviceName: name, Revision: receipt.Revision, ReceivedRevision: receipt.Revision, ReceivedDigest: receipt.Digest}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "org_id"}, {Name: "device_name"}}, DoUpdates: clause.Assignments(map[string]any{
+			"revision":          gorm.Expr("GREATEST(updater_policy_targets.revision, EXCLUDED.revision)"),
+			"received_revision": gorm.Expr("GREATEST(updater_policy_targets.received_revision, EXCLUDED.received_revision)"),
+			"received_digest":   gorm.Expr("CASE WHEN EXCLUDED.received_revision >= updater_policy_targets.received_revision THEN EXCLUDED.received_digest ELSE updater_policy_targets.received_digest END"),
+		})}).Create(&row).Error
+	})
+}
+
+func (s *Store) PolicyHeadForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.Receipt, error) {
+	var receipt firmwarepolicy.Receipt
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		receipt = firmwarepolicy.Receipt{Revision: head.Revision, Digest: head.PolicyDigest}
+		return nil
+	})
+	return receipt, err
 }

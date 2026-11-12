@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
@@ -63,6 +64,7 @@ type AgentServer struct {
 	queuesProvider           queues.Provider
 	tlsConfig                *tls.Config
 	agentGrpcServer          *AgentGrpcServer
+	policyHub                *rendered.FirmwarePolicyHub
 	deviceSvc                deviceservice.Service
 	enrollmentRequestSvc     enrollmentrequestservice.Service
 	csrSvc                   certificatesigningrequestservice.Service
@@ -142,8 +144,13 @@ func (s *AgentServer) init(ctx context.Context) error {
 		return fmt.Errorf("failed initializing LabelSyncMapping service: %w", err)
 	}
 
+	s.policyHub, err = rendered.NewFirmwarePolicyHub(ctx, s.queuesProvider)
+	if err != nil {
+		return fmt.Errorf("initialize firmware policy notifications: %w", err)
+	}
+
 	s.deviceSvc = deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider)))
+		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider), deviceservice.WithFirmwarePolicy(updaterProvider, s.policyHub, 0)))
 	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	ehPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	ehPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
@@ -192,6 +199,9 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 // Stop cleans up all resources
 func (s *AgentServer) Stop() {
+	if s.policyHub != nil {
+		s.policyHub.Close()
+	}
 	if s.agentGrpcServer != nil {
 		s.agentGrpcServer.Close()
 	}

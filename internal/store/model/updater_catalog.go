@@ -56,6 +56,8 @@ type UpdaterPolicyTarget struct {
 	OrgID            uuid.UUID `gorm:"primaryKey;type:uuid"`
 	DeviceName       string    `gorm:"primaryKey"`
 	Revision         int64     `gorm:"not null;check:updater_policy_target_positive,revision > 0"`
+	ReceivedRevision int64     `gorm:"not null;default:0;check:updater_policy_receipt_bound,received_revision >= 0 AND received_revision <= revision"`
+	ReceivedDigest   string    `gorm:"not null;default:''"`
 	NotifiedRevision int64     `gorm:"not null;default:0;check:updater_policy_notification_bound,notified_revision >= 0 AND notified_revision <= revision"`
 }
 

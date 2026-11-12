@@ -3,7 +3,9 @@ package updatercatalog
 import (
 	"context"
 
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	catalogstore "github.com/flightctl/flightctl/internal/store/updatercatalog"
 	"github.com/google/uuid"
 )
 
@@ -40,4 +42,23 @@ func (s *Service) CurrentRevision(ctx context.Context) (int64, error) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/service/updatercatalog", "CurrentRevision")
 	defer span.End()
 	return s.store.CurrentRevision(ctx)
+}
+
+func (s *Service) PolicyForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.View, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service/updatercatalog", "PolicyForDevice")
+	defer span.End()
+	return s.store.PolicyForDevice(ctx, org, name)
+}
+func (s *Service) AcknowledgePolicy(ctx context.Context, org uuid.UUID, name string, receipt firmwarepolicy.Receipt) error {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service/updatercatalog", "AcknowledgePolicy")
+	defer span.End()
+	return s.store.AcknowledgePolicy(ctx, org, name, receipt)
+}
+
+var ErrPolicyConflict = catalogstore.ErrPolicyConflict
+
+func (s *Service) PolicyHeadForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.Receipt, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service/updatercatalog", "PolicyHeadForDevice")
+	defer span.End()
+	return s.store.PolicyHeadForDevice(ctx, org, name)
 }
