@@ -332,6 +332,25 @@ func (mr *MockWriterMockRecorder) WriteFile(name, data, perm any, opts ...any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockWriter)(nil).WriteFile), varargs...)
 }
 
+// WriteFileDurable mocks base method.
+func (m *MockWriter) WriteFileDurable(name string, data []byte, dirMode, fileMode fs.FileMode, opts ...FileOption) error {
+	m.ctrl.T.Helper()
+	varargs := []any{name, data, dirMode, fileMode}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WriteFileDurable", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteFileDurable indicates an expected call of WriteFileDurable.
+func (mr *MockWriterMockRecorder) WriteFileDurable(name, data, dirMode, fileMode any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{name, data, dirMode, fileMode}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileDurable", reflect.TypeOf((*MockWriter)(nil).WriteFileDurable), varargs...)
+}
+
 // MockReader is a mock of Reader interface.
 type MockReader struct {
 	ctrl     *gomock.Controller
@@ -417,6 +436,21 @@ func (m *MockReader) ReadFile(filePath string) ([]byte, error) {
 func (mr *MockReaderMockRecorder) ReadFile(filePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockReader)(nil).ReadFile), filePath)
+}
+
+// ReadFileLimited mocks base method.
+func (m *MockReader) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileLimited", filePath, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileLimited indicates an expected call of ReadFileLimited.
+func (mr *MockReaderMockRecorder) ReadFileLimited(filePath, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileLimited", reflect.TypeOf((*MockReader)(nil).ReadFileLimited), filePath, limit)
 }
 
 // MockReadWriter is a mock of ReadWriter interface.
@@ -612,6 +646,21 @@ func (mr *MockReadWriterMockRecorder) ReadFile(filePath any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockReadWriter)(nil).ReadFile), filePath)
 }
 
+// ReadFileLimited mocks base method.
+func (m *MockReadWriter) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileLimited", filePath, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileLimited indicates an expected call of ReadFileLimited.
+func (mr *MockReadWriterMockRecorder) ReadFileLimited(filePath, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileLimited", reflect.TypeOf((*MockReadWriter)(nil).ReadFileLimited), filePath, limit)
+}
+
 // RemoveAll mocks base method.
 func (m *MockReadWriter) RemoveAll(path string) error {
 	m.ctrl.T.Helper()
@@ -700,4 +749,23 @@ func (mr *MockReadWriterMockRecorder) WriteFile(name, data, perm any, opts ...an
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{name, data, perm}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockReadWriter)(nil).WriteFile), varargs...)
+}
+
+// WriteFileDurable mocks base method.
+func (m *MockReadWriter) WriteFileDurable(name string, data []byte, dirMode, fileMode fs.FileMode, opts ...FileOption) error {
+	m.ctrl.T.Helper()
+	varargs := []any{name, data, dirMode, fileMode}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WriteFileDurable", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteFileDurable indicates an expected call of WriteFileDurable.
+func (mr *MockReadWriterMockRecorder) WriteFileDurable(name, data, dirMode, fileMode any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{name, data, dirMode, fileMode}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileDurable", reflect.TypeOf((*MockReadWriter)(nil).WriteFileDurable), varargs...)
 }

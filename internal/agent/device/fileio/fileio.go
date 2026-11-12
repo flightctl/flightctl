@@ -31,6 +31,8 @@ type Writer interface {
 	PathFor(filePath string) string
 	// WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
 	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
+	// WriteFileDurable syncs replacement bytes and newly created directory entries before success.
+	WriteFileDurable(name string, data []byte, dirMode, fileMode fs.FileMode, opts ...FileOption) error
 	// RemoveFile removes the file at the given path
 	RemoveFile(file string) error
 	// RemoveEmptyDir removes the directory at the given path only if it is empty,
@@ -64,6 +66,7 @@ type Writer interface {
 type Reader interface {
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
+	ReadFileLimited(filePath string, limit int64) ([]byte, error)
 	ReadDir(dirPath string) ([]fs.DirEntry, error)
 	PathExists(path string, opts ...PathExistsOption) (bool, error)
 }

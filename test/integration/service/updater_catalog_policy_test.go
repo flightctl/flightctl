@@ -4,10 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"time"
 
 	agentapi "github.com/flightctl/flightctl/api/agent/v1beta1"
 	agentclient "github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	receiver "github.com/flightctl/flightctl/internal/agent/device/firmwarepolicy"
 	generatedclient "github.com/flightctl/flightctl/internal/api/client/agent"
 	convert "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
@@ -22,6 +25,8 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/updatercatalog"
 	agenttransport "github.com/flightctl/flightctl/internal/transport/agent/v1beta1"
 	"github.com/flightctl/flightctl/internal/util"
+	prefixlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/util/firmwarecatalog"
 	"github.com/go-chi/chi/v5"
@@ -207,6 +212,78 @@ var _ = Describe("Private updater policy delivery", func() {
 		_, status, err = client.GetFirmwarePolicy(suite.Ctx, "another-device", firmwarepolicy.Receipt{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status).To(Equal(401))
+	})
+
+	It("When the agent receives a revocation over private HTTP it should retain it across offline restart", func() {
+		_, err := catalog.Activate(suite.Ctx, input)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(suite.DB.WithContext(suite.Ctx).Table("devices").Where("org_id = ? AND name = ?", suite.OrgID, name).Update("spec", `{"firmware":"invalid"}`).Error).To(Succeed())
+		transport := agenttransport.NewAgentTransportHandler(device, nil, nil, convert.NewConverter(), nil, suite.Log)
+		identity := middleware.NewAgentIdentity(name, suite.OrgID.String(), name, time.Now().Add(time.Hour))
+		router := chi.NewRouter()
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := context.WithValue(util.WithOrganizationID(r.Context(), suite.OrgID), consts.IdentityCtxKey, identity)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+		router.Route("/api/v1", func(r chi.Router) {
+			agentserver.HandlerWithOptions(transport, agentserver.ChiServerOptions{BaseRouter: r})
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+		generated, err := generatedclient.NewClientWithResponses(server.URL + "/api/v1")
+		Expect(err).NotTo(HaveOccurred())
+		client := agentclient.NewManagement(generated, nil)
+		dir := GinkgoT().TempDir()
+		rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		control := filepath.Join(dir, "current.json")
+		Expect(rw.WriteFile(control, []byte("unchanged target"), 0600)).To(Succeed())
+		manager, err := receiver.New(name, dir, rw, client, prefixlog.NewPrefixLogger("receipt-integration"), receiver.WithPollConfig(poll.Config{BaseDelay: 10 * time.Millisecond, Factor: 1, MaxDelay: 20 * time.Millisecond}))
+		Expect(err).NotTo(HaveOccurred())
+		ctx, cancel := context.WithCancel(suite.Ctx)
+		done := make(chan struct{})
+		go func() { manager.Run(ctx); close(done) }()
+		defer func() { cancel(); Eventually(done, time.Second).Should(BeClosed()) }()
+		accept := func(revision int64) {
+			Eventually(func() bool {
+				if manager.Sync(ctx) != nil {
+					return false
+				}
+				view, err := manager.Current()
+				return err == nil && view != nil && view.Revision == revision
+			}, 3*time.Second, 10*time.Millisecond).Should(BeTrue())
+		}
+		accept(1)
+		current, err := manager.Current()
+		Expect(err).NotTo(HaveOccurred())
+		document, err := firmwarepolicy.Decode(*current)
+		Expect(err).NotTo(HaveOccurred())
+		binding := document.Bindings[0]
+		Expect(manager.IsApproved(binding.Name, binding.Version, binding.DescriptorDigest)).To(BeTrue())
+		input.Revision = 2
+		input.Releases = nil
+		_, err = catalog.Activate(suite.Ctx, input)
+		Expect(err).NotTo(HaveOccurred())
+		accept(2)
+		Expect(manager.IsApproved(binding.Name, binding.Version, binding.DescriptorDigest)).To(BeFalse())
+		Eventually(func() int64 {
+			var row model.UpdaterPolicyTarget
+			suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND device_name = ?", suite.OrgID, name).First(&row)
+			return row.ReceivedRevision
+		}, 3*time.Second, 10*time.Millisecond).Should(Equal(int64(2)))
+		cancel()
+		Eventually(done, time.Second).Should(BeClosed())
+		server.Close()
+		restart, err := receiver.New(name, dir, rw, client, prefixlog.NewPrefixLogger("offline-restart"))
+		Expect(err).NotTo(HaveOccurred())
+		retained, err := restart.Current()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(retained.Revision).To(Equal(int64(2)))
+		Expect(restart.IsApproved(binding.Name, binding.Version, binding.DescriptorDigest)).To(BeFalse())
+		bytes, err := rw.ReadFile(control)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(bytes)).To(Equal("unchanged target"))
 	})
 
 	It("When a long poll is canceled it should release its waiter", func() {
