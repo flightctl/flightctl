@@ -1,5 +1,7 @@
 package model
 
+import "github.com/google/uuid"
+
 // UpdaterCatalogHead serializes installation-wide administrator policy activation.
 type UpdaterCatalogHead struct {
 	ID           int    `gorm:"primaryKey;check:updater_catalog_singleton,id = 1"`
@@ -40,8 +42,21 @@ func (UpdaterSchemaEvidence) TableName() string { return "updater_schema_evidenc
 
 // UpdaterCatalogRefresh remains durable until recipient fanout has completed.
 type UpdaterCatalogRefresh struct {
-	Revision   int64 `gorm:"primaryKey;autoIncrement:false"`
-	Dispatched bool  `gorm:"not null;default:false;index"`
+	Revision    int64     `gorm:"primaryKey;autoIncrement:false"`
+	CursorOrgID uuid.UUID `gorm:"type:uuid;not null;default:'00000000-0000-0000-0000-000000000000'"`
+	CursorName  string    `gorm:"not null;default:''"`
+	Dispatched  bool      `gorm:"not null;default:false;index"`
 }
 
 func (UpdaterCatalogRefresh) TableName() string { return "updater_catalog_refreshes" }
+
+// UpdaterPolicyTarget keeps one monotonic delivery high-water per device.
+// NotifiedRevision records publication, not durable agent receipt.
+type UpdaterPolicyTarget struct {
+	OrgID            uuid.UUID `gorm:"primaryKey;type:uuid"`
+	DeviceName       string    `gorm:"primaryKey"`
+	Revision         int64     `gorm:"not null;check:updater_policy_target_positive,revision > 0"`
+	NotifiedRevision int64     `gorm:"not null;default:0;check:updater_policy_notification_bound,notified_revision >= 0 AND notified_revision <= revision"`
+}
+
+func (UpdaterPolicyTarget) TableName() string { return "updater_policy_targets" }
