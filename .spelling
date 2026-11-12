@@ -489,6 +489,7 @@ creationTimestamp
 deletionTimestamp
 resourceVersion
 v1beta1
+v1beta2
 v1alpha1
 1.x.x
 ImageBuild

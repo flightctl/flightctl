@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	common "github.com/flightctl/flightctl/internal/service/common"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -160,25 +161,6 @@ func (mr *MockServiceMockRecorder) ListFleets(ctx, orgId, params any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFleets", reflect.TypeOf((*MockService)(nil).ListFleets), ctx, orgId, params)
 }
 
-// OverwriteFleetRepositoryRefs mocks base method.
-func (m *MockService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name}
-	for _, a := range repositoryNames {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "OverwriteFleetRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// OverwriteFleetRepositoryRefs indicates an expected call of OverwriteFleetRepositoryRefs.
-func (mr *MockServiceMockRecorder) OverwriteFleetRepositoryRefs(ctx, orgId, name any, repositoryNames ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name}, repositoryNames...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteFleetRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteFleetRepositoryRefs), varargs...)
-}
-
 // PatchFleet mocks base method.
 func (m *MockService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
@@ -195,18 +177,38 @@ func (mr *MockServiceMockRecorder) PatchFleet(ctx, orgId, name, patch, enforceOw
 }
 
 // ReplaceFleet mocks base method.
-func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceFleet", ctx, orgId, name, fleet, enforceOwnership)
+	varargs := []any{ctx, orgId, name, fleet, enforceOwnership}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ReplaceFleet", varargs...)
 	ret0, _ := ret[0].(*domain.Fleet)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceFleet indicates an expected call of ReplaceFleet.
-func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), ctx, orgId, name, fleet, enforceOwnership)
+	varargs := append([]any{ctx, orgId, name, fleet, enforceOwnership}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), varargs...)
+}
+
+// ReplaceFleetRepositoryRefsIfCurrent mocks base method.
+func (m *MockService) ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, templateSpec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceFleetRepositoryRefsIfCurrent", ctx, orgId, name, generation, templateSpec)
+	ret0, _ := ret[0].(common.RepositoryRefsOutcome)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceFleetRepositoryRefsIfCurrent indicates an expected call of ReplaceFleetRepositoryRefsIfCurrent.
+func (mr *MockServiceMockRecorder) ReplaceFleetRepositoryRefsIfCurrent(ctx, orgId, name, generation, templateSpec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetRepositoryRefsIfCurrent", reflect.TypeOf((*MockService)(nil).ReplaceFleetRepositoryRefsIfCurrent), ctx, orgId, name, generation, templateSpec)
 }
 
 // ReplaceFleetStatus mocks base method.

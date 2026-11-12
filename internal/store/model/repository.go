@@ -89,6 +89,7 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*domain.Repositor
 			CreationTimestamp: lo.ToPtr(r.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
+			Generation:        clonePtr(r.Generation),
 			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,

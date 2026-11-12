@@ -12,6 +12,7 @@ import (
 
 	corev1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	corev1beta2 "github.com/flightctl/flightctl/api/core/v1beta2"
 	convertv1alpha1 "github.com/flightctl/flightctl/internal/api/convert/v1alpha1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -217,10 +218,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
+	repositorySvc := repositoryservice.WrapWithTracing(
+		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log,
+			deviceservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	fleetSvc := fleetservice.WrapWithTracing(
-		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
+		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log,
+			fleetservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
@@ -234,8 +239,6 @@ func (s *Server) Run(ctx context.Context) error {
 	tpmVerifier = *tpmcsr.NewVerifier(enrollmentRequestSvc)
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
-	repositorySvc := repositoryservice.WrapWithTracing(
-		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
 	if err != nil {
@@ -362,6 +365,31 @@ func (s *Server) Run(ctx context.Context) error {
 		},
 	})
 
+	// v1beta2 is a behavior-only overlay for Device and Fleet replacement:
+	// it reuses the v1beta1 schemas and transport types, but omits firmware on
+	// a supplied replacement spec rather than preserving it.
+	v1beta2Swagger, err := corev1beta2.GetSpec()
+	if err != nil {
+		return fmt.Errorf("failed loading v1beta2 swagger spec: %w", err)
+	}
+	v1beta2OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta2Swagger, &oapimiddleware.Options{
+		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Beta2),
+		MultiErrorHandler:     OapiMultiErrorHandler,
+		SilenceServersWarning: true,
+	})
+
+	routerV1Beta2 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1beta2OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			server.HandlerWithOptions(&customTransportHandler{handlerV1Beta1}, server.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandlerForVersion(versioning.V1Beta2)(w, err.Error(), http.StatusBadRequest)
+				},
+			})
+		},
+	})
+
 	// Create v1alpha1 router with OpenAPI validation (for alpha-stage resources like Catalog)
 	v1alpha1Swagger, err := corev1alpha1.GetSpec()
 	if err != nil {
@@ -396,6 +424,7 @@ func (s *Server) Run(ctx context.Context) error {
 		map[versioning.Version]chi.Router{
 			versioning.V1Beta1:  routerV1Beta1,
 			versioning.V1Alpha1: routerV1Alpha1,
+			versioning.V1Beta2:  routerV1Beta2,
 		},
 		versioning.V1Beta1,
 	)

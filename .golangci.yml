@@ -236,6 +236,8 @@ linters:
             - "$all"
             - "!$test"
             - "!**/internal/service/dependencyref/**"
+            # Device mutations commit fleet refs atomically with spec and ownership checks.
+            - "!**/internal/store/device/store.go"
             - "!**/cmd/**"
             - "!**/internal/migration/**"
             - "!**/internal/instrumentation/metrics/**"

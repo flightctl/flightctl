@@ -385,6 +385,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "devices",
 		Action:      "delete",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -393,6 +394,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "devices",
 		Action:      "get",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -401,6 +403,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "devices",
 		Action:      "patch",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -409,6 +412,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "devices",
 		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -689,6 +693,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "fleets",
 		Action:      "delete",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -697,6 +702,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "fleets",
 		Action:      "get",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -705,6 +711,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "fleets",
 		Action:      "patch",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
@@ -713,6 +720,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Resource:    "fleets",
 		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta2", DeprecatedAt: nil},
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},

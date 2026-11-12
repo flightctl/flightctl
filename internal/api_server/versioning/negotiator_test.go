@@ -40,7 +40,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 		wantSupportedVersions string
 	}{
 		{
-			name:                  "no version requested uses first from metadata",
+			name:                  "no version requested uses fallback when supported",
 			requested:             "",
 			routePath:             "/devices",
 			wantVersion:           V1Beta1,
@@ -155,13 +155,13 @@ func TestNegotiator_negotiate(t *testing.T) {
 			},
 		}
 
-		// No version requested: use first (most preferred)
+		// No version requested: use the configured fallback when supported.
 		negotiated, _, err := negotiator.negotiate("", metadata)
 		if err != nil {
 			t.Errorf("negotiate() error = %v, want nil", err)
 		}
-		if negotiated != "v1" {
-			t.Errorf("negotiate() = %v, want v1", negotiated)
+		if negotiated != V1Beta1 {
+			t.Errorf("negotiate() = %v, want %v", negotiated, V1Beta1)
 		}
 
 		// Request v1beta1 explicitly

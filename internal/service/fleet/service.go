@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/google/uuid"
 )
 
@@ -11,7 +12,7 @@ type Service interface {
 	CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status)
 	ListFleets(ctx context.Context, orgId uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status)
 	GetFleet(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetParams) (*domain.Fleet, domain.Status)
-	ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status)
+	ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status)
 	DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status
 	GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, domain.Status)
 	ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status)
@@ -21,7 +22,7 @@ type Service interface {
 	UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status
 	UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status
 	SetDeltaPrepareIdentity(ctx context.Context, orgId uuid.UUID, name string, sourceResourceVersion, sourceGeneration int64) (bool, domain.Status)
-	OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status
+	ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, templateSpec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status)
 	GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status)
 	StopFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status)
 	StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status)

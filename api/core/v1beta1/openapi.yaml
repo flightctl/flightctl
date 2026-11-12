@@ -7465,6 +7465,8 @@ components:
           $ref: '#/components/schemas/DeviceEnrollmentHooksStatus'
         systemInfoStatus:
           $ref: '#/components/schemas/DeviceSystemInfoStatus'
+        firmware:
+          $ref: '#/components/schemas/FirmwareStatus'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -8724,9 +8726,604 @@ components:
             $ref: '#/components/schemas/DeviceConsole'
         decommissioning:
           $ref: '#/components/schemas/DeviceDecommission'
+        firmware:
+          $ref: '#/components/schemas/FirmwareSpec'
       # Note: No additionalProperties: false here because this schema is used in allOf compositions
       # (e.g., TemplateVersionStatus) where other schemas add their own properties. Setting
       # additionalProperties: false would prevent the composition from working properly.
+    FirmwareSpec:
+      type: object
+      description: >-
+        FirmwareSpec declares the desired firmware of a device: the approved updater release
+        that applies it, the qualified firmware profile, the version intent of each managed
+        firmware component and the device tree overlays that must be active. When firmware is
+        absent, the device firmware is unmanaged and its installed firmware is left unchanged.
+      required:
+        - profile
+        - updater
+        - components
+        - overlays
+      properties:
+        retryGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          description: >-
+            Counter that requests a new firmware attempt with unchanged versions and artifacts.
+            Increase it only after the cause of a failed attempt has been resolved. It is not a
+            command to force flashing.
+        profile:
+          type: string
+          minLength: 1
+          description: >-
+            Name of the qualified firmware profile for the device hardware. In a fleet template
+            the value may use template parameters.
+        updater:
+          $ref: '#/components/schemas/FirmwareUpdaterSpec'
+        components:
+          type: array
+          minItems: 1
+          description: >-
+            Firmware components to manage, each with its version intent. Component and overlay
+            names must be unique across the firmware specification. Removing a component stops
+            managing it without restoring earlier firmware.
+          items:
+            $ref: '#/components/schemas/FirmwareComponentSpec'
+        overlays:
+          type: array
+          description: >-
+            Device tree overlays that must be active. Every listed overlay is required. An empty
+            list requests the removal of previously managed overlays.
+          items:
+            $ref: '#/components/schemas/FirmwareOverlaySpec'
+      additionalProperties: false
+    FirmwareUpdaterSpec:
+      type: object
+      description: >-
+        FirmwareUpdaterSpec selects the approved updater release that applies the firmware, by
+        exact name and version, together with its updater-specific configuration. Executable
+        paths, runtime flags, privileges and trust anchors are not configurable; the approved
+        updater release defines them.
+      required:
+        - name
+        - version
+        - config
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Name of the approved updater. In a fleet template the value may use template parameters.
+        version:
+          type: string
+          minLength: 1
+          description: Exact version of the approved updater release. In a fleet template the value may use template parameters.
+        config:
+          type: object
+          additionalProperties: true
+          description: >-
+            Updater-specific configuration, such as resource mappings, candidate firmware releases
+            and their artifact sources. The closed configuration schema of the selected updater
+            release defines every allowed field. In a fleet template, only string fields that the
+            updater release designates as templatable may use template parameters.
+      additionalProperties: false
+    FirmwareComponentSpec:
+      type: object
+      description: FirmwareComponentSpec declares the version intent for one firmware component.
+      required:
+        - name
+        - version
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+          description: >-
+            Name of the firmware component, a lowercase RFC 1123 label. It must be unique across
+            the components and overlays of the firmware specification.
+        version:
+          $ref: '#/components/schemas/FirmwareVersionConstraints'
+        artifactDigest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          description: SHA-256 digest of the artifact to select when several artifacts provide the requested version.
+      additionalProperties: false
+    FirmwareVersionConstraints:
+      type: object
+      description: >-
+        FirmwareVersionConstraints expresses version intent using the firmware's own version
+        semantics rather than semantic versioning. Set at least one of exact, minimum or maximum,
+        or set latest to true. All set constraints apply together. Versions are compared by the
+        updater on the device, not by the service.
+      properties:
+        exact:
+          type: string
+          minLength: 1
+          description: Exact firmware version to select.
+        minimum:
+          type: string
+          minLength: 1
+          description: Lowest acceptable firmware version.
+        maximum:
+          type: string
+          minLength: 1
+          description: Highest acceptable firmware version.
+        latest:
+          type: boolean
+          default: false
+          description: Whether to select the newest compatible version that satisfies the other constraints.
+      additionalProperties: false
+    FirmwareOverlaySpec:
+      type: object
+      description: >-
+        FirmwareOverlaySpec declares a required device tree overlay and the firmware it is
+        compatible with. The updater configuration defines the overlay's artifact source, format
+        and signature.
+      required:
+        - name
+        - compatibleFirmware
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+          description: Name of the overlay. It must be unique across the components and overlays of the firmware specification.
+        compatibleFirmware:
+          type: array
+          minItems: 1
+          description: Firmware components, and optionally their version ranges, that the overlay is compatible with.
+          items:
+            $ref: '#/components/schemas/FirmwareOverlayCompatibility'
+      additionalProperties: false
+    FirmwareOverlayCompatibility:
+      type: object
+      description: FirmwareOverlayCompatibility names a firmware component and, optionally, the range of its versions that an overlay is compatible with.
+      required:
+        - component
+      properties:
+        component:
+          type: string
+          minLength: 1
+          description: Name of the firmware component.
+        exact:
+          type: string
+          minLength: 1
+          description: Exact compatible firmware version.
+        minimum:
+          type: string
+          minLength: 1
+          description: Lowest compatible firmware version.
+        maximum:
+          type: string
+          minLength: 1
+          description: Highest compatible firmware version.
+      additionalProperties: false
+    FirmwareStatus:
+      type: object
+      description: >-
+        FirmwareStatus reports firmware support on the device, the current or most recent
+        firmware attempt and the observed state of each firmware component and overlay.
+      required:
+        - support
+        - components
+        - observedAt
+        - bootID
+      properties:
+        support:
+          $ref: '#/components/schemas/FirmwareSupportStatus'
+        attempt:
+          $ref: '#/components/schemas/FirmwareAttemptStatus'
+        components:
+          type: array
+          description: Observed state of each firmware component and overlay.
+          items:
+            $ref: '#/components/schemas/FirmwareComponentStatus'
+        observedAt:
+          type: string
+          format: date-time
+          description: Time at which the firmware status was observed.
+        bootID:
+          type: string
+          minLength: 1
+          description: Boot ID of the device when the firmware status was observed.
+      additionalProperties: false
+    FirmwareSupportStatus:
+      type: object
+      description: >-
+        FirmwareSupportStatus reports whether the agent can manage firmware on the device and
+        which updater releases it can run. Agents that support firmware report it even when no
+        firmware is managed.
+      required:
+        - apiVersion
+        - supported
+        - updaters
+      properties:
+        apiVersion:
+          type: integer
+          minimum: 1
+          description: Version of the firmware support contract that the agent reports.
+        supported:
+          type: boolean
+          description: Whether firmware management is supported on the device.
+        profile:
+          type: string
+          description: Firmware profile detected for the device hardware, when known.
+        profileRevision:
+          type: string
+          description: Revision of the detected firmware profile, when known.
+        reason:
+          type: string
+          description: Reason firmware management is or is not supported.
+        updaters:
+          type: array
+          description: Updater releases that the agent can run.
+          items:
+            $ref: '#/components/schemas/FirmwareSupportedUpdater'
+      additionalProperties: false
+    FirmwareSupportedUpdater:
+      type: object
+      description: FirmwareSupportedUpdater identifies an updater release that the agent can run.
+      required:
+        - name
+        - version
+        - buildDigest
+        - protocol
+        - schemaDigest
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Name of the updater.
+        version:
+          type: string
+          minLength: 1
+          description: Version of the updater release.
+        buildDigest:
+          type: string
+          minLength: 1
+          description: Digest of the immutable delivery image of the updater release.
+        protocol:
+          type: integer
+          description: Version of the firmware workflow protocol that the updater release implements.
+        schemaDigest:
+          type: string
+          minLength: 1
+          description: Digest of the configuration schema of the updater release.
+        cached:
+          type: boolean
+          description: Whether the updater release is already available on the device. An updater release that is not cached can still be fetched when it is needed.
+      additionalProperties: false
+    FirmwareAttemptStatus:
+      type: object
+      description: >-
+        FirmwareAttemptStatus reports the current or most recent firmware attempt. An attempt
+        canceled because newer desired firmware superseded it keeps its own identity; a
+        cancellation is neither a successful nor a failed activation.
+      required:
+        - id
+        - renderedVersion
+        - specHash
+        - retryGeneration
+        - phase
+        - startedAt
+        - updatedAt
+        - changed
+        - recovery
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: Identifier of the attempt.
+        renderedVersion:
+          type: string
+          minLength: 1
+          description: Rendered device version that the attempt applies.
+        specHash:
+          type: string
+          minLength: 1
+          description: Hash of the firmware specification that the attempt applies.
+        retryGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Retry generation that the attempt consumed.
+        updater:
+          $ref: '#/components/schemas/FirmwareAttemptUpdater'
+        phase:
+          $ref: '#/components/schemas/FirmwareAttemptPhase'
+        startedAt:
+          type: string
+          format: date-time
+          description: Time at which the attempt started.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Time at which the attempt status last changed.
+        changed:
+          type: boolean
+          description: Whether the attempt has changed firmware or boot configuration on the device.
+        error:
+          $ref: '#/components/schemas/FirmwareError'
+        cancellationReason:
+          $ref: '#/components/schemas/FirmwareCancellationReason'
+        recovery:
+          type: array
+          description: Recovery actions available to the operator.
+          items:
+            $ref: '#/components/schemas/FirmwareRecoveryAction'
+      additionalProperties: false
+    FirmwareAttemptUpdater:
+      type: object
+      description: >-
+        FirmwareAttemptUpdater identifies the updater release pinned for an attempt. It is
+        absent when the attempt was rejected before an updater release was selected.
+      required:
+        - name
+        - version
+        - buildDigest
+        - protocol
+        - schemaDigest
+        - configDigest
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Name of the updater.
+        version:
+          type: string
+          minLength: 1
+          description: Version of the updater release.
+        buildDigest:
+          type: string
+          minLength: 1
+          description: Digest of the immutable delivery image of the updater release.
+        protocol:
+          type: integer
+          description: Version of the firmware workflow protocol that the updater release implements.
+        schemaDigest:
+          type: string
+          minLength: 1
+          description: Digest of the configuration schema that the attempt was validated against.
+        configDigest:
+          type: string
+          minLength: 1
+          description: Digest of the updater configuration that the attempt applies.
+        manifestDigest:
+          type: string
+          description: Digest of the verified extraction manifest of the updater package. It is required before the updater changes the device.
+      additionalProperties: false
+    FirmwareAttemptPhase:
+      type: string
+      description: Phase of a firmware attempt. Succeeded, Failed and Canceled are terminal phases.
+      enum:
+        - "Preparing"
+        - "WaitingForPolicy"
+        - "Staging"
+        - "AwaitingReboot"
+        - "Verifying"
+        - "Succeeded"
+        - "Failed"
+        - "Canceled"
+      x-enum-varnames:
+        - "FirmwareAttemptPhasePreparing"
+        - "FirmwareAttemptPhaseWaitingForPolicy"
+        - "FirmwareAttemptPhaseStaging"
+        - "FirmwareAttemptPhaseAwaitingReboot"
+        - "FirmwareAttemptPhaseVerifying"
+        - "FirmwareAttemptPhaseSucceeded"
+        - "FirmwareAttemptPhaseFailed"
+        - "FirmwareAttemptPhaseCanceled"
+    FirmwareCancellationReason:
+      type: string
+      description: Reason a firmware attempt was canceled. It is required when the attempt phase is Canceled.
+      enum:
+        - "Superseded"
+      x-enum-varnames:
+        - "FirmwareCancellationReasonSuperseded"
+    FirmwareRecoveryAction:
+      type: object
+      description: FirmwareRecoveryAction describes an operator action that recovers from a firmware failure.
+      required:
+        - code
+        - message
+        - requiresPhysicalAccess
+      properties:
+        code:
+          type: string
+          minLength: 1
+          description: Identifier of the recovery action.
+        message:
+          type: string
+          minLength: 1
+          description: Description of the recovery action.
+        documentationURL:
+          type: string
+          format: uri
+          description: Link to documentation for the recovery action.
+        requiresPhysicalAccess:
+          type: boolean
+          description: Whether the recovery action requires physical access to the device.
+      additionalProperties: false
+    FirmwareComponentStatus:
+      type: object
+      description: >-
+        FirmwareComponentStatus reports the selected and the observed state of one firmware
+        component or overlay. Selected and observed values are reported separately, and an
+        observed value that is not known is absent.
+      required:
+        - name
+        - type
+        - managed
+        - state
+        - observedAt
+        - bootID
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+          description: Name of the firmware component or overlay.
+        type:
+          $ref: '#/components/schemas/FirmwareComponentType'
+        managed:
+          type: boolean
+          description: Whether the firmware specification manages the component.
+        state:
+          $ref: '#/components/schemas/FirmwareComponentState'
+        selected:
+          $ref: '#/components/schemas/FirmwareSelectedArtifact'
+        actual:
+          $ref: '#/components/schemas/FirmwareActualState'
+        observation:
+          $ref: '#/components/schemas/FirmwareObservation'
+        observedAt:
+          type: string
+          format: date-time
+          description: Time at which the component was observed.
+        bootID:
+          type: string
+          minLength: 1
+          description: Boot ID of the device when the component was observed.
+        error:
+          $ref: '#/components/schemas/FirmwareError'
+      additionalProperties: false
+    FirmwareComponentType:
+      type: string
+      description: Type of a firmware status entry, either a firmware component or a device tree overlay.
+      enum:
+        - "firmware"
+        - "overlay"
+      x-enum-varnames:
+        - "FirmwareComponentTypeFirmware"
+        - "FirmwareComponentTypeOverlay"
+    FirmwareComponentState:
+      type: string
+      description: Observed state of a firmware component or overlay.
+      enum:
+        - "Unknown"
+        - "Pending"
+        - "Active"
+        - "Failed"
+      x-enum-varnames:
+        - "FirmwareComponentStateUnknown"
+        - "FirmwareComponentStatePending"
+        - "FirmwareComponentStateActive"
+        - "FirmwareComponentStateFailed"
+    FirmwareSelectedArtifact:
+      type: object
+      description: FirmwareSelectedArtifact identifies the artifact selected for a firmware component or overlay.
+      required:
+        - source
+      properties:
+        source:
+          $ref: '#/components/schemas/FirmwareSelectedSource'
+        version:
+          type: string
+          description: Firmware version of the selected artifact.
+      additionalProperties: false
+    FirmwareSelectedSource:
+      type: object
+      description: >-
+        FirmwareSelectedSource identifies where a selected artifact comes from and its immutable
+        digest, without credentials or signed URL parameters.
+      required:
+        - kind
+        - identity
+        - digest
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          description: Kind of the artifact source, for example http.
+        identity:
+          type: string
+          minLength: 1
+          description: Sanitized identity of the artifact source.
+        digest:
+          type: string
+          minLength: 1
+          description: Digest of the selected artifact.
+      additionalProperties: false
+    FirmwareActualState:
+      type: object
+      description: FirmwareActualState reports the firmware observed on the device. Values that cannot be observed are absent.
+      properties:
+        version:
+          type: string
+          description: Observed firmware version.
+        rawVersion:
+          type: string
+          description: Firmware version text as reported by the device firmware.
+        active:
+          type: boolean
+          description: Whether an overlay has been verified active by its activation check.
+      additionalProperties: false
+    FirmwareObservation:
+      type: object
+      description: FirmwareObservation carries evidence about a firmware component or overlay observed on the device.
+      properties:
+        producerIdentity:
+          type: string
+          description: Identity of the component that produced the observation, when known.
+        backend:
+          $ref: '#/components/schemas/FirmwareObservationBackend'
+      additionalProperties: false
+    FirmwareObservationBackend:
+      type: object
+      description: FirmwareObservationBackend carries updater-specific observation data and identifies the schema that defines it.
+      required:
+        - updater
+        - schemaDigest
+        - data
+      properties:
+        updater:
+          type: string
+          minLength: 1
+          description: Name of the updater that produced the observation.
+        schemaDigest:
+          type: string
+          minLength: 1
+          description: Digest of the observation schema that defines data.
+        data:
+          type: object
+          additionalProperties: true
+          description: Updater-specific observation data. The observation schema identified by updater and schemaDigest defines every allowed field.
+      additionalProperties: false
+    FirmwareError:
+      type: object
+      description: FirmwareError describes a firmware failure.
+      required:
+        - reason
+        - message
+        - retryable
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: >-
+            Machine-readable reason for the failure. ResourceLimitExceeded is the reason for every
+            failure caused by exceeding a resource budget of the updater release, and such an error
+            must name the budget in exceededBudget.
+        message:
+          type: string
+          minLength: 1
+          description: Human-readable description of the failure.
+        retryable:
+          type: boolean
+          description: Whether the agent retries preparation automatically. It does not permit retrying activation.
+        component:
+          type: string
+          description: Name of the affected firmware component or overlay, when known.
+        phase:
+          $ref: '#/components/schemas/FirmwareAttemptPhase'
+        exceededBudget:
+          $ref: '#/components/schemas/FirmwareBudgetKey'
+      additionalProperties: false
+    FirmwareBudgetKey:
+      type: string
+      description: >-
+        Name of the resource budget that a ResourceLimitExceeded failure exceeded. It is required
+        when the reason is ResourceLimitExceeded and must be absent for every other reason. The
+        updater release defines the valid budget names.
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
@@ -9668,7 +10265,7 @@ components:
           type: array
           items:
             type: string
-            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks]
+            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks, status.firmware]
           description: List of fields that were updated in the resource.
         previousOwner:
           type: string

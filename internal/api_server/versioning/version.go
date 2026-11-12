@@ -12,6 +12,7 @@ type Version string
 const (
 	V1Alpha1 Version = Version(apiversioning.V1Alpha1)
 	V1Beta1  Version = Version(apiversioning.V1Beta1)
+	V1Beta2  Version = Version(apiversioning.V1Beta2)
 	// V1 Version = "v1"  // Add when v1 is introduced
 )
 
@@ -31,7 +32,7 @@ func VersionFromContext(ctx context.Context) (Version, bool) {
 // IsValid returns true if the version string is a known version
 func (v Version) IsValid() bool {
 	switch v {
-	case V1Alpha1, V1Beta1:
+	case V1Alpha1, V1Beta1, V1Beta2:
 		return true
 	default:
 		return false

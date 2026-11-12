@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
+	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -16,6 +19,30 @@ import (
 func (h *TransportHandler) SetResponse(w http.ResponseWriter, body any, status domain.Status) {
 	apiStatus := h.converter.Common().StatusFromDomain(status)
 	transport.WriteJSONResponse(w, body, apiStatus, int(status.Code))
+}
+
+// SetResponseForRequest writes a response using the negotiated API version for
+// the small set of v1beta2 operations that reuse v1beta1 transport types.
+func (h *TransportHandler) SetResponseForRequest(w http.ResponseWriter, r *http.Request, body any, status domain.Status) {
+	apiStatus := h.converter.Common().StatusFromDomain(status)
+	if negotiatedVersion(r) == versioning.V1Beta2 {
+		apiStatus.ApiVersion = apiversioning.QualifiedV1Beta2
+		switch typedBody := body.(type) {
+		case *apiv1beta1.Device:
+			typedBody.ApiVersion = apiversioning.QualifiedV1Beta2
+		case *apiv1beta1.Fleet:
+			typedBody.ApiVersion = apiversioning.QualifiedV1Beta2
+		}
+	}
+	transport.WriteJSONResponse(w, body, apiStatus, int(status.Code))
+}
+
+func negotiatedVersion(r *http.Request) versioning.Version {
+	version, ok := versioning.VersionFromContext(r.Context())
+	if !ok {
+		return versioning.V1Beta1
+	}
+	return version
 }
 
 // SetParseFailureResponse writes an error response for JSON decode failures.

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -36,7 +37,7 @@ func (h *TransportHandler) GetFleet(w http.ResponseWriter, r *http.Request, name
 	domainParams := h.converter.Fleet().GetParamsToDomain(params)
 	body, status := h.fleet.GetFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainParams)
 	apiResult := h.converter.Fleet().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (PUT /api/v1/fleets/{name})
@@ -48,15 +49,19 @@ func (h *TransportHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, 
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := fleetservice.ReplaceFleetFromUntrusted(r.Context(), h.fleet, transport.OrgIDFromContext(r.Context()), name, domainFleet, true)
+	var opts []fleetservice.ReplaceOption
+	if negotiatedVersion(r) == versioning.V1Beta2 {
+		opts = append(opts, fleetservice.WithOmittedFirmwareRemoval())
+	}
+	body, status := fleetservice.ReplaceFleetFromUntrusted(r.Context(), h.fleet, transport.OrgIDFromContext(r.Context()), name, domainFleet, true, opts...)
 	apiResult := h.converter.Fleet().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (DELETE /api/v1/fleets/{name})
 func (h *TransportHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
 	status := h.fleet.DeleteFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, true)
-	h.SetResponse(w, nil, status)
+	h.SetResponseForRequest(w, r, nil, status)
 }
 
 // (GET /api/v1/fleets/{name}/status)
@@ -91,7 +96,7 @@ func (h *TransportHandler) PatchFleet(w http.ResponseWriter, r *http.Request, na
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
 	body, status := h.fleet.PatchFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true)
 	apiResult := h.converter.Fleet().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (PATCH /api/v1/fleets/{name}/status)

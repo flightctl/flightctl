@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -71,7 +72,7 @@ type Store interface {
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc, opts ...MutateOption) (updated *domain.Device, before *domain.Device, created bool, err error)
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...UpdateStatusOption) (updated *domain.Device, before *domain.Device, err error)
 	// ReplaceServiceOwnedStatus updates service-owned status fields without
 	// replacing the device's desired state or agent-owned status.
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
@@ -92,6 +93,7 @@ type Store interface {
 	// Used internally
 	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
+	ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error)
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
@@ -191,6 +193,13 @@ type DeviceMutation struct {
 	// PreserveGeneration keeps metadata.generation unchanged on PersistUpdate
 	// even when Spec changes (e.g. decommission historically did not bump it).
 	PreserveGeneration bool
+	// RepositoryRefs, when set, replaces the device's repository references
+	// with exactly these names in the same transaction as the device write,
+	// so neither commits without the other. An empty slice removes every
+	// reference; nil leaves the references unchanged.
+	RepositoryRefs *[]string
+	// FleetDependencyRefs is committed atomically with the owner-checked device update.
+	FleetDependencyRefs *[]model.DependencyRef
 }
 
 func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
@@ -199,6 +208,17 @@ func (m *DeviceMutation) SetResource(device *domain.Device) { m.Device = device 
 
 func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) {
 	out := &DeviceMutation{PreserveGeneration: m.PreserveGeneration}
+	if m.RepositoryRefs != nil {
+		refs := append([]string{}, (*m.RepositoryRefs)...)
+		out.RepositoryRefs = &refs
+	}
+	if m.FleetDependencyRefs != nil {
+		refs, err := store.CloneJSON(m.FleetDependencyRefs)
+		if err != nil {
+			return nil, err
+		}
+		out.FleetDependencyRefs = refs
+	}
 	if m.Device != nil {
 		cloned, err := store.CloneJSON(m.Device)
 		if err != nil {
@@ -285,6 +305,16 @@ func WithManagedLabelMapReplacement(explicitRemovalPaths []string) MutateOption 
 			c.explicitLabelRemovalPaths[path] = struct{}{}
 		}
 	}
+}
+
+// StatusMergeOf returns the merge that opts configure for UpdateStatus, or
+// nil (for tests/fakes).
+func StatusMergeOf(opts ...UpdateStatusOption) StatusMergeFunc {
+	cfg := &updateStatusConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.merge
 }
 
 // HasWithTimestamp reports whether opts include WithTimestamp (for tests/fakes).
@@ -385,6 +415,16 @@ func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
 
 func (s *DeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return store.WithTransaction(ctx, s.dbHandler, fn)
+}
+
+// inMutationTransaction runs one mutation attempt in its own transaction, or
+// in the transaction ctx already carries, so that a failed attempt rolls back
+// every write it made.
+func (s *DeviceStore) inMutationTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	if store.InTransaction(ctx) {
+		return fn(ctx)
+	}
+	return s.WithTransaction(ctx, fn)
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c store.IntegrationTestCallback) {
@@ -693,6 +733,18 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 	return nil
 }
 
+func (s *DeviceStore) replaceMutationReferences(ctx context.Context, orgID uuid.UUID, name string, mutation *DeviceMutation) error {
+	if mutation.RepositoryRefs != nil {
+		if err := replaceDeviceRepositoryRefs(s.getDB(ctx), orgID, name, *mutation.RepositoryRefs); err != nil {
+			return err
+		}
+	}
+	if mutation.FleetDependencyRefs != nil {
+		return dependencyrefstore.NewDependencyRefStore(s.getDB(ctx), s.log).ReplaceFleetScopedDeviceRefs(ctx, orgID, name, *mutation.FleetDependencyRefs)
+	}
+	return nil
+}
+
 // Mutate loads the named device (or uses previous on the first attempt), runs apply,
 // and persists via GenericStore.Mutate using Create / Update.
 // Missing devices are created (apply must set Device); existing ones are updated.
@@ -720,11 +772,40 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Device]) (*domain.Device, error) {
 			dm := m.(*DeviceMutation)
-			return s.Create(ctx, orgId, dm.Device, dm.Rendered)
+			if dm.RepositoryRefs == nil && dm.FleetDependencyRefs == nil {
+				return s.Create(ctx, orgId, dm.Device, dm.Rendered)
+			}
+			var created *domain.Device
+			err := s.inMutationTransaction(ctx, func(txCtx context.Context) error {
+				var createErr error
+				if created, createErr = s.Create(txCtx, orgId, dm.Device, dm.Rendered); createErr != nil {
+					return createErr
+				}
+				return s.replaceMutationReferences(txCtx, orgId, name, dm)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return created, nil
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
+			if dm.RepositoryRefs == nil && dm.FleetDependencyRefs == nil {
+				return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
+			}
+			retry := false
+			err := s.inMutationTransaction(ctx, func(txCtx context.Context) error {
+				var updateErr error
+				if retry, updateErr = s.update(txCtx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg); updateErr != nil {
+					return updateErr
+				}
+				if refsErr := s.replaceMutationReferences(txCtx, orgId, name, dm); refsErr != nil {
+					retry = strings.Contains(refsErr.Error(), "deadlock")
+					return refsErr
+				}
+				return nil
+			})
+			return retry, err
 		},
 	}
 	if cfg.withTimestamp {
@@ -742,24 +823,51 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 	})
 }
 
+// UpdateStatusOption configures UpdateStatus.
+type UpdateStatusOption func(*updateStatusConfig)
+
+type updateStatusConfig struct {
+	merge StatusMergeFunc
+}
+
+// StatusMergeFunc returns the status to write given the device as currently
+// stored. It must not modify current.
+type StatusMergeFunc func(current *domain.Device) (*domain.DeviceStatus, error)
+
+// WithStatusMerge makes UpdateStatus write the status that merge derives from
+// the device loaded for each attempt, instead of the given device's status.
+// merge runs again after a concurrent write forces a retry, so its decision is
+// always based on the freshly stored device. An error from merge ends
+// UpdateStatus without writing anything.
+func WithStatusMerge(merge StatusMergeFunc) UpdateStatusOption {
+	return func(cfg *updateStatusConfig) { cfg.merge = merge }
+}
+
 // UpdateStatus writes only status + resource_version so service_conditions
 // (SpecValid, DependencySync, delta estimates, …) are left intact. previous is
 // optional (first attempt).
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	if device == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
-	name := lo.FromPtr(device.Metadata.Name)
-	// device doesn't change across retries, so convert it once instead of on every attempt.
-	fromAPI, err := model.NewDeviceFromApiResource(device)
-	if err != nil {
-		return nil, nil, err
+	cfg := updateStatusConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
-	fromAPI.OrgID = orgId
+	name := lo.FromPtr(device.Metadata.Name)
+	// Without a merge, device doesn't change across retries, so convert it once instead of on every attempt.
+	var fromAPI *model.Device
+	if cfg.merge == nil {
+		var err error
+		if fromAPI, err = model.NewDeviceFromApiResource(device); err != nil {
+			return nil, nil, err
+		}
+		fromAPI.OrgID = orgId
+	}
 
 	var before, updated *domain.Device
 	attempt := 0
-	err = store.RetryUpdate(func() (bool, error) {
+	err := store.RetryUpdate(func() (bool, error) {
 		var current *domain.Device
 		if attempt == 0 && previous != nil && lo.FromPtr(previous.Metadata.Name) == name {
 			current = previous
@@ -780,6 +888,24 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if rvErr != nil {
 			return false, flterrors.ErrIllegalResourceVersionFormat
 		}
+		toWrite := fromAPI
+		if cfg.merge != nil {
+			status, mergeErr := cfg.merge(current)
+			if mergeErr != nil {
+				return false, mergeErr
+			}
+			merged := *device
+			merged.Status = status
+			converted, convertErr := model.NewDeviceFromApiResource(&merged)
+			if convertErr != nil {
+				return false, convertErr
+			}
+			converted.OrgID = orgId
+			toWrite = converted
+			// Lets integration tests commit a concurrent write between the merge
+			// decision and the conditional update.
+			s.genericStore.IntegrationTestCreateOrUpdateCallback()
+		}
 		// Return the stored service conditions with the CAS update so the API
 		// response can merge estimates with the new agent status without a read.
 		var returned model.Device
@@ -787,7 +913,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 			Where("org_id = ? AND name = ? AND resource_version = ?", orgId, name, rv).
 			Clauses(clause.Returning{Columns: []clause.Column{{Name: "service_conditions"}}}).
 			Updates(map[string]interface{}{
-				"status":           fromAPI.Status,
+				"status":           toWrite.Status,
 				"resource_version": gorm.Expr("resource_version + 1"),
 			})
 		if result.Error != nil {
@@ -798,7 +924,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 			return true, flterrors.ErrNoRowsUpdated
 		}
 		statusModel := &model.Device{
-			Status:            fromAPI.Status,
+			Status:            toWrite.Status,
 			ServiceConditions: returned.ServiceConditions,
 		}
 		mergedStatusResource, err := statusModel.ToApiResource()
@@ -1280,12 +1406,21 @@ func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams sto
 	return devicesCount, nil
 }
 
+// firmwareHoldSQL is true for a device row with desired firmware or with a
+// firmware attempt whose phase is not terminal, as domain.DeviceRequiresFirmwareHold
+// decides for a loaded device: a missing, empty or unknown phase counts as
+// outstanding, and JSON null counts as absent.
+var firmwareHoldSQL = fmt.Sprintf(`(COALESCE(jsonb_typeof(spec -> 'firmware'), 'null') <> 'null' OR
+	(COALESCE(jsonb_typeof(status -> 'firmware' -> 'attempt'), 'null') <> 'null' AND
+	COALESCE(status -> 'firmware' -> 'attempt' ->> 'phase', '') NOT IN ('%s', '%s', '%s')))`,
+	domain.FirmwareAttemptPhaseSucceeded, domain.FirmwareAttemptPhaseFailed, domain.FirmwareAttemptPhaseCanceled)
+
 // CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
 // The result is a count of devices grouped by some fields:
 // - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
 // - summary_status: taken from the field 'status.summary.status'
 // - updating_reason: it is the reason field from a condition having type 'Updating'
-// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
+// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion', and is false for a device held because of its firmware state (see firmwareHoldSQL), which stays in the counts but never completes successfully
 // - update_timed_out: it is a boolean value indicating if the update of the device has been timed out
 func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, error) {
 	var (
@@ -1299,7 +1434,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 		updateTimeoutValue = gorm.Expr("false")
 	}
 	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count,
-                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version,
+                                 (status -> 'config' ->> 'renderedVersion' = annotations->>'%s') AND NOT %s AS same_rendered_version,
                                  elem ->> 'reason' as updating_reason,
                                  annotations->>'%s' = ? as same_template_version,
 								 ? as update_timed_out
@@ -1312,7 +1447,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 						     where
 						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null
 						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
-		domain.DeviceAnnotationRenderedVersion, domain.DeviceAnnotationRenderedTemplateVersion, domain.DeviceAnnotationSelectedForRollout),
+		domain.DeviceAnnotationRenderedVersion, firmwareHoldSQL, domain.DeviceAnnotationRenderedTemplateVersion, domain.DeviceAnnotationSelectedForRollout),
 		templateVersion,
 		updateTimeoutValue,
 		orgId,
@@ -1694,17 +1829,57 @@ func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name str
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
-	repos := []model.Repository{}
+	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
+		return replaceDeviceRepositoryRefs(innerTx, orgId, name, repositoryNames)
+	})
+}
+
+// ReplaceRepositoryRefsIfCurrent replaces the repository references of a
+// standalone device with exactly the given names, but only while the device
+// still has the given generation. It locks the device row and checks the
+// generation and owner in the same transaction as the replacement, joining a
+// transaction already carried by ctx, so a writer that read an older version
+// of the device, or a device that a fleet now owns, leaves the references
+// untouched and gets applied=false.
+func (s *DeviceStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	applied := false
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		var current struct {
+			Generation *int64
+			Owner      *string
+		}
+		result := tx.Raw(`SELECT generation, owner FROM devices WHERE org_id = ? AND name = ? AND deleted_at IS NULL FOR UPDATE`, orgId, name).Scan(&current)
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return flterrors.ErrResourceNotFound
+		}
+		if lo.FromPtr(current.Generation) != generation || lo.FromPtr(current.Owner) != "" {
+			return nil
+		}
+		if err := replaceDeviceRepositoryRefs(tx, orgId, name, repositoryNames); err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// replaceDeviceRepositoryRefs makes db's device_repos rows for the device
+// match exactly repositoryNames. Names without a Repository yet get a
+// placeholder repository row, as references always have.
+func replaceDeviceRepositoryRefs(db *gorm.DB, orgId uuid.UUID, name string, repositoryNames []string) error {
+	repos := make([]model.Repository, 0, len(repositoryNames))
 	for _, repoName := range repositoryNames {
 		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
 	}
-	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
-		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
-			return store.ErrorFromGormError(err)
-		}
-		return nil
-	})
+	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	if err := db.Model(&device).Association("Repositories").Replace(repos); err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	return nil
 }
 
 func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {

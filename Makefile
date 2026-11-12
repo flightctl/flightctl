@@ -591,11 +591,12 @@ check-rpmlint:
 verify-rpm-install: bin/.rpm
 	go test -v -count=1 -timeout 15m ./test/packaging/...
 
-.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
+.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1beta2/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI specs"
 	podman run --rm -it --security-opt label=disable -v $(shell pwd):/workdir docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
 		/workdir/api/core/v1beta1/openapi.yaml \
+		/workdir/api/core/v1beta2/openapi.yaml \
 		/workdir/api/core/v1alpha1/openapi.yaml \
 		/workdir/api/imagebuilder/v1alpha1/openapi.yaml
 	@touch .output/stamps/lint-openapi

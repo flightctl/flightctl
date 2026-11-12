@@ -335,14 +335,21 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 			templateVersion, hasTemplateVersion := annotations[domain.DeviceAnnotationTemplateVersion]
 			renderedTemplateVersion, hasRenderedTemplateVersion := annotations[domain.DeviceAnnotationRenderedTemplateVersion]
 			if hasTemplateVersion && hasRenderedTemplateVersion && templateVersion == renderedTemplateVersion {
-				t.log.Infof("Device %s already rendered for template version %s, skipping redundant rollout selection event", t.event.InvolvedObject.Name, templateVersion)
-				return nil
+				if firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
+					t.log.Infof("Device %s already rendered for template version %s, skipping redundant rollout selection event", t.event.InvolvedObject.Name, templateVersion)
+					return nil
+				}
+				// The rendered output is already current; only the firmware-hold
+				// condition needs reconciliation, so do not force a new render.
+				bypassHashCheck = false
 			}
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render, unless
-		// bypassHashCheck says this event must always produce a fresh render.
-		if !bypassHashCheck {
+		// bypassHashCheck says this event must always produce a fresh render, or the firmware
+		// hold condition does not match the device's firmware state, which the rendered write
+		// must then record or clear.
+		if !bypassHashCheck && firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
 					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
@@ -405,9 +412,13 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		return t.setErrorStatus(ctx, renderErr)
 	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, rendered.referencedRepos...)
+		var outcome common.RepositoryRefsOutcome
+		outcome, status = t.deviceSvc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, t.orgId, *device.Metadata.Name, lo.FromPtr(device.Metadata.Generation), device.Spec)
 		if status.Code != http.StatusOK {
 			return t.setErrorStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
+		}
+		if outcome != common.RepositoryRefsReplaced {
+			t.log.Infof("Repository references of device %s/%s left unchanged (%s): the device changed since it was read or its firmware references are not known yet", t.orgId, *device.Metadata.Name, outcome)
 		}
 	}
 	if renderErr != nil {
@@ -433,8 +444,15 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints, deviceservice.RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(lo.FromPtr(device.Metadata.Generation))})
+	if deviceservice.IsFirmwareHold(status) {
+		t.log.Infof("Rendered output of device %s/%s is held: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+		return nil
+	}
 	if err := common.ApiStatusToErr(status); err != nil {
+		if status.Code == http.StatusConflict {
+			return err
+		}
 		return t.setErrorStatus(ctx, err)
 	}
 	return nil
@@ -442,12 +460,21 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 
 var errIgnitionConversion = errors.New("failed converting ignition config to rendered config")
 
+// firmwareHoldRecorded reports whether the device carries the condition of a
+// firmware hold.
+func firmwareHoldRecorded(device *domain.Device) bool {
+	if device.Status == nil {
+		return false
+	}
+	condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceSpecValid)
+	return condition != nil && condition.Reason == domain.DeviceSpecValidReasonFirmwareUnsupported
+}
+
 type RenderedSpec struct {
 	OsImage      string
 	Config       []byte
 	Applications []byte
 
-	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
 	// delta payload size.
@@ -478,14 +505,13 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 		}
 	}
 
-	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx, deviceConfig)
+	ignitionConfig, configFingerprints, renderErr := t.renderConfig(ctx, deviceConfig)
 	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
 	if err != nil {
-		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
+		return RenderedSpec{configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
 	}
 	result := RenderedSpec{
 		Config:             renderedConfig,
-		referencedRepos:    referencedRepos,
 		configFingerprints: configFingerprints,
 	}
 	if renderErr != nil {
@@ -590,7 +616,7 @@ func (t *deviceRenderState) renderApplications(ctx context.Context, applications
 	return renderedApplicationBytes, nil
 }
 
-func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {
+func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []ConfigRefFingerprint, error) {
 	ignitionConfig := &config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
 			Version: config_latest_types.MaxVersion.String(),
@@ -598,20 +624,15 @@ func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]do
 	}
 
 	if deviceConfig == nil {
-		return ignitionConfig, nil, nil, nil
+		return ignitionConfig, nil, nil
 	}
 
 	invalidConfigs := []string{}
-	referencedRepos := []string{}
 	var fingerprints []ConfigRefFingerprint
 	var firstError error
 	for i := range *deviceConfig {
 		configItem := (*deviceConfig)[i]
-		name, repoName, fingerprint, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
-
-		if repoName != nil {
-			referencedRepos = append(referencedRepos, *repoName)
-		}
+		name, _, fingerprint, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
 
 		if err != nil {
 			invalidConfigs = append(invalidConfigs, util.DefaultIfNil(name, "<unknown>"))
@@ -633,10 +654,10 @@ func (t *deviceRenderState) renderConfig(ctx context.Context, deviceConfig *[]do
 			configurationStr += "s"
 			errorStr = "First error"
 		}
-		return nil, referencedRepos, nil, fmt.Errorf("%d invalid %s: %s. %s: %w", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		return nil, nil, fmt.Errorf("%d invalid %s: %s. %s: %w", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
 	}
 
-	return ignitionConfig, referencedRepos, fingerprints, nil
+	return ignitionConfig, fingerprints, nil
 }
 
 // ConfigRefFingerprint holds the fingerprint captured for one config provider at render time.
