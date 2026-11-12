@@ -24,7 +24,7 @@ func updaterHash(value string) string { return fmt.Sprintf("sha256:%x", sha256.S
 func updaterCandidate(revision int64, version string) updaterstore.Candidate {
 	c := updaterstore.Candidate{Revision: revision, InputDigest: updaterHash(fmt.Sprintf("%d/%s", revision, version))}
 	if version != "" {
-		raw := fmt.Sprintf(`{"version":%q}`, version)
+		raw := fmt.Sprintf(`{"name":"orin","version":%q}`, version)
 		c.Releases = []updaterstore.Release{{Name: "orin", Version: version, DescriptorDigest: updaterHash(raw), Descriptor: []byte(raw), Schemas: []updaterstore.Schema{{Digest: updaterHash("config-" + version), ObservationSchema: []byte(`{"type":"object"}`), BudgetKeys: []string{"maxCycles"}}}}}
 	}
 	return c
@@ -51,7 +51,11 @@ var _ = Describe("Updater catalog persistence", func() {
 		c := updaterCandidate(1, "1")
 		extra := c.Releases[0]
 		c.Releases[0].Name = "a"
+		c.Releases[0].Descriptor = []byte(`{"name":"a","version":"1"}`)
+		c.Releases[0].DescriptorDigest = updaterHash(string(c.Releases[0].Descriptor))
 		extra.Name = "a-b"
+		extra.Descriptor = []byte(`{"name":"a-b","version":"1"}`)
+		extra.DescriptorDigest = updaterHash(string(extra.Descriptor))
 		c.Releases = append(c.Releases, extra)
 		accepted, err := catalog.Activate(ctx, c)
 		Expect(err).NotTo(HaveOccurred())
@@ -79,11 +83,15 @@ var _ = Describe("Updater catalog persistence", func() {
 		Expect(catalog.InitialMigration(ctx)).To(Succeed())
 		_, err := catalog.Activate(ctx, updaterCandidate(1, "1"))
 		Expect(err).NotTo(HaveOccurred())
+		Expect(db.WithContext(ctx).Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Update("policy_digest", updaterHash("legacy materialization")).Error).To(Succeed())
 		Expect(catalog.InitialMigration(ctx)).To(Succeed())
 		s, err := catalog.Snapshot(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(s.Revision).To(Equal(int64(1)))
 		Expect(s.Releases).To(HaveLen(1))
+		view, err := s.PolicyView()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(s.PolicyDigest).To(Equal(view.Digest))
 	})
 	It("When revision two omits a release it should replay the same file before requiring retained tombstones", func() {
 		first, err := catalog.Activate(ctx, updaterCandidate(1, "1"))
@@ -273,14 +281,14 @@ var _ = Describe("Updater catalog persistence", func() {
 	})
 	It("When descriptor capacity is exhausted it should reject growth but still allow revocation", func() {
 		original := updaterCandidate(1, "1")
-		raw := `{"padding":"` + strings.Repeat("x", 4*1024*1024-64) + `"}`
+		raw := `{"name":"orin","version":"1","padding":"` + strings.Repeat("x", 4*1024*1024-64) + `"}`
 		original.Releases[0].Descriptor = []byte(raw)
 		original.Releases[0].DescriptorDigest = updaterHash(raw)
 		_, err := catalog.Activate(ctx, original)
 		Expect(err).NotTo(HaveOccurred())
 		growing := updaterCandidate(2, "2")
 		growing.Releases = append(growing.Releases, original.Releases[0])
-		growing.Releases[0].Descriptor = []byte(`{"padding":"` + strings.Repeat("x", 1024) + `"}`)
+		growing.Releases[0].Descriptor = []byte(`{"name":"orin","version":"2","padding":"` + strings.Repeat("x", 1024) + `"}`)
 		growing.Releases[0].DescriptorDigest = updaterHash(string(growing.Releases[0].Descriptor))
 		_, err = catalog.Activate(ctx, growing)
 		Expect(err).To(HaveOccurred())

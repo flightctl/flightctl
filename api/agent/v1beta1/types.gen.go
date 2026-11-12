@@ -7,6 +7,36 @@ import (
 	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
+// FirmwarePolicy Private updater authorization view. The canonical document is bounded to 8 MiB before base64 encoding and its digest binds all retained evidence.
+type FirmwarePolicy struct {
+	// Digest SHA-256 of the exact canonical document bytes.
+	Digest string `json:"digest"`
+
+	// Document Base64-encoded firmware-policy/v1 canonical JSON, including revision, immutable descriptor bytes and retained tombstones. Contains no repository credentials.
+	Document []byte `json:"document"`
+
+	// Revision Monotonic accepted catalog revision.
+	Revision int64 `json:"revision"`
+}
+
+// FirmwarePolicyReceipt Acknowledgement of a complete durably retained private authorization view.
+type FirmwarePolicyReceipt struct {
+	// Digest Digest of the durably retained canonical document.
+	Digest string `json:"digest"`
+
+	// Revision Durably accepted catalog revision.
+	Revision int64 `json:"revision"`
+}
+
+// GetFirmwarePolicyParams defines parameters for GetFirmwarePolicy.
+type GetFirmwarePolicyParams struct {
+	// KnownRevision Last durably accepted policy revision, paired with knownDigest.
+	KnownRevision *int64 `form:"knownRevision,omitempty" json:"knownRevision,omitempty"`
+
+	// KnownDigest Digest of the last durably accepted policy, paired with knownRevision.
+	KnownDigest *string `form:"knownDigest,omitempty" json:"knownDigest,omitempty"`
+}
+
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
 type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
@@ -15,6 +45,9 @@ type GetRenderedDeviceParams struct {
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
 type CreateCertificateSigningRequestJSONRequestBody = externalRef0.CertificateSigningRequest
+
+// AcknowledgeFirmwarePolicyJSONRequestBody defines body for AcknowledgeFirmwarePolicy for application/json ContentType.
+type AcknowledgeFirmwarePolicyJSONRequestBody = FirmwarePolicyReceipt
 
 // PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
 type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = externalRef0.PatchRequest
