@@ -33,8 +33,9 @@ type ApprovedDescriptorProvider interface {
 	// release is unknown; an error means the lookup itself failed.
 	LookupRelease(ctx context.Context, name, version string) (*ApprovedDescriptor, error)
 
-	// LookupSchemaByDigest returns retained observation schema evidence for
-	// an updater and schema digest. The evidence stays available after a
+	// LookupSchemaByDigest returns retained observation schema and budget
+	// evidence keyed by updater name and either a pinned configuration digest
+	// or an observation digest. Shared keys must have identical evidence. The evidence stays available after a
 	// release loses its authorization, and it never authorizes execution.
 	LookupSchemaByDigest(ctx context.Context, updater, schemaDigest string) (*RetainedSchemaEvidence, error)
 }
@@ -53,6 +54,8 @@ type ApprovedDescriptor struct {
 	// ConfigSchema is the closed JSON Schema for updater.config. It is
 	// validated as supplied and never loads external schemas.
 	ConfigSchema json.RawMessage
+	// ObservationSchemaDigest identifies the exact observation schema bytes.
+	ObservationSchemaDigest string
 	// ObservationSchema is the JSON Schema for observation backend data.
 	ObservationSchema json.RawMessage
 	// ReferencePaths are the configuration paths that hold repository names.
