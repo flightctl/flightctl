@@ -267,8 +267,9 @@ build_base_image() {
   podman build \
     --network=host \
     --no-cache \
-    -f hack/Containerfile.packit_builder \
-    -t "${BASE_IMAGE}"
+    --label "io.flightctl.rpm-builder-inputs=$(builder_inputs_hash)" \
+    -f "${SCRIPT_DIR}/Containerfile.packit_builder" \
+    -t "${BASE_IMAGE}" "${SCRIPT_DIR}"
 
   # Track built image for summary
   BUILT_IMAGES+=("base:${BASE_IMAGE}")
@@ -403,6 +404,33 @@ pull_images_if_needed() {
   fi
 }
 
+# Cached builders include their own Go SDK and Mock configuration. Refresh them
+# locally when those inputs change, without waiting for the scheduled publication.
+builder_inputs_hash() {
+  (cd "${SCRIPT_DIR}" &&
+    sha256sum Containerfile.packit_builder mock-site-defaults.cfg \
+      mock-go-repo.cfg mock-roots.conf mock_prewarm_caches.sh |
+      sha256sum | cut -d ' ' -f 1)
+}
+
+ensure_current_builder() {
+  local image="${BASE_IMAGE}"
+  if [[ -n "$ROOT" ]] && is_known_root "$ROOT"; then
+    image="$(root_image_for "$ROOT")"
+  fi
+  local expected actual
+  expected="$(builder_inputs_hash)"
+  actual="$(podman image inspect --format '{{index .Labels "io.flightctl.rpm-builder-inputs"}}' "$image")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Builder inputs changed; rebuilding ${image} from the current checkout"
+    build_base_image
+    if [[ -n "$ROOT" ]] && is_known_root "$ROOT"; then
+      build_root_cache_image "$ROOT"
+    fi
+    print_build_summary
+  fi
+}
+
 ##############################################################################
 # Main build runner
 ##############################################################################
@@ -475,17 +503,24 @@ run_build_in_container() {
 # Entry point
 ##############################################################################
 
-print_help_if_requested "$@"
-require_root
-parse_args "$@"
-ensure_version_env
-init_image_names "${PACKIT_BUILDER_IMAGE}"
+main() {
+  print_help_if_requested "$@"
+  require_root
+  parse_args "$@"
+  ensure_version_env
+  init_image_names "${PACKIT_BUILDER_IMAGE}"
 
-if [[ "${REBUILD_IMAGE}" == true ]]; then
-  rebuild_images
-  echo "Image rebuild completed."
-  exit 0
-else
-  pull_images_if_needed
-  run_build_in_container
+  if [[ "${REBUILD_IMAGE}" == true ]]; then
+    rebuild_images
+    echo "Image rebuild completed."
+    exit 0
+  else
+    pull_images_if_needed
+    ensure_current_builder
+    run_build_in_container
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
