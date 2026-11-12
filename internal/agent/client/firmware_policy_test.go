@@ -62,6 +62,28 @@ func TestManagementFirmwarePolicy(t *testing.T) {
 	}
 }
 
+func TestManagementFirmwarePolicyTransportErrors(t *testing.T) {
+	receipt := firmwarepolicy.Receipt{Revision: 1, Digest: firmwarepolicy.Hash([]byte("document"))}
+	t.Run("When the policy GET transport fails it should identify the operation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		server.Close()
+		generated, err := agentclient.NewClientWithResponses(server.URL)
+		require.NoError(t, err)
+		management := NewManagement(generated, nil)
+		_, _, err = management.GetFirmwarePolicy(context.Background(), "device", firmwarepolicy.Receipt{})
+		require.ErrorContains(t, err, "get firmware policy:")
+	})
+	t.Run("When the policy acknowledgement transport fails it should identify the operation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		server.Close()
+		generated, err := agentclient.NewClientWithResponses(server.URL)
+		require.NoError(t, err)
+		management := NewManagement(generated, nil)
+		_, err = management.AcknowledgeFirmwarePolicy(context.Background(), "device", receipt)
+		require.ErrorContains(t, err, "acknowledge firmware policy:")
+	})
+}
+
 func TestManagementFirmwarePolicyReceiptAndReload(t *testing.T) {
 	receipt := firmwarepolicy.Receipt{Revision: 1, Digest: firmwarepolicy.Hash([]byte("document"))}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,9 @@ import (
 )
 
 const FirmwarePolicyChannel = "firmware_policy_notifier"
+const defaultFirmwarePolicyWatchLimit = 16
+
+var ErrTooManyFirmwarePolicyWatchers = errors.New("too many firmware policy watchers")
 
 // FirmwarePolicyNotifier publishes hints only. Durable revision and delivery
 // state live in the database; publishing never acknowledges agent receipt.
@@ -65,13 +68,22 @@ type policyDeviceKey struct {
 type FirmwarePolicyHub struct {
 	mu           sync.Mutex
 	watchers     map[policyDeviceKey]map[chan struct{}]struct{}
+	watchLimit   int
 	subscriber   queues.PubSubSubscriber
 	subscription queues.Subscription
 	cancel       context.CancelFunc
 	closeOnce    sync.Once
 }
 
-func NewFirmwarePolicyHub(ctx context.Context, provider queues.Provider) (*FirmwarePolicyHub, error) {
+type FirmwarePolicyHubOption func(*FirmwarePolicyHub)
+
+func WithFirmwarePolicyWatchLimit(limit int) FirmwarePolicyHubOption {
+	return func(h *FirmwarePolicyHub) {
+		h.watchLimit = limit
+	}
+}
+
+func NewFirmwarePolicyHub(ctx context.Context, provider queues.Provider, opts ...FirmwarePolicyHubOption) (*FirmwarePolicyHub, error) {
 	if provider == nil {
 		return nil, errors.New("firmware policy hub requires queue provider")
 	}
@@ -85,7 +97,20 @@ func NewFirmwarePolicyHub(ctx context.Context, provider queues.Provider) (*Firmw
 		cancel()
 		return nil, errors.New("firmware policy subscriber is unavailable")
 	}
-	h := &FirmwarePolicyHub{watchers: map[policyDeviceKey]map[chan struct{}]struct{}{}, subscriber: subscriber, cancel: cancel}
+	h := &FirmwarePolicyHub{
+		watchers:   map[policyDeviceKey]map[chan struct{}]struct{}{},
+		watchLimit: defaultFirmwarePolicyWatchLimit,
+		subscriber: subscriber,
+		cancel:     cancel,
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	if h.watchLimit < 1 {
+		cancel()
+		subscriber.Close()
+		return nil, errors.New("firmware policy watch limit must be positive")
+	}
 	subscription, err := subscriber.Subscribe(ctx, func(_ context.Context, payload []byte, _ logrus.FieldLogger) error {
 		var n serializedResourceId
 		if err := json.Unmarshal(payload, &n); err != nil {
@@ -119,16 +144,20 @@ func NewFirmwarePolicyHub(ctx context.Context, provider queues.Provider) (*Firmw
 }
 
 // Watch registers before the caller reads the authoritative policy head.
-func (h *FirmwarePolicyHub) Watch(org uuid.UUID, name string) (<-chan struct{}, func()) {
+func (h *FirmwarePolicyHub) Watch(org uuid.UUID, name string) (<-chan struct{}, func(), error) {
 	ch := make(chan struct{}, 1)
 	key := policyDeviceKey{org, name}
 	h.mu.Lock()
+	if len(h.watchers[key]) >= h.watchLimit {
+		h.mu.Unlock()
+		return nil, nil, ErrTooManyFirmwarePolicyWatchers
+	}
 	if h.watchers[key] == nil {
 		h.watchers[key] = map[chan struct{}]struct{}{}
 	}
 	h.watchers[key][ch] = struct{}{}
 	h.mu.Unlock()
-	return ch, func() {
+	unwatch := func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		delete(h.watchers[key], ch)
@@ -136,6 +165,7 @@ func (h *FirmwarePolicyHub) Watch(org uuid.UUID, name string) (<-chan struct{}, 
 			delete(h.watchers, key)
 		}
 	}
+	return ch, unwatch, nil
 }
 
 func (h *FirmwarePolicyHub) Close() {

@@ -51,7 +51,7 @@ var _ = Describe("Private updater policy delivery", func() {
 		var err error
 		broker, err = queues.NewRedisProvider(suite.Ctx, suite.Log, "policy-read-"+uuid.NewString(), redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 		Expect(err).NotTo(HaveOccurred())
-		hub, err = rendered.NewFirmwarePolicyHub(suite.Ctx, broker)
+		hub, err = rendered.NewFirmwarePolicyHub(suite.Ctx, broker, rendered.WithFirmwarePolicyWatchLimit(1))
 		Expect(err).NotTo(HaveOccurred())
 		st, err := catalogstore.NewStore(suite.DB)
 		Expect(err).NotTo(HaveOccurred())
@@ -70,6 +70,18 @@ var _ = Describe("Private updater policy delivery", func() {
 		Expect(status.Code).To(Equal(int32(http.StatusOK)))
 		Expect(v).NotTo(BeNil())
 		return v
+	}
+	type policyReadResult struct {
+		view   *firmwarepolicy.View
+		status domain.Status
+	}
+	readAsync := func(ctx context.Context, revision int64, digest string) chan policyReadResult {
+		result := make(chan policyReadResult, 1)
+		go func() {
+			view, status := device.GetFirmwarePolicy(ctx, suite.OrgID, name, revision, digest)
+			result <- policyReadResult{view: view, status: status}
+		}()
+		return result
 	}
 	It("When policy is unavailable or the identity is absent it should fail closed", func() {
 		_, status := device.GetFirmwarePolicy(suite.Ctx, suite.OrgID, name, 0, "")
@@ -107,23 +119,43 @@ var _ = Describe("Private updater policy delivery", func() {
 		_, err := catalog.Activate(suite.Ctx, input)
 		Expect(err).NotTo(HaveOccurred())
 		before := read(0, "")
-		result := make(chan *firmwarepolicy.View, 1)
-		statuses := make(chan domain.Status, 1)
-		go func() {
-			v, s := device.GetFirmwarePolicy(suite.Ctx, suite.OrgID, name, before.Revision, before.Digest)
-			result <- v
-			statuses <- s
+		contexts := make([]context.Context, 2)
+		cancels := make([]context.CancelFunc, 2)
+		results := make([]chan policyReadResult, 2)
+		for i := range results {
+			contexts[i], cancels[i] = context.WithCancel(suite.Ctx)
+			results[i] = readAsync(contexts[i], before.Revision, before.Digest)
+		}
+		defer func() {
+			for _, cancel := range cancels {
+				cancel()
+			}
 		}()
+		active := -1
+		var rejected policyReadResult
+		Eventually(func() bool {
+			for i, result := range results {
+				select {
+				case rejected = <-result:
+					if rejected.status.Code == int32(http.StatusTooManyRequests) {
+						active = 1 - i
+						return true
+					}
+				default:
+				}
+			}
+			return false
+		}, time.Second, 10*time.Millisecond).Should(BeTrue())
 		input.Revision = 2
 		input.Releases = nil
 		_, err = catalog.Activate(suite.Ctx, input)
 		Expect(err).NotTo(HaveOccurred())
-		var next *firmwarepolicy.View
-		Eventually(result, time.Second).Should(Receive(&next))
-		var status domain.Status
-		Eventually(statuses).Should(Receive(&status))
-		Expect(status.Code).To(Equal(int32(http.StatusOK)))
-		Expect(next.Revision).To(Equal(int64(2)))
+		var next policyReadResult
+		Eventually(results[active], time.Second).Should(Receive(&next))
+		Expect(next.status.Code).To(Equal(int32(http.StatusOK)))
+		Expect(next.view).NotTo(BeNil())
+		Expect(next.view.Revision).To(Equal(int64(2)))
+		Expect(rejected.status.Code).To(Equal(int32(http.StatusTooManyRequests)))
 	})
 	It("When enrollment gates mutation it should deliver policy and preserve the gate across unchanged or conflicting reads", func() {
 		_, err := catalog.Activate(suite.Ctx, input)
@@ -290,9 +322,39 @@ var _ = Describe("Private updater policy delivery", func() {
 		_, err := catalog.Activate(suite.Ctx, input)
 		Expect(err).NotTo(HaveOccurred())
 		v := read(0, "")
-		ctx, cancel := context.WithCancel(suite.Ctx)
-		cancel()
-		_, status := device.GetFirmwarePolicy(ctx, suite.OrgID, name, v.Revision, v.Digest)
-		Expect(status.Code).NotTo(Equal(int32(http.StatusOK)))
+		contexts := make([]context.Context, 2)
+		cancels := make([]context.CancelFunc, 2)
+		results := make([]chan policyReadResult, 2)
+		for i := range results {
+			contexts[i], cancels[i] = context.WithCancel(suite.Ctx)
+			results[i] = readAsync(contexts[i], v.Revision, v.Digest)
+		}
+		defer func() {
+			for _, cancel := range cancels {
+				cancel()
+			}
+		}()
+		active := -1
+		Eventually(func() bool {
+			for i, result := range results {
+				select {
+				case <-result:
+					active = 1 - i
+					return true
+				default:
+				}
+			}
+			return false
+		}, time.Second, 10*time.Millisecond).Should(BeTrue())
+		cancels[active]()
+		var canceled policyReadResult
+		Eventually(results[active], time.Second).Should(Receive(&canceled))
+		Expect(canceled.status.Code).To(Equal(int32(http.StatusServiceUnavailable)))
+		input.Revision = 2
+		input.Releases = nil
+		_, err = catalog.Activate(suite.Ctx, input)
+		Expect(err).NotTo(HaveOccurred())
+		next := read(v.Revision, v.Digest)
+		Expect(next.Revision).To(Equal(int64(2)))
 	})
 })

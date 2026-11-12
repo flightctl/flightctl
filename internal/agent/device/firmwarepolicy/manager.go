@@ -60,7 +60,7 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	}
 	o.poll.Rand = nil
 	if err := o.poll.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate firmware policy retry config: %w", err)
 	}
 	if o.poll.MaxDelay <= 0 {
 		return nil, errors.New("firmware policy retry delay must be bounded")
@@ -69,17 +69,17 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	state := &retained{}
 	data, err := rw.ReadFileLimited(m.path, policy.MaxWireBytes)
 	if err != nil && !os.IsNotExist(err) {
-		state.err = fmt.Errorf("%w: %w", ErrUnavailable, err)
+		state.err = fmt.Errorf("%w: read retained firmware policy: %w", ErrUnavailable, err)
 		state.historyUnavailable = true
 	} else if err == nil {
 		view, decodeErr := policy.ParseView(data)
 		if decodeErr != nil {
-			state.err = fmt.Errorf("%w: %w", ErrUnavailable, decodeErr)
+			state.err = fmt.Errorf("%w: decode retained firmware policy: %w", ErrUnavailable, decodeErr)
 			state.historyUnavailable = true
 		} else {
 			state, err = accepted(view)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("accept retained firmware policy: %w", err)
 			}
 		}
 	}

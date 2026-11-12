@@ -95,7 +95,7 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.UpdaterCatalogHead{ID: 1}).Error; err != nil {
 		return err
 	}
-	// Normalize the delivery digest when the private wire encoding changes.
+	// Verify that persisted policy state still matches its accepted digest.
 	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
 		head, err := readHead(tx, "UPDATE")
 		if err != nil {
@@ -104,7 +104,7 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 		if head.Revision == 0 {
 			return nil
 		}
-		snapshot, err := readSnapshot(tx, head)
+		snapshot, err := readPolicySnapshot(tx, head)
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 		if head.PolicyDigest == view.Digest {
 			return nil
 		}
-		return tx.Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Update("policy_digest", view.Digest).Error
+		return errors.New("accepted updater policy digest is inconsistent")
 	})
 }
 
@@ -191,6 +191,21 @@ func readSnapshot(tx *gorm.DB, head model.UpdaterCatalogHead) (Snapshot, error) 
 	}
 	if err := tx.Find(&result.Schemas).Error; err != nil {
 		return Snapshot{}, err
+	}
+	canonicalOrder(&result)
+	return result, nil
+}
+
+func readPolicySnapshot(tx *gorm.DB, head model.UpdaterCatalogHead) (Snapshot, error) {
+	result := Snapshot{Revision: head.Revision, InputDigest: head.InputDigest, PolicyDigest: head.PolicyDigest, Releases: []model.UpdaterRelease{}, Tombstones: []model.UpdaterRevocation{}}
+	if err := tx.Limit(maxRetainedReleases + 1).Find(&result.Releases).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if err := tx.Limit(maxRetainedReleases + 1).Find(&result.Tombstones).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if len(result.Releases)+len(result.Tombstones) > maxRetainedReleases {
+		return Snapshot{}, errors.New("updater policy exceeds the retained record limit")
 	}
 	canonicalOrder(&result)
 	return result, nil
@@ -591,7 +606,7 @@ func (s *Store) PolicyForDevice(ctx context.Context, org uuid.UUID, name string)
 		if head.Revision == 0 {
 			return errors.New("no updater catalog has been accepted")
 		}
-		snapshot, err := readSnapshot(tx, head)
+		snapshot, err := readPolicySnapshot(tx, head)
 		if err != nil {
 			return err
 		}

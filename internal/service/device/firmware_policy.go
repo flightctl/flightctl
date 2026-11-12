@@ -45,7 +45,10 @@ func (h *DeviceServiceHandler) GetFirmwarePolicy(ctx context.Context, org uuid.U
 			return nil, domain.StatusBadRequest(err.Error())
 		}
 	}
-	hints, unwatch := h.policyHub.Watch(org, name)
+	hints, unwatch, err := h.policyHub.Watch(org, name)
+	if err != nil {
+		return nil, domain.StatusTooManyRequests("too many concurrent firmware policy requests")
+	}
 	defer unwatch()
 	timer := time.NewTimer(h.policyWait)
 	defer timer.Stop()

@@ -29,11 +29,14 @@ func TestFirmwarePolicyIndependentWaiters(t *testing.T) {
 	require.NoError(t, err)
 	defer hub.Close()
 	org := uuid.New()
-	first, unwatch := hub.Watch(org, "device")
+	first, unwatch, err := hub.Watch(org, "device")
+	require.NoError(t, err)
 	defer unwatch()
-	second, unwatch2 := hub.Watch(org, "device")
+	second, unwatch2, err := hub.Watch(org, "device")
+	require.NoError(t, err)
 	defer unwatch2()
-	other, unwatchOther := hub.Watch(uuid.New(), "device")
+	other, unwatchOther, err := hub.Watch(uuid.New(), "device")
+	require.NoError(t, err)
 	defer unwatchOther()
 	payload, err := json.Marshal(serializedResourceId{OrgId: org, Name: "device", Type: NotificationTypeFirmwarePolicy, PolicyRevision: 2})
 	require.NoError(t, err)
@@ -58,6 +61,39 @@ func TestFirmwarePolicyIndependentWaiters(t *testing.T) {
 	default:
 	}
 	require.Error(t, handle(context.Background(), []byte("invalid"), logrus.New()))
+}
+
+func TestFirmwarePolicyWatchLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	provider := queues.NewMockProvider(ctrl)
+	subscriber := queues.NewMockPubSubSubscriber(ctrl)
+	subscription := queues.NewMockSubscription(ctrl)
+	provider.EXPECT().NewPubSubSubscriber(gomock.Any(), FirmwarePolicyChannel).Return(subscriber, nil)
+	subscriber.EXPECT().Subscribe(gomock.Any(), gomock.Any()).Return(subscription, nil)
+	subscription.EXPECT().Close()
+	subscriber.EXPECT().Close()
+	hub, err := NewFirmwarePolicyHub(context.Background(), provider, WithFirmwarePolicyWatchLimit(1))
+	require.NoError(t, err)
+	defer hub.Close()
+	org := uuid.New()
+	_, unwatch, err := hub.Watch(org, "device")
+	require.NoError(t, err)
+	_, _, err = hub.Watch(org, "device")
+	require.ErrorIs(t, err, ErrTooManyFirmwarePolicyWatchers)
+	unwatch()
+	_, unwatchSecond, err := hub.Watch(org, "device")
+	require.NoError(t, err)
+	unwatchSecond()
+}
+
+func TestFirmwarePolicyWatchLimitValidation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	provider := queues.NewMockProvider(ctrl)
+	subscriber := queues.NewMockPubSubSubscriber(ctrl)
+	provider.EXPECT().NewPubSubSubscriber(gomock.Any(), FirmwarePolicyChannel).Return(subscriber, nil)
+	subscriber.EXPECT().Close()
+	_, err := NewFirmwarePolicyHub(context.Background(), provider, WithFirmwarePolicyWatchLimit(0))
+	require.ErrorContains(t, err, "firmware policy watch limit must be positive")
 }
 
 func TestFirmwarePolicyHubConstructorFailures(t *testing.T) {
