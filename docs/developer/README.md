@@ -69,6 +69,9 @@ epoch-2 Netavark RPM while the rolling UBI9 repository has mismatched Netavark
 and Aardvark epochs. The baseline retains its application source and Go toolset.
 The repair is idempotent and fails if the recipe no longer matches the reviewed
 patch. Remove this temporary repair once the UBI9 package set is consistent.
+The baseline build reports a dirty Git tree when this recipe repair applies.
+Upgrade version checks use the recorded build tag and tree state, so they still
+require the exact baseline revision and its corresponding `-dirty` suffix.
 
 To run integration tests, use `make integration-test`. This requires Podman (or Docker) - the test
 framework uses testcontainers to automatically start ephemeral Postgres, Redis, and Alertmanager

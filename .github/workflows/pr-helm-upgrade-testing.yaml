@@ -156,15 +156,10 @@ jobs:
         env:
           EXPECTED_CLIENT_TAG: ${{ needs.build-baseline.outputs.cli_git_tag }}
           EXPECTED_SERVER_TAG: ${{ needs.build-baseline.outputs.git_tag }}
+          EXPECTED_SERVER_TREE_STATE: ${{ needs.build-baseline.outputs.git_tree_state }}
         run: |
           set -euo pipefail
-          CLIENT_VERSION=$(./bin/flightctl version | grep "Client Version:" | awk '{print $3}')
-          SERVER_VERSION=$(./bin/flightctl version | grep "Server Version:" | awk '{print $3}')
-          
-          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
-          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
-          
-          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+          bash hack/validate-upgrade-versions.sh ./bin/flightctl
 
       - name: "[BASELINE] Apply test resources"
         run: |
@@ -256,15 +251,10 @@ jobs:
         env:
           EXPECTED_CLIENT_TAG: ${{ needs.build-pr.outputs.cli_git_tag }}
           EXPECTED_SERVER_TAG: ${{ needs.build-pr.outputs.git_tag }}
+          EXPECTED_SERVER_TREE_STATE: ${{ needs.build-pr.outputs.git_tree_state }}
         run: |
           set -euo pipefail
-          CLIENT_VERSION=$(./bin-pr/flightctl version | grep "Client Version:" | awk '{print $3}')
-          SERVER_VERSION=$(./bin-pr/flightctl version | grep "Server Version:" | awk '{print $3}')
-          
-          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
-          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
-          
-          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+          bash hack/validate-upgrade-versions.sh ./bin-pr/flightctl
 
       - name: "[HEAD] Verify resources"
         run: |
@@ -322,15 +312,10 @@ jobs:
         env:
           EXPECTED_CLIENT_TAG: ${{ needs.build-pr.outputs.cli_git_tag }}
           EXPECTED_SERVER_TAG: ${{ needs.build-pr.outputs.git_tag }}
+          EXPECTED_SERVER_TREE_STATE: ${{ needs.build-pr.outputs.git_tree_state }}
         run: |
           set -euo pipefail
-          CLIENT_VERSION=$(./bin-pr/flightctl version | grep "Client Version:" | awk '{print $3}')
-          SERVER_VERSION=$(./bin-pr/flightctl version | grep "Server Version:" | awk '{print $3}')
-          
-          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
-          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
-          
-          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+          bash hack/validate-upgrade-versions.sh ./bin-pr/flightctl
           
           ./bin-pr/flightctl get dev 
 
