@@ -457,19 +457,21 @@ func TestFleetFirmwareAdmissionDeferredChecks(t *testing.T) {
 func TestReplaceFleetFirmwareAdmission(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("When the replacement omits the template firmware it should keep the stored firmware without lookups", func(t *testing.T) {
+	t.Run("When the replacement omits the template firmware it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeFleet(t, admissionFleet("fleet-1", admissionFirmware(t)))
 		f.resetRecords()
 
 		_, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", admissionFleet("fleet-1", nil), true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Template.Spec.Firmware, f.store.fleets["fleet-1"].Spec.Template.Spec.Firmware)
 		assert.Empty(t, f.descriptors.lookups)
-	})
 
-	t.Run("When the replacement omits the firmware but changes the template it should validate the kept firmware", func(t *testing.T) {
+		assert.Equal(t, before, f.store.fleets["fleet-1"])
+	})
+	t.Run("When the replacement omits the firmware but changes the template it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeFleet(t, admissionFleet("fleet-1", admissionFirmware(t)))
 		f.resetRecords()
@@ -478,13 +480,15 @@ func TestReplaceFleetFirmwareAdmission(t *testing.T) {
 
 		_, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", replacement, true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Template.Spec.Firmware, f.store.fleets["fleet-1"].Spec.Template.Spec.Firmware)
-		assert.Equal(t, "quay.io/example/os:2", f.store.fleets["fleet-1"].Spec.Template.Spec.Os.Image)
-		assert.Equal(t, []string{releaseLookup}, f.descriptors.lookups)
-	})
+		assert.Equal(t, before.Spec, f.store.fleets["fleet-1"].Spec)
+		assert.Empty(t, f.descriptors.lookups)
 
-	t.Run("When a synchronized replacement omits the firmware it should keep the stored firmware", func(t *testing.T) {
+		assert.Equal(t, before, f.store.fleets["fleet-1"])
+	})
+	t.Run("When a synchronized replacement omits the firmware it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		owned := admissionFleet("fleet-1", admissionFirmware(t))
 		owned.Metadata.Owner = lo.ToPtr("ResourceSync/sync-1")
@@ -495,20 +499,24 @@ func TestReplaceFleetFirmwareAdmission(t *testing.T) {
 
 		_, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", replacement, false)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Template.Spec.Firmware, f.store.fleets["fleet-1"].Spec.Template.Spec.Firmware)
-	})
 
-	t.Run("When an owned fleet is replaced without firmware and an unchanged template it should not report an ownership conflict", func(t *testing.T) {
+		assert.Equal(t, before, f.store.fleets["fleet-1"])
+	})
+	t.Run("When an owned fleet is replaced without firmware and an unchanged template it should reject omission before evaluating ownership", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		owned := admissionFleet("fleet-1", admissionFirmware(t))
 		owned.Metadata.Owner = lo.ToPtr("ResourceSync/sync-1")
-		f.storeFleet(t, owned)
+		before := f.storeFleet(t, owned)
 		f.resetRecords()
 
 		_, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", admissionFleet("fleet-1", nil), true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
+		assert.Equal(t, before, f.store.fleets["fleet-1"])
 		assert.NotNil(t, f.store.fleets["fleet-1"].Spec.Template.Spec.Firmware)
 	})
 

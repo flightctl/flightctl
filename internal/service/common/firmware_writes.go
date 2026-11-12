@@ -23,10 +23,19 @@ const (
 	firmwareStatusSchemaName = "FirmwareStatus"
 )
 
-// PreserveOmittedFirmware returns the device spec to store when a write
-// replaces spec: a spec that omits firmware keeps the stored firmware, because
-// only an explicit JSON Patch removal withdraws firmware management. spec is
-// never modified; a shallow copy carries the stored firmware instead.
+// ValidateFirmwareReplacement rejects a PUT that would omit managed firmware.
+// The check runs against the current resource inside the write mutation, so a
+// concurrent writer cannot introduce firmware between validation and persistence.
+func ValidateFirmwareReplacement(spec, stored *domain.DeviceSpec, path string) error {
+	if stored != nil && stored.Firmware != nil && (spec == nil || spec.Firmware == nil) {
+		return fmt.Errorf("%s: PUT must include existing firmware; use JSON Patch remove at %s to withdraw firmware management", strings.ReplaceAll(strings.TrimPrefix(path, "/"), "/", "."), path)
+	}
+	return nil
+}
+
+// PreserveOmittedFirmware preserves firmware for internal updates and patches
+// that do not explicitly remove it. PUT requests use ValidateFirmwareReplacement
+// instead. spec is never modified; a shallow copy carries the stored firmware.
 func PreserveOmittedFirmware(spec, stored *domain.DeviceSpec) *domain.DeviceSpec {
 	if stored == nil || stored.Firmware == nil || (spec != nil && spec.Firmware != nil) {
 		return spec

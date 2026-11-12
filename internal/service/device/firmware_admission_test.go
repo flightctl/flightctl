@@ -469,22 +469,23 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 		assert.Empty(t, f.successEvents())
 	})
 
-	t.Run("When the replacement omits firmware it should keep the stored firmware without lookups or reference writes", func(t *testing.T) {
+	t.Run("When the replacement omits firmware it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), nil, completeSet...)
 		f.resetRecords()
 
-		result, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", newAdmissionDevice("foo", admissionSpec(t, nil)), nil, true, true)
+		_, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", newAdmissionDevice("foo", admissionSpec(t, nil)), nil, true, true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
-		assert.Equal(t, before.Spec.Firmware, result.Spec.Firmware)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Firmware, f.store.device.devices["foo"].Spec.Firmware)
 		assert.Empty(t, f.descriptors.lookups)
 		assert.Zero(t, f.store.device.repoRefWrites)
 		assert.Equal(t, completeSet, f.store.device.repoRefs["foo"])
-	})
 
-	t.Run("When the replacement omits firmware but changes the configuration it should validate the kept firmware and update the references", func(t *testing.T) {
+		assert.Equal(t, before, f.store.device.devices["foo"])
+	})
+	t.Run("When the replacement omits firmware but changes the configuration it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), nil, completeSet...)
 		f.resetRecords()
@@ -493,12 +494,14 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 
 		_, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", newAdmissionDevice("foo", spec), nil, true, true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Firmware, f.store.device.devices["foo"].Spec.Firmware)
-		assert.Equal(t, []string{releaseLookup}, f.descriptors.lookups)
-		assert.Equal(t, []string{"firmware-artifacts", "firmware-signatures"}, f.store.device.repoRefs["foo"])
-	})
+		assert.Empty(t, f.descriptors.lookups)
+		assert.Equal(t, completeSet, f.store.device.repoRefs["foo"])
 
+		assert.Equal(t, before, f.store.device.devices["foo"])
+	})
 	t.Run("When the replacement firmware is not authorized it should leave the device and references unchanged", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, nil), nil, "config-http", "firmware-artifacts")
@@ -516,7 +519,7 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 		assert.Empty(t, f.successEvents())
 	})
 
-	t.Run("When a fleet-owned device is replaced without firmware and an unchanged spec it should keep the firmware and accept the write", func(t *testing.T) {
+	t.Run("When a fleet-owned device is replaced without firmware and an unchanged spec it should reject the PUT without changing stored state", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), lo.ToPtr("Fleet/fleet-1"))
 		f.resetRecords()
@@ -525,12 +528,14 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 
 		_, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", replacement, nil, true, true)
 
-		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code, status.Message)
+		assert.Contains(t, status.Message, "JSON Patch remove")
 		assert.Equal(t, before.Spec.Firmware, f.store.device.devices["foo"].Spec.Firmware)
 		assert.Empty(t, f.descriptors.lookups)
 		assert.Zero(t, f.store.device.repoRefWrites)
-	})
 
+		assert.Equal(t, before, f.store.device.devices["foo"])
+	})
 	t.Run("When a fleet-owned device's firmware would change it should reject the write before any lookup", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), lo.ToPtr("Fleet/fleet-1"))

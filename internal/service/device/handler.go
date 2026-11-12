@@ -387,11 +387,11 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
 			return err
 		}
-		// A replacement that omits firmware keeps the stored firmware.
-		spec := device.Spec
-		if spec != nil {
-			spec = common.PreserveOmittedFirmware(spec, current.Spec)
+		if err := common.ValidateFirmwareReplacement(device.Spec, current.Spec, common.DeviceFirmwarePatchPath); err != nil {
+			callbackStatus = domain.StatusBadRequest(err.Error())
+			return common.ApiStatusToErr(callbackStatus)
 		}
+		spec := device.Spec
 		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(spec)) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
