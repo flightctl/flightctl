@@ -34,6 +34,7 @@ import (
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
+	updatercatalogstore "github.com/flightctl/flightctl/internal/store/updatercatalog"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -102,6 +103,14 @@ func run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool, 
 // post-migration customizations (FK-constraint drop, default-catalog backfill).
 func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLogger, enrollmentSignerName string) error {
 	if err := tx.WithContext(ctx).AutoMigrate(&model.SchemaMigration{}); err != nil {
+		return err
+	}
+
+	catalogStore, err := updatercatalogstore.NewStore(tx)
+	if err != nil {
+		return err
+	}
+	if err := catalogStore.InitialMigration(ctx); err != nil {
 		return err
 	}
 
