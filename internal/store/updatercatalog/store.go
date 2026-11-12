@@ -387,3 +387,66 @@ func (s *Store) PendingRefresh(ctx context.Context, limit int) ([]model.UpdaterC
 	return result, err
 }
 func hash(data []byte) string { return fmt.Sprintf("sha256:%x", sha256.Sum256(data)) }
+
+// ReleaseLookup separates retained identity from current authorization.
+type ReleaseLookup struct {
+	Binding  *model.UpdaterRelease
+	Approved bool
+}
+
+func (s *Store) LookupRelease(ctx context.Context, name, version string) (ReleaseLookup, error) {
+	var result ReleaseLookup
+	err := s.readAccepted(ctx, func(tx *gorm.DB) error {
+		var binding model.UpdaterRelease
+		err := tx.Where("name = ? AND version = ?", name, version).Take(&binding).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var revoked int64
+		if err = tx.Model(&model.UpdaterRevocation{}).Where("name = ? AND version = ?", name, version).Count(&revoked).Error; err != nil {
+			return err
+		}
+		result = ReleaseLookup{Binding: &binding, Approved: revoked == 0}
+		return nil
+	})
+	if err != nil {
+		return ReleaseLookup{}, err
+	}
+	return result, nil
+}
+
+func (s *Store) LookupSchemaByDigest(ctx context.Context, name, digest string) (*model.UpdaterSchemaEvidence, error) {
+	var result *model.UpdaterSchemaEvidence
+	err := s.readAccepted(ctx, func(tx *gorm.DB) error {
+		var evidence model.UpdaterSchemaEvidence
+		err := tx.Where("name = ? AND digest = ?", name, digest).Take(&evidence).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result = &evidence
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Store) readAccepted(ctx context.Context, read func(*gorm.DB) error) error {
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		return read(tx)
+	})
+}
