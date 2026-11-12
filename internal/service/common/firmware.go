@@ -42,6 +42,9 @@ type ApprovedDescriptorProvider interface {
 
 // ApprovedDescriptor is the immutable description of one updater release.
 type ApprovedDescriptor struct {
+	// DescriptorJSON contains the complete immutable administrator binding,
+	// without current authorization. It is never supplied by Device/Fleet writers.
+	DescriptorJSON json.RawMessage
 	// Name and Version identify the release the descriptor describes.
 	Name    string
 	Version string

@@ -381,20 +381,25 @@ func validConfigPath(p string) bool {
 }
 
 func canonicalDigest(value any) (string, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	var normalized any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err = decoder.Decode(&normalized); err != nil {
-		return "", err
-	}
-	data, err = json.Marshal(normalized)
+	data, err := canonicalJSON(value)
 	if err != nil {
 		return "", err
 	}
 	return digestBytes(data), nil
 }
+
+func canonicalJSON(value any) ([]byte, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var normalized any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err = decoder.Decode(&normalized); err != nil {
+		return nil, err
+	}
+	return json.Marshal(normalized)
+}
+
 func digestBytes(data []byte) string { return fmt.Sprintf("sha256:%x", sha256.Sum256(data)) }

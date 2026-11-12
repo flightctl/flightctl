@@ -27,28 +27,30 @@ const (
 )
 
 type Config struct {
-	Database               *dbConfig                          `json:"database,omitempty"`
-	Service                *svcConfig                         `json:"service,omitempty"`
-	RemoteAccessService    *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
-	ImageBuilderService    *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker     *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
-	Worker                 *workerConfig                      `json:"worker,omitempty"`
-	KV                     *kvConfig                          `json:"kv,omitempty"`
-	Alertmanager           *alertmanagerConfig                `json:"alertmanager,omitempty"`
-	Auth                   *authConfig                        `json:"auth,omitempty"`
-	Metrics                *metricsConfig                     `json:"metrics,omitempty"`
-	CA                     *ca.Config                         `json:"ca,omitempty"`
-	Tracing                *TracingConfig                     `json:"tracing,omitempty"`
-	Profiling              *ProfilingConfig                   `json:"profiling,omitempty"`
-	GitOps                 *gitOpsConfig                      `json:"gitOps,omitempty"`
-	CryptoPolicy           *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
-	Periodic               *periodicConfig                    `json:"periodic,omitempty"`
-	Organizations          *organizationsConfig               `json:"organizations,omitempty"`
-	TelemetryGateway       *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
-	VulnerabilityReporting *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
-	DeltaGeneration        *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
-	DependenciesSync       *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
-	Encryption             *EncryptionConfig                  `json:"encryption,omitempty"`
+	// FirmwareUpdaterCatalogFile is trusted administrator input; empty uses retained accepted state.
+	FirmwareUpdaterCatalogFile string                             `json:"firmwareUpdaterCatalogFile,omitempty"`
+	Database                   *dbConfig                          `json:"database,omitempty"`
+	Service                    *svcConfig                         `json:"service,omitempty"`
+	RemoteAccessService        *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
+	ImageBuilderService        *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker         *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
+	Worker                     *workerConfig                      `json:"worker,omitempty"`
+	KV                         *kvConfig                          `json:"kv,omitempty"`
+	Alertmanager               *alertmanagerConfig                `json:"alertmanager,omitempty"`
+	Auth                       *authConfig                        `json:"auth,omitempty"`
+	Metrics                    *metricsConfig                     `json:"metrics,omitempty"`
+	CA                         *ca.Config                         `json:"ca,omitempty"`
+	Tracing                    *TracingConfig                     `json:"tracing,omitempty"`
+	Profiling                  *ProfilingConfig                   `json:"profiling,omitempty"`
+	GitOps                     *gitOpsConfig                      `json:"gitOps,omitempty"`
+	CryptoPolicy               *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
+	Periodic                   *periodicConfig                    `json:"periodic,omitempty"`
+	Organizations              *organizationsConfig               `json:"organizations,omitempty"`
+	TelemetryGateway           *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting     *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration            *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
+	DependenciesSync           *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
+	Encryption                 *EncryptionConfig                  `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
