@@ -46,6 +46,8 @@ The build applies `hack/fips-validator-native.patch` to the pinned upstream
 release. The patch validates the certified module's embedded build settings and
 integrity section for Go 1.27 binaries, including stripped and static binaries.
 It retains the existing OpenSSL checks for older Go and other executables.
+Validation fails if a stripped Go executable's function table is missing,
+unreadable, or malformed.
 Bundled Helm and `oci-delta` executables are also built from pinned sources with
 the native FIPS module, so the image check covers their cryptography too.
 Update the reviewed module identifiers in the patch when adopting a new

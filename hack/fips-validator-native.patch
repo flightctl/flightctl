@@ -1,6 +1,28 @@
 --- a/internal/validation/binary.go
 +++ b/internal/validation/binary.go
-@@ -64,10 +64,10 @@
+@@ -4,6 +4,7 @@
+ 	"context"
+ 	"debug/buildinfo"
+ 	"debug/elf"
++	"errors"
+ 	"fmt"
+ 	"path/filepath"
+ 	"slices"
+@@ -49,6 +50,13 @@
+ 
+ 	ei, err := elfinfo.ReadFile(filepath.Join(rootPath, path))
+ 	if err != nil {
++		// Symbol extraction failed for a recognized executable. Treat this as
++		// a validation failure, rather than skipping it as an unknown file.
++		if errors.Is(err, elfinfo.ErrSymbols) {
++			failure("failed\n")
++			fmt.Printf("  %s %v\n", red("✘"), err)
++			return false
++		}
+ 		if strings.HasPrefix(err.Error(), "bad magic number '[35 33") {
+ 			fmt.Printf("skipped (shell script)\n")
+ 		} else {
+@@ -64,10 +72,10 @@
  		fmt.Printf("skipped (no crypto)\n")
  		return true // Skip is considered success
  	}
@@ -12,7 +34,7 @@
  		debugFunc("skipping further validation (not a Go binary): %v", err)
  	} else {
  		ver := strings.TrimPrefix(bi.GoVersion, "go")
-@@ -77,7 +77,10 @@
+@@ -77,7 +85,10 @@
  		goVersion, err := semver.NewVersion(ver)
  		if err != nil {
  			errs = append(errs, fmt.Errorf("failed to parse Go version %q: %v", bi.GoVersion, err))
@@ -66,12 +88,15 @@
 +}
 --- /dev/null
 +++ b/internal/validation/native_go_test.go
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,160 @@
 +package validation
 +
 +import (
 +	"context"
 +	"debug/buildinfo"
++	"debug/elf"
++	"errors"
++	"fmt"
 +	"os"
 +	"os/exec"
 +	"path/filepath"
@@ -134,61 +159,177 @@
 +		})
 +	}
 +}
++
++func TestNativeGoMalformedSymbols(t *testing.T) {
++	for _, mode := range []string{"exe", "pie"} {
++		t.Run(mode, func(t *testing.T) { testNativeGoMalformedSymbols(t, mode) })
++	}
++}
++
++func testNativeGoMalformedSymbols(t *testing.T, mode string) {
++	t.Helper()
++	dir := t.TempDir()
++	source := filepath.Join(dir, "main.go")
++	if err := os.WriteFile(source, []byte(`package main
++import("crypto/sha256"; "fmt")
++func main(){fmt.Println(sha256.Sum256([]byte("fips")))}
++`), 0600); err != nil {
++		t.Fatal(err)
++	}
++	binary := filepath.Join(dir, "probe")
++	cmd := exec.Command("go", "build", "-buildmode="+mode, "-ldflags=-s -w", "-o", binary, source)
++	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOFIPS140=v1.0.0")
++	if output, err := cmd.CombinedOutput(); err != nil {
++		t.Fatalf("build probe: %v: %s", err, output)
++	}
++	if !ValidateBinary(context.Background(), "", binary, t.Logf) {
++		t.Fatal("valid stripped Go fixture was rejected")
++	}
++	data, err := os.ReadFile(binary)
++	if err != nil {
++		t.Fatal(err)
++	}
++	file, err := elf.Open(binary)
++	if err != nil {
++		t.Fatal(err)
++	}
++	order, class := file.ByteOrder, file.Class
++	pcln := file.Section(".gopclntab")
++	if pcln == nil {
++		pcln = file.Section(".data.rel.ro.gopclntab")
++	}
++	var pclnIndex, textIndex int
++	for i, section := range file.Sections {
++		switch section.Name {
++		case ".gopclntab", ".data.rel.ro.gopclntab":
++			pclnIndex = i
++		case ".text":
++			textIndex = i
++		}
++	}
++	if err := file.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if class != elf.ELFCLASS64 {
++		t.Skip("ELF corruption fixture requires ELF64")
++	}
++	if pcln == nil || pclnIndex == 0 || textIndex == 0 {
++		t.Fatal("Go fixture is missing expected ELF sections")
++	}
++	// ELF64 e_shoff/e_shentsize locate section headers; sh_name and sh_offset
++	// select a section's name and data independently of its contents.
++	sectionHeaders := order.Uint64(data[40:48])
++	sectionSize := uint64(order.Uint16(data[58:60]))
++	pclnHeader := sectionHeaders + uint64(pclnIndex)*sectionSize
++	textHeader := sectionHeaders + uint64(textIndex)*sectionSize
++	tests := []struct {
++		name    string
++		corrupt func([]byte)
++	}{
++		{"When the function-table header is corrupt it should reject the binary", func(b []byte) { clear(b[pcln.Offset : pcln.Offset+8]) }},
++		{"When the function table is unreadable it should reject the binary", func(b []byte) { order.PutUint64(b[pclnHeader+24:pclnHeader+32], uint64(len(b))+4096) }},
++		{"When the function table is missing it should reject the binary", func(b []byte) { order.PutUint32(b[pclnHeader:pclnHeader+4], 0) }},
++		{"When the text section is missing it should reject the binary", func(b []byte) { order.PutUint32(b[textHeader:textHeader+4], 0) }},
++		{"When the function table is empty it should reject the binary", func(b []byte) { clear(b[pcln.Offset+8 : pcln.Offset+16]) }},
++	}
++	for i, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			damaged := append([]byte(nil), data...)
++			tt.corrupt(damaged)
++			path := filepath.Join(dir, fmt.Sprintf("damaged-%d", i))
++			if err := os.WriteFile(path, damaged, 0600); err != nil {
++				t.Fatal(err)
++			}
++			if _, err := elfinfo.ReadFile(path); !errors.Is(err, elfinfo.ErrSymbols) {
++				t.Fatalf("expected symbol-loading error, got %v", err)
++			}
++			if ValidateBinary(context.Background(), "", path, t.Logf) {
++				t.Fatal("malformed Go binary was accepted")
++			}
++		})
++	}
++}
 --- a/pkg/elfinfo/elf.go
 +++ b/pkg/elfinfo/elf.go
-@@ -2,6 +2,7 @@
+@@ -2,7 +2,13 @@
  
  import (
  	"debug/elf"
 +	"debug/gosym"
++	"errors"
++	"fmt"
  )
++
++// ErrSymbols identifies an executable whose symbol information cannot be read.
++var ErrSymbols = errors.New("failed to read executable symbols")
  
  type ElfInfo struct {
-@@ -24,7 +25,7 @@
+ 	IsElf    bool
+@@ -24,7 +30,6 @@
  		info.IsElf = true
  		info.IsStatic = isStatic(exe)
  		info.Sections = getSectionNames(exe)
 -		info.Symbols, _ = exe.Symbols()
-+		info.Symbols = readSymbols(exe)
  	case elf.ET_DYN: // Either a binary or a shared object.
  		pie, err := isPie(exe)
  		if err != nil || !pie {
-@@ -33,7 +34,7 @@
+@@ -33,7 +38,12 @@
  		info.IsElf = true
  		info.IsStatic = isStatic(exe)
  		info.Sections = getSectionNames(exe)
 -		info.Symbols, _ = exe.Symbols()
-+		info.Symbols = readSymbols(exe)
++	}
++	if info.IsElf {
++		info.Symbols, err = readSymbols(exe)
++		if err != nil {
++			return nil, fmt.Errorf("%w: %w", ErrSymbols, err)
++		}
  	}
  	return info, nil
  }
-@@ -70,3 +71,39 @@
+@@ -70,3 +80,55 @@
  	}
  	return sectionNames
  }
 +
 +// Stripped Go binaries retain their function table. Use it for crypto detection
 +// so removing the ELF symbol table cannot bypass validation.
-+func readSymbols(file *elf.File) []elf.Symbol {
++func readSymbols(file *elf.File) ([]elf.Symbol, error) {
 +	symbols, err := file.Symbols()
-+	if err == nil {
-+		return symbols
++	if err == nil && len(symbols) > 0 {
++		return symbols, nil
 +	}
++	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
++		return nil, fmt.Errorf("read ELF symbol table: %w", err)
++	}
++	// A stripped binary has no regular symbol table. Go's function table is
++	// required to classify its crypto use; a failure must not imply no crypto.
 +	pcln := file.Section(".gopclntab")
 +	if pcln == nil {
 +		pcln = file.Section(".data.rel.ro.gopclntab")
 +	}
++	if pcln == nil {
++		if file.Section(".go.buildinfo") == nil && file.Section(".note.go.buildid") == nil {
++			// Stripped non-Go executables have no Go function table. Retain
++			// their existing handling when the regular symbol table is absent.
++			return nil, nil
++		}
++		return nil, fmt.Errorf("Go executable is missing its function table")
++	}
 +	text := file.Section(".text")
-+	if pcln == nil || text == nil {
-+		return nil
++	if text == nil {
++		return nil, fmt.Errorf("Go executable is missing its text section")
 +	}
 +	data, err := pcln.Data()
 +	if err != nil {
-+		return nil
++		return nil, fmt.Errorf("read Go function table: %w", err)
 +	}
 +	table, err := gosym.NewTable(nil, gosym.NewLineTable(data, text.Addr))
 +	if err != nil {
-+		return nil
++		return nil, fmt.Errorf("parse Go function table: %w", err)
++	}
++	if len(table.Funcs) == 0 {
++		return nil, fmt.Errorf("Go function table contains no functions")
 +	}
 +	var index elf.SectionIndex
 +	for i, section := range file.Sections {
@@ -200,5 +341,5 @@
 +	for _, fn := range table.Funcs {
 +		symbols = append(symbols, elf.Symbol{Name: fn.Name, Section: index})
 +	}
-+	return symbols
++	return symbols, nil
 +}
