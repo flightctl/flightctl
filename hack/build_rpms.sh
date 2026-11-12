@@ -268,8 +268,8 @@ build_base_image() {
     --network=host \
     --no-cache \
     --label "io.flightctl.rpm-builder-inputs=$(builder_inputs_hash)" \
-    -f hack/Containerfile.packit_builder \
-    -t "${BASE_IMAGE}"
+    -f "${SCRIPT_DIR}/Containerfile.packit_builder" \
+    -t "${BASE_IMAGE}" "${SCRIPT_DIR}"
 
   # Track built image for summary
   BUILT_IMAGES+=("base:${BASE_IMAGE}")
@@ -423,7 +423,11 @@ ensure_current_builder() {
   actual="$(podman image inspect --format '{{index .Labels "io.flightctl.rpm-builder-inputs"}}' "$image")"
   if [[ "$actual" != "$expected" ]]; then
     echo "Builder inputs changed; rebuilding ${image} from the current checkout"
-    rebuild_images
+    build_base_image
+    if [[ -n "$ROOT" ]] && is_known_root "$ROOT"; then
+      build_root_cache_image "$ROOT"
+    fi
+    print_build_summary
   fi
 }
 

@@ -11,7 +11,8 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT
 
 # Resolve the repository's selected compiler before leaving its module.
-export GOROOT="$(go env GOROOT)"
+GOROOT=$(go env GOROOT)
+export GOROOT
 export PATH="$GOROOT/bin:$PATH"
 export GOTOOLCHAIN=local
 cd "$build_dir"

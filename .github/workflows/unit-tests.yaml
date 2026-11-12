@@ -54,9 +54,11 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make build-fips-validator
 
-      - name: Test RPM builder cache selection
+      - name: Test build script failure and cache handling
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: bash hack/test-rpm-builder.sh
+        run: |
+          bash hack/test-rpm-builder.sh
+          bash hack/test-install-fips-validator.sh
 
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'

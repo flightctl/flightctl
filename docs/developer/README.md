@@ -56,6 +56,8 @@ certified snapshot. `make fips-validate` uses this same validator for containers
 RPM builder images record a fingerprint of their compiler and Mock build inputs.
 `make rpm` rebuilds an outdated builder locally when those inputs change. This
 allows toolchain updates to be tested before the scheduled builder publication.
+Automatic refresh builds only the base and the selected Mock root's cache.
+Use `sudo ./hack/build_rpms.sh --rebuild-image` to refresh all configured roots.
 
 `DISABLE_FIPS=true` selects `GOFIPS140=off` for development and unsupported
 delivery targets such as the ARMv7 build. It does not change runtime settings

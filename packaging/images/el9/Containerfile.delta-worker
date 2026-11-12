@@ -33,9 +33,10 @@ WORKDIR /app
 USER 0
 
 RUN ARCH=$(uname -m) && \
+    CENTOS_GPG_KEY=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256 && \
     mkdir -p /runtime-root/etc/yum.repos.d && \
-    echo -e "[centos-baseos]\nname=CentOS Stream 9 - BaseOS\nbaseurl=https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=0" > /runtime-root/etc/yum.repos.d/centos.repo && \
-    echo -e "[centos-appstream]\nname=CentOS Stream 9 - AppStream\nbaseurl=https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=0" >> /runtime-root/etc/yum.repos.d/centos.repo && \
+    echo -e "[centos-baseos]\nname=CentOS Stream 9 - BaseOS\nbaseurl=https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=1\ngpgkey=${CENTOS_GPG_KEY}" > /runtime-root/etc/yum.repos.d/centos.repo && \
+    echo -e "[centos-appstream]\nname=CentOS Stream 9 - AppStream\nbaseurl=https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=1\ngpgkey=${CENTOS_GPG_KEY}" >> /runtime-root/etc/yum.repos.d/centos.repo && \
     dnf install -y --installroot=/runtime-root --releasever=9 --setopt=install_weak_deps=False --nodocs \
         oci-delta openssl-libs tzdata && \
     dnf --installroot=/runtime-root clean all && \
@@ -43,7 +44,10 @@ RUN ARCH=$(uname -m) && \
     dnf --repofrompath=centos-baseos,https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/ \
         --repofrompath=centos-appstream,https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/ \
         --repofrompath=centos-crb,https://mirror.stream.centos.org/9-stream/CRB/${ARCH}/os/ \
-        --setopt=centos-baseos.gpgcheck=0 --setopt=centos-appstream.gpgcheck=0 --setopt=centos-crb.gpgcheck=0 \
+        --setopt=centos-baseos.gpgcheck=1 --setopt=centos-appstream.gpgcheck=1 --setopt=centos-crb.gpgcheck=1 \
+        --setopt=centos-baseos.gpgkey="${CENTOS_GPG_KEY}" \
+        --setopt=centos-appstream.gpgkey="${CENTOS_GPG_KEY}" \
+        --setopt=centos-crb.gpgkey="${CENTOS_GPG_KEY}" \
         install -y ostree-devel gpgme-devel
 
 # Copy dependencies first (most stable)
