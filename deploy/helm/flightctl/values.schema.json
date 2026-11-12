@@ -9,6 +9,30 @@
       "description": "Global parameters common to all components and subcharts",
       "additionalProperties": true,
       "properties": {
+        "firmwareUpdaterCatalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Administrator-owned immutable updater catalog ConfigMap input for API, worker and periodic runtimes.",
+          "properties": {
+            "configMapName": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+              "description": "Existing administrator ConfigMap name in each runtime namespace; empty uses retained database state."
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[-._a-zA-Z0-9]+$",
+              "description": "Data key containing the complete administrator catalog."
+            }
+          },
+          "required": [
+            "configMapName",
+            "key"
+          ]
+        },
         "enableOpenShiftExtensions": {
           "type": "string",
           "description": "Enable OpenShift extensions - one of 'auto', 'true', 'false'.",

@@ -309,6 +309,23 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.yaml -f values.acm.yaml -f my-custom.yaml
 ```
 
+## Firmware updater catalog
+
+Set `global.firmwareUpdaterCatalog.configMapName` to an administrator-created
+ConfigMap containing the complete catalog under the data key selected by
+`global.firmwareUpdaterCatalog.key` (default `updaters.yaml`). The API process
+(including the agent API), worker, and periodic pods mount this input read-only.
+This configuration is independent of the application Catalog API.
+
+Provide identical ConfigMaps in the release namespace and, when different,
+`global.internalNamespace`. Use a new immutable ConfigMap name for each higher
+catalog revision so updating the Helm value rolls all authorization runtimes.
+There is no file watcher. Removing the ConfigMap name uses previously accepted
+database state; it does not erase authorization history or revoke releases.
+
+See the [updater catalog contract](../../../docs/developer/architecture/updater-catalog.md)
+for validation, retained revocations, failure recovery, and execution gates.
+
 ## Contributing
 
 Please read the [contributing guidelines](https://github.com/flightctl/flightctl/blob/main/CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.

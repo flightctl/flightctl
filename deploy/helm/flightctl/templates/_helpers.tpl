@@ -1040,3 +1040,29 @@ encryption:
     {{- end }}
 {{- end }}
 {{- end -}}
+
+
+{{- define "flightctl.firmwareUpdaterCatalogConfig" -}}
+{{- if .Values.global.firmwareUpdaterCatalog.configMapName -}}
+firmwareUpdaterCatalogFile: /etc/flightctl/firmware/updaters.yaml
+{{- end -}}
+{{- end -}}
+
+{{- define "flightctl.firmwareUpdaterCatalogMount" -}}
+{{- if .Values.global.firmwareUpdaterCatalog.configMapName -}}
+- name: firmware-updater-catalog
+  mountPath: /etc/flightctl/firmware
+  readOnly: true
+{{- end -}}
+{{- end -}}
+
+{{- define "flightctl.firmwareUpdaterCatalogVolume" -}}
+{{- if .Values.global.firmwareUpdaterCatalog.configMapName -}}
+- name: firmware-updater-catalog
+  configMap:
+    name: {{ .Values.global.firmwareUpdaterCatalog.configMapName | quote }}
+    items:
+      - key: {{ .Values.global.firmwareUpdaterCatalog.key | quote }}
+        path: updaters.yaml
+{{- end -}}
+{{- end -}}

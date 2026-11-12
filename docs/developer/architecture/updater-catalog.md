@@ -199,3 +199,57 @@ read-only invocations; retained evidence does not restore approval. The receiver
 never changes spec, retry generation, rollback or pinned attempt data and never
 executes code or arms a reboot. Mutation remains fenced pending execution and
 post-arm hold integration and qualification.
+
+## Helm installation and recovery
+
+Create an administrator-owned ConfigMap containing the whole catalog. This
+initial example approves no updater releases:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: firmware-updaters-r1
+  namespace: flightctl
+immutable: true
+data:
+  updaters.yaml: |
+    apiVersion: firmware-catalog/v1
+    revision: 1
+    releases: []
+```
+
+Select it through chart values:
+
+```yaml
+global:
+  firmwareUpdaterCatalog:
+    configMapName: firmware-updaters-r1
+    key: updaters.yaml
+```
+
+The chart mounts the selected key read-only as
+`/etc/flightctl/firmware/updaters.yaml` and sets `firmwareUpdaterCatalogFile` for
+the API (including agent API), worker, and periodic runtimes. It does not create
+or edit the administrator ConfigMap. Provide identical ConfigMaps in the release
+namespace and `global.internalNamespace` when those namespaces differ.
+
+For each update, validate a complete higher-revision document, retain previous
+tombstones, create a new immutable ConfigMap name, and update the Helm value.
+The changed pod volume source rolls the runtimes. Identical activation by several
+starting replicas is safe. Changing data in a mutable ConfigMap alone does not
+activate a running process: there is no file watcher.
+
+A bad, conflicting, or stale configured document fails startup while the last
+accepted database state remains intact. Recover by supplying the accepted
+current document or a valid higher revision. Setting the ConfigMap name to empty
+removes the startup-file selection and uses accepted database state; it does not
+clear history or undo revocation. Do not restore an older database or delete an
+agent policy file to reset authorization. Back up the complete trusted catalog
+history and retain the administrator input that produced it.
+
+For other deployments, mount the same administrator file read-only and set the
+startup configuration field directly in each relevant runtime. Catalog input
+contains public publisher trust and access metadata, not repository credentials.
+Installing it does not enable firmware mutation; execution and post-arm handling
+must still satisfy their integration and qualification gates.

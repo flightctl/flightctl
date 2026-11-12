@@ -86,6 +86,7 @@ spec:
                   key: token
             {{- end }}
           volumeMounts:
+            {{- include "flightctl.firmwareUpdaterCatalogMount" . | nindent 12 }}
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-periodic-config
               subPath: config.yaml
@@ -102,6 +103,7 @@ spec:
 
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.firmwareUpdaterCatalogVolume" . | nindent 8 }}
         - name: flightctl-periodic-config
           configMap:
             name: flightctl-periodic-config
