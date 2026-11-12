@@ -610,6 +610,7 @@ const (
 	SpecSelector                    ResourceUpdatedDetailsUpdatedFields = "spec.selector"
 	SpecTemplate                    ResourceUpdatedDetailsUpdatedFields = "spec.template"
 	StatusConditionsEnrollmentHooks ResourceUpdatedDetailsUpdatedFields = "status.conditions.EnrollmentHooks"
+	StatusFirmware                  ResourceUpdatedDetailsUpdatedFields = "status.firmware"
 )
 
 // Defines values for Rfc7662IntrospectionSpecType.

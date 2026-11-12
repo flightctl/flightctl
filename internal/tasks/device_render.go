@@ -335,8 +335,13 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 			templateVersion, hasTemplateVersion := annotations[domain.DeviceAnnotationTemplateVersion]
 			renderedTemplateVersion, hasRenderedTemplateVersion := annotations[domain.DeviceAnnotationRenderedTemplateVersion]
 			if hasTemplateVersion && hasRenderedTemplateVersion && templateVersion == renderedTemplateVersion {
-				t.log.Infof("Device %s already rendered for template version %s, skipping redundant rollout selection event", t.event.InvolvedObject.Name, templateVersion)
-				return nil
+				if firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
+					t.log.Infof("Device %s already rendered for template version %s, skipping redundant rollout selection event", t.event.InvolvedObject.Name, templateVersion)
+					return nil
+				}
+				// The rendered output is already current; only the firmware-hold
+				// condition needs reconciliation, so do not force a new render.
+				bypassHashCheck = false
 			}
 		}
 

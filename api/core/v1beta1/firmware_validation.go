@@ -18,6 +18,13 @@ const (
 	firmwareStandaloneTemplateDetail = "template parameters are only supported in fleet templates"
 	firmwareFixedFieldTemplateDetail = "template parameters are not supported in this field"
 	firmwareConfigKeyTemplateDetail  = "template parameters are not supported in configuration keys"
+	firmwareNameDetail               = "must be a lowercase RFC 1123 label of at most 63 characters: lowercase alphanumeric characters or '-', starting and ending with an alphanumeric character"
+)
+
+const (
+	firmwareConfigMaxDepth  = 64
+	firmwareConfigMaxNodes  = 10000
+	firmwareConfigMaxErrors = 100
 )
 
 var (
@@ -97,7 +104,7 @@ func (s FirmwareStatus) Validate() []error {
 		componentPath := path.Child("components").Index(i)
 		errs = append(errs, validateFirmwareRequiredStrings(componentPath, map[string]string{"name": component.Name, "bootID": component.BootID})...)
 		if component.Name != "" && !firmwareComponentNamePattern.MatchString(component.Name) {
-			errs = append(errs, field.Invalid(componentPath.Child("name"), component.Name, "must be a lowercase RFC 1123 label"))
+			errs = append(errs, field.Invalid(componentPath.Child("name"), component.Name, firmwareNameDetail))
 		}
 		errs = append(errs, checkFirmwareNameUnique(component.Name, componentPath.Child("name"), names)...)
 		if component.Selected != nil {
@@ -174,34 +181,89 @@ func validateFirmwareUpdater(updater FirmwareUpdaterSpec, path *field.Path, flee
 	return append(errs, validateFirmwareConfigTemplates(updater.Config, path.Child("config"), fleetTemplate)...)
 }
 
+type firmwareConfigTemplateValidator struct {
+	fleetTemplate bool
+	depth         int
+	nodes         int
+	errs          []error
+}
+
 // validateFirmwareConfigTemplates walks decoded updater configuration and
 // checks every template parameter in it. Keys are never templatable, and
 // standalone devices accept no template parameters at all.
 func validateFirmwareConfigTemplates(value any, path *field.Path, fleetTemplate bool) []error {
-	var errs []error
-	switch v := value.(type) {
+	validator := &firmwareConfigTemplateValidator{fleetTemplate: fleetTemplate}
+	validator.walk(value, path)
+	return validator.errs
+}
+
+func (v *firmwareConfigTemplateValidator) full() bool {
+	return len(v.errs) >= firmwareConfigMaxErrors
+}
+
+func (v *firmwareConfigTemplateValidator) addErrors(errs ...error) {
+	for _, err := range errs {
+		if err == nil || v.full() {
+			continue
+		}
+		v.errs = append(v.errs, err)
+	}
+}
+
+func (v *firmwareConfigTemplateValidator) walk(value any, path *field.Path) {
+	if v.full() {
+		return
+	}
+	v.nodes++
+	if v.nodes > firmwareConfigMaxNodes {
+		v.addErrors(field.Invalid(path, value, "firmware configuration must contain at most 10000 values"))
+		return
+	}
+	if v.depth >= firmwareConfigMaxDepth {
+		v.addErrors(field.Invalid(path, value, "firmware configuration must not nest deeper than 64 levels"))
+		return
+	}
+
+	switch typedValue := value.(type) {
 	case map[string]any:
-		keys := lo.Keys(v)
+		keys := lo.Keys(typedValue)
 		slices.Sort(keys)
+		v.depth++
+		defer func() { v.depth-- }()
 		for _, key := range keys {
+			if v.full() || v.nodes > firmwareConfigMaxNodes {
+				return
+			}
 			keyPath := path.Child(key)
 			if hasTemplateParameters(key) {
-				errs = append(errs, field.Invalid(keyPath, key, firmwareConfigKeyTemplateDetail))
+				v.addErrors(field.Invalid(keyPath, key, firmwareConfigKeyTemplateDetail))
 			}
-			errs = append(errs, validateFirmwareConfigTemplates(v[key], keyPath, fleetTemplate)...)
+			v.walk(typedValue[key], keyPath)
 		}
 	case []any:
-		for i, item := range v {
-			errs = append(errs, validateFirmwareConfigTemplates(item, path.Index(i), fleetTemplate)...)
+		for i, item := range typedValue {
+			if v.full() || v.nodes > firmwareConfigMaxNodes {
+				return
+			}
+			v.walk(item, path.Index(i))
 		}
 	case string:
-		if !hasTemplateParameters(v) {
-			return nil
+		if !hasTemplateParameters(typedValue) {
+			return
 		}
-		if !fleetTemplate {
-			return []error{field.Invalid(path, v, firmwareStandaloneTemplateDetail)}
+		if !v.fleetTemplate {
+			v.addErrors(field.Invalid(path, typedValue, firmwareStandaloneTemplateDetail))
+			return
 		}
-		_, errs = validateParametersInString(&v, path.String(), true)
+		_, errs := validateParametersInString(&typedValue, path.String(), true)
+		v.addErrors(errs...)
+	}
+}
+
+func validateFirmwareName(value string, path *field.Path) []error {
+	errs := validateFixedFirmwareString(value, path)
+	if len(errs) == 0 && !firmwareComponentNamePattern.MatchString(value) {
+		errs = append(errs, field.Invalid(path, value, firmwareNameDetail))
 	}
 	return errs
 }
@@ -214,12 +276,7 @@ func validateFirmwareComponents(components []FirmwareComponentSpec, path *field.
 	for i, component := range components {
 		componentPath := path.Index(i)
 		namePath := componentPath.Child("name")
-		nameErrs := validateFixedFirmwareString(component.Name, namePath)
-		if len(nameErrs) == 0 && !firmwareComponentNamePattern.MatchString(component.Name) {
-			nameErrs = append(nameErrs, field.Invalid(namePath, component.Name,
-				"must be a lowercase RFC 1123 label of at most 63 characters: lowercase alphanumeric characters or '-', starting and ending with an alphanumeric character"))
-		}
-		errs = append(errs, nameErrs...)
+		errs = append(errs, validateFirmwareName(component.Name, namePath)...)
 		errs = append(errs, checkFirmwareNameUnique(component.Name, namePath, names)...)
 		errs = append(errs, validateFirmwareVersionConstraints(component.Version, componentPath.Child("version"))...)
 
@@ -259,7 +316,7 @@ func validateFirmwareOverlays(overlays []FirmwareOverlaySpec, path *field.Path, 
 	for i, overlay := range overlays {
 		overlayPath := path.Index(i)
 		namePath := overlayPath.Child("name")
-		errs = append(errs, validateFixedFirmwareString(overlay.Name, namePath)...)
+		errs = append(errs, validateFirmwareName(overlay.Name, namePath)...)
 		errs = append(errs, checkFirmwareNameUnique(overlay.Name, namePath, names)...)
 
 		compatibilityPath := overlayPath.Child("compatibleFirmware")
