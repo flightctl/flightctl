@@ -241,6 +241,8 @@ func (v *firmwareConfigTemplateValidator) walk(value any, path *field.Path) {
 			v.walk(typedValue[key], keyPath)
 		}
 	case []any:
+		v.depth++
+		defer func() { v.depth-- }()
 		for i, item := range typedValue {
 			if v.full() || v.nodes > firmwareConfigMaxNodes {
 				return

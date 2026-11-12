@@ -820,3 +820,36 @@ func TestFirmwareStatusIdentityValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestFirmwareConfigArrayDepth(t *testing.T) {
+	for _, mixed := range []bool{false, true} {
+		for _, levels := range []int{60, 65} {
+			kind := "array-only"
+			if mixed {
+				kind = "mixed map and array"
+			}
+			outcome := "accept it"
+			if levels > 64 {
+				outcome = "reject it"
+			}
+			t.Run(fmt.Sprintf("When %s nesting has %d levels it should %s", kind, levels, outcome), func(t *testing.T) {
+				var value any = "value"
+				for i := 0; i < levels; i++ {
+					if mixed && i%2 == 0 {
+						value = map[string]any{"nested": value}
+					} else {
+						value = []any{value}
+					}
+				}
+				spec := newTestFirmwareSpec(t)
+				spec.Updater.Config = map[string]any{"nested": value}
+				errs := spec.Validate(true)
+				if levels > 64 {
+					require.ErrorContains(t, errors.Join(errs...), "must not nest deeper than 64 levels")
+				} else {
+					require.Empty(t, errs)
+				}
+			})
+		}
+	}
+}

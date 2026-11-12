@@ -207,7 +207,8 @@ var _ = Describe("DeviceRender", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					Expect(deleteErr).ToNot(HaveOccurred())
 				}()
 
 				event := api.Event{
@@ -242,7 +243,8 @@ var _ = Describe("DeviceRender", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					Expect(deleteErr).ToNot(HaveOccurred())
 				}()
 
 				event := api.Event{
@@ -278,7 +280,8 @@ var _ = Describe("DeviceRender", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					Expect(deleteErr).ToNot(HaveOccurred())
 				}()
 
 				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
@@ -340,7 +343,8 @@ var _ = Describe("DeviceRender", func() {
 				_, err := deviceStore.Create(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					Expect(deleteErr).ToNot(HaveOccurred())
 				}()
 
 				event := api.Event{
@@ -654,7 +658,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -696,7 +703,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -742,7 +752,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -782,7 +795,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -891,7 +907,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err := deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -937,7 +956,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -996,7 +1018,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1039,7 +1064,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err := deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1069,7 +1097,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err := deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1099,7 +1130,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err := deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1158,7 +1192,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			// First render: ResourceCreated — should succeed (no hash stored yet)
 			firstEvent := api.Event{
@@ -1273,7 +1310,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err = deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			annotations := map[string]string{
 				api.DeviceAnnotationTemplateVersion: "v1",
@@ -1332,7 +1372,10 @@ var _ = Describe("DeviceRender", func() {
 			}
 			_, err := deviceStore.Create(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() {
+				_, deleteErr := deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				Expect(deleteErr).ToNot(HaveOccurred())
+			}()
 
 			created, err := deviceStore.Get(ctx, orgId, testDeviceName)
 			Expect(err).ToNot(HaveOccurred())

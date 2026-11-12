@@ -237,6 +237,7 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 		Expect(suite.DB.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
 			if tx.Statement.Table == "device_repos" {
 				calls.Add(1)
+				// AddError records the injected failure on the statement; its return repeats that error.
 				_ = tx.AddError(errors.New(message))
 			}
 		})).To(Succeed())
