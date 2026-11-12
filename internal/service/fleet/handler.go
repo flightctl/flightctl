@@ -94,9 +94,9 @@ func CreateFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID,
 }
 
 // ReplaceFleetFromUntrusted sanitizes an untrusted fleet document, then replaces it.
-func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	SanitizeFleet(&fleet)
-	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
+	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership, opts...)
 }
 
 func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
@@ -144,7 +144,7 @@ func (h *ServiceHandler) GetFleet(ctx context.Context, orgId uuid.UUID, name str
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -157,6 +157,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	var callbackStatus domain.Status
+	replacement := newReplaceOptions(opts...)
 	result, before, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
 		creating := m.Fleet == nil
 		if creating {
@@ -178,9 +179,12 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
 			return err
 		}
-		// A replacement that omits the template firmware keeps the stored firmware.
+		// v1beta1 replacements omit firmware without withdrawing it; newer
+		// replacement semantics opt out of this legacy merge behavior.
 		incoming := fleet
-		incoming.Spec.Template.Spec = *common.PreserveOmittedFirmware(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec)
+		if replacement.preserveOmittedFirmware {
+			incoming.Spec.Template.Spec = *common.PreserveOmittedFirmware(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec)
+		}
 		if enforceOwnership && fleetOwnershipConflict(current, &incoming) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}

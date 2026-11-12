@@ -117,10 +117,10 @@ func (_d *TracedService) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	return fp1, s1
 }
 
-func (_d *TracedService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (fp1 *domain.Fleet, s1 domain.Status) {
+func (_d *TracedService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceFleet")
 
-	fp1, s1 = _d.inner.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
+	fp1, s1 = _d.inner.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership, opts...)
 	endSpan(span, s1)
 	return fp1, s1
 }

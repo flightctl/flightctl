@@ -177,18 +177,23 @@ func (mr *MockServiceMockRecorder) PatchFleet(ctx, orgId, name, patch, enforceOw
 }
 
 // ReplaceFleet mocks base method.
-func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceFleet", ctx, orgId, name, fleet, enforceOwnership)
+	varargs := []any{ctx, orgId, name, fleet, enforceOwnership}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ReplaceFleet", varargs...)
 	ret0, _ := ret[0].(*domain.Fleet)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceFleet indicates an expected call of ReplaceFleet.
-func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), ctx, orgId, name, fleet, enforceOwnership)
+	varargs := append([]any{ctx, orgId, name, fleet, enforceOwnership}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), varargs...)
 }
 
 // ReplaceFleetRepositoryRefsIfCurrent mocks base method.

@@ -1,0 +1,619 @@
+openapi: 3.0.1
+info:
+  title: Flight Control API
+  version: v1beta2
+  description: |
+    Versioned Device and Fleet resource behavior overlay. Device and Fleet
+    schemas are reused from v1beta1, but PUT semantics differ: omitting
+    firmware withdraws firmware management. GET, PATCH, and DELETE operations
+    are included for Device and Fleet resource-path completeness and use the
+    same behavior as v1beta1.
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /api/v1
+tags:
+  - name: device
+    description: Operations on Device resources.
+  - name: fleet
+    description: Operations on Fleet resources.
+paths:
+  /devices/{name}:
+    x-resource: devices
+    get:
+      tags:
+        - device
+      description: Get a Device resource.
+      operationId: getDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - device
+      description: Replace a Device resource. An omitted spec.firmware withdraws firmware management.
+      operationId: replaceDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - device
+      description: Patch a Device resource.
+      operationId: patchDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../v1beta1/openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - device
+      description: Delete a Device resource.
+      operationId: deleteDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /fleets/{name}:
+    x-resource: fleets
+    get:
+      tags:
+        - fleet
+      description: Get a Fleet resource.
+      operationId: getFleet
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to get.
+          required: true
+          schema:
+            type: string
+        - name: addDevicesSummary
+          in: query
+          description: Include a summary of the devices in the fleet.
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - fleet
+      description: Replace a Fleet resource. An omitted template firmware withdraws firmware management.
+      operationId: replaceFleet
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Fleet'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - fleet
+      description: Patch a Fleet resource.
+      operationId: patchFleet
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../v1beta1/openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - fleet
+      description: Delete a Fleet resource.
+      operationId: deleteFleet
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+components:
+  schemas:
+    ApiVersion:
+      type: string
+      x-go-type: string
+      description: APIVersion defines the versioned schema of this representation of an object.
+      enum:
+        - v1beta2
+        - flightctl.io/v1beta2
+        - ""
+      x-enum-varnames:
+        - ApiVersionV1beta2
+        - ApiVersionFlightctlIoV1beta2
+        - ApiVersionEmpty
+    Device:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Kind is a string value representing the REST resource this object represents.
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/DeviceSpec'
+        status:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/DeviceStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+      additionalProperties: false
+      description: Device represents a physical device.
+    Fleet:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Kind is a string value representing the REST resource this object represents.
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/FleetSpec'
+        status:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/FleetStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      additionalProperties: false
+      description: Fleet represents a set of devices.
+    Status:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Kind is a string value representing the REST resource this object represents.
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the Failure status.
+        status:
+          type: string
+          description: Status of the operation. One of Success or Failure.
+      description: Status is a return value for calls that don't return other objects.
+      required:
+        - apiVersion
+        - kind
+        - status
+        - code
+        - reason
+        - message

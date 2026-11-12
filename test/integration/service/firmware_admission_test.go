@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiv1beta2 "github.com/flightctl/flightctl/api/core/v1beta2"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -29,6 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
@@ -432,15 +434,40 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 		var apiServer *httptest.Server
 
 		BeforeEach(func() {
-			swagger, err := api.GetSpec()
-			Expect(err).ToNot(HaveOccurred())
-			validator := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
-				ErrorHandler:          apiserver.OapiErrorHandlerForVersion(versioning.V1Beta1),
-				MultiErrorHandler:     apiserver.OapiMultiErrorHandler,
-				SilenceServersWarning: true,
-			})
 			handler := transportv1beta1.NewTransportHandler(nil, nil, deviceSvc, nil, nil, nil, nil, nil, fleetSvc, nil, nil, nil, nil,
 				convertv1beta1.NewConverter(), nil, nil, nil, nil)
+			newVersionRouter := func(spec *openapi3.T, version versioning.Version) chi.Router {
+				validator := oapimiddleware.OapiRequestValidatorWithOptions(spec, &oapimiddleware.Options{
+					ErrorHandler:          apiserver.OapiErrorHandlerForVersion(version),
+					MultiErrorHandler:     apiserver.OapiMultiErrorHandler,
+					SilenceServersWarning: true,
+				})
+				return versioning.NewRouter(versioning.RouterConfig{
+					Middlewares: []versioning.Middleware{validator},
+					RegisterRoutes: func(r chi.Router) {
+						server.HandlerWithOptions(handler, server.ChiServerOptions{
+							BaseRouter: r,
+							ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+								apiserver.OapiErrorHandlerForVersion(version)(w, err.Error(), http.StatusBadRequest)
+							},
+						})
+					},
+				})
+			}
+			v1beta1Spec, err := api.GetSpec()
+			Expect(err).ToNot(HaveOccurred())
+			v1beta2Spec, err := apiv1beta2.GetSpec()
+			Expect(err).ToNot(HaveOccurred())
+			negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
+			negotiatedRouter, err := versioning.NewNegotiatedRouter(
+				negotiator.NegotiateMiddleware,
+				map[versioning.Version]chi.Router{
+					versioning.V1Beta1: newVersionRouter(v1beta1Spec, versioning.V1Beta1),
+					versioning.V1Beta2: newVersionRouter(v1beta2Spec, versioning.V1Beta2),
+				},
+				versioning.V1Beta1,
+			)
+			Expect(err).ToNot(HaveOccurred())
 			identity := ctx.Value(consts.MappedIdentityCtxKey)
 			router := chi.NewRouter()
 			router.Use(func(next http.Handler) http.Handler {
@@ -450,19 +477,13 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 				})
 			})
 			router.Route(server.ServerUrlApiv1, func(r chi.Router) {
-				r.Use(validator)
-				server.HandlerWithOptions(handler, server.ChiServerOptions{
-					BaseRouter: r,
-					ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-						apiserver.OapiErrorHandlerForVersion(versioning.V1Beta1)(w, err.Error(), http.StatusBadRequest)
-					},
-				})
+				r.Mount("/", negotiatedRouter)
 			})
 			apiServer = httptest.NewServer(router)
 			DeferCleanup(apiServer.Close)
 		})
 
-		send := func(method, path, body string) (int, string) {
+		sendVersion := func(method, path, body, version string) (int, string, string) {
 			contentType := "application/json"
 			if method == http.MethodPatch {
 				contentType = "application/json-patch+json"
@@ -470,12 +491,19 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			req, err := http.NewRequestWithContext(ctx, method, apiServer.URL+server.ServerUrlApiv1+path, strings.NewReader(body))
 			Expect(err).ToNot(HaveOccurred())
 			req.Header.Set("Content-Type", contentType)
+			if version != "" {
+				req.Header.Set("Flightctl-API-Version", version)
+			}
 			resp, err := http.DefaultClient.Do(req)
 			Expect(err).ToNot(HaveOccurred())
 			defer resp.Body.Close()
 			raw, err := io.ReadAll(resp.Body)
 			Expect(err).ToNot(HaveOccurred())
-			return resp.StatusCode, string(raw)
+			return resp.StatusCode, string(raw), resp.Header.Get("Flightctl-API-Version")
+		}
+		send := func(method, path, body string) (int, string) {
+			code, responseBody, _ := sendVersion(method, path, body, "")
+			return code, responseBody
 		}
 		deviceBody := func(name, firmwareDocument string) string {
 			return `{"apiVersion": "v1beta1", "kind": "Device", "metadata": {"name": "` + name + `"},
@@ -494,6 +522,14 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			raw, err := json.Marshal(fw)
 			Expect(err).ToNot(HaveOccurred())
 			return string(raw)
+		}
+		deviceBodyForVersion := func(version, name string, includeFirmware bool) string {
+			firmwareField := ""
+			if includeFirmware {
+				firmwareField = `,"firmware": ` + firmwareDocument(nil)
+			}
+			return `{"apiVersion": "` + version + `", "kind": "Device", "metadata": {"name": "` + name + `"},
+				"spec": {"config": [{"name": "http", "httpRef": {"repository": "config-http", "filePath": "/etc/http.conf"}}]` + firmwareField + `}}`
 		}
 		deviceExists := func(name string) bool {
 			_, err := devStore.Get(ctx, orgId, name)
@@ -574,6 +610,29 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(code).To(Equal(http.StatusOK), body)
 			Expect(storedDevice("device-1").Spec.Firmware).To(BeNil())
 			Expect(deviceRefs("device-1")).To(Equal([]string{"config-http"}))
+		})
+
+		It("When the API version negotiates device replacement semantics it should preserve v1beta1 and withdraw v1beta2", func() {
+			code, body := send(http.MethodPost, "/devices", deviceBody("device-versioned", firmwareDocument(nil)))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			created := storedDevice("device-versioned")
+			Expect(created.Spec.Firmware).ToNot(BeNil())
+
+			By("defaulting an unversioned replacement to v1beta1")
+			code, body, responseVersion := sendVersion(http.MethodPut, "/devices/device-versioned", deviceBodyForVersion("v1beta1", "device-versioned", false), "")
+			Expect(code).To(Equal(http.StatusOK), body)
+			Expect(responseVersion).To(Equal("v1beta1"))
+			Expect(storedDevice("device-versioned").Spec.Firmware).To(Equal(created.Spec.Firmware))
+
+			By("withdrawing firmware for an explicit v1beta2 replacement")
+			code, body, responseVersion = sendVersion(http.MethodPut, "/devices/device-versioned", deviceBodyForVersion("v1beta2", "device-versioned", false), "v1beta2")
+			Expect(code).To(Equal(http.StatusOK), body)
+			Expect(responseVersion).To(Equal("v1beta2"))
+			var response api.Device
+			Expect(json.Unmarshal([]byte(body), &response)).To(Succeed())
+			Expect(response.ApiVersion).To(Equal("flightctl.io/v1beta2"))
+			Expect(storedDevice("device-versioned").Spec.Firmware).To(BeNil())
+			Expect(deviceRefs("device-versioned")).To(Equal([]string{"config-http"}))
 		})
 
 		It("When a fleet body templates only a designated GUID it should accept it, and reject an unknown field or invalid literal beside it", func() {

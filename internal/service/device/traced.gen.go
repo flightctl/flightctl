@@ -248,10 +248,10 @@ func (_d *TracedDeviceService) PatchDeviceStatus(ctx context.Context, orgId uuid
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool, opts ...ReplaceOption) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDevice")
 
-	dp1, s1 = _d.inner.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
+	dp1, s1 = _d.inner.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities, opts...)
 	endSpan(span, s1)
 	return dp1, s1
 }

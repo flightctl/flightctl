@@ -47,7 +47,7 @@ curl -H "Flightctl-API-Version: v1beta1" \
 
 ### Version Negotiation
 
-* If no version header is sent, the server uses the most stable supported version
+* If no version header is sent, the server uses its configured fallback version, currently `v1beta1`, when the endpoint supports it, otherwise the most preferred supported version
 * If an unsupported version is requested, the server returns HTTP 406 Not Acceptable with `Flightctl-API-Versions-Supported` header listing available versions
 * For versioned resources, the response includes `Flightctl-API-Version` indicating which version was used
 
@@ -56,6 +56,7 @@ curl -H "Flightctl-API-Version: v1beta1" \
 | Version | Resources | Status | Support Guarantee |
 |---------|-----------|--------|-------------------|
 | v1beta1 | Device, Fleet, Repository, EnrollmentRequest, TemplateVersion, ResourceSync, CertificateSigningRequest, Event, AuthProvider, AuthConfig, Organization, LabelSyncMapping | Current | Supported throughout the 1.x.x major version |
+| v1beta2 | Device, Fleet | Current | Supported throughout the 1.x.x major version |
 | v1alpha1 | ImageBuild, ImageExport | Alpha | No breaking changes anticipated, but may evolve as the feature matures |
 
 ## Repositories
@@ -192,11 +193,13 @@ signature repositories must belong to the same organization. Repository dependen
 include both configuration and firmware references so that repository changes notify
 referencing resources.
 
-Replacement writes that omit firmware preserve the stored value. To deliberately withdraw
-management, use JSON Patch with `remove` at `/spec/firmware` for a device or
-`/spec/template/spec/firmware` for a fleet. Withdrawal does not restore installed firmware
-or remove boot artifacts. Status writes that omit firmware preserve it, and writes cannot
-erase or change the identity of an outstanding attempt. Progress of that attempt is allowed.
+Replacement semantics depend on the negotiated API version. A `v1beta1` replacement that
+omits firmware preserves the stored value. A `v1beta2` replacement that omits firmware
+withdraws firmware management. In both versions, JSON Patch must use `remove` at
+`/spec/firmware` for a device or `/spec/template/spec/firmware` for a fleet to remove
+firmware explicitly. Withdrawal does not restore installed firmware or remove boot artifacts.
+Status writes that omit firmware preserve it, and writes cannot erase or change the identity
+of an outstanding attempt. Progress of that attempt is allowed.
 A terminal attempt cannot return to an active phase with the same identity. A new retry
 uses a new attempt identity and retry generation.
 

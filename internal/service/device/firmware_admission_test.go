@@ -484,6 +484,21 @@ func TestReplaceDeviceFirmwareAdmission(t *testing.T) {
 		assert.Equal(t, completeSet, f.store.device.repoRefs["foo"])
 	})
 
+	t.Run("When removal semantics omit firmware it should withdraw the stored firmware and firmware references", func(t *testing.T) {
+		f := newAdmissionFixture(t)
+		f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), nil, completeSet...)
+		f.resetRecords()
+
+		result, status := f.svc.ReplaceDevice(ctx, f.orgId, "foo", newAdmissionDevice("foo", admissionSpec(t, nil)), nil, true, true, WithOmittedFirmwareRemoval())
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.NotNil(t, result)
+		assert.Nil(t, result.Spec.Firmware)
+		assert.Nil(t, f.store.device.devices["foo"].Spec.Firmware)
+		assert.Empty(t, f.descriptors.lookups)
+		assert.Equal(t, []string{"config-http", "firmware-artifacts"}, f.store.device.repoRefs["foo"])
+	})
+
 	t.Run("When the replacement omits firmware but changes the configuration it should validate the kept firmware and update the references", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		before := f.storeDevice(t, "foo", admissionSpec(t, admissionFirmware(t)), nil, completeSet...)

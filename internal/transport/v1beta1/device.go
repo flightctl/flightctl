@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -35,7 +36,7 @@ func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, p
 func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.device.GetDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Device().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (PUT /api/v1/devices/{name})
@@ -47,15 +48,19 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := deviceservice.ReplaceDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainDevice, nil, true, true)
+	var opts []deviceservice.ReplaceOption
+	if negotiatedVersion(r) == versioning.V1Beta2 {
+		opts = append(opts, deviceservice.WithOmittedFirmwareRemoval())
+	}
+	body, status := deviceservice.ReplaceDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainDevice, nil, true, true, opts...)
 	apiResult := h.converter.Device().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (DELETE /api/v1/devices/{name})
 func (h *TransportHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
 	status := h.device.DeleteDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
-	h.SetResponse(w, nil, status)
+	h.SetResponseForRequest(w, r, nil, status)
 }
 
 // (GET /api/v1/devices/{name}/status)
@@ -105,7 +110,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
 	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true, true)
 	apiResult := h.converter.Device().FromDomain(body)
-	h.SetResponse(w, apiResult, status)
+	h.SetResponseForRequest(w, r, apiResult, status)
 }
 
 // (PATCH /api/v1/devices/{name}/status)

@@ -123,9 +123,9 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 }
 
 // ReplaceDeviceFromUntrusted sanitizes an untrusted device document, then replaces it.
-func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
+func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool, opts ...ReplaceOption) (*domain.Device, domain.Status) {
 	SanitizeDevice(&device)
-	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
+	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities, opts...)
 }
 
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
@@ -339,7 +339,7 @@ func (h *DeviceServiceHandler) GetDevice(ctx context.Context, orgId uuid.UUID, n
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool, opts ...ReplaceOption) (*domain.Device, domain.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, domain.StatusBadRequest(flterrors.ErrDecommission.Error())
@@ -357,6 +357,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	}
 
 	var callbackStatus domain.Status
+	replacement := newReplaceOptions(opts...)
 	result, before, created, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		creating := m.Device == nil
 		if creating {
@@ -387,9 +388,10 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
 			return err
 		}
-		// A replacement that omits firmware keeps the stored firmware.
+		// v1beta1 replacements omit firmware without withdrawing it; newer
+		// replacement semantics opt out of this legacy merge behavior.
 		spec := device.Spec
-		if spec != nil {
+		if spec != nil && replacement.preserveOmittedFirmware {
 			spec = common.PreserveOmittedFirmware(spec, current.Spec)
 		}
 		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(spec)) {

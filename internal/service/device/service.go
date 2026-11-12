@@ -18,7 +18,7 @@ type Service interface {
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, domain.Status)
 	UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error)
 	GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status)
-	ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status)
+	ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool, opts ...ReplaceOption) (*domain.Device, domain.Status)
 	// ReplaceDeviceSpec overwrites Spec and merges the given annotation changes for an
 	// internal reconciler that already owns this device (fleet rollout). It does not
 	// require the caller's resourceVersion to match, and never touches Labels or Owner,

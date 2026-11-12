@@ -484,6 +484,20 @@ func TestReplaceFleetFirmwareAdmission(t *testing.T) {
 		assert.Equal(t, []string{releaseLookup}, f.descriptors.lookups)
 	})
 
+	t.Run("When removal semantics omit the template firmware it should withdraw the stored firmware", func(t *testing.T) {
+		f := newAdmissionFixture(t)
+		f.storeFleet(t, admissionFleet("fleet-1", admissionFirmware(t)))
+		f.resetRecords()
+
+		result, status := f.svc.ReplaceFleet(ctx, f.orgId, "fleet-1", admissionFleet("fleet-1", nil), true, WithOmittedFirmwareRemoval())
+
+		require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
+		require.NotNil(t, result)
+		assert.Nil(t, result.Spec.Template.Spec.Firmware)
+		assert.Nil(t, f.store.fleets["fleet-1"].Spec.Template.Spec.Firmware)
+		assert.Empty(t, f.descriptors.lookups)
+	})
+
 	t.Run("When a synchronized replacement omits the firmware it should keep the stored firmware", func(t *testing.T) {
 		f := newAdmissionFixture(t)
 		owned := admissionFleet("fleet-1", admissionFirmware(t))
