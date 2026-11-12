@@ -240,8 +240,8 @@ jobs:
         env:
           BUILD_IMAGE: ${{ steps.build.outputs.image }}
         run: |
-          make build-fips-validator
-          podman unshare -- "$PWD/bin/fips-validator" image "${BUILD_IMAGE}:_build"
+          go install github.com/flightctl/fips-validator@latest
+          podman unshare -- $HOME/go/bin/fips-validator image "${BUILD_IMAGE}:_build"
 
       - name: Save image as OCI archive
         env:

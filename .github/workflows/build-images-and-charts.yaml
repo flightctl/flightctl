@@ -221,6 +221,15 @@ jobs:
           podman images --format '{{.Repository}}:{{.Tag}}' | grep flightctl || true
           echo "::endgroup::"
 
+      - name: Install fips-validator
+        run: |
+          set -euo pipefail
+          go install github.com/flightctl/fips-validator@latest
+          # GitHub-hosted runners do not have $(go env GOPATH)/bin on PATH, so
+          # expose the freshly-installed binary to the subsequent "make
+          # fips-validate" step (which resolves it via command -v).
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Validate FIPS compliance
         run: make fips-validate FIPS_IMAGE_PATTERN='quay\.io/flightctl/flightctl-.*-el9'
 

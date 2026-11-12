@@ -420,18 +420,24 @@ bundle-containers:
 		--output-path 'flightctl-images-bundle.tar'
 
 # FIPS compliance validation — validates container images for FIPS-compliant crypto.
-# Uses the pinned validator with native Go FIPS support.
+# Requires: fips-validator (go install github.com/flightctl/fips-validator@latest)
 # Usage:
 #   make build-containers && make fips-validate           # local validation
 #   make fips-validate FIPS_IMAGE_PATTERN='custom-.*:tag' # custom pattern
 FIPS_IMAGE_PATTERN ?= flightctl-.*-$(OS):latest
 
-.PHONY: build-fips-validator fips-validate
-build-fips-validator:
-	./hack/install-fips-validator.sh "$(CURDIR)/bin/fips-validator"
-
-fips-validate: build-fips-validator
-	@validator_path="$(CURDIR)/bin/fips-validator"; \
+.PHONY: fips-validate
+fips-validate:
+	@validator_path="$$(command -v fips-validator 2>/dev/null || true)"; \
+	if [ -z "$$validator_path" ]; then \
+		for d in "$$(go env GOBIN 2>/dev/null)" "$$(go env GOPATH 2>/dev/null)/bin" "$$HOME/go/bin"; do \
+			if [ -n "$$d" ] && [ -x "$$d/fips-validator" ]; then validator_path="$$d/fips-validator"; break; fi; \
+		done; \
+	fi; \
+	if [ -z "$$validator_path" ]; then \
+		echo "ERROR: fips-validator not found. Install with: go install github.com/flightctl/fips-validator@latest"; \
+		exit 1; \
+	fi; \
 	echo "Using fips-validator: $$validator_path"; \
 	echo "Validating FIPS compliance for images matching: $(FIPS_IMAGE_PATTERN)"; \
 	failed=0; \

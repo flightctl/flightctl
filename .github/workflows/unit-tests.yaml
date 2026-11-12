@@ -50,15 +50,9 @@ jobs:
         env:
           DISABLE_FIPS: "true"
 
-      - name: Test native FIPS artifact validation
+      - name: Test RPM builder cache handling
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: make build-fips-validator
-
-      - name: Test build script failure and cache handling
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          bash hack/test-rpm-builder.sh
-          bash hack/test-install-fips-validator.sh
+        run: bash hack/test-rpm-builder.sh
 
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'

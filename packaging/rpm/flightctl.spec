@@ -333,7 +333,7 @@ fi
     %make_build --directory packaging/selinux
 
 %if %{fips_enabled}
-    %make_build build-fips-validator
+    GOFLAGS='' GOBIN="$PWD/bin" go install github.com/flightctl/fips-validator@v0.0.0-20261112194341-8ad0f0fbb0d1
 %endif
 
 
