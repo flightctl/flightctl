@@ -381,6 +381,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.enableMulticlusterExtensions | string | `"auto"` | Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'. |
 | global.enableOpenShiftExtensions | string | `"auto"` | Enable OpenShift extensions - one of 'auto', 'true', 'false'. |
 | global.exposeServicesMethod | string | `"auto"` | How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none' |
+| global.firmwareUpdaterCatalog | object | `{"configMapName":"","key":"updaters.yaml"}` | Administrator-owned firmware updater catalog input. This is independent of the application Catalog API. |
+| global.firmwareUpdaterCatalog.configMapName | string | `""` | Existing ConfigMap name in each runtime namespace. Empty uses retained database state. Use a new immutable ConfigMap name for each higher revision. |
+| global.firmwareUpdaterCatalog.key | string | `"updaters.yaml"` | ConfigMap data key containing the complete validated administrator catalog document. |
 | global.gateway | object | `{"gatewayClassName":"","ports":{"http":80,"tls":443}}` | Configuration for 'gateway' service exposure method |
 | global.gateway.gatewayClassName | string | `""` | Gateway API class name for gateway exposure method |
 | global.gateway.ports.http | int | `80` | HTTP port for Gateway API configuration |
@@ -555,6 +558,23 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm
 # Combine multiple values files (later files override earlier ones)
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.yaml -f values.acm.yaml -f my-custom.yaml
 ```
+
+## Firmware updater catalog
+
+Set `global.firmwareUpdaterCatalog.configMapName` to an administrator-created
+ConfigMap containing the complete catalog under the data key selected by
+`global.firmwareUpdaterCatalog.key` (default `updaters.yaml`). The API process
+(including the agent API), worker, and periodic pods mount this input read-only.
+This configuration is independent of the application Catalog API.
+
+Provide identical ConfigMaps in the release namespace and, when different,
+`global.internalNamespace`. Use a new immutable ConfigMap name for each higher
+catalog revision so updating the Helm value rolls all authorization runtimes.
+There is no file watcher. Removing the ConfigMap name uses previously accepted
+database state; it does not erase authorization history or revoke releases.
+
+See the [updater catalog contract](../../../docs/developer/architecture/updater-catalog.md)
+for validation, retained revocations, failure recovery, and execution gates.
 
 ## Contributing
 
