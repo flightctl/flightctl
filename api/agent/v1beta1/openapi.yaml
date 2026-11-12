@@ -92,6 +92,12 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: Policy unavailable
           content:
@@ -151,6 +157,12 @@ paths:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
           content:
             application/json:
               schema:

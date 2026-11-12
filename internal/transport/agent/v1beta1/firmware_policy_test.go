@@ -78,12 +78,22 @@ func TestFirmwarePolicyAuthenticatedRead(t *testing.T) {
 func TestFirmwarePolicyReceiptValidation(t *testing.T) {
 	org := uuid.New()
 	ctx := context.WithValue(util.WithOrganizationID(context.Background(), org), consts.IdentityCtxKey, middleware.NewAgentIdentity("device", org.String(), "device", time.Now().Add(time.Hour)))
-	for _, body := range []string{`{}`, `{"revision":1,"revision":2}`, `{"revision":1,"unknown":true}`, `{} {}`} {
-		ctrl := gomock.NewController(t)
-		svc := device.NewMockService(ctrl)
-		handler := NewAgentTransportHandler(svc, nil, nil, convert.NewConverter(), nil, logrus.New())
-		w := httptest.NewRecorder()
-		handler.AcknowledgeFirmwarePolicy(w, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(body)).WithContext(ctx), "device")
-		require.Equal(t, 400, w.Code)
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"When the receipt is empty it should reject", `{}`},
+		{"When receipt fields repeat it should reject", `{"revision":1,"revision":2}`},
+		{"When the receipt has an unknown field it should reject", `{"revision":1,"unknown":true}`},
+		{"When the receipt body has trailing content it should reject", `{} {}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			svc := device.NewMockService(ctrl)
+			handler := NewAgentTransportHandler(svc, nil, nil, convert.NewConverter(), nil, logrus.New())
+			w := httptest.NewRecorder()
+			handler.AcknowledgeFirmwarePolicy(w, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(tc.body)).WithContext(ctx), "device")
+			require.Equal(t, 400, w.Code)
+		})
 	}
 }

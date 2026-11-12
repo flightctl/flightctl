@@ -219,7 +219,7 @@ func TestCatalogYAMLAndSchemaContracts(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fromJSON, parsed)
 	})
-	for _, raw := range []string{`true`, `{"type":"object"}`, `{"type":"object","additionalProperties":false,"properties":{"item":{"type":["null","object"]}}}`, `{"type":"object","additionalProperties":false,"properties":{},"$defs":{"x":{"$ref":"file:///etc/passwd"}}}`, `{"type":"object","type":"string","additionalProperties":false}`, `{"type":"object","additionalProperties":false,"properties":{"n":` + strings.Repeat(`{"allOf":[`, 65) + `true` + strings.Repeat(`]}`, 65) + `}}}`} {
+	for _, raw := range []string{`true`, `{"type":"object"}`, `{"type":"object","additionalProperties":false,"properties":{"item":{"type":["null","object"]}}}`, `{"type":"object","additionalProperties":false,"properties":{},"$defs":{"x":{"$ref":"file:///etc/passwd"}}}`, `{"type":"object","type":"string","additionalProperties":false}`, `{"type":"object","additionalProperties":false,"properties":{"n":` + strings.Repeat(`{"allOf":[`, 65) + `true` + strings.Repeat(`]}`, 65) + `}}}`, `{"type":"object","additionalProperties":false,"properties":{"open":{"properties":{"known":{"type":"string"}}}}}`} {
 		t.Run("When schema is not closed or bounded it should reject", func(t *testing.T) {
 			c := fixture(t)
 			s := release(c)["schemas"].(map[string]any)["config"].(map[string]any)

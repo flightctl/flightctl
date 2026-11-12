@@ -79,19 +79,19 @@ var _ = Describe("Updater catalog persistence", func() {
 
 	})
 
-	It("When migration is repeated it should preserve accepted state", func() {
+	It("When migration detects an unexpected policy digest mismatch it should fail closed", func() {
 		Expect(catalog.InitialMigration(ctx)).To(Succeed())
 		_, err := catalog.Activate(ctx, updaterCandidate(1, "1"))
 		Expect(err).NotTo(HaveOccurred())
-		Expect(db.WithContext(ctx).Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Update("policy_digest", updaterHash("legacy materialization")).Error).To(Succeed())
-		Expect(catalog.InitialMigration(ctx)).To(Succeed())
+		legacyDigest := updaterHash("legacy materialization")
+		Expect(db.WithContext(ctx).Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Update("policy_digest", legacyDigest).Error).To(Succeed())
+		err = catalog.InitialMigration(ctx)
+		Expect(err).To(MatchError(ContainSubstring("accepted updater policy digest is inconsistent")))
 		s, err := catalog.Snapshot(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(s.Revision).To(Equal(int64(1)))
 		Expect(s.Releases).To(HaveLen(1))
-		view, err := s.PolicyView()
-		Expect(err).NotTo(HaveOccurred())
-		Expect(s.PolicyDigest).To(Equal(view.Digest))
+		Expect(s.PolicyDigest).To(Equal(legacyDigest))
 	})
 	It("When revision two omits a release it should replay the same file before requiring retained tombstones", func() {
 		first, err := catalog.Activate(ctx, updaterCandidate(1, "1"))

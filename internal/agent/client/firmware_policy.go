@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -29,7 +30,7 @@ func (m *management) GetFirmwarePolicy(ctx context.Context, name string, known f
 	}
 	response, err := m.client.GetFirmwarePolicy(ctx, name, params, rcb...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("get firmware policy: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
@@ -58,7 +59,7 @@ func (m *management) AcknowledgeFirmwarePolicy(ctx context.Context, name string,
 	}
 	response, err := m.client.AcknowledgeFirmwarePolicy(ctx, name, agentapi.FirmwarePolicyReceipt{Revision: receipt.Revision, Digest: receipt.Digest}, rcb...)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("acknowledge firmware policy: %w", err)
 	}
 	if response == nil {
 		return 0, errors.New("empty policy acknowledgement response")
