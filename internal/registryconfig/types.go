@@ -37,6 +37,21 @@ const (
 	OutcomeAmbiguous Outcome = "ambiguous"
 )
 
+// Composition contains credential selections and endpoint connection settings.
+type Composition struct {
+	Selections []Selection
+	Endpoints  []EndpointConfig
+}
+
+// EndpointConfig contains the composed trust and transport for a registry endpoint.
+type EndpointConfig struct {
+	Registry               string
+	CABundle               string // PEM-encoded certificates.
+	Scheme                 domain.OciRepoSpecScheme
+	SkipServerVerification bool
+	RepositoryNames        []string
+}
+
 type Selection struct {
 	Need     PullNeed
 	Registry string
