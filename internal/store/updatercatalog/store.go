@@ -14,6 +14,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -76,8 +77,18 @@ func NewStore(db *gorm.DB) (*Store, error) {
 
 func (s *Store) InitialMigration(ctx context.Context) error {
 	db := store.DB(ctx, s.db)
-	if err := db.AutoMigrate(&model.UpdaterCatalogHead{}, &model.UpdaterRelease{}, &model.UpdaterRevocation{}, &model.UpdaterSchemaEvidence{}, &model.UpdaterCatalogRefresh{}); err != nil {
+	if err := db.AutoMigrate(&model.UpdaterCatalogHead{}, &model.UpdaterRelease{}, &model.UpdaterRevocation{}, &model.UpdaterSchemaEvidence{}, &model.UpdaterCatalogRefresh{}, &model.UpdaterPolicyTarget{}); err != nil {
 		return err
+	}
+	if !db.Migrator().HasConstraint(&model.UpdaterPolicyTarget{}, "updater_policy_targets_device_fk") {
+		if err := db.Exec(`ALTER TABLE updater_policy_targets ADD CONSTRAINT updater_policy_targets_device_fk FOREIGN KEY (org_id, device_name) REFERENCES devices(org_id, name) ON DELETE CASCADE`).Error; err != nil {
+			return err
+		}
+	}
+	if !db.Migrator().HasIndex(&model.UpdaterPolicyTarget{}, "updater_policy_targets_pending_idx") {
+		if err := db.Exec(`CREATE INDEX updater_policy_targets_pending_idx ON updater_policy_targets (revision DESC, org_id, device_name) WHERE notified_revision < revision`).Error; err != nil {
+			return err
+		}
 	}
 	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.UpdaterCatalogHead{ID: 1}).Error
 }
@@ -449,4 +460,73 @@ func (s *Store) readAccepted(ctx context.Context, read func(*gorm.DB) error) err
 		}
 		return read(tx)
 	})
+}
+
+func (s *Store) CurrentRevision(ctx context.Context) (int64, error) {
+	var head model.UpdaterCatalogHead
+	err := store.DB(ctx, s.db).Select("revision").First(&head, 1).Error
+	return head.Revision, err
+}
+
+// ExpandPendingRefresh commits recipient work and its scan cursor together.
+// Only identities are selected: invalid desired firmware cannot exclude a device.
+func (s *Store) ExpandPendingRefresh(ctx context.Context, limit int) (bool, error) {
+	if limit < 1 || limit > 256 {
+		return false, errors.New("refresh page limit must be between 1 and 256")
+	}
+	changed := false
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		var job model.UpdaterCatalogRefresh
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("dispatched = ?", false).Order("revision DESC").Take(&job).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var identities []struct {
+			OrgID uuid.UUID
+			Name  string
+		}
+		err = tx.Table("devices").Select("org_id, name").Where("deleted_at IS NULL").Where("(org_id, name) > (?, ?)", job.CursorOrgID, job.CursorName).Order("org_id, name").Limit(limit).Find(&identities).Error
+		if err != nil {
+			return err
+		}
+		targets := make([]model.UpdaterPolicyTarget, 0, len(identities))
+		for _, id := range identities {
+			targets = append(targets, model.UpdaterPolicyTarget{OrgID: id.OrgID, DeviceName: id.Name, Revision: job.Revision})
+		}
+		if len(targets) > 0 {
+			err = tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "org_id"}, {Name: "device_name"}}, DoUpdates: clause.Assignments(map[string]any{"revision": gorm.Expr("GREATEST(updater_policy_targets.revision, EXCLUDED.revision)")})}).Create(&targets).Error
+			if err != nil {
+				return err
+			}
+			last := identities[len(identities)-1]
+			job.CursorOrgID = last.OrgID
+			job.CursorName = last.Name
+		}
+		job.Dispatched = len(identities) < limit
+		if err = tx.Model(&model.UpdaterCatalogRefresh{}).Where("revision = ?", job.Revision).Updates(map[string]any{"cursor_org_id": job.CursorOrgID, "cursor_name": job.CursorName, "dispatched": job.Dispatched}).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	return changed, err
+}
+
+func (s *Store) PendingNotifications(ctx context.Context, limit int) ([]model.UpdaterPolicyTarget, error) {
+	if limit < 1 || limit > 256 {
+		return nil, errors.New("notification page limit must be between 1 and 256")
+	}
+	result := []model.UpdaterPolicyTarget{}
+	err := store.DB(ctx, s.db).Where("notified_revision < revision").Order("revision DESC, org_id, device_name").Limit(limit).Find(&result).Error
+	return result, err
+}
+
+func (s *Store) MarkNotified(ctx context.Context, orgID uuid.UUID, name string, revision int64) error {
+	if name == "" || revision <= 0 {
+		return errors.New("notification requires a device and positive revision")
+	}
+	return store.DB(ctx, s.db).Model(&model.UpdaterPolicyTarget{}).Where("org_id = ? AND device_name = ?", orgID, name).Updates(map[string]any{"revision": gorm.Expr("GREATEST(revision, ?)", revision), "notified_revision": gorm.Expr("GREATEST(notified_revision, ?)", revision)}).Error
 }
