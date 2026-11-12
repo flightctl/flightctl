@@ -14,6 +14,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -84,7 +85,9 @@ type fakeDeviceStore struct {
 	repoRefWrites int
 	// repoRefsWriteErr fails reference writes, after the device write they
 	// accompany, to exercise rollback.
-	repoRefsWriteErr error
+	repoRefsWriteErr  error
+	fleetRefs         map[string][]model.DependencyRef
+	fleetRefsWriteErr error
 	// mutateCalls counts Mutate calls. beforeMutate, when set, runs at the
 	// start of each call, before the device is loaded, so a test can change
 	// the stored device between two mutations.
@@ -105,8 +108,29 @@ func (s *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(ctx conte
 	for name, refs := range s.repoRefs {
 		repoRefs[name] = append([]string{}, refs...)
 	}
+	fleetRefs, err := store.CloneJSON(&s.fleetRefs)
+	if err != nil {
+		return err
+	}
+	rendered := map[string]*devicestore.DeviceRendered{}
+	for name, value := range s.rendered {
+		copy, err := store.CloneJSON(value)
+		if err != nil {
+			return err
+		}
+		rendered[name] = copy
+	}
+	lastSeen := map[string]*time.Time{}
+	for name, value := range s.lastSeen {
+		if value == nil {
+			lastSeen[name] = nil
+		} else {
+			copy := *value
+			lastSeen[name] = &copy
+		}
+	}
 	if err := fn(ctx); err != nil {
-		s.devices, s.repoRefs = devices, repoRefs
+		s.devices, s.repoRefs, s.rendered, s.lastSeen, s.fleetRefs = devices, repoRefs, rendered, lastSeen, *fleetRefs
 		return err
 	}
 	return nil
@@ -206,6 +230,18 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	}
 	if mutation.Device == nil {
 		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	if mutation.FleetDependencyRefs != nil && s.fleetRefsWriteErr != nil {
+		return nil, nil, false, s.fleetRefsWriteErr
+	}
+	if mutation.RepositoryRefs != nil && s.repoRefsWriteErr != nil {
+		return nil, nil, false, s.repoRefsWriteErr
+	}
+	if mutation.FleetDependencyRefs != nil {
+		if s.fleetRefs == nil {
+			s.fleetRefs = map[string][]model.DependencyRef{}
+		}
+		s.fleetRefs[name] = append([]model.DependencyRef{}, (*mutation.FleetDependencyRefs)...)
 	}
 	if mutation.RepositoryRefs != nil {
 		if s.repoRefsWriteErr != nil {

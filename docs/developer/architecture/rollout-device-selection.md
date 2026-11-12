@@ -48,3 +48,16 @@ flowchart TD
     hasMore -->|No| finish
 
 ```
+
+## Persisting rollout progress
+
+Fleet rollout commits each device's spec, template-version annotation, and resolved
+fleet dependency references in one device mutation. The mutation checks the current
+owner on every attempt. An ownership conflict leaves the new owner's references intact.
+A reference-write failure rolls back the spec and template marker, so the device remains
+eligible for a later rollout. Replacing references also removes entries left by a former fleet.
+
+Device rendering checks the generation used to compute output inside the rendered-write
+mutation. If the generation changed, the write returns a conflict and preserves the
+current rendered output and validity conditions. Firmware-status-only events can reconcile
+a hold immediately; events that also change the spec still honor render preparation delays.

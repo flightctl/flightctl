@@ -320,17 +320,23 @@ const deviceFirmwareStatusPatchPath = "/status/firmware"
 // outstanding attempt of the stored status: no firmware status, one without an
 // attempt, or one with a different attempt. Progress of the same attempt,
 // including to a terminal phase, is accepted, and an attempt that is no longer
-// outstanding may be dropped.
+// outstanding may be dropped. A terminal attempt cannot reopen with the same
+// identity; a new retry generation remains eligible for a new attempt.
 func CheckFirmwareAttemptRetained(stored, candidate *domain.FirmwareStatus) error {
-	if stored == nil || !domain.FirmwareAttemptOutstanding(stored.Attempt) {
+	if stored == nil || stored.Attempt == nil {
+		return nil
+	}
+	if !domain.FirmwareAttemptOutstanding(stored.Attempt) {
+		if candidate != nil && domain.FirmwareAttemptOutstanding(candidate.Attempt) && sameFirmwareAttemptIdentity(stored.Attempt, candidate.Attempt) {
+			return fmt.Errorf("status.firmware.attempt: cannot reopen a terminal attempt")
+		}
 		return nil
 	}
 	if candidate == nil || candidate.Attempt == nil || candidate.Attempt.Id != stored.Attempt.Id {
 		return fmt.Errorf("%s: cannot erase an outstanding attempt", field.NewPath("status", "firmware", "attempt"))
 	}
 	old, next := stored.Attempt, candidate.Attempt
-	if old.Id == "" || old.RenderedVersion != next.RenderedVersion || old.SpecHash != next.SpecHash ||
-		old.RetryGeneration != next.RetryGeneration || !old.StartedAt.Equal(next.StartedAt) {
+	if old.Id == "" || !sameFirmwareAttemptIdentity(old, next) {
 		return fmt.Errorf("status.firmware.attempt: cannot change the identity of an outstanding attempt")
 	}
 	if old.Updater != nil {
@@ -347,6 +353,11 @@ func CheckFirmwareAttemptRetained(stored, candidate *domain.FirmwareStatus) erro
 		}
 	}
 	return nil
+}
+
+func sameFirmwareAttemptIdentity(a, b *domain.FirmwareAttemptStatus) bool {
+	return a.Id == b.Id && a.RenderedVersion == b.RenderedVersion && a.SpecHash == b.SpecHash &&
+		a.RetryGeneration == b.RetryGeneration && a.StartedAt.Equal(b.StartedAt)
 }
 
 // ClassifyFirmwareStatusPatch tells how a JSON Patch request leaves the

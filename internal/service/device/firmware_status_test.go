@@ -576,3 +576,41 @@ func TestServerSideStatusPreservesConcurrentFirmware(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalFirmwareAttemptCannotReopen(t *testing.T) {
+	for _, phase := range holdTerminalPhases {
+		for _, patch := range []bool{false, true} {
+			route := "PUT"
+			if patch {
+				route = "PATCH"
+			}
+			t.Run("When a terminal "+string(phase)+" attempt races with "+route+" it should reject reopening", func(t *testing.T) {
+				incoming := outstandingFirmwareStatus(t)
+				f := newStatusFixture(t, outstandingFirmwareStatus(t))
+				terminal := outstandingFirmwareStatus(t)
+				terminal.Attempt.Phase = phase
+				f.store.device.beforeMutate = func(int) { f.store.device.devices["foo"].Status.Firmware = terminal }
+				var status domain.Status
+				if patch {
+					_, status = f.svc.PatchDeviceStatus(context.Background(), f.orgId, "foo", domain.PatchRequest{{Op: "replace", Path: "/status/firmware", Value: incoming}}, false)
+				} else {
+					_, status = f.svc.ReplaceDeviceStatus(context.Background(), f.orgId, "foo", statusWrite(incoming), false)
+				}
+				require.EqualValues(t, http.StatusBadRequest, status.Code, status.Message)
+				assert.Contains(t, status.Message, "cannot reopen a terminal attempt")
+				assert.Equal(t, terminal, f.stored(t).Status.Firmware)
+			})
+		}
+	}
+	t.Run("When a new retry generation starts after a terminal attempt it should accept it", func(t *testing.T) {
+		terminal := outstandingFirmwareStatus(t)
+		terminal.Attempt.Phase = domain.FirmwareAttemptPhaseSucceeded
+		f := newStatusFixture(t, terminal)
+		next := outstandingFirmwareStatus(t)
+		next.Attempt.Id = "attempt-2"
+		next.Attempt.RetryGeneration++
+		_, status := f.svc.ReplaceDeviceStatus(context.Background(), f.orgId, "foo", statusWrite(next), false)
+		require.EqualValues(t, http.StatusOK, status.Code, status.Message)
+		assert.Equal(t, next, f.stored(t).Status.Firmware)
+	})
+}

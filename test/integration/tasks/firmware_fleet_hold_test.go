@@ -70,6 +70,7 @@ var _ = Describe("Fleet template firmware hold", func() {
 		workerClient = worker_client.NewWorkerClient(producer, log, worker_client.WithDeltaPublisher(producer))
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
+		DeferCleanup(kvStore.Close)
 		eventsSvc = events.NewServiceHandler(eventstore.NewEventStore(db, log.WithField("pkg", "event-store")), workerClient, log)
 		tvSvc = templateversionservice.NewServiceHandler(tvStore, kvStore, eventsSvc, log)
 		deviceSvc = deviceservice.NewDeviceServiceHandler(devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store")), nil, fleetStore, eventsSvc, kvStore, "", log)

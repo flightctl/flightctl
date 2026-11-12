@@ -264,10 +264,10 @@ func (_d *TracedDeviceService) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.
 	return r1, s1
 }
 
-func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string, options ...SpecUpdateOptions) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceSpec")
 
-	dp1, s1 = _d.inner.ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	dp1, s1 = _d.inner.ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations, options...)
 	endSpan(span, s1)
 	return dp1, s1
 }
@@ -376,10 +376,10 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return s1
 }
 
-func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) (s1 domain.Status) {
+func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
 
-	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints, options...)
 	endSpan(span, s1)
 	return s1
 }

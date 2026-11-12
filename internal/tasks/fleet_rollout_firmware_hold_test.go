@@ -87,7 +87,7 @@ func TestUpdateDeviceToFleetTemplateFirmwareHold(t *testing.T) {
 		gomock.InOrder(
 			devices.EXPECT().HoldDeviceForFirmware(gomock.Any(), logic.orgId, deviceName, lo.ToPtr(owner), false).Return(false, domain.StatusOK()),
 			devices.EXPECT().GetDevice(gomock.Any(), logic.orgId, deviceName).Return(fresh, domain.StatusOK()),
-			devices.EXPECT().ReplaceDeviceSpec(gomock.Any(), logic.orgId, deviceName, lo.ToPtr(owner), gomock.Any(), gomock.Any(), gomock.Any()).Return(fresh, domain.StatusOK()),
+			devices.EXPECT().ReplaceDeviceSpec(gomock.Any(), logic.orgId, deviceName, lo.ToPtr(owner), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(fresh, domain.StatusOK()),
 		)
 
 		_, err := logic.updateDeviceToFleetTemplate(context.Background(), stale, createTestTemplateVersion("tv-1"), false)
@@ -97,7 +97,7 @@ func TestUpdateDeviceToFleetTemplateFirmwareHold(t *testing.T) {
 
 	t.Run("When the spec write reports a hold it should stop without retrying", func(t *testing.T) {
 		devices, logic := setup(t)
-		devices.EXPECT().ReplaceDeviceSpec(gomock.Any(), logic.orgId, deviceName, lo.ToPtr(owner), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, heldStatus).Times(1)
+		devices.EXPECT().ReplaceDeviceSpec(gomock.Any(), logic.orgId, deviceName, lo.ToPtr(owner), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, heldStatus).Times(1)
 
 		_, err := logic.updateDeviceToFleetTemplate(context.Background(), createTestDevice(deviceName, owner), createTestTemplateVersion("tv-1"), false)
 

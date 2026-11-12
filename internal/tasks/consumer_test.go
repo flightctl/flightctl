@@ -91,7 +91,7 @@ func TestShouldRolloutFleet(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "DeviceUpdatedWithFirmwareStatus",
+			name:     "When firmware status changes it should trigger fleet rollout",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatusFirmware)),
 			expected: true,
 		},
@@ -398,7 +398,12 @@ func TestShouldRenderDevice(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "DeviceUpdatedWithFirmwareStatusAndRenderDelay",
+			name:     "When spec and firmware status change it should honor render delay",
+			event:    createTestEventWithDetailsAndAnnotations(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec, domain.UpdatedFieldStatusFirmware), map[string]string{domain.EventAnnotationDelayDeviceRender: "true"}),
+			expected: false,
+		},
+		{
+			name: "When only firmware status changes it should render despite spec delay",
 			event: createTestEventWithDetailsAndAnnotations(
 				domain.DeviceKind,
 				domain.EventReasonResourceUpdated,

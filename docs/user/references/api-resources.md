@@ -197,6 +197,8 @@ management, use JSON Patch with `remove` at `/spec/firmware` for a device or
 `/spec/template/spec/firmware` for a fleet. Withdrawal does not restore installed firmware
 or remove boot artifacts. Status writes that omit firmware preserve it, and writes cannot
 erase or change the identity of an outstanding attempt. Progress of that attempt is allowed.
+A terminal attempt cannot return to an active phase with the same identity. A new retry
+uses a new attempt identity and retry generation.
 
 `status.firmware` distinguishes selected artifacts from observed component state and
 includes support, attempt identity, phase, observation time, boot identity, errors, and

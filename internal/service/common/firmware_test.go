@@ -631,8 +631,9 @@ func TestValidateFirmwareIntentValidatesTheClosedConfiguration(t *testing.T) {
 			mutate: func(t *testing.T, f *domain.FirmwareSpec) {
 				releases := configValue(f, "releases").([]any)
 				second := map[string]any{}
-				raw, _ := json.Marshal(releases[0])
-				_ = json.Unmarshal(raw, &second)
+				raw, err := json.Marshal(releases[0])
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(raw, &second))
 				second["version"] = "35.0.1"
 				f.Updater.Config["releases"] = append(releases, second)
 			},

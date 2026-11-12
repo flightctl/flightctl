@@ -358,7 +358,7 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
 	if event.Reason == domain.EventReasonResourceUpdated {
-		if hasUpdatedFields(event.Details, log, domain.UpdatedFieldStatusFirmware) {
+		if hasUpdatedFields(event.Details, log, domain.UpdatedFieldStatusFirmware) && !hasUpdatedFields(event.Details, log, domain.Spec) {
 			return true
 		}
 		if !hasUpdatedFields(event.Details, log, domain.Spec) {

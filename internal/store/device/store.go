@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -197,6 +198,8 @@ type DeviceMutation struct {
 	// so neither commits without the other. An empty slice removes every
 	// reference; nil leaves the references unchanged.
 	RepositoryRefs *[]string
+	// FleetDependencyRefs is committed atomically with the owner-checked device update.
+	FleetDependencyRefs *[]model.DependencyRef
 }
 
 func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
@@ -208,6 +211,13 @@ func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) 
 	if m.RepositoryRefs != nil {
 		refs := append([]string{}, (*m.RepositoryRefs)...)
 		out.RepositoryRefs = &refs
+	}
+	if m.FleetDependencyRefs != nil {
+		refs, err := store.CloneJSON(m.FleetDependencyRefs)
+		if err != nil {
+			return nil, err
+		}
+		out.FleetDependencyRefs = refs
 	}
 	if m.Device != nil {
 		cloned, err := store.CloneJSON(m.Device)
@@ -723,6 +733,18 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 	return nil
 }
 
+func (s *DeviceStore) replaceMutationReferences(ctx context.Context, orgID uuid.UUID, name string, mutation *DeviceMutation) error {
+	if mutation.RepositoryRefs != nil {
+		if err := replaceDeviceRepositoryRefs(s.getDB(ctx), orgID, name, *mutation.RepositoryRefs); err != nil {
+			return err
+		}
+	}
+	if mutation.FleetDependencyRefs != nil {
+		return dependencyrefstore.NewDependencyRefStore(s.getDB(ctx), s.log).ReplaceFleetScopedDeviceRefs(ctx, orgID, name, *mutation.FleetDependencyRefs)
+	}
+	return nil
+}
+
 // Mutate loads the named device (or uses previous on the first attempt), runs apply,
 // and persists via GenericStore.Mutate using Create / Update.
 // Missing devices are created (apply must set Device); existing ones are updated.
@@ -750,7 +772,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Device]) (*domain.Device, error) {
 			dm := m.(*DeviceMutation)
-			if dm.RepositoryRefs == nil {
+			if dm.RepositoryRefs == nil && dm.FleetDependencyRefs == nil {
 				return s.Create(ctx, orgId, dm.Device, dm.Rendered)
 			}
 			var created *domain.Device
@@ -759,7 +781,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 				if created, createErr = s.Create(txCtx, orgId, dm.Device, dm.Rendered); createErr != nil {
 					return createErr
 				}
-				return replaceDeviceRepositoryRefs(s.getDB(txCtx), orgId, name, *dm.RepositoryRefs)
+				return s.replaceMutationReferences(txCtx, orgId, name, dm)
 			})
 			if err != nil {
 				return nil, err
@@ -768,7 +790,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			if dm.RepositoryRefs == nil {
+			if dm.RepositoryRefs == nil && dm.FleetDependencyRefs == nil {
 				return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
 			}
 			retry := false
@@ -777,7 +799,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 				if retry, updateErr = s.update(txCtx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg); updateErr != nil {
 					return updateErr
 				}
-				if refsErr := replaceDeviceRepositoryRefs(s.getDB(txCtx), orgId, name, *dm.RepositoryRefs); refsErr != nil {
+				if refsErr := s.replaceMutationReferences(txCtx, orgId, name, dm); refsErr != nil {
 					retry = strings.Contains(refsErr.Error(), "deadlock")
 					return refsErr
 				}
