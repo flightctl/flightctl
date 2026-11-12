@@ -27,7 +27,7 @@ Source0:         1%{?dist}
 %if %{fips_enabled}
 BuildRequires:  (golang >= 1.27.3 with golang < 1.28)
 %else
-BuildRequires:  golang
+BuildRequires:  golang >= 1.27.3
 %endif
 BuildRequires:  make
 BuildRequires:  git

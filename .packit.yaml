@@ -21,14 +21,17 @@ jobs:
   - job: copr_build
     trigger: pull_request
     targets:
-      fedora-44-x86_64: {}
       # Supply the Red Hat toolchain used by native Go FIPS builds.
       epel-9-aarch64: &epel9_go_toolchain
         additional_repos:
           - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/$basearch/appstream/os/
+          - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/$basearch/baseos/os/
       epel-10-aarch64: &epel10_go_toolchain
         additional_repos:
           - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/$basearch/appstream/os/
+          - https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/$basearch/baseos/os/
+      # Fedora 44 currently ships Go 1.26; use the newer toolchain with FIPS disabled.
+      fedora-44-x86_64: *epel9_go_toolchain
     module_hotfixes: true
 
   - job: copr_build
@@ -37,8 +40,8 @@ jobs:
     project: flightctl-dev
     preserve_project: True
     targets:
-      fedora-44-aarch64: {}
-      fedora-44-x86_64: {}
+      fedora-44-aarch64: *epel9_go_toolchain
+      fedora-44-x86_64: *epel9_go_toolchain
       epel-9-aarch64: *epel9_go_toolchain
       epel-9-x86_64: *epel9_go_toolchain
       epel-10-aarch64: *epel10_go_toolchain
@@ -50,8 +53,8 @@ jobs:
     project: flightctl
     preserve_project: True
     targets:
-      fedora-44-aarch64: {}
-      fedora-44-x86_64: {}
+      fedora-44-aarch64: *epel9_go_toolchain
+      fedora-44-x86_64: *epel9_go_toolchain
       epel-9-aarch64: *epel9_go_toolchain
       epel-9-x86_64: *epel9_go_toolchain
       epel-10-aarch64: *epel10_go_toolchain

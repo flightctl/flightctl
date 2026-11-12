@@ -54,6 +54,10 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make build-fips-validator
 
+      - name: Test RPM builder cache selection
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bash hack/test-rpm-builder.sh
+
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'
         uses: actions/upload-artifact@v4

@@ -46,8 +46,14 @@ The build applies `hack/fips-validator-native.patch` to the pinned upstream
 release. The patch validates the certified module's embedded build settings and
 integrity section for Go 1.27 binaries, including stripped and static binaries.
 It retains the existing OpenSSL checks for older Go and other executables.
+Bundled Helm and `oci-delta` executables are also built from pinned sources with
+the native FIPS module, so the image check covers their cryptography too.
 Update the reviewed module identifiers in the patch when adopting a new
 certified snapshot. `make fips-validate` uses this same validator for containers.
+
+RPM builder images record a fingerprint of their compiler and Mock build inputs.
+`make rpm` rebuilds an outdated builder locally when those inputs change. This
+allows toolchain updates to be tested before the scheduled builder publication.
 
 `DISABLE_FIPS=true` selects `GOFIPS140=off` for development and unsupported
 delivery targets such as the ARMv7 build. It does not change runtime settings
