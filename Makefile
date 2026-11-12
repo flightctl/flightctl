@@ -33,7 +33,7 @@ PATCH = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
 # If a FIPS-validated Go toolset is found, build in FIPS mode unless explicitly disabled by the user using DISABLE_FIPS="true"
 FIPS_VALIDATED_TOOLSET = $(shell go env GOVERSION | grep -q "Red Hat" && echo "true" || echo "false")
-GOENV = $(if $(filter true,$(DISABLE_FIPS)),CGO_ENABLED=0,$(if $(filter true,$(FIPS_VALIDATED_TOOLSET)),CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime,CGO_ENABLED=0))
+GOENV = $(if $(filter true,$(DISABLE_FIPS)),CGO_ENABLED=0 GOFIPS140=off,$(if $(filter true,$(FIPS_VALIDATED_TOOLSET)),CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime GOFIPS140=v1.0.0,CGO_ENABLED=0 GOFIPS140=off))
 
 ifeq ($(DEBUG),true)
 	# throw all the debug info in!
@@ -420,24 +420,18 @@ bundle-containers:
 		--output-path 'flightctl-images-bundle.tar'
 
 # FIPS compliance validation — validates container images for FIPS-compliant crypto.
-# Requires: fips-validator (go install github.com/flightctl/fips-validator@latest)
+# Uses the pinned validator with native Go FIPS support.
 # Usage:
 #   make build-containers && make fips-validate           # local validation
 #   make fips-validate FIPS_IMAGE_PATTERN='custom-.*:tag' # custom pattern
 FIPS_IMAGE_PATTERN ?= flightctl-.*-$(OS):latest
 
-.PHONY: fips-validate
-fips-validate:
-	@validator_path="$$(command -v fips-validator 2>/dev/null || true)"; \
-	if [ -z "$$validator_path" ]; then \
-		for d in "$$(go env GOBIN 2>/dev/null)" "$$(go env GOPATH 2>/dev/null)/bin" "$$HOME/go/bin"; do \
-			if [ -n "$$d" ] && [ -x "$$d/fips-validator" ]; then validator_path="$$d/fips-validator"; break; fi; \
-		done; \
-	fi; \
-	if [ -z "$$validator_path" ]; then \
-		echo "ERROR: fips-validator not found. Install with: go install github.com/flightctl/fips-validator@latest"; \
-		exit 1; \
-	fi; \
+.PHONY: build-fips-validator fips-validate
+build-fips-validator:
+	./hack/install-fips-validator.sh "$(CURDIR)/bin/fips-validator"
+
+fips-validate: build-fips-validator
+	@validator_path="$(CURDIR)/bin/fips-validator"; \
 	echo "Using fips-validator: $$validator_path"; \
 	echo "Validating FIPS compliance for images matching: $(FIPS_IMAGE_PATTERN)"; \
 	failed=0; \

@@ -50,6 +50,10 @@ jobs:
         env:
           DISABLE_FIPS: "true"
 
+      - name: Test native FIPS artifact validation
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: make build-fips-validator
+
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'
         uses: actions/upload-artifact@v4

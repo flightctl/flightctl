@@ -7,7 +7,7 @@
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
 
-# RHEL-compatible builds use the OpenSSL FIPS validator.
+# RHEL-compatible builds use the native Go FIPS module.
 %global fips_enabled 0%{?rhel}
 
 Name:           flightctl
@@ -25,7 +25,7 @@ URL:            %{gourl}
 Source0:         1%{?dist}
 
 %if %{fips_enabled}
-BuildRequires:  (golang >= 1.26.10 with golang < 1.27)
+BuildRequires:  (golang >= 1.27.3 with golang < 1.28)
 %else
 BuildRequires:  golang
 %endif
@@ -333,7 +333,7 @@ fi
     %make_build --directory packaging/selinux
 
 %if %{fips_enabled}
-    GOFLAGS='' GOBIN="$PWD/bin" go install github.com/flightctl/fips-validator@v0.0.0-20250930084220-ceca2caa6e48
+    %make_build build-fips-validator
 %endif
 
 
@@ -488,7 +488,7 @@ fi
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-agent
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-backup
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-restore
-    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
+    GODEBUG=fips140=on bin/flightctl version -o json | grep -q '"fipsMode": true'
 %endif
 
 %pre selinux

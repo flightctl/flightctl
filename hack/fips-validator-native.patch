@@ -1,0 +1,204 @@
+--- a/internal/validation/binary.go
++++ b/internal/validation/binary.go
+@@ -64,10 +64,10 @@
+ 		fmt.Printf("skipped (no crypto)\n")
+ 		return true // Skip is considered success
+ 	}
+-	errs = append(errs, validateNotStaticallyLinked(ei)...)
+ 
+ 	bi, err := buildinfo.ReadFile(filepath.Join(rootPath, path))
+ 	if err != nil {
++		errs = append(errs, validateNotStaticallyLinked(ei)...)
+ 		debugFunc("skipping further validation (not a Go binary): %v", err)
+ 	} else {
+ 		ver := strings.TrimPrefix(bi.GoVersion, "go")
+@@ -77,7 +77,10 @@
+ 		goVersion, err := semver.NewVersion(ver)
+ 		if err != nil {
+ 			errs = append(errs, fmt.Errorf("failed to parse Go version %q: %v", bi.GoVersion, err))
++		} else if goVersion.Major() == 1 && goVersion.Minor() >= 27 {
++			errs = append(errs, validateNativeGo(bi, ei)...)
+ 		} else {
++			errs = append(errs, validateNotStaticallyLinked(ei)...)
+ 			errs = append(errs, validateCgoEnabled(bi)...)
+ 			errs = append(errs, validateCgoInit(ei)...)
+ 			errs = append(errs, validateGoSymbols(ei, goVersion)...)
+--- /dev/null
++++ b/internal/validation/native_go.go
+@@ -0,0 +1,38 @@
++package validation
++
++import (
++	"debug/buildinfo"
++	"fmt"
++	"slices"
++	"strings"
++
++	"github.com/flightctl/fips-validator/pkg/elfinfo"
++)
++
++// Accept the certified v1.0.0 snapshot and its Red Hat distribution identifier.
++// New snapshots require review against their CMVP certificate before inclusion.
++func validateNativeGo(info *buildinfo.BuildInfo, elfInfo *elfinfo.ElfInfo) []error {
++	settings := map[string]string{}
++	for _, setting := range info.Settings {
++		settings[setting.Key] = setting.Value
++	}
++	var errs []error
++	switch settings["GOFIPS140"] {
++	case "v1.0.0", "v1.0.0-c2097c7c":
++	default:
++		errs = append(errs, fmt.Errorf("native Go binary does not select a supported certified FIPS module: GOFIPS140=%q", settings["GOFIPS140"]))
++	}
++	mode := ""
++	for _, setting := range strings.Split(settings["DefaultGODEBUG"], ",") {
++		if value, ok := strings.CutPrefix(setting, "fips140="); ok {
++			mode = value
++		}
++	}
++	if !slices.Contains([]string{"on", "auto", "only"}, mode) {
++		errs = append(errs, fmt.Errorf("native Go binary does not enable FIPS by default or on FIPS hosts: fips140=%q", mode))
++	}
++	if !slices.Contains(elfInfo.Sections, ".go.fipsinfo") {
++		errs = append(errs, fmt.Errorf("native Go binary is missing the FIPS integrity-check section"))
++	}
++	return errs
++}
+--- /dev/null
++++ b/internal/validation/native_go_test.go
+@@ -0,0 +1,67 @@
++package validation
++
++import (
++	"context"
++	"debug/buildinfo"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime/debug"
++	"testing"
++
++	"github.com/flightctl/fips-validator/pkg/elfinfo"
++)
++
++func TestValidateNativeGo(t *testing.T) {
++	tests := []struct {
++		name, module, mode string
++		integrity, valid   bool
++	}{
++		{"When the certified module is selected it should accept static native crypto", "v1.0.0", "on", true, true},
++		{"When Red Hat host detection is selected it should accept the certified snapshot", "v1.0.0-c2097c7c", "auto", true, true},
++		{"When strict testing is selected it should accept native crypto", "v1.0.0", "only", true, true},
++		{"When crypto is disabled it should reject the binary", "off", "on", true, false},
++		{"When the module is not certified it should reject the binary", "latest", "on", true, false},
++		{"When the selector is unresolved it should reject the binary", "certified", "on", true, false},
++		{"When runtime FIPS defaults off it should reject the binary", "v1.0.0", "off", true, false},
++		{"When runtime mode is missing it should reject the binary", "v1.0.0", "", true, false},
++		{"When integrity information is absent it should reject the binary", "v1.0.0", "on", false, false},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			info := &buildinfo.BuildInfo{Settings: []debug.BuildSetting{{Key: "GOFIPS140", Value: tt.module}, {Key: "DefaultGODEBUG", Value: "other=1,fips140=" + tt.mode}}}
++			elfInfo := &elfinfo.ElfInfo{IsElf: true, IsStatic: true}
++			if tt.integrity {
++				elfInfo.Sections = []string{".go.fipsinfo"}
++			}
++			if errs := validateNativeGo(info, elfInfo); (len(errs) == 0) != tt.valid {
++				t.Fatalf("valid=%t, errors=%v", tt.valid, errs)
++			}
++		})
++	}
++}
++
++func TestNativeGoBinary(t *testing.T) {
++	dir := t.TempDir()
++	source := filepath.Join(dir, "main.go")
++	if err := os.WriteFile(source, []byte(`package main
++import("crypto/sha256"; "fmt")
++func main(){fmt.Println(sha256.Sum256([]byte("fips"))) }
++`), 0600); err != nil {
++		t.Fatal(err)
++	}
++	for _, module := range []string{"v1.0.0", "off"} {
++		t.Run(module, func(t *testing.T) {
++			binary := filepath.Join(dir, "probe-"+module)
++			cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", binary, source)
++			cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOFIPS140="+module)
++			if output, err := cmd.CombinedOutput(); err != nil {
++				t.Fatalf("build probe: %v: %s", err, output)
++			}
++			valid := ValidateBinary(context.Background(), "", binary, t.Logf)
++			if valid != (module == "v1.0.0") {
++				t.Fatalf("module %s: validation=%t", module, valid)
++			}
++		})
++	}
++}
+--- a/pkg/elfinfo/elf.go
++++ b/pkg/elfinfo/elf.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"debug/elf"
++	"debug/gosym"
+ )
+ 
+ type ElfInfo struct {
+@@ -24,7 +25,7 @@
+ 		info.IsElf = true
+ 		info.IsStatic = isStatic(exe)
+ 		info.Sections = getSectionNames(exe)
+-		info.Symbols, _ = exe.Symbols()
++		info.Symbols = readSymbols(exe)
+ 	case elf.ET_DYN: // Either a binary or a shared object.
+ 		pie, err := isPie(exe)
+ 		if err != nil || !pie {
+@@ -33,7 +34,7 @@
+ 		info.IsElf = true
+ 		info.IsStatic = isStatic(exe)
+ 		info.Sections = getSectionNames(exe)
+-		info.Symbols, _ = exe.Symbols()
++		info.Symbols = readSymbols(exe)
+ 	}
+ 	return info, nil
+ }
+@@ -70,3 +71,39 @@
+ 	}
+ 	return sectionNames
+ }
++
++// Stripped Go binaries retain their function table. Use it for crypto detection
++// so removing the ELF symbol table cannot bypass validation.
++func readSymbols(file *elf.File) []elf.Symbol {
++	symbols, err := file.Symbols()
++	if err == nil {
++		return symbols
++	}
++	pcln := file.Section(".gopclntab")
++	if pcln == nil {
++		pcln = file.Section(".data.rel.ro.gopclntab")
++	}
++	text := file.Section(".text")
++	if pcln == nil || text == nil {
++		return nil
++	}
++	data, err := pcln.Data()
++	if err != nil {
++		return nil
++	}
++	table, err := gosym.NewTable(nil, gosym.NewLineTable(data, text.Addr))
++	if err != nil {
++		return nil
++	}
++	var index elf.SectionIndex
++	for i, section := range file.Sections {
++		if section == text {
++			index = elf.SectionIndex(i)
++			break
++		}
++	}
++	for _, fn := range table.Funcs {
++		symbols = append(symbols, elf.Symbol{Name: fn.Name, Section: index})
++	}
++	return symbols
++}

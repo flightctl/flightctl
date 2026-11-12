@@ -1,1 +1,4 @@
 packaging/rpm/git-metadata export-subst
+
+# Unified diff context markers are significant whitespace.
+hack/fips-validator-native.patch -whitespace
