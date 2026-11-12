@@ -563,13 +563,12 @@ func TestFleetValidateLogic_RepositoryReferenceOutcomes(t *testing.T) {
 		require.Len(t, emit.events, 1)
 	})
 
-	t.Run("When the fleet changed since it was read it should still validate and create a template version", func(t *testing.T) {
+	t.Run("When the fleet changed since it was read it should stop before creating a template version", func(t *testing.T) {
 		_, orgID, m, logic, emit := setup(t)
 		m.fleets.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, "refs-fleet", int64(1), gomock.Any()).Return(common.RepositoryRefsStale, domain.StatusOK())
-		expectTemplateVersion(m, orgID)
 
 		require.NoError(t, logic.CreateNewTemplateVersionIfFleetValid(context.Background()))
-		require.Len(t, emit.events, 1)
+		assert.Empty(t, emit.events)
 	})
 
 	t.Run("When firmware references are not known yet it should report a retryable validation error without a template version", func(t *testing.T) {

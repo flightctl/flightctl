@@ -192,6 +192,13 @@ func TestEmitDeviceStatusAndResourceChanges(t *testing.T) {
 	}{
 		{name: "When status and spec change it should emit separate events", change: func(d *domain.Device) { d.Spec.Os.Image = "new-image" }, field: domain.Spec},
 		{name: "When status and labels change it should emit separate events", change: func(d *domain.Device) { d.Metadata.Labels = lo.ToPtr(map[string]string{"site": "east"}) }, field: domain.Labels},
+		{
+			name: "When the firmware hold requirement changes it should emit a firmware status update",
+			change: func(d *domain.Device) {
+				d.Status.Firmware = &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseStaging}}
+			},
+			field: domain.UpdatedFieldStatusFirmware,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ev := &fakeEvents{}

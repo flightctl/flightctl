@@ -225,7 +225,7 @@ func TestFirmwareSchemaFieldConstraints(t *testing.T) {
 		{path: "spec.firmware.components[].version.latest", typ: openapi3.TypeBoolean, def: false},
 		{path: "spec.firmware.overlays", typ: openapi3.TypeArray},
 		{path: "spec.firmware.overlays[]", typ: openapi3.TypeObject, required: []string{"name", "compatibleFirmware"}},
-		{path: "spec.firmware.overlays[].name", typ: openapi3.TypeString, minLength: 1},
+		{path: "spec.firmware.overlays[].name", typ: openapi3.TypeString, pattern: `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`, minLength: 1},
 		{path: "spec.firmware.overlays[].compatibleFirmware", typ: openapi3.TypeArray, minItems: 1},
 		{path: "spec.firmware.overlays[].compatibleFirmware[]", typ: openapi3.TypeObject, required: []string{"component"}},
 		{path: "spec.firmware.overlays[].compatibleFirmware[].component", typ: openapi3.TypeString, minLength: 1},
