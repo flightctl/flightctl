@@ -106,6 +106,9 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 
+	if err := devicestore.NewDeviceStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
 	catalogStore, err := updatercatalogstore.NewStore(tx)
 	if err != nil {
 		return err
@@ -114,9 +117,6 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 
-	if err := devicestore.NewDeviceStore(tx, log).InitialMigration(ctx); err != nil {
-		return err
-	}
 	if err := enrollmentrequeststore.NewEnrollmentRequestStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}

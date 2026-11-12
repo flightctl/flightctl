@@ -113,3 +113,23 @@ tombstones, and refresh work together. Restoring an older database can discard
 trusted history; revision checks cannot recover state an administrator removed
 from every trusted copy. Offline devices retain their last accepted policy, so
 revocation takes effect after receipt rather than instantaneously offline.
+
+## Durable refresh fanout
+
+The worker resumes refresh work at startup and polls for newly accepted policy.
+It scans active device identities in bounded pages across organizations without
+reading desired specifications. This conservative recipient set includes devices
+with invalid firmware intent, pinned attempts, and no firmware intent. Refresh
+never resolves a target or changes retry generation, rendered version, or status.
+
+Each scan cursor commits atomically with its recipient rows. One recipient row
+per device retains monotonic pending and published revisions. Newer policy can
+coalesce older pending work; repeated publication is safe. Failed publication or
+failure to record publication leaves work available for retry after restart.
+Deleting a device removes its recipient row.
+
+Revision high-water marks live in PostgreSQL. The separate
+`firmware_policy_notifier` Redis channel carries refresh hints only, preserving
+full integer revision precision and isolating rendered-target subscribers. A
+successful publish records notification, not agent receipt. Authenticated policy
+reads and durable receiving state must establish delivery independently.

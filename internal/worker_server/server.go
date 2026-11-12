@@ -207,9 +207,19 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
+	policyNotifier, err := rendered.NewFirmwarePolicyNotifier(s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	policyRefresh, err := tasks.NewUpdaterCatalogRefresh(updaterProvider, policyNotifier, s.log)
+	if err != nil {
+		return err
+	}
 	enqueueCtx, cancelEnqueue := context.WithCancel(ctx)
 	var enqueueWG sync.WaitGroup
-	enqueueWG.Add(1)
+	enqueueWG.Add(2)
+	go func() { defer enqueueWG.Done(); policyRefresh.Run(enqueueCtx) }()
+
 	go func() {
 		defer enqueueWG.Done()
 		if err := tasks.EnqueueEncryptionMigrationIfNeeded(enqueueCtx, publisher, encryptionMigrator, s.log); err != nil {
