@@ -89,7 +89,7 @@ func (p *Plugin) beforeSave(tx *gorm.DB) {
 		for i := 0; i < val.Len(); i++ {
 			elem := val.Index(i)
 			// For []T (non-pointer elements), take address so handler gets *T.
-			if elem.Kind() != reflect.Ptr && elem.CanAddr() {
+			if elem.Kind() != reflect.Pointer && elem.CanAddr() {
 				elem = elem.Addr()
 			}
 			if err := handler(ctx, elem.Interface(), p.manager.ProcessEncryption); err != nil {

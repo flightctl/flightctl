@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -383,11 +384,11 @@ func convertTPM2BPublicToPublicKey(pub *tpm2.TPM2BPublic) (crypto.PublicKey, err
 			return nil, fmt.Errorf("could not get ECC unique parameters: %w", err)
 		}
 
-		return &ecdsa.PublicKey{
-			Curve: curve,
-			X:     new(big.Int).SetBytes(unique.X.Buffer),
-			Y:     new(big.Int).SetBytes(unique.Y.Buffer),
-		}, nil
+		publicKey, err := parseTPMECCPublicKey(curve, unique.X.Buffer, unique.Y.Buffer)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse ECC public key: %w", err)
+		}
+		return publicKey, nil
 
 	case tpm2.TPMAlgRSA:
 		unique, err := outpub.Unique.RSA()
@@ -408,6 +409,22 @@ func convertTPM2BPublicToPublicKey(pub *tpm2.TPM2BPublic) (crypto.PublicKey, err
 	default:
 		return nil, fmt.Errorf("unsupported key type: %d", outpub.Type)
 	}
+}
+
+// parseTPMECCPublicKey converts TPM coordinates into an uncompressed SEC1 point
+// and parses it as an ECDSA public key.
+func parseTPMECCPublicKey(curve elliptic.Curve, x, y []byte) (*ecdsa.PublicKey, error) {
+	coordinateSize := (curve.Params().BitSize + 7) / 8
+	if len(x) > coordinateSize || len(y) > coordinateSize {
+		return nil, fmt.Errorf("ECC coordinate exceeds the curve's %d-byte width", coordinateSize)
+	}
+
+	point := make([]byte, 1+2*coordinateSize)
+	point[0] = 0x04
+	copy(point[1+coordinateSize-len(x):1+coordinateSize], x)
+	copy(point[1+2*coordinateSize-len(y):], y)
+
+	return ecdsa.ParseUncompressedPublicKey(curve, point)
 }
 
 // tpmDevice represents basic TPM device information for discovery
