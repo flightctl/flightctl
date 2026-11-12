@@ -336,14 +336,66 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(deviceRefs("device-1")).To(Equal([]string{"config-http", "firmware-artifacts"}))
 		})
 
-		It("When a replacement omits the firmware it should keep it and leave the generation and references unchanged", func() {
+		It("When firmware appears during a Device PUT it should reject omission on retry and retain the concurrent state", func() {
+			_, status := deviceSvc.CreateDevice(ctx, orgId, newDevice("device-1", deviceSpec(nil)))
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)), status.Message)
+			concurrent := devicestore.NewDeviceStore(suite.DB, suite.Log)
+			var changed atomic.Bool
+			devStore.SetIntegrationTestCreateOrUpdateCallback(func() {
+				if !changed.CompareAndSwap(false, true) {
+					return
+				}
+				_, _, _, err := concurrent.Mutate(ctx, orgId, "device-1", nil, func(m *devicestore.DeviceMutation) error {
+					m.Device.Spec.Firmware = firmware()
+					refs := []string{"config-http", "firmware-artifacts", "firmware-signatures"}
+					m.RepositoryRefs = &refs
+					return nil
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+			DeferCleanup(func() { devStore.SetIntegrationTestCreateOrUpdateCallback(func() {}) })
+			_, status = deviceSvc.ReplaceDevice(ctx, orgId, "device-1", newDevice("device-1", deviceSpec(nil)), nil, true, true)
+			Expect(status.Code).To(Equal(int32(http.StatusBadRequest)), status.Message)
+			Expect(status.Message).To(ContainSubstring("JSON Patch remove"))
+			Expect(changed.Load()).To(BeTrue())
+			Expect(storedDevice("device-1").Spec.Firmware).To(Equal(firmware()))
+			Expect(deviceRefs("device-1")).To(Equal([]string{"config-http", "firmware-artifacts", "firmware-signatures"}))
+		})
+
+		It("When firmware appears during a Fleet PUT it should reject omission on retry and retain the concurrent state", func() {
+			_, status := fleetSvc.CreateFleet(ctx, orgId, newFleet("fleet-1", nil))
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)), status.Message)
+			concurrent := fleetstore.NewFleetStore(suite.DB, suite.Log)
+			var changed atomic.Bool
+			Expect(suite.DB.Callback().Update().Before("gorm:update").Register("test:concurrent-fleet-firmware", func(tx *gorm.DB) {
+				if tx.Statement.Table != "fleets" || !changed.CompareAndSwap(false, true) {
+					return
+				}
+				_, _, _, err := concurrent.Mutate(ctx, orgId, "fleet-1", nil, func(m *fleetstore.FleetMutation) error {
+					m.Fleet.Spec.Template.Spec.Firmware = firmware()
+					return nil
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})).To(Succeed())
+			DeferCleanup(func() { Expect(suite.DB.Callback().Update().Remove("test:concurrent-fleet-firmware")).To(Succeed()) })
+			_, status = fleetSvc.ReplaceFleet(ctx, orgId, "fleet-1", newFleet("fleet-1", nil), true)
+			Expect(status.Code).To(Equal(int32(http.StatusBadRequest)), status.Message)
+			Expect(status.Message).To(ContainSubstring("JSON Patch remove"))
+			Expect(changed.Load()).To(BeTrue())
+			current, err := fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(current.Spec.Template.Spec.Firmware).To(Equal(firmware()))
+		})
+
+		It("When a replacement omits the firmware it should reject it and leave generation and references unchanged", func() {
 			_, status := deviceSvc.CreateDevice(ctx, orgId, newDevice("device-1", deviceSpec(firmware())))
 			Expect(status.Code).To(Equal(int32(http.StatusCreated)), status.Message)
 			created := storedDevice("device-1")
 
 			_, status = deviceSvc.ReplaceDevice(ctx, orgId, "device-1", newDevice("device-1", deviceSpec(nil)), nil, true, true)
 
-			Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
+			Expect(status.Code).To(Equal(int32(http.StatusBadRequest)), status.Message)
+			Expect(status.Message).To(ContainSubstring("JSON Patch remove"))
 			after := storedDevice("device-1")
 			Expect(after.Spec.Firmware).To(Equal(created.Spec.Firmware))
 			Expect(after.Metadata.Generation).To(Equal(created.Metadata.Generation))
@@ -539,7 +591,7 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(repositoryRowExists(orgId, "missing-artifacts")).To(BeFalse())
 		})
 
-		It("When firmware is created, patched and replaced over HTTP it should enforce the raw firmware fields and keep omitted firmware", func() {
+		It("When firmware is written over HTTP it should reject lossy PUTs and allow explicit removal", func() {
 			code, body := send(http.MethodPost, "/devices", deviceBody("device-1", firmwareDocument(nil)))
 			Expect(code).To(Equal(http.StatusCreated), body)
 			created := storedDevice("device-1")
@@ -563,10 +615,11 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(body).To(ContainSubstring("not nullable"))
 			Expect(storedDevice("device-1").Spec.Firmware).To(Equal(created.Spec.Firmware))
 
-			By("keeping the firmware when a replacement omits it")
+			By("rejecting a replacement that omits existing firmware")
 			code, body = send(http.MethodPut, "/devices/device-1", `{"apiVersion": "v1beta1", "kind": "Device", "metadata": {"name": "device-1"},
 				"spec": {"config": [{"name": "http", "httpRef": {"repository": "config-http", "filePath": "/etc/http.conf"}}]}}`)
-			Expect(code).To(Equal(http.StatusOK), body)
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("JSON Patch remove"))
 			Expect(storedDevice("device-1").Spec.Firmware).To(Equal(created.Spec.Firmware))
 
 			By("withdrawing the firmware on an explicit removal")
@@ -574,6 +627,27 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 			Expect(code).To(Equal(http.StatusOK), body)
 			Expect(storedDevice("device-1").Spec.Firmware).To(BeNil())
 			Expect(deviceRefs("device-1")).To(Equal([]string{"config-http"}))
+		})
+
+		It("When a Fleet PUT omits managed firmware over HTTP it should reject it while explicit PATCH removal still works", func() {
+			code, body := send(http.MethodPost, "/fleets", fleetBody("fleet-1", firmwareDocument(nil)))
+			Expect(code).To(Equal(http.StatusCreated), body)
+			before, err := fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			replacement := `{"apiVersion":"v1beta1","kind":"Fleet","metadata":{"name":"fleet-1"},"spec":{"selector":{"matchLabels":{"site":"lab"}},"template":{"spec":{}}}}`
+			code, body = send(http.MethodPut, "/fleets/fleet-1", replacement)
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("/spec/template/spec/firmware"))
+			after, err := fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(after.Spec).To(Equal(before.Spec))
+			Expect(after.Metadata.Generation).To(Equal(before.Metadata.Generation))
+			Expect(after.Metadata.ResourceVersion).To(Equal(before.Metadata.ResourceVersion))
+			code, body = send(http.MethodPatch, "/fleets/fleet-1", `[{"op":"remove","path":"/spec/template/spec/firmware"}]`)
+			Expect(code).To(Equal(http.StatusOK), body)
+			after, err = fleetStore.Get(ctx, orgId, "fleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(after.Spec.Template.Spec.Firmware).To(BeNil())
 		})
 
 		It("When a fleet body templates only a designated GUID it should accept it, and reject an unknown field or invalid literal beside it", func() {

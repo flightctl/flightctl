@@ -192,11 +192,12 @@ signature repositories must belong to the same organization. Repository dependen
 include both configuration and firmware references so that repository changes notify
 referencing resources.
 
-Replacement writes that omit firmware preserve the stored value. To deliberately withdraw
-management, use JSON Patch with `remove` at `/spec/firmware` for a device or
-`/spec/template/spec/firmware` for a fleet. Withdrawal does not restore installed firmware
-or remove boot artifacts. Status writes that omit firmware preserve it, and writes cannot
-erase or change the identity of an outstanding attempt. Progress of that attempt is allowed.
+A PUT replacement that omits existing firmware is rejected with HTTP 400. Include the
+firmware in the replacement, or deliberately withdraw management using JSON Patch with
+`remove` at `/spec/firmware` for a device or `/spec/template/spec/firmware` for a fleet.
+PUT requests for resources without managed firmware retain their normal behavior.
+Withdrawal does not restore installed firmware or remove boot artifacts. Status writes that
+omit firmware preserve it, and writes cannot erase or change the identity of an outstanding attempt. Progress of that attempt is allowed.
 A terminal attempt cannot return to an active phase with the same identity. A new retry
 uses a new attempt identity and retry generation.
 

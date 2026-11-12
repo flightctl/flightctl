@@ -178,9 +178,11 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
 			return err
 		}
-		// A replacement that omits the template firmware keeps the stored firmware.
+		if err := common.ValidateFirmwareReplacement(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec, common.FleetFirmwarePatchPath); err != nil {
+			callbackStatus = domain.StatusBadRequest(err.Error())
+			return common.ApiStatusToErr(callbackStatus)
+		}
 		incoming := fleet
-		incoming.Spec.Template.Spec = *common.PreserveOmittedFirmware(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec)
 		if enforceOwnership && fleetOwnershipConflict(current, &incoming) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
