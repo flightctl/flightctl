@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Keep the compatibility patch pinned until the upstream validator supports
-# native Go FIPS modules. OpenSSL checks remain enabled for legacy binaries.
-validator_version=v0.0.0-20250930084220-ceca2caa6e48
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Build the pinned upstream validator revision with the repository's Go toolchain.
+validator_version=v0.0.0-20261112194341-8ad0f0fbb0d1
 output=${1:?Usage: install-fips-validator.sh OUTPUT_PATH}
 output=$(realpath -m "$output")
 build_dir=$(mktemp -d)
@@ -23,7 +21,6 @@ go mod download "github.com/flightctl/fips-validator@${validator_version}"
 module_dir="$(go env GOMODCACHE)/github.com/flightctl/fips-validator@${validator_version}"
 cp -R "$module_dir/." .
 chmod -R u+w .
-git apply "$script_dir/fips-validator-native.patch"
 go test ./...
 mkdir -p "$(dirname "$output")"
 go build -o "$output" .

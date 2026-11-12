@@ -42,16 +42,20 @@ variables do not activate native Go FIPS mode. Explicit SSH crypto-policy
 overrides continue to select SSH algorithms independently of the runtime.
 
 Build and test the pinned artifact validator with `make build-fips-validator`.
-The build applies `hack/fips-validator-native.patch` to the pinned upstream
-release. The patch validates the certified module's embedded build settings and
-integrity section for Go 1.27 binaries, including stripped and static binaries.
-It retains the existing OpenSSL checks for older Go and other executables.
-Validation fails if a stripped Go executable's function table is missing,
-unreadable, or malformed.
+Its implementation and native Go FIPS policy are maintained in the
+[`flightctl/fips-validator`](https://github.com/flightctl/fips-validator)
+repository; this build uses the pinned module revision in
+`hack/install-fips-validator.sh` and the repository's selected Go toolchain.
+It validates the certified module's embedded build settings and integrity
+section for Go 1.27 binaries, including stripped and static binaries, while
+retaining OpenSSL checks for older Go and other executables. Validation fails
+if a stripped Go executable's function table is missing, unreadable, or
+malformed.
 Bundled Helm and `oci-delta` executables are also built from pinned sources with
-the native FIPS module, so the image check covers their cryptography too.
-Update the reviewed module identifiers in the patch when adopting a new
-certified snapshot. `make fips-validate` uses this same validator for containers.
+the native FIPS module, so the image check covers their cryptography too. New
+certified snapshots should be reviewed and added in the validator repository
+before updating the pinned module revision. `make fips-validate` uses this same
+validator for containers.
 
 RPM builder images record a fingerprint of their compiler and Mock build inputs.
 `make rpm` rebuilds an outdated builder locally when those inputs change. This
