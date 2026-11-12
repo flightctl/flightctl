@@ -88,7 +88,7 @@ helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} -f values
 helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} --namespace flightctl --create-namespace
 ```
 
-{{ if eq .Name "flightctl" }}
+{{ if or (eq .Name "flightctl") (eq .Name "redhat-rhem") }}
 ### Install from the OpenShift Software Catalog
 
 Prerequisites:
