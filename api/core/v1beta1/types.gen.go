@@ -3226,6 +3226,18 @@ type OciRepoSpecScheme string
 // OciRepoSpecType The repository type discriminator.
 type OciRepoSpecType string
 
+// OneTimeWindow defines model for OneTimeWindow.
+type OneTimeWindow struct {
+	// At Local time at which the one-time window opens on the specified date.
+	At string `json:"at"`
+
+	// Date Exact calendar date on which the one-time window opens.
+	Date string `json:"date"`
+
+	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
+	StartGraceDuration Duration `json:"startGraceDuration"`
+}
+
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {
 	// AuthorizationUrl The OAuth2 authorization endpoint URL.
@@ -3884,14 +3896,24 @@ type UpdateSchedule struct {
 	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
 	// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
 	// Example: `* 0-8,16-23 * * *`.
-	At CronExpression `json:"at"`
+	At *CronExpression `json:"at,omitempty"`
+
+	// OneTimeWindows Date-specific windows in which the corresponding operation may start.
+	OneTimeWindows *[]OneTimeWindow `json:"oneTimeWindows,omitempty"`
 
 	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	StartGraceDuration Duration `json:"startGraceDuration"`
+	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
+	union    json.RawMessage
 }
+
+// UpdateSchedule0 defines model for .
+type UpdateSchedule0 = interface{}
+
+// UpdateSchedule1 defines model for .
+type UpdateSchedule1 = interface{}
 
 // UserInfoResponse OIDC UserInfo response
 type UserInfoResponse struct {
@@ -7590,6 +7612,144 @@ func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 
 func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsUpdateSchedule0 returns the union data inside the UpdateSchedule as a UpdateSchedule0
+func (t UpdateSchedule) AsUpdateSchedule0() (UpdateSchedule0, error) {
+	var body UpdateSchedule0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateSchedule0 overwrites any union data inside the UpdateSchedule as the provided UpdateSchedule0
+func (t *UpdateSchedule) FromUpdateSchedule0(v UpdateSchedule0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateSchedule0 performs a merge with any union data inside the UpdateSchedule, using the provided UpdateSchedule0
+func (t *UpdateSchedule) MergeUpdateSchedule0(v UpdateSchedule0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateSchedule1 returns the union data inside the UpdateSchedule as a UpdateSchedule1
+func (t UpdateSchedule) AsUpdateSchedule1() (UpdateSchedule1, error) {
+	var body UpdateSchedule1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateSchedule1 overwrites any union data inside the UpdateSchedule as the provided UpdateSchedule1
+func (t *UpdateSchedule) FromUpdateSchedule1(v UpdateSchedule1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateSchedule1 performs a merge with any union data inside the UpdateSchedule, using the provided UpdateSchedule1
+func (t *UpdateSchedule) MergeUpdateSchedule1(v UpdateSchedule1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t UpdateSchedule) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.At != nil {
+		object["at"], err = json.Marshal(t.At)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'at': %w", err)
+		}
+	}
+
+	if t.OneTimeWindows != nil {
+		object["oneTimeWindows"], err = json.Marshal(t.OneTimeWindows)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'oneTimeWindows': %w", err)
+		}
+	}
+
+	if t.StartGraceDuration != nil {
+		object["startGraceDuration"], err = json.Marshal(t.StartGraceDuration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'startGraceDuration': %w", err)
+		}
+	}
+
+	if t.TimeZone != nil {
+		object["timeZone"], err = json.Marshal(t.TimeZone)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'timeZone': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *UpdateSchedule) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["at"]; found {
+		err = json.Unmarshal(raw, &t.At)
+		if err != nil {
+			return fmt.Errorf("error reading 'at': %w", err)
+		}
+	}
+
+	if raw, found := object["oneTimeWindows"]; found {
+		err = json.Unmarshal(raw, &t.OneTimeWindows)
+		if err != nil {
+			return fmt.Errorf("error reading 'oneTimeWindows': %w", err)
+		}
+	}
+
+	if raw, found := object["startGraceDuration"]; found {
+		err = json.Unmarshal(raw, &t.StartGraceDuration)
+		if err != nil {
+			return fmt.Errorf("error reading 'startGraceDuration': %w", err)
+		}
+	}
+
+	if raw, found := object["timeZone"]; found {
+		err = json.Unmarshal(raw, &t.TimeZone)
+		if err != nil {
+			return fmt.Errorf("error reading 'timeZone': %w", err)
+		}
+	}
+
 	return err
 }
 

@@ -116,7 +116,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 
 	// parse cron expression
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	cronExpr, err := parser.Parse(updateSchedule.At)
+	cronExpr, err := parser.Parse(lo.FromPtr(updateSchedule.At))
 	if err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
@@ -124,7 +124,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	log.Debugf("Parsed cron expression: %s", s.cron)
 
 	// parse grace duration
-	duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
+	duration, err := time.ParseDuration(lo.FromPtr(updateSchedule.StartGraceDuration))
 	if err != nil {
 		return fmt.Errorf("invalid start grace duration: %w", err)
 	}

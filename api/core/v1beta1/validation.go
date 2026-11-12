@@ -669,12 +669,12 @@ func (u UpdateSchedule) Validate() []error {
 
 	// allow only the standard 5 input cron syntax e.g. "* * * * *"
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(u.At)
+	schedule, err := parser.Parse(lo.FromPtr(u.At))
 	if err != nil {
 		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
 	}
 
-	if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
+	if err := validateGraceDuration(schedule, lo.FromPtr(u.StartGraceDuration)); err != nil {
 		allErrs = append(allErrs, err)
 	}
 

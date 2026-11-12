@@ -3,6 +3,7 @@ package tasks
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -41,7 +42,10 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	}))
 	resources := []domain.ResourceMonitor{resource}
 	updatePolicy := &domain.DeviceUpdatePolicySpec{
-		DownloadSchedule: &domain.UpdateSchedule{At: "0 2 * * *", StartGraceDuration: "10m"},
+		DownloadSchedule: &domain.UpdateSchedule{
+			At:                 lo.ToPtr(v1beta1.CronExpression("0 2 * * *")),
+			StartGraceDuration: lo.ToPtr(v1beta1.Duration("10m")),
+		},
 	}
 
 	tv := &domain.TemplateVersion{
