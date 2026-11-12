@@ -4,7 +4,13 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs openssl-libs tzdata
+RUN arch="$(rpm --eval '%{_arch}')" && \
+    dnf install -y --releasever=9 --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs \
+      "https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/${arch}/appstream/os/Packages/a/aardvark-dns-1.17.1-1.el9_8.${arch}.rpm" \
+      "https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/${arch}/appstream/os/Packages/n/netavark-1.17.2-1.el9.${arch}.rpm" \
+      "https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/${arch}/appstream/os/Packages/p/podman-5.8.2-8.el9_8.${arch}.rpm" \
+      fuse-overlayfs openssl-libs tzdata && \
+    rpm --root=/runtime-root -q aardvark-dns-1.17.1-1.el9_8 netavark-1.17.2-1.el9 podman-5.8.2-8.el9_8
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./

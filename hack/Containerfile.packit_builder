@@ -1,4 +1,9 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10 AS go-toolset
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1793621864 AS go-toolset
+
+USER 0
+
+COPY fetch-go-rpms.sh /usr/local/bin/fetch-go-rpms
+RUN /usr/local/bin/fetch-go-rpms
 
 FROM quay.io/packit/packit:latest
 
@@ -7,6 +12,7 @@ USER 0
 RUN mkdir -p /root/.config
 
 RUN dnf install -y \
+      createrepo_c \
       openssl-devel \
       go-rpm-macros \
       selinux-policy \
@@ -14,6 +20,11 @@ RUN dnf install -y \
       selinux-policy-devel
 
 COPY --from=go-toolset /usr/lib/golang /opt/certified-go
+COPY --from=go-toolset /opt/flightctl-go-rpm /opt/flightctl-go-rpm
+
+RUN for release in 9 10; do \
+      createrepo_c --quiet "/opt/flightctl-go-rpm/${release}/$(uname -m)"; \
+    done
 
 ENV GOROOT=/opt/certified-go \
     GOTOOLCHAIN=local \
