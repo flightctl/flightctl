@@ -125,6 +125,12 @@ jobs:
               --version "${HELM_TAG}" \
               --app-version "${HELM_TAG}"
 
+          # The tenant chart is installed once per additional project in a
+          # namespace-scoped deployment.
+          helm package ./deploy/helm/flightctl-tenant \
+              --version "${HELM_TAG}" \
+              --app-version "${HELM_TAG}"
+
       - name: Login helm
         env:
           PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
@@ -138,6 +144,7 @@ jobs:
         run: |
           helm push "flightctl-${HELM_TAG}.tgz" oci://${QUAY_CHARTS}/
           helm push "flightctl-catalog-collector-${HELM_TAG}.tgz" oci://${QUAY_CHARTS}/
+          helm push "flightctl-tenant-${HELM_TAG}.tgz" oci://${QUAY_CHARTS}/
 
   publish-flightctl-containers:
     strategy:

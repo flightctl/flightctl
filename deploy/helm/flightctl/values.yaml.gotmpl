@@ -7,6 +7,10 @@ global:
   enableOpenShiftExtensions: "auto"
   # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
   enableMulticlusterExtensions: "auto"
+  # -- Render only namespaced resources and skip cluster-scoped lookups. The installer must be authorized to create and delegate the rendered RBAC permissions.
+  # Requires global.baseDomain and disables cluster-scoped features such as SCCs, OAuthClient creation,
+  # and MultiCluster Engine extensions.
+  namespaceScoped: false
   # -- Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings.
   multiclusterEngineNamespace: "multicluster-engine"
   # -- Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'.
@@ -38,6 +42,9 @@ global:
   auth:
     # -- Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'.
     # When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise.
+    # In namespace-scoped installs, 'k8s' authentication uses SelfSubjectReview and needs no cluster-scoped RBAC.
+    # For 'openshift' browser login, clientType 'serviceaccount' needs no OAuthClient;
+    # clientType 'oauthclient' requires an externally provisioned OAuthClient in namespace-scoped installs.
     type: "" # Auto-detect (openshift on OpenShift, k8s otherwise), or explicitly set: k8s, oidc, aap, openshift, oauth2, none
     # -- The custom CA cert.
     caCert: ""
@@ -126,6 +133,13 @@ global:
       clientId: ""
       # -- OAuth client secret (leave empty for auto-generation)
       clientSecret: ""
+      # -- OAuth client registration type: 'oauthclient' or 'serviceaccount'. A serviceaccount client uses the
+      # flightctl-api ServiceAccount and its projected token, so no cluster-scoped OAuthClient is needed.
+      clientType: "oauthclient"
+      # -- Path to the projected ServiceAccount token used as the OAuth client credential when clientType=serviceaccount
+      clientSecretFile: ""
+      # -- OAuth scopes to request. Service-account clients default to user:info user:check-access user:list-projects.
+      scopes: []
       # -- OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)
       authorizationUrl: ""
       # -- OAuth token URL (leave empty to auto-detect from OpenShift cluster)
@@ -431,6 +445,8 @@ worker:
 
 # -- Delta-worker Configuration
 deltaWorker:
+  # -- Enable the delta worker
+  enabled: true
   image:
     # -- Delta-worker container image
     image: {{ .Images.deltaWorker.Image }}
