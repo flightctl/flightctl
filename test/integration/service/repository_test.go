@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -260,6 +262,112 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				Expect(result.ErrorMessage).ToNot(BeEmpty())
 			})
 		})
+	})
+})
+
+var _ = Describe("Repository device delivery", func() {
+	var suite *ServiceTestSuite
+	BeforeEach(func() {
+		suite = NewServiceTestSuite()
+		suite.Setup()
+	})
+	AfterEach(func() { suite.Teardown() })
+
+	It("When delivery is edited it should preserve ordinary update semantics and stored secrets", func() {
+		for _, mode := range []api.OciRepoSpecAccessMode{api.Read, api.ReadWrite} {
+			for index, flag := range []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)} {
+				name := fmt.Sprintf("delivery-%s-%d", strings.ToLower(string(mode)), index)
+				auth := &api.OciAuth{}
+				Expect(auth.FromDockerAuth(api.DockerAuth{Username: "user", Password: "delivery-secret"})).To(Succeed())
+				var spec api.RepositorySpec
+				Expect(spec.FromOciRepoSpec(api.OciRepoSpec{Type: api.OciRepoSpecTypeOci, Registry: "quay.io", AccessMode: &mode, DevicePullAccess: flag, OciAuth: auth})).To(Succeed())
+				repo, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+					ApiVersion: "v1beta1", Kind: api.RepositoryKind, Metadata: api.ObjectMeta{Name: &name}, Spec: spec,
+				})
+				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
+				check := func(expected *bool) {
+					GinkgoHelper()
+					stored, result := suite.Repository.GetRepository(suite.Ctx, suite.OrgID, name)
+					Expect(result.Code).To(Equal(int32(http.StatusOK)))
+					value, err := stored.Spec.AsOciRepoSpec()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(value.DevicePullAccess).To(Equal(expected))
+					docker, err := value.OciAuth.AsDockerAuth()
+					Expect(err).ToNot(HaveOccurred())
+					plaintext, encrypted, err := encryption.Decrypt(suite.Ctx, encryption.Ciphertext(docker.Password))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(encrypted).To(BeTrue())
+					Expect(string(plaintext)).To(Equal("delivery-secret"))
+					Expect(stored.HideSensitiveData()).To(Succeed())
+					value, err = stored.Spec.AsOciRepoSpec()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(value.DevicePullAccess).To(Equal(expected))
+					docker, err = value.OciAuth.AsDockerAuth()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(docker.Password).To(Equal("*****"))
+				}
+				check(flag)
+				for _, next := range []*bool{lo.ToPtr(true), lo.ToPtr(false), nil} {
+					Expect(repo.HideSensitiveData()).To(Succeed())
+					value, err := repo.Spec.AsOciRepoSpec()
+					Expect(err).ToNot(HaveOccurred())
+					value.DevicePullAccess = next
+					Expect(repo.Spec.FromOciRepoSpec(value)).To(Succeed())
+					repo, status = suite.Repository.ReplaceRepository(suite.Ctx, suite.OrgID, name, *repo)
+					Expect(status.Code).To(Equal(int32(http.StatusOK)))
+					check(next)
+				}
+				for _, change := range []struct {
+					patch api.PatchRequest
+					want  *bool
+				}{
+					{patch: api.PatchRequest{{Op: "add", Path: "/spec/devicePullAccess", Value: true}}, want: lo.ToPtr(true)},
+					{patch: api.PatchRequest{{Op: "add", Path: "/metadata/labels", Value: map[string]string{"changed": "yes"}}}, want: lo.ToPtr(true)},
+					{patch: api.PatchRequest{{Op: "replace", Path: "/spec/devicePullAccess", Value: false}}, want: lo.ToPtr(false)},
+					{patch: api.PatchRequest{{Op: "remove", Path: "/spec/devicePullAccess"}}},
+				} {
+					_, status = suite.Repository.PatchRepository(suite.Ctx, suite.OrgID, name, change.patch)
+					Expect(status.Code).To(Equal(int32(http.StatusOK)))
+					check(change.want)
+				}
+				_, status = suite.Repository.PatchRepository(suite.Ctx, suite.OrgID, name, api.PatchRequest{
+					{Op: "test", Path: "/metadata/resourceVersion", Value: "stale"},
+					{Op: "add", Path: "/spec/devicePullAccess", Value: true},
+				})
+				Expect(status.Code).To(Equal(int32(http.StatusBadRequest)))
+				check(nil)
+			}
+		}
+	})
+
+	It("When delivery is disabled or enabled it should retain OCI access and delta target selection", func() {
+		server := httptest.NewServer(mockOCIRegistryHandler())
+		DeferCleanup(server.Close)
+		for index, flag := range []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)} {
+			name := fmt.Sprintf("access-%d", index)
+			var spec api.RepositorySpec
+			Expect(spec.FromOciRepoSpec(api.OciRepoSpec{
+				Type: api.OciRepoSpecTypeOci, Registry: registryHostFromURL(server.URL), Scheme: lo.ToPtr(api.Http),
+				AccessMode: lo.ToPtr(api.ReadWrite), DevicePullAccess: flag, DeltaStorageTarget: lo.ToPtr(true),
+			})).To(Succeed())
+			_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				ApiVersion: "v1beta1", Kind: api.RepositoryKind, Metadata: api.ObjectMeta{Name: &name}, Spec: spec,
+			})
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
+			tag, status := suite.Repository.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, name, "image", "known-tag")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(tag.Accessible).To(BeTrue())
+			image, status := suite.Repository.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, name, "image")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(image.Accessible).To(BeTrue())
+			target, err := repositorystore.NewRepositoryStore(suite.DB, suite.Log).GetDeltaStorageTarget(suite.Ctx, suite.OrgID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(target.Metadata.Name).To(Equal(&name))
+			selected, err := target.Spec.AsOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(selected.DevicePullAccess).To(Equal(flag))
+			Expect(suite.Repository.DeleteRepository(suite.Ctx, suite.OrgID, name).Code).To(Equal(int32(http.StatusOK)))
+		}
 	})
 })
 

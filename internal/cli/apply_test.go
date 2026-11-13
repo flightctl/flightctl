@@ -1,10 +1,34 @@
 package cli
 
 import (
+	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestApplyRepositoryDevicePullAccess(t *testing.T) {
+	for _, flag := range []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)} {
+		state, err := json.Marshal(flag)
+		require.NoError(t, err)
+		t.Run("When delivery is "+string(state)+" it should round trip get YAML through apply", func(t *testing.T) {
+			repo := repositoryWithDelivery(t, flag)
+			input := getRepositoryYAML(t, repo)
+			c, recorder := newRecordingClient(t, http.StatusOK, repo)
+			require.Empty(t, applyFromReader(t.Context(), c, nil, "repository.yaml", strings.NewReader(input), false))
+			require.Len(t, recorder.requests, 1)
+			require.Equal(t, http.MethodPut, recorder.requests[0].Method)
+			require.Equal(t, "/repositories/registry", recorder.requests[0].URL.Path)
+			var result api.Repository
+			require.NoError(t, json.Unmarshal([]byte(recorder.bodies[0]), &result))
+			require.Equal(t, repo.Spec, result.Spec)
+		})
+	}
+}
 
 func TestApplySingleResourceEmptyName(t *testing.T) {
 	tests := []struct {

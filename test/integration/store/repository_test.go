@@ -87,6 +87,66 @@ var _ = Describe("RepositoryStore create", func() {
 	})
 
 	Context("Repository store", func() {
+		It("When delivery flags are stored it should preserve values, encryption and organization isolation", func() {
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)).To(Succeed())
+			for _, mode := range []api.OciRepoSpecAccessMode{api.Read, api.ReadWrite} {
+				for index, flag := range []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)} {
+					name := fmt.Sprintf("delivery-%s-%d", mode, index)
+					var resource api.Repository
+					resource.Metadata.Name = &name
+					Expect(resource.Spec.FromOciRepoSpec(api.OciRepoSpec{
+						Type: api.OciRepoSpecTypeOci, Registry: "quay.io", AccessMode: &mode,
+						DevicePullAccess: flag, OciAuth: newOciAuth("user", "delivery-secret"),
+					})).To(Succeed())
+					_, err := repositoryStore.Create(ctx, orgId, &resource)
+					Expect(err).ToNot(HaveOccurred())
+					for _, next := range []*bool{flag, lo.ToPtr(true), lo.ToPtr(false), nil} {
+						stored, err := repositoryStore.Get(ctx, orgId, name)
+						Expect(err).ToNot(HaveOccurred())
+						spec, err := stored.Spec.AsOciRepoSpec()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(spec.DevicePullAccess).To(Equal(flag))
+						auth, err := spec.OciAuth.AsDockerAuth()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(decryptString(auth.Password)).To(Equal("delivery-secret"))
+						spec.DevicePullAccess = next
+						Expect(stored.Spec.FromOciRepoSpec(spec)).To(Succeed())
+						_, _, err = repositoryStore.Update(ctx, orgId, stored)
+						Expect(err).ToNot(HaveOccurred())
+						flag = next
+					}
+					_, err = repositoryStore.Get(ctx, otherOrg, name)
+					Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+					_, _, err = repositoryStore.Update(ctx, otherOrg, &resource)
+					Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+					_, err = repositoryStore.Create(ctx, otherOrg, &resource)
+					Expect(err).ToNot(HaveOccurred())
+				}
+			}
+			listed, err := repositoryStore.List(ctx, otherOrg, store.ListParams{Limit: 100})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed.Items).To(HaveLen(6))
+		})
+
+		It("When stored OCI JSON predates delivery flags it should remain disabled without rewriting the row", func() {
+			for _, mode := range []string{"Read", "ReadWrite"} {
+				name := "legacy-" + mode
+				var spec api.RepositorySpec
+				Expect(spec.UnmarshalJSON([]byte(fmt.Sprintf(`{"type":"oci","registry":"quay.io","accessMode":%q}`, mode)))).To(Succeed())
+				legacy := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}, Spec: model.MakeJSONField(spec)}
+				Expect(db.WithContext(ctx).Create(&legacy).Error).ToNot(HaveOccurred())
+				repo, err := repositoryStore.Get(ctx, orgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
+				Expect(err).ToNot(HaveOccurred())
+				Expect(ociSpec.DevicePullAccess).To(BeNil())
+				var hasField bool
+				Expect(db.WithContext(ctx).Raw("SELECT jsonb_exists(spec, 'devicePullAccess') FROM repositories WHERE org_id = ? AND name = ?", orgId, name).Scan(&hasField).Error).ToNot(HaveOccurred())
+				Expect(hasField).To(BeFalse())
+			}
+		})
+
 		It("Get repository success", func() {
 			repo, err := repositoryStore.Get(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())

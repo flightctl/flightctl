@@ -194,7 +194,7 @@ _REPO_KNOWN_PROPS = {
     "git": {"type", "url", "httpConfig", "sshConfig"},
     "http": {"type", "url", "httpConfig", "validationSuffix"},
     "oci": {"type", "registry", "scheme", "accessMode", "ociAuth",
-            "ca.crt", "skipServerVerification"},
+            "ca.crt", "skipServerVerification", "devicePullAccess"},
 }
 
 
