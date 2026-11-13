@@ -12,6 +12,7 @@ import (
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -55,6 +56,8 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 // Management is the client interface for managing devices.
 type Management interface {
+	GetFirmwarePolicy(ctx context.Context, name string, known firmwarepolicy.Receipt, rcb ...client.RequestEditorFn) (*firmwarepolicy.View, int, error)
+	AcknowledgeFirmwarePolicy(ctx context.Context, name string, receipt firmwarepolicy.Receipt, rcb ...client.RequestEditorFn) (int, error)
 	UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error

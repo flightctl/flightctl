@@ -16,6 +16,7 @@ import (
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	container "github.com/flightctl/flightctl/internal/container"
+	firmwarepolicy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -40,6 +41,26 @@ func NewMockManagement(ctrl *gomock.Controller) *MockManagement {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockManagement) EXPECT() *MockManagementMockRecorder {
 	return m.recorder
+}
+
+// AcknowledgeFirmwarePolicy mocks base method.
+func (m *MockManagement) AcknowledgeFirmwarePolicy(ctx context.Context, name string, receipt firmwarepolicy.Receipt, rcb ...client.RequestEditorFn) (int, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name, receipt}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "AcknowledgeFirmwarePolicy", varargs...)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AcknowledgeFirmwarePolicy indicates an expected call of AcknowledgeFirmwarePolicy.
+func (mr *MockManagementMockRecorder) AcknowledgeFirmwarePolicy(ctx, name, receipt any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name, receipt}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcknowledgeFirmwarePolicy", reflect.TypeOf((*MockManagement)(nil).AcknowledgeFirmwarePolicy), varargs...)
 }
 
 // CreateCertificateSigningRequest mocks base method.
@@ -82,6 +103,27 @@ func (mr *MockManagementMockRecorder) GetCertificateSigningRequest(ctx, name any
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, name}, rcb...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificateSigningRequest", reflect.TypeOf((*MockManagement)(nil).GetCertificateSigningRequest), varargs...)
+}
+
+// GetFirmwarePolicy mocks base method.
+func (m *MockManagement) GetFirmwarePolicy(ctx context.Context, name string, known firmwarepolicy.Receipt, rcb ...client.RequestEditorFn) (*firmwarepolicy.View, int, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name, known}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetFirmwarePolicy", varargs...)
+	ret0, _ := ret[0].(*firmwarepolicy.View)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetFirmwarePolicy indicates an expected call of GetFirmwarePolicy.
+func (mr *MockManagementMockRecorder) GetFirmwarePolicy(ctx, name, known any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name, known}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwarePolicy", reflect.TypeOf((*MockManagement)(nil).GetFirmwarePolicy), varargs...)
 }
 
 // GetRenderedDevice mocks base method.

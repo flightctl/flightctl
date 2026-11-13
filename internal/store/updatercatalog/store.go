@@ -1,0 +1,669 @@
+package updatercatalog
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+var (
+	ErrStaleRevision    = errors.New("updater catalog revision is stale")
+	ErrRevisionConflict = errors.New("updater catalog revision has different input")
+	ErrHistoryConflict  = errors.New("updater catalog conflicts with retained history")
+	digestPattern       = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	identityPattern     = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+)
+
+const (
+	maxRetainedReleases = 256
+	maxDescriptorBytes  = 4 * 1024 * 1024
+	maxPolicyBytes      = 8 * 1024 * 1024
+)
+
+type Candidate struct {
+	Revision    int64
+	InputDigest string
+	Releases    []Release
+	Revocations []model.UpdaterRevocation
+}
+
+type Release struct {
+	Name, Version, DescriptorDigest string
+	Descriptor                      []byte
+	Schemas                         []Schema
+}
+
+type Schema struct {
+	Digest            string
+	ObservationSchema []byte
+	BudgetKeys        []string
+}
+
+type Snapshot struct {
+	Revision     int64
+	InputDigest  string
+	PolicyDigest string
+	Releases     []model.UpdaterRelease
+	Tombstones   []model.UpdaterRevocation
+	Schemas      []model.UpdaterSchemaEvidence
+}
+
+type ActivationResult struct {
+	Changed  bool
+	Snapshot Snapshot
+}
+
+type Store struct{ db *gorm.DB }
+
+func NewStore(db *gorm.DB) (*Store, error) {
+	if db == nil {
+		return nil, errors.New("updater catalog requires a database")
+	}
+	return &Store{db: db}, nil
+}
+
+func (s *Store) InitialMigration(ctx context.Context) error {
+	db := store.DB(ctx, s.db)
+	if err := db.AutoMigrate(&model.UpdaterCatalogHead{}, &model.UpdaterRelease{}, &model.UpdaterRevocation{}, &model.UpdaterSchemaEvidence{}, &model.UpdaterCatalogRefresh{}, &model.UpdaterPolicyTarget{}); err != nil {
+		return err
+	}
+	if !db.Migrator().HasConstraint(&model.UpdaterPolicyTarget{}, "updater_policy_targets_device_fk") {
+		if err := db.Exec(`ALTER TABLE updater_policy_targets ADD CONSTRAINT updater_policy_targets_device_fk FOREIGN KEY (org_id, device_name) REFERENCES devices(org_id, name) ON DELETE CASCADE`).Error; err != nil {
+			return err
+		}
+	}
+	if !db.Migrator().HasIndex(&model.UpdaterPolicyTarget{}, "updater_policy_targets_pending_idx") {
+		if err := db.Exec(`CREATE INDEX updater_policy_targets_pending_idx ON updater_policy_targets (revision DESC, org_id, device_name) WHERE notified_revision < revision`).Error; err != nil {
+			return err
+		}
+	}
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.UpdaterCatalogHead{ID: 1}).Error; err != nil {
+		return err
+	}
+	// Verify that persisted policy state still matches its accepted digest.
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "UPDATE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return nil
+		}
+		snapshot, err := readPolicySnapshot(tx, head)
+		if err != nil {
+			return err
+		}
+		view, err := snapshot.PolicyView()
+		if err != nil {
+			return err
+		}
+		if head.PolicyDigest == view.Digest {
+			return nil
+		}
+		return errors.New("accepted updater policy digest is inconsistent")
+	})
+}
+
+// Validate checks persistence metadata. Descriptor schemas and phase permissions
+// must already have been validated by the administrator-config boundary.
+func (c Candidate) Validate() error {
+	if c.Revision <= 0 || !digestPattern.MatchString(c.InputDigest) || len(c.Releases)+len(c.Revocations) > 256 {
+		return errors.New("invalid catalog revision, input digest or record count")
+	}
+	identities := map[string]bool{}
+	for _, r := range c.Releases {
+		key := r.Name + "/" + r.Version
+		if !identityPattern.MatchString(r.Name) || !identityPattern.MatchString(r.Version) || identities[key] || !json.Valid(r.Descriptor) || len(r.Descriptor) > maxDescriptorBytes || hash(r.Descriptor) != r.DescriptorDigest || len(r.Schemas) == 0 || len(r.Schemas) > 2 {
+			return errors.New("invalid release persistence metadata")
+		}
+		identities[key] = true
+		for _, schema := range r.Schemas {
+			if err := validateSchemaMetadata(schema); err != nil {
+				return err
+			}
+		}
+	}
+	for _, r := range c.Revocations {
+		key := r.Name + "/" + r.Version
+		if !identityPattern.MatchString(r.Name) || !identityPattern.MatchString(r.Version) || identities[key] || !digestPattern.MatchString(r.DescriptorDigest) || strings.TrimSpace(r.Reason) == "" || len(r.Reason) > 1024 || r.Revision < 0 || r.Revision > c.Revision {
+			return errors.New("invalid revocation persistence metadata")
+		}
+		identities[key] = true
+	}
+	return nil
+}
+
+func validateSchemaMetadata(s Schema) error {
+	if !digestPattern.MatchString(s.Digest) || !json.Valid(s.ObservationSchema) || len(s.ObservationSchema) > 256*1024 || len(s.BudgetKeys) == 0 || len(s.BudgetKeys) > 64 {
+		return errors.New("invalid retained schema metadata")
+	}
+	seen := map[string]bool{}
+	for _, key := range s.BudgetKeys {
+		if !identityPattern.MatchString(key) || seen[key] {
+			return errors.New("invalid retained budget keys")
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
+	var snapshot Snapshot
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		snapshot, err = readSnapshot(tx, head)
+		return err
+	})
+	return snapshot, err
+}
+
+func readHead(tx *gorm.DB, strength string) (model.UpdaterCatalogHead, error) {
+	var head model.UpdaterCatalogHead
+	err := tx.Clauses(clause.Locking{Strength: strength}).First(&head, 1).Error
+	return head, err
+}
+
+func readSnapshot(tx *gorm.DB, head model.UpdaterCatalogHead) (Snapshot, error) {
+	result := Snapshot{Revision: head.Revision, InputDigest: head.InputDigest, PolicyDigest: head.PolicyDigest, Releases: []model.UpdaterRelease{}, Tombstones: []model.UpdaterRevocation{}, Schemas: []model.UpdaterSchemaEvidence{}}
+	if err := tx.Find(&result.Releases).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if err := tx.Find(&result.Tombstones).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if err := tx.Find(&result.Schemas).Error; err != nil {
+		return Snapshot{}, err
+	}
+	canonicalOrder(&result)
+	return result, nil
+}
+
+func readPolicySnapshot(tx *gorm.DB, head model.UpdaterCatalogHead) (Snapshot, error) {
+	result := Snapshot{Revision: head.Revision, InputDigest: head.InputDigest, PolicyDigest: head.PolicyDigest, Releases: []model.UpdaterRelease{}, Tombstones: []model.UpdaterRevocation{}}
+	if err := tx.Limit(maxRetainedReleases + 1).Find(&result.Releases).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if err := tx.Limit(maxRetainedReleases + 1).Find(&result.Tombstones).Error; err != nil {
+		return Snapshot{}, err
+	}
+	if len(result.Releases)+len(result.Tombstones) > maxRetainedReleases {
+		return Snapshot{}, errors.New("updater policy exceeds the retained record limit")
+	}
+	canonicalOrder(&result)
+	return result, nil
+}
+
+func (s *Store) Activate(ctx context.Context, candidate Candidate) (ActivationResult, error) {
+	if err := candidate.Validate(); err != nil {
+		return ActivationResult{}, err
+	}
+	var result ActivationResult
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "UPDATE")
+		if err != nil {
+			return err
+		}
+		if candidate.Revision < head.Revision {
+			return ErrStaleRevision
+		}
+		if candidate.Revision == head.Revision && candidate.InputDigest != head.InputDigest {
+			return ErrRevisionConflict
+		}
+		previous, err := readSnapshot(tx, head)
+		if err != nil {
+			return err
+		}
+		if candidate.Revision == head.Revision {
+			result.Snapshot = previous
+			return nil
+		}
+		next, err := mergeHistory(previous, candidate)
+		if err != nil {
+			return err
+		}
+		if err = persistDelta(tx, previous, next); err != nil {
+			return err
+		}
+		if err = tx.Create(&model.UpdaterCatalogRefresh{Revision: candidate.Revision}).Error; err != nil {
+			return err
+		}
+		write := tx.Model(&model.UpdaterCatalogHead{}).Where("id = ?", 1).Updates(map[string]any{"revision": candidate.Revision, "input_digest": candidate.InputDigest, "policy_digest": next.PolicyDigest})
+		if write.Error != nil {
+			return write.Error
+		}
+		if write.RowsAffected != 1 {
+			return errors.New("updater catalog head disappeared")
+		}
+		result = ActivationResult{Changed: true, Snapshot: next}
+		return nil
+	})
+	if err != nil {
+		return ActivationResult{}, err
+	}
+	return result, nil
+}
+
+func mergeHistory(old Snapshot, c Candidate) (Snapshot, error) {
+	next := old
+	next.Revision = c.Revision
+	next.InputDigest = c.InputDigest
+	releases := map[string]model.UpdaterRelease{}
+	tombstones := map[string]model.UpdaterRevocation{}
+	schemas := map[string]model.UpdaterSchemaEvidence{}
+	for _, r := range old.Releases {
+		releases[r.Name+"/"+r.Version] = r
+	}
+	for _, r := range old.Tombstones {
+		tombstones[r.Name+"/"+r.Version] = r
+	}
+	for _, s := range old.Schemas {
+		schemas[s.Name+"@"+s.Digest] = s
+	}
+	incoming := map[string]bool{}
+	for _, r := range c.Releases {
+		key := r.Name + "/" + r.Version
+		incoming[key] = true
+		if _, revoked := tombstones[key]; revoked {
+			return Snapshot{}, ErrHistoryConflict
+		}
+		if previous, ok := releases[key]; ok {
+			if previous.DescriptorDigest != r.DescriptorDigest || !bytes.Equal(previous.Descriptor, r.Descriptor) {
+				return Snapshot{}, ErrHistoryConflict
+			}
+		} else {
+			releases[key] = model.UpdaterRelease{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Descriptor: bytes.Clone(r.Descriptor)}
+		}
+		for _, s := range r.Schemas {
+			keys := slices.Clone(s.BudgetKeys)
+			slices.Sort(keys)
+			evidence := model.UpdaterSchemaEvidence{Name: r.Name, Digest: s.Digest, ObservationSchema: bytes.Clone(s.ObservationSchema), BudgetKeys: keys}
+			k := r.Name + "@" + s.Digest
+			if previous, ok := schemas[k]; ok && (!bytes.Equal(previous.ObservationSchema, evidence.ObservationSchema) || !slices.Equal(previous.BudgetKeys, evidence.BudgetKeys)) {
+				return Snapshot{}, ErrHistoryConflict
+			}
+			schemas[k] = evidence
+		}
+	}
+	explicit := map[string]bool{}
+	for _, r := range c.Revocations {
+		key := r.Name + "/" + r.Version
+		explicit[key] = true
+		previous, ok := releases[key]
+		if !ok || previous.DescriptorDigest != r.DescriptorDigest {
+			return Snapshot{}, ErrHistoryConflict
+		}
+		if tombstone, exists := tombstones[key]; exists {
+			if tombstone.DescriptorDigest != r.DescriptorDigest || tombstone.Reason != r.Reason || r.Revision != 0 && r.Revision != tombstone.Revision {
+				return Snapshot{}, ErrHistoryConflict
+			}
+		} else {
+			r.Revision = c.Revision
+			tombstones[key] = r
+		}
+	}
+	for _, r := range old.Tombstones {
+		if !explicit[r.Name+"/"+r.Version] {
+			return Snapshot{}, ErrHistoryConflict
+		}
+	}
+	for key, r := range releases {
+		if !incoming[key] {
+			if _, ok := tombstones[key]; !ok {
+				tombstones[key] = model.UpdaterRevocation{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Reason: "omitted from administrator catalog", Revision: c.Revision}
+			}
+		}
+	}
+	next.Releases = mapValues(releases)
+	next.Tombstones = mapValues(tombstones)
+	next.Schemas = mapValues(schemas)
+	canonicalOrder(&next)
+	if err := boundPolicy(next); err != nil {
+		return Snapshot{}, err
+	}
+	view, err := next.PolicyView()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	next.PolicyDigest = view.Digest
+	return next, nil
+}
+
+func mapValues[T any](values map[string]T) []T {
+	result := make([]T, 0, len(values))
+	for _, value := range values {
+		result = append(result, value)
+	}
+	return result
+}
+
+func canonicalOrder(s *Snapshot) {
+	slices.SortFunc(s.Releases, func(a, b model.UpdaterRelease) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Version, b.Version))
+	})
+	slices.SortFunc(s.Tombstones, func(a, b model.UpdaterRevocation) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Version, b.Version))
+	})
+	slices.SortFunc(s.Schemas, func(a, b model.UpdaterSchemaEvidence) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Digest, b.Digest))
+	})
+}
+
+func boundPolicy(s Snapshot) error {
+	total := 0
+	for _, r := range s.Releases {
+		total += len(r.Descriptor)
+	}
+	if len(s.Releases) > maxRetainedReleases || total > maxDescriptorBytes {
+		return errors.New("retained catalog exceeds descriptor budget")
+	}
+	// Reserve space for revoking every accepted release, including bounded reasons.
+	// Revocation must remain possible even when descriptor capacity is exhausted.
+	data, err := json.Marshal(struct {
+		Releases   []model.UpdaterRelease
+		Tombstones []model.UpdaterRevocation
+	}{s.Releases, s.Tombstones})
+	if err != nil {
+		return err
+	}
+	if len(data) > maxPolicyBytes {
+		return errors.New("retained catalog exceeds policy delivery budget")
+	}
+	return nil
+}
+
+func persistDelta(tx *gorm.DB, old, next Snapshot) error {
+	oldReleases := map[string]bool{}
+	for _, r := range old.Releases {
+		oldReleases[r.Name+"/"+r.Version] = true
+	}
+	for _, r := range next.Releases {
+		if !oldReleases[r.Name+"/"+r.Version] {
+			if err := tx.Create(&r).Error; err != nil {
+				return err
+			}
+		}
+	}
+	oldTombstones := map[string]bool{}
+	for _, r := range old.Tombstones {
+		oldTombstones[r.Name+"/"+r.Version] = true
+	}
+	for _, r := range next.Tombstones {
+		if !oldTombstones[r.Name+"/"+r.Version] {
+			if err := tx.Create(&r).Error; err != nil {
+				return err
+			}
+		}
+	}
+	oldSchemas := map[string]bool{}
+	for _, s := range old.Schemas {
+		oldSchemas[s.Name+"@"+s.Digest] = true
+	}
+	for _, s := range next.Schemas {
+		if !oldSchemas[s.Name+"@"+s.Digest] {
+			if err := tx.Create(&s).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) PendingRefresh(ctx context.Context, limit int) ([]model.UpdaterCatalogRefresh, error) {
+	if limit <= 0 || limit > 256 {
+		return nil, errors.New("refresh page limit must be between 1 and 256")
+	}
+	result := []model.UpdaterCatalogRefresh{}
+	err := store.DB(ctx, s.db).Where("dispatched = ?", false).Order("revision").Limit(limit).Find(&result).Error
+	return result, err
+}
+func hash(data []byte) string { return fmt.Sprintf("sha256:%x", sha256.Sum256(data)) }
+
+// ReleaseLookup separates retained identity from current authorization.
+type ReleaseLookup struct {
+	Binding  *model.UpdaterRelease
+	Approved bool
+}
+
+func (s *Store) LookupRelease(ctx context.Context, name, version string) (ReleaseLookup, error) {
+	var result ReleaseLookup
+	err := s.readAccepted(ctx, func(tx *gorm.DB) error {
+		var binding model.UpdaterRelease
+		err := tx.Where("name = ? AND version = ?", name, version).Take(&binding).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var revoked int64
+		if err = tx.Model(&model.UpdaterRevocation{}).Where("name = ? AND version = ?", name, version).Count(&revoked).Error; err != nil {
+			return err
+		}
+		result = ReleaseLookup{Binding: &binding, Approved: revoked == 0}
+		return nil
+	})
+	if err != nil {
+		return ReleaseLookup{}, err
+	}
+	return result, nil
+}
+
+func (s *Store) LookupSchemaByDigest(ctx context.Context, name, digest string) (*model.UpdaterSchemaEvidence, error) {
+	var result *model.UpdaterSchemaEvidence
+	err := s.readAccepted(ctx, func(tx *gorm.DB) error {
+		var evidence model.UpdaterSchemaEvidence
+		err := tx.Where("name = ? AND digest = ?", name, digest).Take(&evidence).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result = &evidence
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Store) readAccepted(ctx context.Context, read func(*gorm.DB) error) error {
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		return read(tx)
+	})
+}
+
+func (s *Store) CurrentRevision(ctx context.Context) (int64, error) {
+	var head model.UpdaterCatalogHead
+	err := store.DB(ctx, s.db).Select("revision").First(&head, 1).Error
+	return head.Revision, err
+}
+
+// ExpandPendingRefresh commits recipient work and its scan cursor together.
+// Only identities are selected: invalid desired firmware cannot exclude a device.
+func (s *Store) ExpandPendingRefresh(ctx context.Context, limit int) (bool, error) {
+	if limit < 1 || limit > 256 {
+		return false, errors.New("refresh page limit must be between 1 and 256")
+	}
+	changed := false
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		var job model.UpdaterCatalogRefresh
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("dispatched = ?", false).Order("revision DESC").Take(&job).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var identities []struct {
+			OrgID uuid.UUID
+			Name  string
+		}
+		err = tx.Table("devices").Select("org_id, name").Where("deleted_at IS NULL").Where("(org_id, name) > (?, ?)", job.CursorOrgID, job.CursorName).Order("org_id, name").Limit(limit).Find(&identities).Error
+		if err != nil {
+			return err
+		}
+		targets := make([]model.UpdaterPolicyTarget, 0, len(identities))
+		for _, id := range identities {
+			targets = append(targets, model.UpdaterPolicyTarget{OrgID: id.OrgID, DeviceName: id.Name, Revision: job.Revision})
+		}
+		if len(targets) > 0 {
+			err = tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "org_id"}, {Name: "device_name"}}, DoUpdates: clause.Assignments(map[string]any{"revision": gorm.Expr("GREATEST(updater_policy_targets.revision, EXCLUDED.revision)")})}).Create(&targets).Error
+			if err != nil {
+				return err
+			}
+			last := identities[len(identities)-1]
+			job.CursorOrgID = last.OrgID
+			job.CursorName = last.Name
+		}
+		job.Dispatched = len(identities) < limit
+		if err = tx.Model(&model.UpdaterCatalogRefresh{}).Where("revision = ?", job.Revision).Updates(map[string]any{"cursor_org_id": job.CursorOrgID, "cursor_name": job.CursorName, "dispatched": job.Dispatched}).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	return changed, err
+}
+
+func (s *Store) PendingNotifications(ctx context.Context, limit int) ([]model.UpdaterPolicyTarget, error) {
+	if limit < 1 || limit > 256 {
+		return nil, errors.New("notification page limit must be between 1 and 256")
+	}
+	result := []model.UpdaterPolicyTarget{}
+	err := store.DB(ctx, s.db).Where("notified_revision < revision").Order("revision DESC, org_id, device_name").Limit(limit).Find(&result).Error
+	return result, err
+}
+
+func (s *Store) MarkNotified(ctx context.Context, orgID uuid.UUID, name string, revision int64) error {
+	if name == "" || revision <= 0 {
+		return errors.New("notification requires a device and positive revision")
+	}
+	return store.DB(ctx, s.db).Model(&model.UpdaterPolicyTarget{}).Where("org_id = ? AND device_name = ?", orgID, name).Updates(map[string]any{"revision": gorm.Expr("GREATEST(revision, ?)", revision), "notified_revision": gorm.Expr("GREATEST(notified_revision, ?)", revision)}).Error
+}
+
+func (s Snapshot) PolicyView() (firmwarepolicy.View, error) {
+	bindings := make([]firmwarepolicy.Binding, 0, len(s.Releases))
+	for _, r := range s.Releases {
+		bindings = append(bindings, firmwarepolicy.Binding{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Descriptor: r.Descriptor})
+	}
+	tombstones := make([]firmwarepolicy.Tombstone, 0, len(s.Tombstones))
+	for _, r := range s.Tombstones {
+		tombstones = append(tombstones, firmwarepolicy.Tombstone{Name: r.Name, Version: r.Version, DescriptorDigest: r.DescriptorDigest, Reason: r.Reason, Revision: r.Revision})
+	}
+	return firmwarepolicy.New(s.Revision, bindings, tombstones)
+}
+
+var ErrPolicyConflict = errors.New("policy revision or digest differs from accepted head")
+
+func requirePolicyDevice(tx *gorm.DB, org uuid.UUID, name string) error {
+	var count int64
+	if err := tx.Table("devices").Where("org_id = ? AND name = ? AND deleted_at IS NULL", org, name).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+func (s *Store) PolicyForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.View, error) {
+	var view firmwarepolicy.View
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		snapshot, err := readPolicySnapshot(tx, head)
+		if err != nil {
+			return err
+		}
+		view, err = snapshot.PolicyView()
+		if err != nil {
+			return err
+		}
+		if view.Digest != head.PolicyDigest {
+			return errors.New("accepted policy digest is inconsistent")
+		}
+		return nil
+	})
+	if err != nil {
+		return firmwarepolicy.View{}, err
+	}
+	return view, nil
+}
+
+func (s *Store) AcknowledgePolicy(ctx context.Context, org uuid.UUID, name string, receipt firmwarepolicy.Receipt) error {
+	if name == "" || receipt.Revision <= 0 || !digestPattern.MatchString(receipt.Digest) {
+		return errors.New("invalid policy receipt")
+	}
+	return store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision != receipt.Revision || head.PolicyDigest != receipt.Digest {
+			return ErrPolicyConflict
+		}
+		row := model.UpdaterPolicyTarget{OrgID: org, DeviceName: name, Revision: receipt.Revision, ReceivedRevision: receipt.Revision, ReceivedDigest: receipt.Digest}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "org_id"}, {Name: "device_name"}}, DoUpdates: clause.Assignments(map[string]any{
+			"revision":          gorm.Expr("GREATEST(updater_policy_targets.revision, EXCLUDED.revision)"),
+			"received_revision": gorm.Expr("GREATEST(updater_policy_targets.received_revision, EXCLUDED.received_revision)"),
+			"received_digest":   gorm.Expr("CASE WHEN EXCLUDED.received_revision >= updater_policy_targets.received_revision THEN EXCLUDED.received_digest ELSE updater_policy_targets.received_digest END"),
+		})}).Create(&row).Error
+	})
+}
+
+func (s *Store) PolicyHeadForDevice(ctx context.Context, org uuid.UUID, name string) (firmwarepolicy.Receipt, error) {
+	var receipt firmwarepolicy.Receipt
+	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+		if err := requirePolicyDevice(tx, org, name); err != nil {
+			return err
+		}
+		head, err := readHead(tx, "SHARE")
+		if err != nil {
+			return err
+		}
+		if head.Revision == 0 {
+			return errors.New("no updater catalog has been accepted")
+		}
+		receipt = firmwarepolicy.Receipt{Revision: head.Revision, Digest: head.PolicyDigest}
+		return nil
+	})
+	return receipt, err
+}

@@ -42,6 +42,7 @@ import (
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
+	updatercatalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -215,16 +216,21 @@ func (s *Server) Run(ctx context.Context) error {
 	authProviderStore := authproviderstore.NewAuthProviderStore(s.db, s.log.WithField("pkg", "authprovider-store"))
 	vulnerabilityFindingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(s.db, s.log.WithField("pkg", "vulnerabilityfinding-store"))
 
+	updaterProvider, err := updatercatalogservice.Bootstrap(ctx, s.db, s.cfg.FirmwareUpdaterCatalogFile)
+	if err != nil {
+		return fmt.Errorf("initialize approved updater catalog: %w", err)
+	}
+
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log,
-			deviceservice.WithRepositoryGetter(repositorySvc.GetRepository)))
+			deviceservice.WithRepositoryGetter(repositorySvc.GetRepository), deviceservice.WithApprovedDescriptorProvider(updaterProvider)))
 	fleetSvc := fleetservice.WrapWithTracing(
 		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log,
-			fleetservice.WithRepositoryGetter(repositorySvc.GetRepository)))
+			fleetservice.WithRepositoryGetter(repositorySvc.GetRepository), fleetservice.WithApprovedDescriptorProvider(updaterProvider)))
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))

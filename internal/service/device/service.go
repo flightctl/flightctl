@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -53,6 +54,8 @@ type Service interface {
 	// ClearDeltaPreparingIfCurrent atomically clears preparation only for the matching device generation.
 	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status)
 	PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, refreshLastSeen bool) (*domain.Device, domain.Status)
+	GetFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, knownRevision int64, knownDigest string) (*firmwarepolicy.View, domain.Status)
+	AcknowledgeFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, receipt firmwarepolicy.Receipt) domain.Status
 	GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status)
 	PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status)
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status)

@@ -60,6 +60,7 @@ spec:
             {{- end }}
             {{- end }}
           volumeMounts:
+            {{- include "flightctl.firmwareUpdaterCatalogMount" . | nindent 12 }}
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
               subPath: config.yaml
@@ -73,6 +74,7 @@ spec:
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.firmwareUpdaterCatalogVolume" . | nindent 8 }}
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config

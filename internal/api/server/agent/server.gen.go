@@ -25,6 +25,12 @@ type ServerInterface interface {
 	// (GET /certificatesigningrequests/{name})
 	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /devices/{name}/firmwarepolicy)
+	GetFirmwarePolicy(w http.ResponseWriter, r *http.Request, name string, params GetFirmwarePolicyParams)
+
+	// (PUT /devices/{name}/firmwarepolicy)
+	AcknowledgeFirmwarePolicy(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
@@ -52,6 +58,16 @@ func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r 
 
 // (GET /certificatesigningrequests/{name})
 func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /devices/{name}/firmwarepolicy)
+func (_ Unimplemented) GetFirmwarePolicy(w http.ResponseWriter, r *http.Request, name string, params GetFirmwarePolicyParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /devices/{name}/firmwarepolicy)
+func (_ Unimplemented) AcknowledgeFirmwarePolicy(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -120,6 +136,87 @@ func (siw *ServerInterfaceWrapper) GetCertificateSigningRequest(w http.ResponseW
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFirmwarePolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetFirmwarePolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFirmwarePolicyParams
+
+	// ------------- Optional query parameter "knownRevision" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "knownRevision", r.URL.Query(), &params.KnownRevision, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "knownRevision"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "knownRevision", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "knownDigest" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "knownDigest", r.URL.Query(), &params.KnownDigest, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "knownDigest"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "knownDigest", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFirmwarePolicy(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgeFirmwarePolicy operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgeFirmwarePolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgeFirmwarePolicy(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -381,6 +478,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/devices/{name}/firmwarepolicy", wrapper.GetFirmwarePolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/devices/{name}/firmwarepolicy", wrapper.AcknowledgeFirmwarePolicy)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/devices/{name}/rendered", wrapper.GetRenderedDevice)

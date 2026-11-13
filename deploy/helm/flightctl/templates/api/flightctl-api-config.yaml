@@ -8,6 +8,7 @@ metadata:
     flightctl.service: flightctl-api
 data:
   config.yaml: |-
+    {{- include "flightctl.firmwareUpdaterCatalogConfig" . | nindent 4 }}
     database:
         hostname: {{ include "flightctl.dbHostname" . }}
         type: "pgsql"

@@ -18,6 +18,7 @@ type NotificationType string
 
 const (
 	NotificationTypeSpecUpdated     NotificationType = "spec-updated"
+	NotificationTypeFirmwarePolicy  NotificationType = "firmware-policy"
 	NotificationTypeConsole         NotificationType = "console"
 	NotificationTypeEnrollmentHooks NotificationType = "enrollment-hooks"
 )
@@ -26,6 +27,7 @@ const (
 // a waiting GetRenderedDevice long-poll on the API server.
 type Notification struct {
 	Type            NotificationType
+	PolicyRevision  int64
 	RenderedVersion string // only populated for NotificationTypeSpecUpdated
 }
 
@@ -58,10 +60,11 @@ func NewSubscriber(ctx context.Context, queuesProvider queues.Provider) (Subscri
 }
 
 type serializedResourceId struct {
-	OrgId         uuid.UUID        `json:"org_id"`
-	Name          string           `json:"name"`
-	RenderVersion string           `json:"render_version,omitempty"`
-	Type          NotificationType `json:"type,omitempty"`
+	OrgId          uuid.UUID        `json:"org_id"`
+	Name           string           `json:"name"`
+	RenderVersion  string           `json:"render_version,omitempty"`
+	PolicyRevision int64            `json:"policy_revision,omitempty"`
+	Type           NotificationType `json:"type,omitempty"`
 }
 
 type publisher struct {
@@ -70,10 +73,11 @@ type publisher struct {
 
 func (p *publisher) Publish(ctx context.Context, orgId uuid.UUID, name string, n Notification) error {
 	s := serializedResourceId{
-		OrgId:         orgId,
-		Name:          name,
-		RenderVersion: n.RenderedVersion,
-		Type:          n.Type,
+		OrgId:          orgId,
+		Name:           name,
+		RenderVersion:  n.RenderedVersion,
+		PolicyRevision: n.PolicyRevision,
+		Type:           n.Type,
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -97,6 +101,7 @@ func (c *consumer) Subscribe(ctx context.Context, handler func(ctx context.Conte
 		return handler(ctx, s.OrgId, s.Name, Notification{
 			Type:            s.Type,
 			RenderedVersion: s.RenderVersion,
+			PolicyRevision:  s.PolicyRevision,
 		})
 	}
 

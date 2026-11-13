@@ -3,6 +3,12 @@
 # This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
 
 global:
+  # -- Administrator-owned firmware updater catalog input. This is independent of the application Catalog API.
+  firmwareUpdaterCatalog:
+    # -- Existing ConfigMap name in each runtime namespace. Empty uses retained database state. Use a new immutable ConfigMap name for each higher revision.
+    configMapName: ""
+    # -- ConfigMap data key containing the complete validated administrator catalog document.
+    key: "updaters.yaml"
   # -- Enable OpenShift extensions - one of 'auto', 'true', 'false'.
   enableOpenShiftExtensions: "auto"
   # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.

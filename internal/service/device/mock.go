@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	firmwarepolicy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 	common "github.com/flightctl/flightctl/internal/service/common"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
@@ -43,6 +44,20 @@ func NewMockService(ctrl *gomock.Controller) *MockService {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
+}
+
+// AcknowledgeFirmwarePolicy mocks base method.
+func (m *MockService) AcknowledgeFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, receipt firmwarepolicy.Receipt) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcknowledgeFirmwarePolicy", ctx, orgId, name, receipt)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// AcknowledgeFirmwarePolicy indicates an expected call of AcknowledgeFirmwarePolicy.
+func (mr *MockServiceMockRecorder) AcknowledgeFirmwarePolicy(ctx, orgId, name, receipt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcknowledgeFirmwarePolicy", reflect.TypeOf((*MockService)(nil).AcknowledgeFirmwarePolicy), ctx, orgId, name, receipt)
 }
 
 // ClearDeltaPreparingIfCurrent mocks base method.
@@ -236,6 +251,21 @@ func (m *MockService) GetDevicesSummary(ctx context.Context, orgId uuid.UUID, pa
 func (mr *MockServiceMockRecorder) GetDevicesSummary(ctx, orgId, params, annotationSelector any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesSummary", reflect.TypeOf((*MockService)(nil).GetDevicesSummary), ctx, orgId, params, annotationSelector)
+}
+
+// GetFirmwarePolicy mocks base method.
+func (m *MockService) GetFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, knownRevision int64, knownDigest string) (*firmwarepolicy.View, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirmwarePolicy", ctx, orgId, name, knownRevision, knownDigest)
+	ret0, _ := ret[0].(*firmwarepolicy.View)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetFirmwarePolicy indicates an expected call of GetFirmwarePolicy.
+func (mr *MockServiceMockRecorder) GetFirmwarePolicy(ctx, orgId, name, knownRevision, knownDigest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwarePolicy", reflect.TypeOf((*MockService)(nil).GetFirmwarePolicy), ctx, orgId, name, knownRevision, knownDigest)
 }
 
 // GetRenderedDevice mocks base method.
