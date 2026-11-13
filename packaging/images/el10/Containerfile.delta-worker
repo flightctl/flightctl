@@ -1,45 +1,54 @@
 # ── vm-to-quadlet build stage ─────────────────────────────────────────────────
 # Isolated from the main build to avoid module-cache contamination — the tool
 # pins k8s.io at a different version than flightctl.
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.10-1793622842 as vm-to-quadlet-build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as vm-to-quadlet-build
 USER 0
 ARG VM_TO_QUADLET_COMMIT=2d2a64d59c10bbe33943e1c74835e5063177c3fb
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/root/go/pkg/mod \
     git clone https://github.com/flightctl/vm-to-quadlet /src && \
     cd /src && git checkout ${VM_TO_QUADLET_COMMIT} && \
-    CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
+    CGO_ENABLED=0 GOFIPS140=v1.0.0 GOEXPERIMENT=strictfipsruntime GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
 
 # ── Helm CLI stage ───────────────────────────────────────────────────────────
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.10-1793622842 as helm-build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as helm-build
 USER 0
-RUN set -eu; \
-    case "$(uname -m)" in \
-      x86_64) HELM_ARCH=amd64; HELM_SHA256=5d4c7623283e6dfb1971957f4b755468ab64917066a8567dd50464af298f4031 ;; \
-      aarch64) HELM_ARCH=arm64; HELM_SHA256=02a5fb7742469d2d132e24cb7c3f52885894043576588c6788b6813297629edd ;; \
-      *) echo "unsupported Helm build architecture: $(uname -m)" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://get.helm.sh/helm-v4.1.1-linux-${HELM_ARCH}.tar.gz" -o /tmp/helm.tar.gz; \
-    printf '%s  %s\n' "$HELM_SHA256" /tmp/helm.tar.gz | sha256sum -c -; \
-    tar -xzf /tmp/helm.tar.gz -C /tmp "linux-${HELM_ARCH}/helm"; \
-    mkdir -p /out; \
-    install -m 0755 "/tmp/linux-${HELM_ARCH}/helm" /out/helm
+ARG HELM_COMMIT=5caf0044d4ef3d62a955440272999e139aafbbed
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/go/pkg/mod \
+    git init /src && \
+    git -C /src fetch --depth=1 https://github.com/helm/helm.git ${HELM_COMMIT} && \
+    git -C /src checkout --detach FETCH_HEAD && \
+    cd /src && \
+    CGO_ENABLED=0 GOFIPS140=v1.0.0 GOEXPERIMENT=strictfipsruntime \
+    go build -buildvcs=false -trimpath \
+      -ldflags="-s -w -X helm.sh/helm/v4/internal/version.version=v4.1.1 -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_COMMIT} -X helm.sh/helm/v4/internal/version.gitTreeState=clean" \
+      -o /out/helm ./cmd/helm
 
 # ── flightctl delta worker build stage ────────────────────────────────────────
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.10-1793622842 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 RUN ARCH=$(uname -m) && \
+    CENTOS_GPG_KEY=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256 && \
     mkdir -p /runtime-root/etc/yum.repos.d && \
-    echo -e "[centos-baseos]\nname=CentOS Stream 10 - BaseOS\nbaseurl=https://mirror.stream.centos.org/10-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=0" > /runtime-root/etc/yum.repos.d/centos.repo && \
-    echo -e "[centos-appstream]\nname=CentOS Stream 10 - AppStream\nbaseurl=https://mirror.stream.centos.org/10-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=0" >> /runtime-root/etc/yum.repos.d/centos.repo && \
+    echo -e "[centos-baseos]\nname=CentOS Stream 10 - BaseOS\nbaseurl=https://mirror.stream.centos.org/10-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=1\ngpgkey=${CENTOS_GPG_KEY}" > /runtime-root/etc/yum.repos.d/centos.repo && \
+    echo -e "[centos-appstream]\nname=CentOS Stream 10 - AppStream\nbaseurl=https://mirror.stream.centos.org/10-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=1\ngpgkey=${CENTOS_GPG_KEY}" >> /runtime-root/etc/yum.repos.d/centos.repo && \
     dnf install -y --installroot=/runtime-root --releasever=10 --setopt=install_weak_deps=False --nodocs \
         oci-delta openssl-libs tzdata && \
     dnf --installroot=/runtime-root clean all && \
-    rm -rf /runtime-root/var/cache/dnf
+    rm -rf /runtime-root/var/cache/dnf && \
+    dnf --repofrompath=centos-baseos,https://mirror.stream.centos.org/10-stream/BaseOS/${ARCH}/os/ \
+        --repofrompath=centos-appstream,https://mirror.stream.centos.org/10-stream/AppStream/${ARCH}/os/ \
+        --repofrompath=centos-crb,https://mirror.stream.centos.org/10-stream/CRB/${ARCH}/os/ \
+        --setopt=centos-baseos.gpgcheck=1 --setopt=centos-appstream.gpgcheck=1 --setopt=centos-crb.gpgcheck=1 \
+        --setopt=centos-baseos.gpgkey="${CENTOS_GPG_KEY}" \
+        --setopt=centos-appstream.gpgkey="${CENTOS_GPG_KEY}" \
+        --setopt=centos-crb.gpgkey="${CENTOS_GPG_KEY}" \
+        install -y ostree-devel gpgme-devel
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
@@ -72,7 +81,7 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-delta-worker
+    make build-delta-worker install-oci-delta
 
 FROM registry.access.redhat.com/ubi10/ubi-micro:10.2-1792455530
 USER 0
@@ -87,6 +96,8 @@ LABEL \
   summary="Flight Control Edge management service, OS delta generation worker"
 
 COPY --from=build /app/bin/flightctl-delta-worker .
+# Replace the distro executable with the pinned native-FIPS build.
+COPY --from=build /app/bin/oci-delta /usr/bin/oci-delta
 COPY --from=vm-to-quadlet-build /out/vm-to-quadlet /usr/local/bin/vm-to-quadlet
 COPY --from=helm-build /out/helm /usr/local/bin/helm
 CMD ["./flightctl-delta-worker"]
