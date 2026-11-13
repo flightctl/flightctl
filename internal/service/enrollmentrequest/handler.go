@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -152,10 +153,12 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
+	enrollmentCertificateName := enrollmentRequest.Status.EnrollmentCertificateName
 	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  existingConditions,
-		Approval:    approval,
+		Certificate:               lo.ToPtr(string(certData)),
+		Conditions:                existingConditions,
+		Approval:                  approval,
+		EnrollmentCertificateName: enrollmentCertificateName,
 	}
 
 	// Merge user-provided labels with agent-provided labels (only if not replacing)
@@ -188,6 +191,42 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 			Conditions:  []domain.Condition{},
 		}
 	}
+}
+
+func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) (*domain.DeviceEnrollmentCredentialStatus, error) {
+	if enrollmentRequest.Status == nil ||
+		enrollmentRequest.Status.EnrollmentCertificateName == nil ||
+		h.csrService == nil {
+		return nil, nil
+	}
+	name := *enrollmentRequest.Status.EnrollmentCertificateName
+	csr, status := h.csrService.GetCertificateSigningRequest(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
+		return nil, nil
+	}
+	if status.Code != http.StatusOK {
+		return nil, fmt.Errorf("resolving enrollment credential %q: %s", name, status.Message)
+	}
+	if csr == nil || csr.Status == nil || csr.Status.Certificate == nil {
+		return nil, nil
+	}
+	return &domain.DeviceEnrollmentCredentialStatus{
+		CertificateName: enrollmentRequest.Status.EnrollmentCertificateName,
+		Revoked:         lo.ToPtr(csr.Status.Revocation != nil),
+	}, nil
+}
+
+func setDeviceEnrollmentCredentialStatus(deviceStatus *domain.DeviceStatus, credential *domain.DeviceEnrollmentCredentialStatus) {
+	deviceStatus.EnrollmentCredential = credential
+	if credential == nil || !lo.FromPtr(credential.Revoked) {
+		return
+	}
+	domain.SetStatusCondition(&deviceStatus.Conditions, domain.Condition{
+		Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+		Status:  domain.ConditionStatusTrue,
+		Reason:  domain.EnrollmentCredentialRevokedReason,
+		Message: "The enrollment credential that admitted this device was revoked",
+	})
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
@@ -283,6 +322,12 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			OsMode: enrollmentRequest.Spec.OsMode,
 		}
 	}
+
+	enrollmentCredential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
+	if err != nil {
+		return err
+	}
+	setDeviceEnrollmentCredentialStatus(&deviceStatus, enrollmentCredential)
 
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
@@ -610,6 +655,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
 	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+}
+
+func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
+	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
+	}
+	return count, domain.StatusOK()
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

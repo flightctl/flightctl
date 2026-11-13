@@ -494,6 +494,21 @@ func (mr *MockServiceMockRecorder) ResumeDevices(ctx, orgId, request any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeDevices", reflect.TypeOf((*MockService)(nil).ResumeDevices), ctx, orgId, request)
 }
 
+// RevokeDevicesForEnrollmentCredential mocks base method.
+func (m *MockService) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeDevicesForEnrollmentCredential", ctx, orgId, credentialName)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// RevokeDevicesForEnrollmentCredential indicates an expected call of RevokeDevicesForEnrollmentCredential.
+func (mr *MockServiceMockRecorder) RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeDevicesForEnrollmentCredential", reflect.TypeOf((*MockService)(nil).RevokeDevicesForEnrollmentCredential), ctx, orgId, credentialName)
+}
+
 // SetDeviceOwner mocks base method.
 func (m *MockService) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner, newOwner *string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()

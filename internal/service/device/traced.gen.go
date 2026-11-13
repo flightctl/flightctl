@@ -295,6 +295,14 @@ func (_d *TracedDeviceService) ResumeDevices(ctx context.Context, orgId uuid.UUI
 	return d1, s1
 }
 
+func (_d *TracedDeviceService) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (i1 int64, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "RevokeDevicesForEnrollmentCredential")
+
+	i1, s1 = _d.inner.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
+	endSpan(span, s1)
+	return i1, s1
+}
+
 func (_d *TracedDeviceService) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, newOwner *string) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "SetDeviceOwner")
 

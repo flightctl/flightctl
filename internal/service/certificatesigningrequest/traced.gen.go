@@ -77,6 +77,14 @@ func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, org
 	return cp1, s1
 }
 
+func (_d *TracedService) MarkEnrollmentCredentialFlaggingCompleted(ctx context.Context, orgId uuid.UUID, name string) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "MarkEnrollmentCredentialFlaggingCompleted")
+
+	cp1, s1 = _d.inner.MarkEnrollmentCredentialFlaggingCompleted(ctx, orgId, name)
+	endSpan(span, s1)
+	return cp1, s1
+}
+
 func (_d *TracedService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchCertificateSigningRequest")
 

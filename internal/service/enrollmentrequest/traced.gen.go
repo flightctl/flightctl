@@ -68,6 +68,14 @@ func (_d *TracedService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 	return s1
 }
 
+func (_d *TracedService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (i1 int64, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "DenyEnrollmentRequestsForRevokedCredential")
+
+	i1, s1 = _d.inner.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	endSpan(span, s1)
+	return i1, s1
+}
+
 func (_d *TracedService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (ep1 *domain.EnrollmentRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetEnrollmentRequest")
 

@@ -85,6 +85,21 @@ func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, orgId, name any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEnrollmentRequest", reflect.TypeOf((*MockService)(nil).DeleteEnrollmentRequest), ctx, orgId, name)
 }
 
+// DenyEnrollmentRequestsForRevokedCredential mocks base method.
+func (m *MockService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DenyEnrollmentRequestsForRevokedCredential", ctx, orgId, credentialName)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// DenyEnrollmentRequestsForRevokedCredential indicates an expected call of DenyEnrollmentRequestsForRevokedCredential.
+func (mr *MockServiceMockRecorder) DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DenyEnrollmentRequestsForRevokedCredential", reflect.TypeOf((*MockService)(nil).DenyEnrollmentRequestsForRevokedCredential), ctx, orgId, credentialName)
+}
+
 // GetEnrollmentRequest mocks base method.
 func (m *MockService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
