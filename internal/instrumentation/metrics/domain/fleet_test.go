@@ -92,6 +92,9 @@ func (m *MockFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgI
 	return nil
 }
 
+func (m *MockFleetStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	return false, nil
+}
 func (m *MockFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
 }

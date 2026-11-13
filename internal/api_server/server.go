@@ -217,10 +217,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
+	repositorySvc := repositoryservice.WrapWithTracing(
+		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log,
+			deviceservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	fleetSvc := fleetservice.WrapWithTracing(
-		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
+		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log,
+			fleetservice.WithRepositoryGetter(repositorySvc.GetRepository)))
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
@@ -234,8 +238,6 @@ func (s *Server) Run(ctx context.Context) error {
 	tpmVerifier = *tpmcsr.NewVerifier(enrollmentRequestSvc)
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
-	repositorySvc := repositoryservice.WrapWithTracing(
-		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
 	if err != nil {

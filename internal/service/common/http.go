@@ -133,10 +133,20 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getS
 // ApplyJSONPatch applies patchRequest to obj, validates the result against the OpenAPI
 // schema at objPath, and decodes it into newObj.
 func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest domain.PatchRequest, objPath string, getSwagger ...SwaggerGetter) error {
-	if err := jsonpatch.Apply(obj, &newObj, patchRequest); err != nil {
+	patched, err := jsonpatch.ApplyToJSON(obj, patchRequest)
+	if err != nil {
 		return err
 	}
+	return DecodePatchedJSON(ctx, patched, newObj, objPath, getSwagger...)
+}
 
+// DecodePatchedJSON validates and decodes an already applied JSON Patch result.
+func DecodePatchedJSON[T any](ctx context.Context, patched []byte, newObj T, objPath string, getSwagger ...SwaggerGetter) error {
+	decoder := json.NewDecoder(bytes.NewReader(patched))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&newObj); err != nil {
+		return fmt.Errorf("patch produced an invalid resource: %w", err)
+	}
 	newJSON, err := json.Marshal(newObj)
 	if err != nil {
 		return err
@@ -151,7 +161,7 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest do
 		return err
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(newJSON))
+	decoder = json.NewDecoder(bytes.NewReader(newJSON))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(&newObj)
 }

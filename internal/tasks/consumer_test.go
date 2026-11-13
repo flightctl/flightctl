@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
@@ -32,6 +33,14 @@ func createTestEventWithDetails(kind domain.ResourceKind, reason domain.EventRea
 
 func createTestEventWithAnnotations(kind domain.ResourceKind, reason domain.EventReason, name string, annotations map[string]string) domain.Event {
 	event := createTestEvent(kind, reason, name)
+	event.Metadata = domain.ObjectMeta{
+		Annotations: &annotations,
+	}
+	return event
+}
+
+func createTestEventWithDetailsAndAnnotations(kind domain.ResourceKind, reason domain.EventReason, name string, details *domain.EventDetails, annotations map[string]string) domain.Event {
+	event := createTestEventWithDetails(kind, reason, name, details)
 	event.Metadata = domain.ObjectMeta{
 		Annotations: &annotations,
 	}
@@ -79,6 +88,11 @@ func TestShouldRolloutFleet(t *testing.T) {
 		{
 			name:     "DeviceUpdatedWithLabelsOnly",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
+			expected: true,
+		},
+		{
+			name:     "When firmware status changes it should trigger fleet rollout",
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.UpdatedFieldStatusFirmware)),
 			expected: true,
 		},
 		{
@@ -382,6 +396,22 @@ func TestShouldRenderDevice(t *testing.T) {
 			name:     "DeviceUpdatedWithoutSpec",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: false,
+		},
+		{
+			name:     "When spec and firmware status change it should honor render delay",
+			event:    createTestEventWithDetailsAndAnnotations(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec, domain.UpdatedFieldStatusFirmware), map[string]string{domain.EventAnnotationDelayDeviceRender: "true"}),
+			expected: false,
+		},
+		{
+			name: "When only firmware status changes it should render despite spec delay",
+			event: createTestEventWithDetailsAndAnnotations(
+				domain.DeviceKind,
+				domain.EventReasonResourceUpdated,
+				"device1",
+				createResourceUpdatedDetails(t, domain.UpdatedFieldStatusFirmware),
+				map[string]string{domain.EventAnnotationDelayDeviceRender: "true"},
+			),
+			expected: true,
 		},
 		{
 			name:     "FleetEvent",
@@ -716,7 +746,7 @@ func TestDispatchTasks_FleetValidationAcknowledgesInvalidConfigAndRetriesOperati
 			mockRepositorySvc := repositoryservice.NewMockService(ctrl)
 			mockEventSvc := eventservice.NewMockService(ctrl)
 			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.StatusOK())
-			mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
+			mockFleetSvc.EXPECT().ReplaceFleetRepositoryRefsIfCurrent(gomock.Any(), orgID, fleetName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, domain.StatusOK())
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
 			if tt.lookupRepository {
 				mockRepositorySvc.EXPECT().GetRepository(gomock.Any(), orgID, "repo-1").Return(nil, tt.repositoryStatus)
