@@ -44,43 +44,17 @@ func ValidateAuthoredConfigPatch(patch domain.PatchRequest, fleetTemplate bool) 
 			remaining = remaining[1:]
 		}
 		if len(remaining) == 0 && authoredConfigField(path, value) {
-			errs = append(errs, fmt.Errorf("patch[%d] cannot contain configResources or application/OS pullConfig", i))
+			errs = append(errs, fmt.Errorf("patch[%d] cannot contain configResources", i))
 		}
 	}
 	return errs
 }
 
 func authoredConfigField(path []string, value any) bool {
+	if len(path) > 0 {
+		return path[0] == "configResources"
+	}
 	fields, _ := value.(map[string]any)
-	if len(path) == 0 {
-		if _, present := fields["configResources"]; present {
-			return true
-		}
-		return authoredConfigField([]string{"os"}, fields["os"]) || authoredConfigField([]string{"applications"}, fields["applications"])
-	}
-	switch path[0] {
-	case "configResources":
-		return true
-	case "os":
-		if len(path) > 1 {
-			return path[1] == "pullConfig"
-		}
-		_, present := fields["pullConfig"]
-		return present
-	case "applications":
-		if len(path) > 2 {
-			return path[2] == "pullConfig"
-		}
-		if len(path) == 2 {
-			_, present := fields["pullConfig"]
-			return present
-		}
-		apps, _ := value.([]any)
-		for _, app := range apps {
-			if authoredConfigField([]string{"applications", "0"}, app) {
-				return true
-			}
-		}
-	}
-	return false
+	_, present := fields["configResources"]
+	return present
 }
