@@ -6410,7 +6410,7 @@ components:
         - $ref: "#/components/schemas/DockerAuth"
     ConfigResource:
       type: object
-      description: Typed configuration intent generated in the rendered device spec.
+      description: Typed configuration intent for device components.
       discriminator:
         propertyName: type
         mapping:
@@ -6877,8 +6877,6 @@ components:
     ApplicationProviderBase:
       type: object
       description: Common properties for all application types.
-      not:
-        required: [pullConfig]
       properties:
         name:
           type: string
@@ -7472,8 +7470,6 @@ components:
         - items
     DeviceOsSpec:
       description: Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
-      not:
-        required: [pullConfig]
       allOf:
         - $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
         - type: object
@@ -8780,7 +8776,7 @@ components:
           $ref: '#/components/schemas/DeviceOsSpec'
         configResources:
           type: array
-          description: Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+          description: Configuration resources that the agent translates into component-specific settings.
           items:
             $ref: '#/components/schemas/ConfigResource'
         config:

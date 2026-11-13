@@ -60,47 +60,33 @@ var _ = Describe("Configuration resource authored API boundaries", func() {
 				kind = "Fleet"
 			}
 			for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
-				for _, field := range []string{"configResources", "os", "applications"} {
-					for _, value := range []any{nil, map[string]any{}} {
-						spec := map[string]any{}
-						switch field {
-						case "configResources":
-							spec[field] = []any{}
-						case "os":
-							spec[field] = map[string]any{"image": "quay.io/example/os:v1", "pullConfig": value}
-						case "applications":
-							spec[field] = []any{map[string]any{"appType": "container", "name": "app", "image": "quay.io/example/app:v1", "pullConfig": value}}
+				for _, value := range []any{nil, []any{}} {
+					spec := map[string]any{"configResources": value}
+					var payload any
+					if method == http.MethodPatch {
+						payload = []any{map[string]any{"op": "add", "path": root, "value": spec}}
+					} else {
+						authoredSpec := spec
+						if resource == "fleets" {
+							authoredSpec = map[string]any{"template": map[string]any{"spec": spec}}
 						}
-						var payload any
-						if method == http.MethodPatch {
-							payload = []any{map[string]any{"op": "add", "path": root, "value": spec}}
-						} else {
-							authoredSpec := spec
-							if resource == "fleets" {
-								authoredSpec = map[string]any{"template": map[string]any{"spec": spec}}
-							}
-							payload = map[string]any{"apiVersion": "flightctl.io/v1beta1", "kind": kind, "metadata": map[string]any{"name": name}, "spec": authoredSpec}
-						}
-						data, err := json.Marshal(payload)
-						Expect(err).NotTo(HaveOccurred())
-						path := "/api/v1/" + resource
-						if method != http.MethodPost {
-							path += "/" + name
-						}
-						request := httptest.NewRequest(method, path, bytes.NewReader(data)).WithContext(suite.Ctx)
-						request.Header.Set("Content-Type", "application/json")
-						if method == http.MethodPatch {
-							request.Header.Set("Content-Type", "application/json-patch+json")
-						}
-						response := httptest.NewRecorder()
-						handler.ServeHTTP(response, request)
-						Expect(response.Code).To(Equal(http.StatusBadRequest), fmt.Sprintf("%s %s with %s: %s", method, resource, field, response.Body.String()))
-						expectedField := field
-						if method == http.MethodPatch && field != "configResources" {
-							expectedField = "pullConfig"
-						}
-						Expect(response.Body.String()).To(ContainSubstring(expectedField))
+						payload = map[string]any{"apiVersion": "flightctl.io/v1beta1", "kind": kind, "metadata": map[string]any{"name": name}, "spec": authoredSpec}
 					}
+					data, err := json.Marshal(payload)
+					Expect(err).NotTo(HaveOccurred())
+					path := "/api/v1/" + resource
+					if method != http.MethodPost {
+						path += "/" + name
+					}
+					request := httptest.NewRequest(method, path, bytes.NewReader(data)).WithContext(suite.Ctx)
+					request.Header.Set("Content-Type", "application/json")
+					if method == http.MethodPatch {
+						request.Header.Set("Content-Type", "application/json-patch+json")
+					}
+					response := httptest.NewRecorder()
+					handler.ServeHTTP(response, request)
+					Expect(response.Code).To(Equal(http.StatusBadRequest), fmt.Sprintf("%s %s with configResources: %s", method, resource, response.Body.String()))
+					Expect(response.Body.String()).To(ContainSubstring("configResources"))
 				}
 			}
 		}
@@ -138,7 +124,7 @@ var _ = Describe("Configuration resource authored API boundaries", func() {
 		name := "ordinary-config"
 		payload := map[string]any{
 			"apiVersion": "flightctl.io/v1beta1", "kind": "Device", "metadata": map[string]any{"name": name},
-			"spec": map[string]any{"applications": []any{map[string]any{"appType": "helm", "name": "app", "image": "quay.io/example/chart:1.0.0", "values": map[string]any{"pullConfig": true, "configResources": []any{}}}}},
+			"spec": map[string]any{"applications": []any{map[string]any{"appType": "helm", "name": "app", "image": "quay.io/example/chart:1.0.0", "values": map[string]any{"configResources": []any{}}}}},
 		}
 		data, err := json.Marshal(payload)
 		Expect(err).NotTo(HaveOccurred())

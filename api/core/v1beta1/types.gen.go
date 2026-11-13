@@ -1239,7 +1239,7 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
-// ConfigResource Typed configuration intent generated in the rendered device spec.
+// ConfigResource Typed configuration intent for device components.
 type ConfigResource struct {
 	union json.RawMessage
 }
@@ -1747,7 +1747,7 @@ type DeviceSpec struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// ConfigResources Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+	// ConfigResources Configuration resources that the agent translates into component-specific settings.
 	ConfigResources *[]ConfigResource `json:"configResources,omitempty"`
 
 	// Consoles The list of active console sessions.
@@ -3877,7 +3877,7 @@ type TemplateVersionStatus struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// ConfigResources Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+	// ConfigResources Configuration resources that the agent translates into component-specific settings.
 	ConfigResources *[]ConfigResource `json:"configResources,omitempty"`
 
 	// Consoles The list of active console sessions.
