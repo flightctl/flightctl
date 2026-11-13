@@ -88,6 +88,9 @@ func (d *Device) ValidateUpdate(newObj *Device) []error {
 
 func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
+	if r.ConfigResources != nil {
+		allErrs = append(allErrs, errors.New("spec.configResources is rendered-only and cannot be authored"))
+	}
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
 	}
