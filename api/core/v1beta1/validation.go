@@ -88,6 +88,9 @@ func (d *Device) ValidateUpdate(newObj *Device) []error {
 
 func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
+	if r.ConfigResources != nil {
+		allErrs = append(allErrs, errors.New("spec.configResources is rendered-only and cannot be authored"))
+	}
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
 	}
@@ -1004,6 +1007,13 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	seenPublishedPorts := make(map[string]string)
 
 	for _, app := range apps {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(app.union, &fields) == nil {
+			if _, present := fields["pullConfig"]; present {
+				allErrs = append(allErrs, errors.New("application pullConfig cannot be authored"))
+				continue
+			}
+		}
 		appType, err := app.Discriminator()
 		if err != nil || appType == "" {
 			allErrs = append(allErrs, fmt.Errorf("app type must be defined"))

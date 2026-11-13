@@ -6877,6 +6877,8 @@ components:
     ApplicationProviderBase:
       type: object
       description: Common properties for all application types.
+      not:
+        required: [pullConfig]
       properties:
         name:
           type: string
@@ -7470,6 +7472,8 @@ components:
         - items
     DeviceOsSpec:
       description: Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
+      not:
+        required: [pullConfig]
       allOf:
         - $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
         - type: object
