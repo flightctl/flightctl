@@ -6408,6 +6408,91 @@ components:
           docker: "#/components/schemas/DockerAuth"
       oneOf:
         - $ref: "#/components/schemas/DockerAuth"
+    ConfigResource:
+      type: object
+      description: Typed configuration intent generated in the rendered device spec.
+      discriminator:
+        propertyName: type
+        mapping:
+          registry: '#/components/schemas/RegistryConfigResource'
+      oneOf:
+        - $ref: '#/components/schemas/RegistryConfigResource'
+    RegistryConfigResource:
+      type: object
+      description: Registry connection settings with scoped access for device pull contexts.
+      additionalProperties: false
+      required:
+        - name
+        - type
+        - registry
+        - scheme
+        - skipServerVerification
+        - access
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: The literal registry prefix followed by the normalized endpoint.
+        type:
+          type: string
+          description: Configuration resource kind.
+          enum: [registry]
+        registry:
+          type: string
+          minLength: 1
+          description: Normalized registry host with an optional explicit port.
+        ca.crt:
+          type: string
+          description: Optional base64-encoded PEM certificate bundle.
+        scheme:
+          type: string
+          description: Protocol used to connect to the registry.
+          enum: [https, http]
+          x-enum-varnames: [RegistrySchemeHTTPS, RegistrySchemeHTTP]
+        skipServerVerification:
+          type: boolean
+          x-go-type: '*bool'
+          x-omitempty: false
+          description: Whether to skip server certificate verification.
+        access:
+          type: array
+          description: Scoped registry access settings.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RegistryConfigAccess'
+    RegistryConfigAccess:
+      type: object
+      description: Scoped authentication and the pull contexts authorized to use it.
+      additionalProperties: false
+      required: [scope, consumers]
+      properties:
+        scope:
+          type: string
+          x-go-type: '*string'
+          x-omitempty: false
+          description: Relative OCI repository path; the empty string denotes registry-wide access.
+        authentication:
+          $ref: '#/components/schemas/OciAuth'
+        consumers:
+          type: array
+          description: Device pull contexts using this scoped access.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RegistryConfigConsumer'
+    RegistryConfigConsumer:
+      type: object
+      description: A device pull context and its optional local execution user.
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: Kind of device pull context.
+          enum: [container, helm-chart, helm-image, os]
+        user:
+          type: string
+          x-go-type: Username
+          description: Local account name; omitted or empty selects the existing execution context.
     BaseImageEntry:
       type: object
       description: A curated base image entry available in an OCI registry.
@@ -8689,6 +8774,11 @@ components:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
           $ref: '#/components/schemas/DeviceOsSpec'
+        configResources:
+          type: array
+          description: Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+          items:
+            $ref: '#/components/schemas/ConfigResource'
         config:
           type: array
           description: List of config providers.

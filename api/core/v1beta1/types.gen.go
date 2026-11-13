@@ -528,6 +528,25 @@ const (
 	ReferencedRepositoryUpdated ReferencedRepositoryUpdatedDetailsDetailType = "ReferencedRepositoryUpdated"
 )
 
+// Defines values for RegistryConfigConsumerType.
+const (
+	Container RegistryConfigConsumerType = "container"
+	HelmChart RegistryConfigConsumerType = "helm-chart"
+	HelmImage RegistryConfigConsumerType = "helm-image"
+	Os        RegistryConfigConsumerType = "os"
+)
+
+// Defines values for RegistryConfigResourceScheme.
+const (
+	RegistrySchemeHTTP  RegistryConfigResourceScheme = "http"
+	RegistrySchemeHTTPS RegistryConfigResourceScheme = "https"
+)
+
+// Defines values for RegistryConfigResourceType.
+const (
+	Registry RegistryConfigResourceType = "registry"
+)
+
 // Defines values for RepoSpecType.
 const (
 	RepoSpecTypeGit  RepoSpecType = "git"
@@ -1220,6 +1239,11 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
+// ConfigResource Typed configuration intent generated in the rendered device spec.
+type ConfigResource struct {
+	union json.RawMessage
+}
+
 // ContainerApplication defines model for ContainerApplication.
 type ContainerApplication struct {
 	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
@@ -1722,6 +1746,9 @@ type DeviceSpec struct {
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// ConfigResources Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+	ConfigResources *[]ConfigResource `json:"configResources,omitempty"`
 
 	// Consoles The list of active console sessions.
 	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
@@ -3425,6 +3452,60 @@ type ReferencedRepositoryUpdatedDetails struct {
 // ReferencedRepositoryUpdatedDetailsDetailType The type of detail for discriminator purposes.
 type ReferencedRepositoryUpdatedDetailsDetailType string
 
+// RegistryConfigAccess Scoped authentication and the pull contexts authorized to use it.
+type RegistryConfigAccess struct {
+	// Authentication Authentication for OCI registries.
+	Authentication *OciAuth `json:"authentication,omitempty"`
+
+	// Consumers Device pull contexts using this scoped access.
+	Consumers []RegistryConfigConsumer `json:"consumers"`
+
+	// Scope Relative OCI repository path; the empty string denotes registry-wide access.
+	Scope *string `json:"scope"`
+}
+
+// RegistryConfigConsumer A device pull context and its optional local execution user.
+type RegistryConfigConsumer struct {
+	// Type Kind of device pull context.
+	Type RegistryConfigConsumerType `json:"type"`
+
+	// User Local account name; omitted or empty selects the existing execution context.
+	User *Username `json:"user,omitempty"`
+}
+
+// RegistryConfigConsumerType Kind of device pull context.
+type RegistryConfigConsumerType string
+
+// RegistryConfigResource Registry connection settings with scoped access for device pull contexts.
+type RegistryConfigResource struct {
+	// Access Scoped registry access settings.
+	Access []RegistryConfigAccess `json:"access"`
+
+	// CaCrt Optional base64-encoded PEM certificate bundle.
+	CaCrt *string `json:"ca.crt,omitempty"`
+
+	// Name The literal registry prefix followed by the normalized endpoint.
+	Name string `json:"name"`
+
+	// Registry Normalized registry host with an optional explicit port.
+	Registry string `json:"registry"`
+
+	// Scheme Protocol used to connect to the registry.
+	Scheme RegistryConfigResourceScheme `json:"scheme"`
+
+	// SkipServerVerification Whether to skip server certificate verification.
+	SkipServerVerification *bool `json:"skipServerVerification"`
+
+	// Type Configuration resource kind.
+	Type RegistryConfigResourceType `json:"type"`
+}
+
+// RegistryConfigResourceScheme Protocol used to connect to the registry.
+type RegistryConfigResourceScheme string
+
+// RegistryConfigResourceType Configuration resource kind.
+type RegistryConfigResourceType string
+
 // RelativePath Represents a relative file path.
 type RelativePath struct {
 	// Path A relative file path on the system. Note that any existing file will be overwritten.
@@ -3795,6 +3876,9 @@ type TemplateVersionStatus struct {
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// ConfigResources Rendered-only typed configuration intent. Authored Device and Fleet requests must omit this field.
+	ConfigResources *[]ConfigResource `json:"configResources,omitempty"`
 
 	// Consoles The list of active console sessions.
 	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
@@ -5603,6 +5687,65 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRegistryConfigResource returns the union data inside the ConfigResource as a RegistryConfigResource
+func (t ConfigResource) AsRegistryConfigResource() (RegistryConfigResource, error) {
+	var body RegistryConfigResource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRegistryConfigResource overwrites any union data inside the ConfigResource as the provided RegistryConfigResource
+func (t *ConfigResource) FromRegistryConfigResource(v RegistryConfigResource) error {
+	v.Type = "registry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRegistryConfigResource performs a merge with any union data inside the ConfigResource, using the provided RegistryConfigResource
+func (t *ConfigResource) MergeRegistryConfigResource(v RegistryConfigResource) error {
+	v.Type = "registry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConfigResource) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConfigResource) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "registry":
+		return t.AsRegistryConfigResource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConfigResource) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConfigResource) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
