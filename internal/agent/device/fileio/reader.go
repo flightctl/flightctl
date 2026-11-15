@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -161,6 +163,66 @@ func (r *reader) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
 	}
 	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("file exceeds read limit")
+	}
+	return data, nil
+}
+
+// ReadFileInRoot opens root normally, then resolves each component of relPath
+// relative to its parent directory with O_NOFOLLOW. The final entry is checked
+// before it is opened so that device nodes and FIFOs are never opened.
+func (r *reader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, error) {
+	if limit <= 0 || limit == int64(^uint64(0)>>1) {
+		return nil, fmt.Errorf("invalid file read limit")
+	}
+	if relPath == "" || path.IsAbs(relPath) || path.Clean(relPath) != relPath || relPath == "." ||
+		relPath == ".." || strings.HasPrefix(relPath, "../") || strings.ContainsRune(relPath, 0) {
+		return nil, fmt.Errorf("invalid path %q beneath root", relPath)
+	}
+	dir, err := unix.Open(r.PathFor(root), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open root: %w", err)
+	}
+	components := strings.Split(relPath, "/")
+	for _, component := range components[:len(components)-1] {
+		next, err := unix.Openat(dir, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		_ = unix.Close(dir)
+		if err != nil {
+			return nil, fmt.Errorf("open directory %q without following links: %w", component, err)
+		}
+		dir = next
+	}
+	defer func() { _ = unix.Close(dir) }()
+
+	name := components[len(components)-1]
+	var before unix.Stat_t
+	if err := unix.Fstatat(dir, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return nil, fmt.Errorf("stat %q: %w", relPath, err)
+	}
+	if before.Mode&unix.S_IFMT != unix.S_IFREG {
+		return nil, fmt.Errorf("%q is not a regular file", relPath)
+	}
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open %q without following links: %w", relPath, err)
+	}
+	f := os.NewFile(uintptr(fd), relPath)
+	defer func() { _ = f.Close() }()
+	var opened unix.Stat_t
+	if err := unix.Fstat(fd, &opened); err != nil {
+		return nil, fmt.Errorf("stat %q: %w", relPath, err)
+	}
+	if opened.Mode&unix.S_IFMT != unix.S_IFREG || opened.Dev != before.Dev || opened.Ino != before.Ino {
+		return nil, fmt.Errorf("%q is not a regular file", relPath)
+	}
+	if opened.Size > limit {
+		return nil, fmt.Errorf("%q exceeds read limit", relPath)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%q exceeds read limit", relPath)
 	}
 	return data, nil
 }
