@@ -120,7 +120,7 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:                 lo.ToPtr(CronExpression(tt.schedule)),
+				At:                 lo.ToPtr(tt.schedule),
 				TimeZone:           lo.ToPtr("America/New_York"),
 				StartGraceDuration: lo.ToPtr(Duration("30s")),
 			}
@@ -131,6 +131,161 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 				return
 			}
 			require.Empty(errs)
+		})
+	}
+}
+
+func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
+	tests := []struct {
+		name        string
+		schedule    UpdateSchedule
+		wantErrText string
+	}{
+		{
+			name: "one-time-only schedule",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+		},
+		{
+			name: "combined recurring and one-time schedule",
+			schedule: UpdateSchedule{
+				At:                 lo.ToPtr(CronExpression("0 4 * * 1")),
+				StartGraceDuration: lo.ToPtr(Duration("1h")),
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+		},
+		{
+			name: "expired one-time date",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2000-01-01",
+					At:                 "00:00",
+					StartGraceDuration: "1m",
+				}}),
+			},
+		},
+		{
+			name: "empty schedule",
+			schedule: UpdateSchedule{
+				TimeZone: lo.ToPtr(TimeZone("UTC")),
+			},
+			wantErrText: "schedule",
+		},
+		{
+			name: "recurring schedule with only at",
+			schedule: UpdateSchedule{
+				At: lo.ToPtr(CronExpression("0 4 * * 1")),
+			},
+			wantErrText: "startGraceDuration",
+		},
+		{
+			name: "recurring schedule with only grace duration",
+			schedule: UpdateSchedule{
+				StartGraceDuration: lo.ToPtr(Duration("1h")),
+			},
+			wantErrText: "at",
+		},
+		{
+			name: "empty one-time windows",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{}),
+			},
+			wantErrText: "oneTimeWindows",
+		},
+		{
+			name: "invalid one-time date",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-02-30",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].date",
+		},
+		{
+			name: "invalid one-time time",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "24:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].at",
+		},
+		{
+			name: "malformed one-time duration",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "not-a-duration",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+		{
+			name: "zero one-time duration",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "0s",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+		{
+			name: "negative one-time duration",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "-1m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+		{
+			name: "unsupported one-time duration unit",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "1ms",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.schedule.Validate()
+			if tt.wantErrText == "" {
+				require.Empty(t, errs)
+				return
+			}
+
+			require.NotEmpty(t, errs)
+			assert.Condition(t, func() bool {
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.wantErrText) {
+						return true
+					}
+				}
+				return false
+			})
 		})
 	}
 }
@@ -302,8 +457,8 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			schedule := UpdateSchedule{
-				At:                 lo.ToPtr(CronExpression(tt.cronExpression)),
-				StartGraceDuration: lo.ToPtr(Duration(tt.duration)),
+				At:                 lo.ToPtr(tt.cronExpression),
+				StartGraceDuration: lo.ToPtr(tt.duration),
 			}
 
 			errs := schedule.Validate()

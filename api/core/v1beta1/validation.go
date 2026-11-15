@@ -667,15 +667,67 @@ func (u UpdateSchedule) Validate() []error {
 		}
 	}
 
-	// allow only the standard 5 input cron syntax e.g. "* * * * *"
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(lo.FromPtr(u.At))
-	if err != nil {
-		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+	hasAt := u.At != nil
+	hasStartGraceDuration := u.StartGraceDuration != nil
+	hasOneTimeWindows := u.OneTimeWindows != nil
+	if hasAt != hasStartGraceDuration {
+		if hasAt {
+			allErrs = append(allErrs, fmt.Errorf("startGraceDuration must be set when at is set"))
+		} else {
+			allErrs = append(allErrs, fmt.Errorf("at must be set when startGraceDuration is set"))
+		}
 	}
 
-	if err := validateGraceDuration(schedule, lo.FromPtr(u.StartGraceDuration)); err != nil {
-		allErrs = append(allErrs, err)
+	if hasAt && hasStartGraceDuration {
+		// allow only the standard 5 input cron syntax e.g. "* * * * *"
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		schedule, err := parser.Parse(lo.FromPtr(u.At))
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+		}
+
+		if err := validateGraceDuration(schedule, lo.FromPtr(u.StartGraceDuration)); err != nil {
+			allErrs = append(allErrs, err)
+		}
+	}
+
+	if hasOneTimeWindows {
+		if len(*u.OneTimeWindows) == 0 {
+			allErrs = append(allErrs, fmt.Errorf("oneTimeWindows must contain at least one window"))
+		} else {
+			for i, window := range *u.OneTimeWindows {
+				allErrs = append(allErrs, validateOneTimeWindow(i, window)...)
+			}
+		}
+	}
+
+	if !hasAt && !hasStartGraceDuration && (!hasOneTimeWindows || len(*u.OneTimeWindows) == 0) {
+		allErrs = append(allErrs, fmt.Errorf("schedule must contain a complete recurring definition or at least one one-time window"))
+	}
+
+	return allErrs
+}
+
+func validateOneTimeWindow(index int, window OneTimeWindow) []error {
+	fieldPrefix := fmt.Sprintf("oneTimeWindows[%d]", index)
+	var allErrs []error
+
+	if _, err := time.Parse("2006-01-02", window.Date); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.date must be a valid calendar date: %w", fieldPrefix, err))
+	}
+
+	if _, err := time.Parse("15:04", window.At); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.at must be a valid local time: %w", fieldPrefix, err))
+	}
+
+	durationValue := window.StartGraceDuration
+	duration, err := time.ParseDuration(durationValue)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.startGraceDuration must be a valid duration: %w", fieldPrefix, err))
+	} else if !validScheduleDuration.MatchString(durationValue) {
+		allErrs = append(allErrs, fmt.Errorf("%s.startGraceDuration must be a positive integer followed by s, m, or h", fieldPrefix))
+	} else if duration <= 0 {
+		allErrs = append(allErrs, fmt.Errorf("%s.startGraceDuration must be positive", fieldPrefix))
 	}
 
 	return allErrs
@@ -1848,6 +1900,7 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 //
 // 0-9 and + characters are tolerated to accommodate legacy compatibility names
 var validTimeZoneCharacters = regexp.MustCompile(`^[A-Za-z\.\-_0-9+]{1,14}$`)
+var validScheduleDuration = regexp.MustCompile(`^(?:[1-9]\d*)?\d[smh]$`)
 
 // validateTimeZone validates the time zone string. it must be a valid IANA time zone identifier.
 func validateTimeZone(timeZone string) []error {
