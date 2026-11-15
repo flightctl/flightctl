@@ -194,6 +194,47 @@ flightctl cancel imageexport my-export
 
 ---
 
+## flightctl revoke
+
+Revoke an issued enrollment credential.
+
+### Synopsis
+
+```shell
+flightctl revoke TYPE/NAME --reason <reason>
+flightctl revoke TYPE NAME --reason <reason>
+```
+
+### Arguments
+
+* `TYPE/NAME` or `TYPE NAME` - Resource type and name (both forms are accepted). Supported types:
+  * `certificatesigningrequest` (`csr`) - Enrollment credential CSR to revoke
+
+### Flags
+
+* `-r, --reason <reason>` - Required security reason for the revocation. The reason must be 1 to 1024 bytes.
+
+### Description
+
+Revocation blocks new enrollment with the credential, denies pending Enrollment Requests bound to it, and flags devices admitted with it. It does not evict devices or stop management certificate renewal. Revoking an already revoked credential succeeds without changing the original revocation.
+
+### Examples
+
+```shell
+# Revoke an enrollment credential
+flightctl revoke csr/my-enrollment-credential --reason "device compromised"
+
+# Use the type and name as separate arguments
+flightctl revoke certificatesigningrequest my-enrollment-credential --reason "device compromised"
+```
+
+### Exit Status
+
+* `0` - Success
+* Non-zero - Error
+
+---
+
 ## Managing enrollment hook policies
 
 Manage the enrollment hook policy used when devices are approved for enrollment.

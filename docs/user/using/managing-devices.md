@@ -67,6 +67,29 @@ The agent can report hook outcomes by changing `Pending` to `Succeeded`, `Contin
 
 For hook configuration, failure policies, and restart behavior, see [Using enrollment hooks](enrollment-hooks.md).
 
+### Revoking enrollment credentials
+
+Revocation applies to an issued enrollment credential and has consequences for new enrollment, pending Enrollment Requests, and admitted devices.
+
+To revoke an issued enrollment credential, run:
+
+```console
+flightctl revoke csr/<name> --reason "<reason>"
+```
+
+Revocation has the following consequences:
+
+- Blocks new enrollment with the credential.
+- Denies pending Enrollment Requests bound to the revoked CSR. Each request receives a `Denied=True` condition with reason `EnrollmentCredentialRevoked`.
+- Flags devices admitted with the credential. Each device has `status.enrollmentCredential.revoked` set to `true` and receives an `EnrollmentCredentialRevoked` condition.
+- Sets `status.revocation.flaggingCompletedAt` on the CSR after all consequences complete.
+
+Revocation does not evict admitted devices or stop management certificate renewal. It also does not change service client behavior.
+
+The denial does not create a terminal approval block. An administrator can approve a denied Enrollment Request explicitly later.
+
+To list devices flagged by credential revocation, use the `status.enrollmentCredential.revoked=true` field selector. See [Filter by enrollment credential provenance](field-selectors.md#example-5-filter-by-enrollment-credential-provenance) for the command that lists flagged devices.
+
 ## Viewing the Device Inventory and Device Details
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. You can promote fields to labels during enrollment with the agent's `label-from-systeminfo` configuration, or synchronize them to labels after enrollment with `LabelSyncMapping` resources. Promoted labels support grouping and filtering devices by attributes such as region or OS version. See [Managing dynamic label mappings](managing-dynamic-mappings.md) for server-side mappings.
