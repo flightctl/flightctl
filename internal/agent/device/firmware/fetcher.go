@@ -158,18 +158,26 @@ func (f *Fetcher) approvedBinding(name, version string) (*policy.View, policy.Bi
 	return view, binding, nil
 }
 
+// carriesPinnedDigest reports whether the image podman resolved for reference
+// (<repository>@<digest>) is the pinned manifest. Podman reports that digest as
+// the image digest, or, when local storage keeps a rewritten manifest as the
+// image digest, as the repository digest recorded for the pinned repository.
+func carriesPinnedDigest(m client.PodmanImageMetadata, reference, digest string) bool {
+	return m.Digest == digest || slices.Contains(m.RepoDigests, reference)
+}
+
 func (f *Fetcher) fetch(ctx context.Context, s *settings, revision int64, descriptorDigest string, d *policy.ReleaseDescriptor) (*VerifiedPackage, error) {
 	release := d.Name + "/" + d.Version
 	reference := d.PackageReference()
 	if err := f.pull(ctx, s, descriptorDigest, d); err != nil {
 		return nil, err
 	}
-	digest, err := f.podman.ImageDigest(ctx, reference)
+	metadata, err := f.podman.ImageMetadata(ctx, reference)
 	if err != nil {
 		return nil, unavailable(release, false, fmt.Errorf("inspect %s: %w", reference, sanitizedCause(err)))
 	}
-	if digest != d.PackageDigest {
-		return nil, unavailable(release, false, fmt.Errorf("pulled image digest %q differs from the approved package digest %s", digest, d.PackageDigest))
+	if !carriesPinnedDigest(metadata, reference, d.PackageDigest) {
+		return nil, unavailable(release, false, fmt.Errorf("pulled image digest %q differs from the approved package digest %s", metadata.Digest, d.PackageDigest))
 	}
 	data, err := f.readManifest(ctx, reference)
 	if err != nil {

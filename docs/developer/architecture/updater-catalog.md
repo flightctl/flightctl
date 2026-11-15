@@ -231,10 +231,12 @@ container, and it does not extract, publish or run payload files.
 4. A verified record is reused when it still matches the release and the image
    is present. Otherwise the fetcher pulls `<repository>@<packageDigest>` under
    a per-call signature policy, bounded by the agent `pull-timeout` setting,
-   and confirms the local image digest. The package digest can name an image
-   manifest or a manifest list. For a manifest list, the publisher signature
-   must cover the list digest, and the fetcher reads the manifest of the image
-   that podman selects for the host platform.
+   and confirms that the local image is the pinned manifest: podman reports the
+   package digest as the image digest or, when local storage keeps a rewritten
+   manifest, as the repository digest `<repository>@<packageDigest>`. The
+   package digest can name an image manifest or a manifest list. For a manifest
+   list, the publisher signature must cover the list digest, and the fetcher
+   reads the manifest of the image that podman selects for the host platform.
 5. The fetcher mounts the image and reads `updater/manifest.json` beneath the
    mount root without following a symbolic link in any path component. The
    read must be a regular file of at most 1 MiB. The image is then unmounted.
