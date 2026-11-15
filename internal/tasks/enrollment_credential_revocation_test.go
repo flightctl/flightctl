@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
@@ -60,7 +61,13 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockDevice := deviceservice.NewMockService(ctrl)
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 
-		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).Return(int64(3), domain.StatusOK())
+		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).
+			DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (int64, domain.Status) {
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok)
+				require.InDelta(t, EnrollmentCredentialRevocationProcessingTimeout.Seconds(), time.Until(deadline).Seconds(), 5)
+				return int64(3), domain.StatusOK()
+			})
 		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName).Return(int64(2), domain.StatusOK())
 		mockCSR.EXPECT().MarkEnrollmentCredentialFlaggingCompleted(gomock.Any(), orgId, credentialName).Return(&domain.CertificateSigningRequest{}, domain.StatusOK())
 

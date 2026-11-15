@@ -798,12 +798,23 @@ var _ = Describe("DeviceStore create", func() {
 			createDevice("credential-a-one", "credential-a", false, []api.Condition{existingCondition})
 			createDevice("credential-a-two", "credential-a", false, nil)
 			createDevice("credential-b-one", "credential-b", false, nil)
+			_, err := devStore.Create(ctx, orgId, &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("credential-a-legacy")},
+				Status:   &api.DeviceStatus{Conditions: []api.Condition{}},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = erStore.Create(ctx, orgId, &api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("credential-a-legacy")},
+				Spec:     api.EnrollmentRequestSpec{Csr: "csr"},
+				Status:   &api.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("credential-a")},
+			})
+			Expect(err).ToNot(HaveOccurred())
 
 			count, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(int64(2)))
+			Expect(count).To(Equal(int64(3)))
 
-			for _, name := range []string{"credential-a-one", "credential-a-two"} {
+			for _, name := range []string{"credential-a-one", "credential-a-two", "credential-a-legacy"} {
 				device, err := devStore.Get(ctx, orgId, name)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.EnrollmentCredential).ToNot(BeNil())

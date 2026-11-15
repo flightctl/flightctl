@@ -19,6 +19,9 @@ func shouldProcessEnrollmentCredentialRevocation(event domain.Event) bool {
 }
 
 func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, enrollmentRequestSvc enrollmentrequestservice.Service, csrSvc certificatesigningrequestservice.Service, log logrus.FieldLogger) error {
+	ctx, cancel := context.WithTimeout(ctx, EnrollmentCredentialRevocationProcessingTimeout)
+	defer cancel()
+
 	credentialName := event.InvolvedObject.Name
 	if credentialName == "" {
 		return fmt.Errorf("enrollment credential revocation event is missing the credential name")

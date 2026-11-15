@@ -384,11 +384,9 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 	result := s.getDB(ctx).Exec(`
 		UPDATE devices
 		SET service_conditions = jsonb_set(
-				jsonb_set(
-					COALESCE(service_conditions, '{}'::jsonb),
-					'{enrollmentCredential,revoked}',
-					'true'::jsonb,
-					true
+				COALESCE(service_conditions, '{}'::jsonb) || jsonb_build_object(
+					'enrollmentCredential',
+					COALESCE(service_conditions->'enrollmentCredential', '{}'::jsonb) || '{"revoked": true}'::jsonb
 				),
 				'{conditions}',
 				COALESCE((
