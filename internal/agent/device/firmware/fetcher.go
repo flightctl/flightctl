@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
@@ -58,7 +59,18 @@ type Fetcher struct {
 	rw         fileio.ReadWriter
 	log        *log.PrefixLogger
 	authFile   string
-	access     atomic.Pointer[config.UpdaterAccessPolicy]
+	settings   atomic.Pointer[settings]
+}
+
+// settings are the reloadable agent configuration values a fetch uses. Each
+// fetch reads one snapshot so that they come from the same configuration.
+type settings struct {
+	access      config.UpdaterAccessPolicy
+	pullTimeout time.Duration
+}
+
+func settingsFrom(cfg *config.Config) *settings {
+	return &settings{access: cfg.Firmware.UpdaterAccess, pullTimeout: time.Duration(cfg.PullTimeout)}
 }
 
 // FetcherOption configures a Fetcher.
@@ -77,15 +89,15 @@ func NewFetcher(dataDir string, podman *client.Podman, receiver *firmwarepolicy.
 		return nil, errors.New("updater fetcher requires an absolute data directory, podman client, policy receiver, pull config resolver, fileio, configuration and logger")
 	}
 	f := &Fetcher{dataDir: dataDir, podman: podman, receiver: receiver, pullConfig: pullConfig, rw: rw, log: log, authFile: RegistryAuthFile}
-	access := cfg.Firmware.UpdaterAccess
-	f.access.Store(&access)
+	f.settings.Store(settingsFrom(cfg))
 	for _, opt := range opts {
 		opt(f)
 	}
 	return f, nil
 }
 
-// ReloadConfig replaces the local access policy after an agent configuration reload.
+// ReloadConfig replaces the local access policy and pull timeout after an
+// agent configuration reload.
 func (f *Fetcher) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -93,8 +105,7 @@ func (f *Fetcher) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil {
 		return errors.New("updater fetcher requires a configuration")
 	}
-	access := cfg.Firmware.UpdaterAccess
-	f.access.Store(&access)
+	f.settings.Store(settingsFrom(cfg))
 	return nil
 }
 
@@ -103,6 +114,7 @@ func (f *Fetcher) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 // image content.
 func (f *Fetcher) Fetch(ctx context.Context, name, version string) (*VerifiedPackage, error) {
 	release := name + "/" + version
+	s := f.settings.Load()
 	view, binding, err := f.approvedBinding(name, version)
 	if err != nil {
 		return nil, unavailable(release, false, err)
@@ -117,13 +129,13 @@ func (f *Fetcher) Fetch(ctx context.Context, name, version string) (*VerifiedPac
 	if err := CheckDependencies(d.Dependencies); err != nil {
 		return nil, notSupported(release, err)
 	}
-	if err := CheckAccess(d.Access, *f.access.Load()); err != nil {
+	if err := CheckAccess(d.Access, s.access); err != nil {
 		return nil, notSupported(release, err)
 	}
 	if pkg, ok := f.cachedPackage(ctx, view.Revision, binding.DescriptorDigest, d); ok {
 		return pkg, nil
 	}
-	return f.fetch(ctx, view.Revision, binding.DescriptorDigest, d)
+	return f.fetch(ctx, s, view.Revision, binding.DescriptorDigest, d)
 }
 
 func (f *Fetcher) approvedBinding(name, version string) (*policy.View, policy.Binding, error) {
@@ -146,10 +158,10 @@ func (f *Fetcher) approvedBinding(name, version string) (*policy.View, policy.Bi
 	return view, binding, nil
 }
 
-func (f *Fetcher) fetch(ctx context.Context, revision int64, descriptorDigest string, d *policy.ReleaseDescriptor) (*VerifiedPackage, error) {
+func (f *Fetcher) fetch(ctx context.Context, s *settings, revision int64, descriptorDigest string, d *policy.ReleaseDescriptor) (*VerifiedPackage, error) {
 	release := d.Name + "/" + d.Version
 	reference := d.PackageReference()
-	if err := f.pull(ctx, descriptorDigest, d); err != nil {
+	if err := f.pull(ctx, s, descriptorDigest, d); err != nil {
 		return nil, err
 	}
 	digest, err := f.podman.ImageDigest(ctx, reference)
@@ -190,7 +202,8 @@ func (f *Fetcher) fetch(ctx context.Context, revision int64, descriptorDigest st
 
 // pull fetches the digest-pinned package under a per-call signature policy
 // that admits only the approved publisher, removing the policy afterwards.
-func (f *Fetcher) pull(ctx context.Context, descriptorDigest string, d *policy.ReleaseDescriptor) error {
+// The agent pull timeout bounds each pull attempt.
+func (f *Fetcher) pull(ctx context.Context, s *settings, descriptorDigest string, d *policy.ReleaseDescriptor) error {
 	release := d.Name + "/" + d.Version
 	reference := d.PackageReference()
 	signaturePolicy, err := SignaturePolicy(d)
@@ -209,6 +222,9 @@ func (f *Fetcher) pull(ctx context.Context, descriptorDigest string, d *policy.R
 
 	opts := f.pullConfig.Options(dependency.PullConfigSpec{Paths: []string{f.authFile}, OptionFn: client.WithPullSecret})()
 	opts = append(opts, client.WithSignaturePolicy(f.rw.PathFor(policyPath)))
+	if s.pullTimeout > 0 {
+		opts = append(opts, client.Timeout(s.pullTimeout))
+	}
 	if _, err := f.podman.Pull(ctx, reference, opts...); err != nil {
 		cause := sanitizedCause(err)
 		if strings.Contains(err.Error(), policyRejectionMarker) {
