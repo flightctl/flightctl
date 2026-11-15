@@ -10708,15 +10708,10 @@ components:
           $ref: '#/components/schemas/EnrollmentHookSnapshot'
     DeviceEnrollmentCredentialStatus:
       type: object
-      description: Server-owned enrollment credential provenance for a device.
+      description: Server-owned enrollment credential revocation state for a device.
       required:
-        - certificateName
         - revoked
       properties:
-        certificateName:
-          type: string
-          readOnly: true
-          description: Name of the enrollment credential CSR that admitted the device.
         revoked:
           type: boolean
           readOnly: true

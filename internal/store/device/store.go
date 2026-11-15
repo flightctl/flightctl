@@ -409,7 +409,13 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 			resource_version = resource_version + 1
 		WHERE org_id = CAST(@org_id AS uuid)
 		  AND deleted_at IS NULL
-		  AND service_conditions->'enrollmentCredential'->>'certificateName' = CAST(@credential_name AS text)
+		  AND name IN (
+			  SELECT er.name
+			  FROM enrollment_requests er
+			  WHERE er.org_id = CAST(@org_id AS uuid)
+			    AND er.deleted_at IS NULL
+			    AND er.status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
+		  )
 		  AND (
 			  COALESCE(service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
 			  OR NOT EXISTS (
@@ -688,9 +694,6 @@ func (s *DeviceStore) createDeviceEnrollmentCredentialIndexes(db *gorm.DB) error
 	}
 
 	statements := []string{
-		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_certificate_name
-			ON devices ((service_conditions->'enrollmentCredential'->>'certificateName'))
-			WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_devices_enrollment_credential_revoked
 			ON devices ((service_conditions->'enrollmentCredential'->>'revoked'))
 			WHERE deleted_at IS NULL`,

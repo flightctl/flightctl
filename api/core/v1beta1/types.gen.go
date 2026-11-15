@@ -1487,11 +1487,8 @@ type DeviceDeltaApplyStatus struct {
 	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
-// DeviceEnrollmentCredentialStatus Server-owned enrollment credential provenance for a device.
+// DeviceEnrollmentCredentialStatus Server-owned enrollment credential revocation state for a device.
 type DeviceEnrollmentCredentialStatus struct {
-	// CertificateName Name of the enrollment credential CSR that admitted the device.
-	CertificateName *string `json:"certificateName,omitempty"`
-
 	// Revoked Whether the credential that admitted the device was revoked.
 	Revoked *bool `json:"revoked,omitempty"`
 }
@@ -1778,7 +1775,7 @@ type DeviceStatus struct {
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
 
-	// EnrollmentCredential Server-owned enrollment credential provenance for a device.
+	// EnrollmentCredential Server-owned enrollment credential revocation state for a device.
 	EnrollmentCredential *DeviceEnrollmentCredentialStatus `json:"enrollmentCredential,omitempty"`
 
 	// EnrollmentHooks Enrollment hooks state for a device.

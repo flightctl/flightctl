@@ -211,8 +211,7 @@ func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, o
 		return nil, nil
 	}
 	return &domain.DeviceEnrollmentCredentialStatus{
-		CertificateName: enrollmentRequest.Status.EnrollmentCertificateName,
-		Revoked:         lo.ToPtr(csr.Status.Revocation != nil),
+		Revoked: lo.ToPtr(csr.Status.Revocation != nil),
 	}, nil
 }
 

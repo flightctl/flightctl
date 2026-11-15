@@ -88,12 +88,6 @@ func TestDeviceEnrollmentCredentialSelectors(t *testing.T) {
 		wantFieldName string
 	}{
 		{
-			name:          "When the credential selector is resolved it should map to the server-owned credential path",
-			selectorName:  "status.enrollmentCredential.certificateName",
-			wantType:      selector.String,
-			wantFieldName: "service_conditions -> 'enrollmentCredential' ->> 'certificateName'",
-		},
-		{
 			name:          "When the revoked selector is resolved it should map to the server-owned credential path",
 			selectorName:  "status.enrollmentCredential.revoked",
 			wantType:      selector.Bool,
@@ -123,6 +117,28 @@ func TestDeviceEnrollmentCredentialSelectors(t *testing.T) {
 				t.Errorf("ListSelectors() missing %q", name)
 			}
 		})
+	}
+}
+
+func TestDeviceEnrollmentCertificateNameSelector(t *testing.T) {
+	name := selector.NewSelectorName("enrollmentCertificateName")
+	var device Device
+
+	field, err := device.ResolveSelector(name)
+	if err != nil {
+		t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
+	}
+	if field.Type != selector.String {
+		t.Errorf("Type = %v, want String", field.Type)
+	}
+	if field.FieldType != "" {
+		t.Errorf("FieldType = %q, want empty for derived selector", field.FieldType)
+	}
+	if !strings.Contains(field.FieldName, "enrollment_requests") {
+		t.Errorf("FieldName = %q, want a subquery over enrollment_requests", field.FieldName)
+	}
+	if !device.ListSelectors().Contains(name) {
+		t.Errorf("ListSelectors() missing %q", name)
 	}
 }
 

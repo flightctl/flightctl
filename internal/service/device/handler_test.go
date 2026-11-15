@@ -1149,12 +1149,12 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 						Status: &domain.DeviceStatus{
 							Conditions: conditions,
 							EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
-								CertificateName: lo.ToPtr(credentialName),
-								Revoked:         lo.ToPtr(revoked),
+								Revoked: lo.ToPtr(revoked),
 							},
 						},
 					}, nil)
 					require.NoError(t, err)
+					deviceStore.setEnrollmentCredential(name, credentialName)
 				}
 				createDevice("device-1", "credential-1", false, nil)
 				createDevice("device-2", "credential-1", false, nil)
@@ -1200,11 +1200,11 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 				_, err := deviceStore.Create(ctx, orgId, &domain.Device{
 					Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
 					Status: &domain.DeviceStatus{EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
-						CertificateName: lo.ToPtr("other-credential"),
-						Revoked:         lo.ToPtr(false),
+						Revoked: lo.ToPtr(false),
 					}},
 				}, nil)
 				require.NoError(t, err)
+				deviceStore.setEnrollmentCredential("device-1", "other-credential")
 			},
 			assert: func(t *testing.T, _ *fakeDeviceStore, results []store.MutationResult, status domain.Status) {
 				require.Equal(t, int32(http.StatusOK), status.Code)
@@ -1231,8 +1231,7 @@ func TestReplaceDeviceStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
 		ctx := context.Background()
 		orgId := uuid.New()
 		projection := domain.DeviceEnrollmentCredentialStatus{
-			CertificateName: lo.ToPtr("commissioning-credential"),
-			Revoked:         lo.ToPtr(true),
+			Revoked: lo.ToPtr(true),
 		}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("reported-device")},
@@ -1261,8 +1260,7 @@ func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing
 		ctx := context.Background()
 		orgId := uuid.New()
 		projection := domain.DeviceEnrollmentCredentialStatus{
-			CertificateName: lo.ToPtr("commissioning-credential"),
-			Revoked:         lo.ToPtr(true),
+			Revoked: lo.ToPtr(true),
 		}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("admin-status-device")},
@@ -1272,8 +1270,7 @@ func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing
 
 		forgedStatus := domain.NewDeviceStatus()
 		forgedStatus.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{
-			CertificateName: lo.ToPtr("forged-credential"),
-			Revoked:         lo.ToPtr(false),
+			Revoked: lo.ToPtr(false),
 		}
 		result, status := svc.ReplaceServiceOwnedStatus(ctx, orgId, "admin-status-device", domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("admin-status-device")},

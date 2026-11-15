@@ -122,6 +122,14 @@ func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
 		}
 	}
 
+	if db.Dialector.Name() == "postgres" {
+		if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_enrollment_requests_enrollment_certificate_name
+			ON enrollment_requests (org_id, (status->>'enrollmentCertificateName'))
+			WHERE deleted_at IS NULL`).Error; err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

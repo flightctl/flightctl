@@ -70,16 +70,24 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices          map[string]*domain.Device
-	rendered         map[string]*devicestore.DeviceRendered
-	repoRefs         map[string][]string
-	lastSeen         map[string]*time.Time
-	healthcheckCalls []healthcheckCall
-	healthcheckErr   error
-	getCalls         int
-	getRenderedCalls int
-	getRenderedErr   error
-	mutateErr        error
+	devices           map[string]*domain.Device
+	deviceCredentials map[string]string
+	rendered          map[string]*devicestore.DeviceRendered
+	repoRefs          map[string][]string
+	lastSeen          map[string]*time.Time
+	healthcheckCalls  []healthcheckCall
+	healthcheckErr    error
+	getCalls          int
+	getRenderedCalls  int
+	getRenderedErr    error
+	mutateErr         error
+}
+
+func (s *fakeDeviceStore) setEnrollmentCredential(deviceName, credentialName string) {
+	if s.deviceCredentials == nil {
+		s.deviceCredentials = map[string]string{}
+	}
+	s.deviceCredentials[deviceName] = credentialName
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
@@ -270,8 +278,14 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error) {
 	var results []store.MutationResult
 	for name, stored := range s.devices {
-		if stored.Status == nil || stored.Status.EnrollmentCredential == nil || lo.FromPtr(stored.Status.EnrollmentCredential.CertificateName) != credentialName {
+		if s.deviceCredentials[name] != credentialName {
 			continue
+		}
+		if stored.Status == nil {
+			stored.Status = &domain.DeviceStatus{}
+		}
+		if stored.Status.EnrollmentCredential == nil {
+			stored.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
 		}
 		alreadyRevoked := lo.FromPtr(stored.Status.EnrollmentCredential.Revoked)
 		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)

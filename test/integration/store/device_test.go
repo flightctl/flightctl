@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -715,16 +716,22 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("When filtering by enrollment credential fields it should return the expected devices", func() {
+			erStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 			createProjectedDevice := func(name, certificateName string, revoked bool) {
 				status := api.NewDeviceStatus()
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
-					CertificateName: lo.ToPtr(certificateName),
-					Revoked:         lo.ToPtr(revoked),
+					Revoked: lo.ToPtr(revoked),
 				}
 				_, err := devStore.Create(ctx, orgId, &api.Device{
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+				_, err = erStore.Create(ctx, orgId, &api.EnrollmentRequest{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     api.EnrollmentRequestSpec{Csr: "csr"},
+					Status:   &api.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr(certificateName)},
+				})
 				Expect(err).ToNot(HaveOccurred())
 			}
 			createProjectedDevice("credential-a-revoked", "credential-a", true)
@@ -742,7 +749,7 @@ var _ = Describe("DeviceStore create", func() {
 			credentialList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
-					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.certificateName=credential-a", selector.WithPrivateSelectors()),
+					FieldSelector: selector.NewFieldSelectorOrDie("enrollmentCertificateName=credential-a"),
 				},
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -751,32 +758,34 @@ var _ = Describe("DeviceStore create", func() {
 			revocationList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
-					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.revoked=true", selector.WithPrivateSelectors()),
+					FieldSelector: selector.NewFieldSelectorOrDie("status.enrollmentCredential.revoked=true"),
 				},
 			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deviceNames(revocationList.Items)).To(ConsistOf("credential-a-revoked"))
 
-			for _, indexName := range []string{
-				"idx_devices_enrollment_credential_certificate_name",
-				"idx_devices_enrollment_credential_revoked",
-			} {
-				Expect(db.Migrator().HasIndex(&model.Device{}, indexName)).To(BeTrue())
-			}
+			Expect(db.Migrator().HasIndex(&model.Device{}, "idx_devices_enrollment_credential_revoked")).To(BeTrue())
+			Expect(db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_enrollment_certificate_name")).To(BeTrue())
 		})
 
 		It("When revoking an enrollment credential it should flag all matching devices in one update", func() {
+			erStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 			createDevice := func(name, credentialName string, revoked bool, conditions []api.Condition) {
 				status := api.NewDeviceStatus()
 				status.Conditions = conditions
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
-					CertificateName: lo.ToPtr(credentialName),
-					Revoked:         lo.ToPtr(revoked),
+					Revoked: lo.ToPtr(revoked),
 				}
 				_, err := devStore.Create(ctx, orgId, &api.Device{
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+				_, err = erStore.Create(ctx, orgId, &api.EnrollmentRequest{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     api.EnrollmentRequestSpec{Csr: "csr"},
+					Status:   &api.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr(credentialName)},
+				})
 				Expect(err).ToNot(HaveOccurred())
 			}
 			existingCondition := api.Condition{

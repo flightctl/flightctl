@@ -716,8 +716,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
-			CertificateName: lo.ToPtr("commissioning-credential"),
-			Revoked:         lo.ToPtr(false),
+			Revoked: lo.ToPtr(false),
 		}, *device.Status.EnrollmentCredential)
 	})
 
@@ -737,8 +736,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
-			CertificateName: lo.ToPtr("commissioning-credential"),
-			Revoked:         lo.ToPtr(true),
+			Revoked: lo.ToPtr(true),
 		}, *device.Status.EnrollmentCredential)
 		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
 		require.NotNil(t, condition)
