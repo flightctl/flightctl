@@ -840,3 +840,146 @@ func TestFetchUsesTheAccessPolicyFromAReload(t *testing.T) {
 	_, err = fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
 	require.NoError(err)
 }
+
+func (h *fetchHarness) editRecord(edit func(record map[string]any)) {
+	h.t.Helper()
+	data, err := os.ReadFile(h.recordPath())
+	require.NoError(h.t, err)
+	var record map[string]any
+	require.NoError(h.t, json.Unmarshal(data, &record))
+	edit(record)
+	data, err = json.Marshal(record)
+	require.NoError(h.t, err)
+	require.NoError(h.t, os.WriteFile(h.recordPath(), data, 0o600))
+}
+
+func TestFetchReusesAVerifiedRecordWhileStillValid(t *testing.T) {
+	require := require.New(t)
+	h := newFetchHarness(t)
+	fetcher := h.fetcher()
+	first, err := fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
+	require.NoError(err)
+	require.False(first.Cached)
+
+	expected := *first
+	expected.Cached = true
+	h.podman.existsResult = 0
+
+	h.podman.calls = nil
+	cached, err := fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
+	require.NoError(err)
+	require.Equal(&expected, cached)
+	require.Equal([][]string{{"image", "exists", h.reference()}}, h.podman.calls)
+
+	h.podman.calls = nil
+	restarted, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+	require.NoError(err, "a new fetcher on the same data directory must reuse the record")
+	require.Equal(&expected, restarted)
+	require.Equal([][]string{{"image", "exists", h.reference()}}, h.podman.calls)
+
+	view, err := policy.New(2, []policy.Binding{h.binding}, nil)
+	require.NoError(err)
+	data, err := json.Marshal(view)
+	require.NoError(err)
+	require.NoError(h.rw.WriteFileDurable(filepath.Join(testDataDir, "firmware", "policy.json"), data, 0o700, 0o600))
+	h.podman.calls = nil
+	reaccepted, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+	require.NoError(err)
+	require.True(reaccepted.Cached)
+	require.EqualValues(2, reaccepted.PolicyRevision, "the package reports the revision that approved it now")
+	require.Equal([][]string{{"image", "exists", h.reference()}}, h.podman.calls)
+}
+
+func TestFetchVerifiesAgainWhenTheRecordCannotBeUsed(t *testing.T) {
+	testCases := []struct {
+		name  string
+		setup func(h *fetchHarness)
+	}{
+		{"When the image is no longer present it should fetch and verify again", func(h *fetchHarness) { h.podman.existsResult = 1 }},
+		{"When the record is corrupt it should fetch and verify again", func(h *fetchHarness) {
+			require.NoError(h.t, os.WriteFile(h.recordPath(), []byte(`{"name":`), 0o600))
+		}},
+		{"When the record has an unknown field it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["trusted"] = true })
+		}},
+		{"When the record has another format version it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["apiVersion"] = "updater-package-record/v0" })
+		}},
+		{"When the record names another descriptor it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["descriptorDigest"] = policy.Hash([]byte("other descriptor")) })
+		}},
+		{"When the record names another package digest it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["packageDigest"] = policy.Hash([]byte("other package")) })
+		}},
+		{"When the record names another publisher policy it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["publisherPolicyDigest"] = policy.Hash([]byte("other policy")) })
+		}},
+		{"When the record names another release version it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["version"] = "9.9.9" })
+		}},
+		{"When the record manifest binds another schema it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) {
+				r["manifest"].(map[string]any)["schemas"].(map[string]any)["config"] = policy.Hash([]byte("other schema"))
+			})
+		}},
+		{"When the record manifest digest is malformed it should fetch and verify again", func(h *fetchHarness) {
+			h.editRecord(func(r map[string]any) { r["manifestDigest"] = "not-a-digest" })
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			h := newFetchHarness(t)
+			first, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.NoError(err)
+			h.podman.existsResult = 0
+			tc.setup(h)
+
+			h.podman.calls = nil
+			pkg, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.NoError(err)
+			require.False(pkg.Cached)
+			require.Equal(first, pkg)
+			names := h.podman.subcommands()
+			require.Equal([]string{"pull", "image inspect", "image mount", "image unmount"}, names[len(names)-4:])
+
+			h.podman.calls = nil
+			h.podman.existsResult = 0
+			again, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.NoError(err)
+			require.True(again.Cached, "the rewritten record must be reusable")
+		})
+	}
+}
+
+func TestFetchHonorsCurrentAuthorizationBeforeUsingARecord(t *testing.T) {
+	testCases := []struct {
+		name      string
+		setup     func(h *fetchHarness)
+		reason    firmware.Reason
+		retryable bool
+	}{
+		{"When the release has since been revoked it should report the updater unavailable", func(h *fetchHarness) { h.approve(h.release, true) }, firmware.ReasonUpdaterUnavailable, false},
+		{"When the local access policy no longer admits the release it should report firmware not supported", func(h *fetchHarness) {
+			h.cfg.Firmware.UpdaterAccess = config.UpdaterAccessPolicy{}
+		}, firmware.ReasonFirmwareNotSupported, false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			h := newFetchHarness(t)
+			_, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.NoError(err)
+			h.podman.existsResult = 0
+			tc.setup(h)
+
+			h.podman.calls = nil
+			pkg, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.Nil(pkg)
+			requireFetchError(t, err, tc.reason, tc.retryable)
+			require.Empty(h.podman.calls, "no podman command may run")
+			_, err = os.Stat(h.recordPath())
+			require.NoError(err, "the record is kept as evidence")
+		})
+	}
+}
