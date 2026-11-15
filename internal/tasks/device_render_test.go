@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -871,7 +872,7 @@ func TestRenderDevice_RetryableError(t *testing.T) {
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
 	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
@@ -904,7 +905,7 @@ func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
 
 	mockSvc := deviceservice.NewMockService(ctrl)
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 
 	specHash := hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage)
 	mockSvc.EXPECT().UpdateDeviceAnnotations(
@@ -993,7 +994,7 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 
 	mockSvc := deviceservice.NewMockService(ctrl)
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 
 	specHash := hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage)
 	mockSvc.EXPECT().UpdateDeviceAnnotations(
@@ -1170,11 +1171,11 @@ func TestRenderDevice_CatalogItemRef_ResolvesOsImage(t *testing.T) {
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 
 	expectedOsImage := artifactUri + ":" + containerRef
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
@@ -1207,9 +1208,9 @@ func TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage(t *testing.T) {
 
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
@@ -1246,9 +1247,9 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 
 	expectedCatalogOsImage := artifactUri + ":" + containerRef
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(catalogDevice, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
@@ -1266,8 +1267,8 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 
 	gomock.InOrder(
 		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(plainDevice, statusOK),
-		mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK),
-		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK),
+		mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK),
+		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK),
 	)
 
 	event2 := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
@@ -1294,7 +1295,7 @@ func TestRenderDevice_CatalogItemRef_WrongType(t *testing.T) {
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
 	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
@@ -1326,7 +1327,7 @@ func TestRenderDevice_CatalogItemRef_UnknownVersion(t *testing.T) {
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
 	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
@@ -1650,10 +1651,9 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 
 	mockDeviceSvc := deviceservice.NewMockService(ctrl)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(
-		gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), osImage, gomock.Any(), gomock.Any(), gomock.Any(),
-	).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _, _, _, _ string, _ []domain.DependencySyncConfigRefStatus, _ bool, hints *deviceservice.RenderedOSHints) domain.Status {
+		gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), osImage, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _, _, _, _ string, _ []domain.DependencySyncConfigRefStatus, _ bool, hints *deviceservice.RenderedOSHints, _ ...deviceservice.RenderedDeviceOptions) domain.Status {
 		require.NotNil(t, hints)
 		require.Equal(t, deltaRef, lo.FromPtr(hints.DeltaImage))
 		require.Equal(t, "45 MiB", lo.FromPtr(hints.DeltaSize))
@@ -1702,8 +1702,8 @@ func TestDeviceRender_DetachedContextSurvivesParentDeadline(t *testing.T) {
 			assert.NoError(t, ctx.Err())
 			return device, statusOK
 		})
-	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
-	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+	mockSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	expiredCtx, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
@@ -1730,8 +1730,8 @@ func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
 			<-ctx.Done()
 			return device, statusOK
 		})
-	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK).AnyTimes()
-	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+	mockSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK).AnyTimes()
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	renderer, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{})
@@ -1777,8 +1777,8 @@ func TestRenderDevice_DeltaCompletionGeneration(t *testing.T) {
 			devices := deviceservice.NewMockService(ctrl)
 			devices.EXPECT().GetDevice(gomock.Any(), orgID, name).Return(device, statusOK)
 			if tt.wantRender {
-				devices.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgID, name).Return(statusOK)
-				devices.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, name, gomock.Any(), gomock.Any(), gomock.Any(), image, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+				devices.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgID, name, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+				devices.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, name, gomock.Any(), gomock.Any(), gomock.Any(), image, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 			}
 			event := createTestEvent(domain.DeviceKind, domain.EventReasonDeltaGenerationCompleted, name)
 			if tt.eventGeneration != "" {
@@ -1789,6 +1789,197 @@ func TestRenderDevice_DeltaCompletionGeneration(t *testing.T) {
 			if !tt.wantRender {
 				require.True(t, domain.IsStatusConditionTrue(device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
 			}
+		})
+	}
+}
+
+func TestRenderDeviceRepositoryReferenceOutcomes(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		outcome    common.RepositoryRefsOutcome
+		status     domain.Status
+		wantRender bool
+	}{
+		{name: "When the references are replaced it should render the device", outcome: common.RepositoryRefsReplaced, status: statusOK, wantRender: true},
+		{name: "When the device changed since it was read it should reject stale rendered output", outcome: common.RepositoryRefsStale, status: statusOK, wantRender: true},
+		{name: "When firmware references are not known yet it should keep the stored references and render", outcome: common.RepositoryRefsIncomplete, status: statusOK, wantRender: true},
+		{name: "When writing the references fails it should report the error instead of rendering", status: domain.StatusInternalServerError("database unavailable")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const name = "refs-device"
+			const image = "quay.io/org/os:v3"
+			orgID := uuid.New()
+			ctrl := gomock.NewController(t)
+			generation := int64(5)
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(name), Generation: &generation},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: image}},
+				Status:   &domain.DeviceStatus{},
+			}
+			devices := deviceservice.NewMockService(ctrl)
+			devices.EXPECT().GetDevice(gomock.Any(), orgID, name).Return(device, statusOK)
+			devices.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgID, name, generation, device.Spec).Return(tt.outcome, tt.status)
+			if tt.wantRender {
+				renderStatus := statusOK
+				if tt.outcome == common.RepositoryRefsStale {
+					renderStatus = domain.StatusConflict("device generation changed")
+				}
+				devices.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, name, gomock.Any(), gomock.Any(), gomock.Any(), image, gomock.Any(), gomock.Any(), gomock.Any(), deviceservice.RenderedDeviceOptions{ExpectedGeneration: &generation}).Return(renderStatus)
+			} else {
+				devices.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgID, name, gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+						require.Len(t, conditions, 1)
+						assert.Equal(t, domain.ConditionTypeDeviceSpecValid, conditions[0].Type)
+						assert.Contains(t, conditions[0].Message, "setting repository references")
+						return statusOK
+					})
+				devices.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgID, name).Return(nil)
+			}
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonDeltaGenerationCompleted, name)
+			event.Metadata.Annotations = &map[string]string{domain.EventAnnotationDeltaGeneration: "5"}
+			logic := NewDeviceRenderLogic(logrus.New(), devices, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+			err := logic.RenderDevice(context.Background(), orgID, event)
+			if tt.outcome == common.RepositoryRefsStale {
+				require.ErrorContains(t, err, "device generation changed")
+			} else if tt.wantRender {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "setting repository references")
+			}
+		})
+	}
+}
+
+func TestRenderDevice_WhenTheRenderedWriteIsHeldForFirmwareItShouldNotRecordARenderFailure(t *testing.T) {
+	const deviceName = "device-with-firmware"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{Image: "quay.io/org/image:v1.0"},
+			Firmware: &domain.FirmwareSpec{
+				Profile:    "board-a",
+				Updater:    domain.FirmwareUpdaterSpec{Name: "vendor-updater", Version: "1.0.0", Config: map[string]interface{}{}},
+				Components: []api.FirmwareComponentSpec{{Name: "bios", Version: api.FirmwareVersionConstraints{Exact: lo.ToPtr("2.0")}}},
+				Overlays:   []api.FirmwareOverlaySpec{},
+			},
+		},
+	}
+
+	// SetDeviceServiceConditions has no expectation: recording a render
+	// failure would replace the hold condition and fail the test.
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsIncomplete, statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(domain.NewFailureStatus(http.StatusConflict, domain.DeviceSpecValidReasonFirmwareUnsupported, "device is held"))
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
+}
+
+func TestRenderDevice_UnchangedSpecFirmwareHoldReconciliation(t *testing.T) {
+	outstanding := &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseStaging}}
+	terminal := &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseSucceeded}}
+	valid := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusTrue, Reason: "Valid"}
+	hold := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusUnknown, Reason: domain.DeviceSpecValidReasonFirmwareUnsupported}
+	tests := []struct {
+		name         string
+		firmware     *domain.FirmwareStatus
+		condition    domain.Condition
+		expectRender bool
+	}{
+		{name: "When the device needs a hold that is not recorded it should render the unchanged spec", firmware: outstanding, condition: valid, expectRender: true},
+		{name: "When the device carries a hold it no longer needs it should render the unchanged spec", firmware: terminal, condition: hold, expectRender: true},
+		{name: "When the device carries a hold and has no firmware state it should render the unchanged spec", condition: hold, expectRender: true},
+		{name: "When a needed hold is already recorded it should skip the unchanged spec", firmware: outstanding, condition: hold},
+		{name: "When a device without firmware state has a valid spec it should skip the unchanged spec", condition: valid},
+		{name: "When a device has only terminal attempt history and a valid spec it should skip the unchanged spec", firmware: terminal, condition: valid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const deviceName = "device-unchanged-spec"
+			orgId := uuid.New()
+			ctrl := gomock.NewController(t)
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/org/image:v1.0"}},
+				Status:   &domain.DeviceStatus{Firmware: tt.firmware, Conditions: []domain.Condition{tt.condition}},
+			}
+			device.Metadata.Annotations = &map[string]string{
+				domain.DeviceAnnotationRenderedSpecHash: hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage),
+				domain.DeviceAnnotationRenderedVersion:  "1",
+			}
+
+			// Without expectations, any call after GetDevice fails a test that
+			// expects the unchanged spec to be skipped.
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+			if tt.expectRender {
+				mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+				mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+			}
+
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonReferencedRepositoryUpdated, deviceName)
+			logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+			require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
+		})
+	}
+}
+
+func TestRenderDevice_RedundantRolloutSelectionReconcilesFirmwareHold(t *testing.T) {
+	tests := []struct {
+		name      string
+		firmware  *domain.FirmwareStatus
+		condition domain.Condition
+	}{
+		{
+			name:      "When a needed hold is not recorded",
+			firmware:  &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseStaging}},
+			condition: domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusTrue, Reason: "Valid"},
+		},
+		{
+			name:      "When a recorded hold is no longer needed",
+			firmware:  &domain.FirmwareStatus{Attempt: &domain.FirmwareAttemptStatus{Id: "attempt-1", Phase: domain.FirmwareAttemptPhaseSucceeded}},
+			condition: domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusUnknown, Reason: domain.DeviceSpecValidReasonFirmwareUnsupported},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const deviceName = "device-redundant-rollout"
+			orgId := uuid.New()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/org/image:v1.0"}},
+				Status:   &domain.DeviceStatus{Firmware: tt.firmware, Conditions: []domain.Condition{tt.condition}},
+			}
+			device.Metadata.Annotations = &map[string]string{
+				domain.DeviceAnnotationRenderedSpecHash:        hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage),
+				domain.DeviceAnnotationRenderedVersion:         "1",
+				domain.DeviceAnnotationTemplateVersion:         "tv-1",
+				domain.DeviceAnnotationRenderedTemplateVersion: "tv-1",
+			}
+
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+			mockDeviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+			mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), false, gomock.Any(), gomock.Any()).
+				Return(statusOK)
+
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
+			logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+
+			require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 		})
 	}
 }

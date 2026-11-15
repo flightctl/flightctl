@@ -10,9 +10,11 @@ const (
 
 	V1Alpha1 = "v1alpha1"
 	V1Beta1  = "v1beta1"
+	V1Beta2  = "v1beta2"
 
 	QualifiedV1Alpha1 = APIGroup + "/" + V1Alpha1
 	QualifiedV1Beta1  = APIGroup + "/" + V1Beta1
+	QualifiedV1Beta2  = APIGroup + "/" + V1Beta2
 )
 
 // API Header names
@@ -39,6 +41,11 @@ func WithAPIVersion(version string) TransportOption {
 // WithAPIV1Beta1 is a convenience option that sets API version to v1beta1.
 func WithAPIV1Beta1() TransportOption {
 	return WithAPIVersion(V1Beta1)
+}
+
+// WithAPIV1Beta2 is a convenience option that sets API version to v1beta2.
+func WithAPIV1Beta2() TransportOption {
+	return WithAPIVersion(V1Beta2)
 }
 
 // versioningTransport wraps an http.RoundTripper to inject version headers.

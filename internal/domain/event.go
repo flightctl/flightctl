@@ -171,13 +171,15 @@ const (
 	UpdatedFieldSpecSelector             = v1beta1.SpecSelector
 	UpdatedFieldSpecTemplate             = v1beta1.SpecTemplate
 	UpdatedFieldEnrollmentHooksCondition = v1beta1.StatusConditionsEnrollmentHooks
+	UpdatedFieldStatusFirmware           = v1beta1.StatusFirmware
 
 	// Direct aliases for compatibility
-	Labels       = v1beta1.Labels
-	Owner        = v1beta1.Owner
-	Spec         = v1beta1.Spec
-	SpecSelector = v1beta1.SpecSelector
-	SpecTemplate = v1beta1.SpecTemplate
+	Labels         = v1beta1.Labels
+	Owner          = v1beta1.Owner
+	Spec           = v1beta1.Spec
+	SpecSelector   = v1beta1.SpecSelector
+	SpecTemplate   = v1beta1.SpecTemplate
+	StatusFirmware = v1beta1.StatusFirmware
 )
 
 // ========== Utility Functions ==========

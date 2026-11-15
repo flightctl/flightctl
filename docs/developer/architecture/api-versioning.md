@@ -24,7 +24,7 @@ API versions are per-resource (e.g., Device, Fleet, Repository). Each resource c
 1. Server determines negotiated version based on endpoint metadata derived from OpenAPI specs (`api/{group}/{version}/openapi.yaml`):
    - If version requested and supported: use requested version
    - If version requested but not supported: return HTTP 406 Not Acceptable
-   - If no version requested: use first (most preferred) version from metadata
+   - If no version requested: use the server's configured fallback version when the endpoint supports it, otherwise use the first (most preferred) version from metadata
 1. For versioned resources, server responds with `Flightctl-API-Version` header indicating negotiated version
 
 ### Example Request

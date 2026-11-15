@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -27,18 +28,48 @@ type ServiceHandler struct {
 	events            events.Service
 	log               logrus.FieldLogger
 	callEventCallback store.EventCallbackCaller
+	descriptors       common.ApprovedDescriptorProvider
+	getRepository     common.RepositoryGetter
+}
+
+// HandlerOption configures optional dependencies of a fleet ServiceHandler.
+type HandlerOption func(*ServiceHandler)
+
+// WithApprovedDescriptorProvider sets the source of approved firmware updater
+// releases. Without it, every lookup reports the releases as unavailable.
+func WithApprovedDescriptorProvider(provider common.ApprovedDescriptorProvider) HandlerOption {
+	return func(h *ServiceHandler) {
+		if provider != nil {
+			h.descriptors = provider
+		}
+	}
+}
+
+// WithRepositoryGetter sets the tenant-scoped Repository lookup that firmware
+// admission uses to validate the literal artifact and signature repositories
+// a fleet template references. Without it, firmware that references a
+// literal repository is rejected.
+func WithRepositoryGetter(getRepository common.RepositoryGetter) HandlerOption {
+	return func(h *ServiceHandler) {
+		h.getRepository = getRepository
+	}
 }
 
 // NewServiceHandler creates a new fleet ServiceHandler instance.
 // catalogStore is optional — when nil, catalog item ref validation is skipped.
-func NewServiceHandler(fleetStore fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{
+func NewServiceHandler(fleetStore fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger, opts ...HandlerOption) *ServiceHandler {
+	h := &ServiceHandler{
 		store:             fleetStore,
 		catalogStore:      catalogStore,
 		events:            events,
 		log:               log,
 		callEventCallback: store.CallEventCallback(domain.FleetKind, log),
+		descriptors:       common.UnavailableDescriptorProvider{},
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -63,9 +94,9 @@ func CreateFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID,
 }
 
 // ReplaceFleetFromUntrusted sanitizes an untrusted fleet document, then replaces it.
-func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	SanitizeFleet(&fleet)
-	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
+	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership, opts...)
 }
 
 func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
@@ -78,6 +109,10 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 	}
 
 	name := lo.FromPtr(fleet.Metadata.Name)
+	if _, status := h.admitFirmware(ctx, orgId, name, nil, &fleet.Spec.Template.Spec, true); status.Code != http.StatusOK {
+		return nil, status
+	}
+
 	result, err := h.store.Create(ctx, orgId, &fleet)
 	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, nil, result, err == nil, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
@@ -109,7 +144,7 @@ func (h *ServiceHandler) GetFleet(ctx context.Context, orgId uuid.UUID, name str
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool, opts ...ReplaceOption) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -121,9 +156,15 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, status
 	}
 
+	var callbackStatus domain.Status
+	replacement := newReplaceOptions(opts...)
 	result, before, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
 		creating := m.Fleet == nil
 		if creating {
+			if _, admitted := h.admitFirmware(ctx, orgId, name, nil, &fleet.Spec.Template.Spec, true); admitted.Code != http.StatusOK {
+				callbackStatus = admitted
+				return common.ApiStatusToErr(admitted)
+			}
 			m.Fleet = &domain.Fleet{
 				ApiVersion: domain.FleetAPIVersion,
 				Kind:       domain.FleetKind,
@@ -138,10 +179,20 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
 			return err
 		}
-		if enforceOwnership && fleetOwnershipConflict(current, &fleet) {
+		// v1beta1 replacements omit firmware without withdrawing it; newer
+		// replacement semantics opt out of this legacy merge behavior.
+		incoming := fleet
+		if replacement.preserveOmittedFirmware {
+			incoming.Spec.Template.Spec = *common.PreserveOmittedFirmware(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec)
+		}
+		if enforceOwnership && fleetOwnershipConflict(current, &incoming) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
-		current.Spec = fleet.Spec
+		if _, admitted := h.admitFirmware(ctx, orgId, name, &current.Spec.Template.Spec, &incoming.Spec.Template.Spec, false); admitted.Code != http.StatusOK {
+			callbackStatus = admitted
+			return common.ApiStatusToErr(admitted)
+		}
+		current.Spec = incoming.Spec
 		if fleet.Metadata.Labels != nil {
 			current.Metadata.Labels = fleet.Metadata.Labels
 		}
@@ -154,6 +205,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return pruneFleetLifecycleOnCurrent(h.log, current)
 	})
 	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, created, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
+	}
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -203,10 +257,11 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		return nil, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 	}
 
-	if status := validateFleetPatch(ctx, orgId, h.catalogStore, currentObj, patch, name); status.Code != http.StatusOK {
+	if status := h.validateFleetPatch(ctx, orgId, currentObj, patch, name); status.Code != http.StatusOK {
 		return nil, status
 	}
 
+	var callbackStatus domain.Status
 	result, before, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *fleetstore.FleetMutation) error {
 		if err := m.RequireExisting(); err != nil {
 			return err
@@ -222,27 +277,46 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		if enforceOwnership && fleetOwnershipConflict(current, patched) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
+		if _, admitted := h.admitFirmware(ctx, orgId, name, &current.Spec.Template.Spec, &patched.Spec.Template.Spec, false); admitted.Code != http.StatusOK {
+			callbackStatus = admitted
+			return common.ApiStatusToErr(admitted)
+		}
 		// Annotations/owner were nil'd as managed fields; keep current's then prune lifecycle.
 		current.Spec = patched.Spec
 		current.Metadata.Labels = patched.Metadata.Labels
 		return pruneFleetLifecycleOnCurrent(h.log, current)
 	})
 	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
-func validateFleetPatch(ctx context.Context, orgId uuid.UUID, catalogStore catalogstore.Store, current *domain.Fleet, patch domain.PatchRequest, name string) domain.Status {
+func (h *ServiceHandler) validateFleetPatch(ctx context.Context, orgId uuid.UUID, current *domain.Fleet, patch domain.PatchRequest, name string) domain.Status {
 	patched, err := applyFleetPatch(ctx, current, patch, name)
 	if err != nil {
 		return domain.StatusBadRequest(err.Error())
 	}
-	return common.ValidateCatalogItemRefs(ctx, orgId, catalogStore, &patched.Spec.Template.Spec)
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &patched.Spec.Template.Spec); status != domain.StatusOK() {
+		return status
+	}
+	_, status := h.admitFirmware(ctx, orgId, name, &current.Spec.Template.Spec, &patched.Spec.Template.Spec, false)
+	return status
 }
 
 func applyFleetPatch(ctx context.Context, current *domain.Fleet, patch domain.PatchRequest, name string) (*domain.Fleet, error) {
+	if err := common.ValidatePatchedFirmware(current, patch, common.FleetFirmwarePatchPath); err != nil {
+		return nil, err
+	}
 	patched := &domain.Fleet{}
 	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/fleets/"+name); err != nil {
 		return nil, err
+	}
+	// Only an explicit removal withdraws the template firmware; any other patch
+	// that leaves it absent keeps the stored firmware.
+	if !common.FirmwareRemovedByPatch(patch, common.FleetFirmwarePatchPath) {
+		patched.Spec.Template.Spec = *common.PreserveOmittedFirmware(&patched.Spec.Template.Spec, &current.Spec.Template.Spec)
 	}
 	if errs := patched.Validate(); len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -253,6 +327,28 @@ func applyFleetPatch(ctx context.Context, current *domain.Fleet, patch domain.Pa
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+// admitFirmware validates the desired firmware of a fleet's device template
+// that a write is about to store. Every check whose inputs are concrete runs
+// now, including authorization of a literal updater release and the tenant
+// lookup of every literal repository. Checks that depend on template
+// parameters are deferred until the template is rendered for each device;
+// accepting them is not a claim that the rendered firmware is valid. A write
+// that keeps the stored template spec stores nothing new, and admission never
+// writes repository references.
+func (h *ServiceHandler) admitFirmware(ctx context.Context, orgId uuid.UUID, name string, stored, candidate *domain.DeviceSpec, creating bool) (common.FirmwareAdmission, domain.Status) {
+	if candidate == nil || candidate.Firmware == nil {
+		return common.FirmwareAdmission{}, domain.StatusOK()
+	}
+	if !creating && stored != nil && domain.DeviceSpecsAreEqual(*stored, *candidate) {
+		return common.FirmwareAdmission{}, domain.StatusOK()
+	}
+	admission, status := common.ValidateFirmwareIntent(ctx, orgId, h.descriptors, h.getRepository, candidate, common.FirmwareFleetTemplate)
+	if status.Code == http.StatusOK && len(admission.Deferred) > 0 {
+		h.log.WithField("deferredChecks", admission.Deferred).Debugf("Fleet %s firmware has %d checks that wait for template rendering", name, len(admission.Deferred))
+	}
+	return admission, status
 }
 
 func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
@@ -340,9 +436,29 @@ func (h *ServiceHandler) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid
 	return accepted, domain.StatusOK()
 }
 
-func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	err := h.store.OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+// ReplaceFleetRepositoryRefsIfCurrent replaces the repository references of a
+// fleet with the complete set computed from its device template: the
+// template's configuration repositories plus the literal artifact and
+// signature repositories of its firmware. The set is computed before the store
+// transaction opens; it is written only while the fleet still has the given
+// generation. When the firmware references cannot be known, nothing is
+// written.
+func (h *ServiceHandler) ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, templateSpec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
+	names, complete, err := common.CollectRepositoryDependencies(ctx, h.descriptors, templateSpec, common.FirmwareFleetTemplate)
+	if err != nil {
+		return 0, domain.StatusInternalServerError(fmt.Sprintf("computing repository references of fleet %q: %v", name, err))
+	}
+	if !complete {
+		return common.RepositoryRefsIncomplete, domain.StatusOK()
+	}
+	applied, err := h.store.ReplaceRepositoryRefsIfCurrent(ctx, orgId, name, generation, names...)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+	}
+	if !applied {
+		return common.RepositoryRefsStale, domain.StatusOK()
+	}
+	return common.RepositoryRefsReplaced, domain.StatusOK()
 }
 
 func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {

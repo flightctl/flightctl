@@ -47,7 +47,7 @@ curl -H "Flightctl-API-Version: v1beta1" \
 
 ### Version Negotiation
 
-* If no version header is sent, the server uses the most stable supported version
+* If no version header is sent, the server uses its configured fallback version, currently `v1beta1`, when the endpoint supports it, otherwise the most preferred supported version
 * If an unsupported version is requested, the server returns HTTP 406 Not Acceptable with `Flightctl-API-Versions-Supported` header listing available versions
 * For versioned resources, the response includes `Flightctl-API-Version` indicating which version was used
 
@@ -56,6 +56,7 @@ curl -H "Flightctl-API-Version: v1beta1" \
 | Version | Resources | Status | Support Guarantee |
 |---------|-----------|--------|-------------------|
 | v1beta1 | Device, Fleet, Repository, EnrollmentRequest, TemplateVersion, ResourceSync, CertificateSigningRequest, Event, AuthProvider, AuthConfig, Organization, LabelSyncMapping | Current | Supported throughout the 1.x.x major version |
+| v1beta2 | Device, Fleet | Current | Supported throughout the 1.x.x major version |
 | v1alpha1 | ImageBuild, ImageExport | Alpha | No breaking changes anticipated, but may evolve as the feature matures |
 
 ## Repositories
@@ -173,3 +174,44 @@ erDiagram
     ImageBuild}o..|| Repository : "destination (oci)"
     ImageExport}o..|| ImageBuild : "source (required)"
 ```
+
+## Firmware intent and observations
+
+Devices accept optional `spec.firmware`; fleets use `spec.template.spec.firmware`.
+The firmware contract declares a hardware profile, an approved updater release and its
+configuration, component version constraints, artifact digests, required overlays, and a
+nonnegative `retryGeneration`. Version ordering belongs to the updater, not the API server.
+
+Firmware delivery is not enabled by this API extension. The service currently has no
+production source of approved updater descriptors. Requests needing concrete release
+authorization are rejected. Fleet templates whose updater identity uses template parameters can be
+stored, but descriptor-dependent checks remain deferred and rollout is held.
+
+Fixed firmware objects reject unknown fields. Updater configuration and backend
+observation data use the closed schemas of their identified releases. Artifact and
+signature repositories must belong to the same organization. Repository dependencies
+include both configuration and firmware references so that repository changes notify
+referencing resources.
+
+Replacement semantics depend on the negotiated API version. A `v1beta1` replacement that
+omits firmware preserves the stored value. A `v1beta2` replacement that omits firmware
+withdraws firmware management. In both versions, JSON Patch must use `remove` at
+`/spec/firmware` for a device or `/spec/template/spec/firmware` for a fleet to remove
+firmware explicitly. Withdrawal does not restore installed firmware or remove boot artifacts.
+Status writes that omit firmware preserve it, and writes cannot erase or change the identity
+of an outstanding attempt. Progress of that attempt is allowed.
+A terminal attempt cannot return to an active phase with the same identity. A new retry
+uses a new attempt identity and retry generation.
+
+`status.firmware` distinguishes selected artifacts from observed component state and
+includes support, attempt identity, phase, observation time, boot identity, errors, and
+recovery guidance. Observations use their own retained schema identity, including after
+an updater release loses authorization. `ResourceLimitExceeded` errors must name an
+`exceededBudget` key authorized by the pinned release or the component observation.
+
+Until firmware rendering is integrated, devices with desired firmware or an outstanding
+attempt retain their spec and rendered output. Their `SpecValid` condition is `Unknown`
+with reason `FirmwareUnsupported`; they cannot count as successfully rolled out. Fleets
+with firmware templates report `FleetValid=False` with reason
+`FirmwareRenderingUnsupported`, and no template version is created. Devices without
+firmware retain their existing behavior.

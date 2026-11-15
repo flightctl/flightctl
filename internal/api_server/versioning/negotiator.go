@@ -66,8 +66,15 @@ func (n *Negotiator) negotiate(requested Version, metadata *apimetadata.Endpoint
 		return "", nil, ErrNotAcceptable
 	}
 
-	// No version requested: use first (most preferred, versions are ordered).
+	// No version requested: keep the server's configured fallback when that
+	// endpoint supports it, so adding a newer version does not change clients
+	// that send no header. Otherwise use the first (most preferred) version.
 	if requested == "" {
+		for _, v := range metadata.Versions {
+			if Version(v.Version) == n.fallbackVersion {
+				return n.fallbackVersion, v.DeprecatedAt, nil
+			}
+		}
 		v := metadata.Versions[0]
 		return Version(v.Version), v.DeprecatedAt, nil
 	}

@@ -39,6 +39,34 @@ type EnrollmentHookSnapshotAction = v1beta1.EnrollmentHookSnapshotAction
 type DeviceOsSpec = v1beta1.DeviceOsSpec
 type DeviceUpdatePolicySpec = v1beta1.DeviceUpdatePolicySpec
 
+// ========== Firmware Types ==========
+
+type FirmwareSpec = v1beta1.FirmwareSpec
+type FirmwareUpdaterSpec = v1beta1.FirmwareUpdaterSpec
+type FirmwareStatus = v1beta1.FirmwareStatus
+type FirmwareAttemptStatus = v1beta1.FirmwareAttemptStatus
+type FirmwareAttemptPhase = v1beta1.FirmwareAttemptPhase
+type FirmwareError = v1beta1.FirmwareError
+type FirmwareObservationBackend = v1beta1.FirmwareObservationBackend
+type FirmwareComponentStatus = v1beta1.FirmwareComponentStatus
+type FirmwareSupportStatus = v1beta1.FirmwareSupportStatus
+type FirmwareRecoveryAction = v1beta1.FirmwareRecoveryAction
+
+// FirmwareErrorReasonResourceLimitExceeded is the reason of a firmware error
+// that reports an exceeded resource budget.
+const FirmwareErrorReasonResourceLimitExceeded = v1beta1.FirmwareErrorReasonResourceLimitExceeded
+
+const (
+	FirmwareAttemptPhasePreparing        = v1beta1.FirmwareAttemptPhasePreparing
+	FirmwareAttemptPhaseWaitingForPolicy = v1beta1.FirmwareAttemptPhaseWaitingForPolicy
+	FirmwareAttemptPhaseStaging          = v1beta1.FirmwareAttemptPhaseStaging
+	FirmwareAttemptPhaseAwaitingReboot   = v1beta1.FirmwareAttemptPhaseAwaitingReboot
+	FirmwareAttemptPhaseVerifying        = v1beta1.FirmwareAttemptPhaseVerifying
+	FirmwareAttemptPhaseSucceeded        = v1beta1.FirmwareAttemptPhaseSucceeded
+	FirmwareAttemptPhaseFailed           = v1beta1.FirmwareAttemptPhaseFailed
+	FirmwareAttemptPhaseCanceled         = v1beta1.FirmwareAttemptPhaseCanceled
+)
+
 // ========== Operations ==========
 
 type DeviceRemoteSession = v1beta1.DeviceRemoteSession
@@ -233,6 +261,36 @@ func DeviceStatusOsMode(status *DeviceStatus) *OsModeType {
 		return status.Capabilities.OsMode
 	}
 	return nil
+}
+
+// FirmwareAttemptOutstanding reports whether a firmware attempt has not
+// reached a terminal phase (Succeeded, Failed or Canceled). An unrecognized
+// phase counts as outstanding, so an attempt is never treated as finished
+// unless it says so.
+func FirmwareAttemptOutstanding(attempt *FirmwareAttemptStatus) bool {
+	if attempt == nil {
+		return false
+	}
+	switch attempt.Phase {
+	case FirmwareAttemptPhaseSucceeded, FirmwareAttemptPhaseFailed, FirmwareAttemptPhaseCanceled:
+		return false
+	default:
+		return true
+	}
+}
+
+// DeviceRequiresFirmwareHold reports whether a device has firmware state that
+// reconciliation must not discard: desired firmware, or an outstanding
+// firmware attempt, including one that remains after desired firmware was
+// withdrawn. Terminal attempt history alone does not count.
+func DeviceRequiresFirmwareHold(device *Device) bool {
+	if device == nil {
+		return false
+	}
+	if device.Spec != nil && device.Spec.Firmware != nil {
+		return true
+	}
+	return device.Status != nil && device.Status.Firmware != nil && FirmwareAttemptOutstanding(device.Status.Firmware.Attempt)
 }
 
 // GetNextDeviceRenderedVersion calculates the next rendered version for a device.
