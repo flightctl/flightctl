@@ -313,8 +313,9 @@ func (f *fakeKVStore) SetNX(ctx context.Context, key string, value []byte) (bool
 // resource-specific callbacks that no longer exist on the slimmed events.Service interface.
 type fakeEventsService struct {
 	events.Service
-	createdEvents []*domain.Event
-	deleted       []string
+	createdEvents       []*domain.Event
+	createdEventCtxErrs []error
+	deleted             []string
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
@@ -322,6 +323,7 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 		return
 	}
 	f.createdEvents = append(f.createdEvents, event)
+	f.createdEventCtxErrs = append(f.createdEventCtxErrs, ctx.Err())
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -835,6 +837,20 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Contains(t, events[0].Message, "reconciliation requested")
 		require.Equal(t, string(domain.CertificateSigningRequestKind), events[0].InvolvedObject.Kind)
 		require.Equal(t, "commissioning-credential", events[0].InvolvedObject.Name)
+	})
+
+	t.Run("When the request context is cancelled it should still persist the retry event", func(t *testing.T) {
+		h, _, _, _, fakeEvents, _ := newTestHandlerWithCSR(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, uuid.New(), "commissioning-credential")
+
+		events := fakeEvents.createdWithReason(domain.EventReasonEnrollmentCredentialRevoked)
+		require.Len(t, events, 1)
+		require.Len(t, fakeEvents.createdEventCtxErrs, 1)
+		require.NoError(t, fakeEvents.createdEventCtxErrs[0])
 	})
 
 	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {

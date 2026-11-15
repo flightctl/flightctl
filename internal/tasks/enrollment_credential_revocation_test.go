@@ -82,6 +82,7 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 				}
 				return 0, domain.StatusOK()
 			})
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, credentialName).Return(revokedCertificateSigningRequest(), domain.StatusOK())
 		mockCSR.EXPECT().MarkEnrollmentCredentialFlaggingCompleted(gomock.Any(), orgId, credentialName).Return(&domain.CertificateSigningRequest{}, domain.StatusOK())
 
 		err := processEnrollmentCredentialRevocation(ctx, orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, credentialName), mockDevice, mockER, mockCSR, logrus.New())
@@ -97,6 +98,7 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, "credential-1").Return(revokedCertificateSigningRequest(), domain.StatusOK())
 		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1", gomock.Any()).Return(int64(0), domain.StatusInternalServerError("boom"))
 
 		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, "credential-1"), mockDevice, mockER, mockCSR, logrus.New())
@@ -112,10 +114,62 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, "credential-1").Return(revokedCertificateSigningRequest(), domain.StatusOK())
 		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1", gomock.Any()).Return(int64(0), domain.StatusOK())
 		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, "credential-1", gomock.Any()).Return(int64(0), domain.StatusInternalServerError("boom"))
 
 		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, "credential-1"), mockDevice, mockER, mockCSR, logrus.New())
+		require.Error(t, err)
+	})
+
+	t.Run("When the credential is not revoked it should skip consequences", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockER := enrollmentrequestservice.NewMockService(ctrl)
+		mockDevice := deviceservice.NewMockService(ctrl)
+		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
+		orgId := uuid.New()
+		credentialName := "credential-1"
+
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, credentialName).
+			Return(&domain.CertificateSigningRequest{Status: &domain.CertificateSigningRequestStatus{}}, domain.StatusOK())
+
+		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, credentialName), mockDevice, mockER, mockCSR, logrus.New())
+		require.NoError(t, err)
+	})
+
+	t.Run("When the credential no longer exists it should skip consequences", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockER := enrollmentrequestservice.NewMockService(ctrl)
+		mockDevice := deviceservice.NewMockService(ctrl)
+		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
+		orgId := uuid.New()
+		credentialName := "credential-1"
+
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, credentialName).
+			Return(nil, domain.StatusResourceNotFound(domain.CertificateSigningRequestKind, credentialName))
+
+		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, credentialName), mockDevice, mockER, mockCSR, logrus.New())
+		require.NoError(t, err)
+	})
+
+	t.Run("When the credential lookup fails it should return an error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockER := enrollmentrequestservice.NewMockService(ctrl)
+		mockDevice := deviceservice.NewMockService(ctrl)
+		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
+		orgId := uuid.New()
+		credentialName := "credential-1"
+
+		mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, credentialName).
+			Return(nil, domain.StatusInternalServerError("boom"))
+
+		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, credentialName), mockDevice, mockER, mockCSR, logrus.New())
 		require.Error(t, err)
 	})
 
@@ -146,6 +200,7 @@ func TestDispatchTasks_EnrollmentCredentialRevocation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).Return(nil)
+	mockCSR.EXPECT().GetCertificateSigningRequest(gomock.Any(), orgId, credentialName).Return(revokedCertificateSigningRequest(), domain.StatusOK())
 	mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize).Return(int64(0), domain.StatusOK())
 	mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize).Return(int64(0), domain.StatusOK())
 	mockCSR.EXPECT().MarkEnrollmentCredentialFlaggingCompleted(gomock.Any(), orgId, credentialName).Return(&domain.CertificateSigningRequest{}, domain.StatusOK())
@@ -154,4 +209,12 @@ func TestDispatchTasks_EnrollmentCredentialRevocation(t *testing.T) {
 	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
 	require.NoError(t, err)
 	mockConsumer.AssertExpectations(t)
+}
+
+func revokedCertificateSigningRequest() *domain.CertificateSigningRequest {
+	return &domain.CertificateSigningRequest{
+		Status: &domain.CertificateSigningRequestStatus{
+			Revocation: &domain.EnrollmentCertificateRevocation{Reason: "test"},
+		},
+	}
 }

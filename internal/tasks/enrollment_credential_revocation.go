@@ -27,6 +27,19 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 		return fmt.Errorf("enrollment credential revocation event is missing the credential name")
 	}
 
+	credential, status := csrSvc.GetCertificateSigningRequest(ctx, orgId, credentialName)
+	if status.Code == http.StatusNotFound {
+		log.Warnf("Skipping enrollment credential revocation consequences for %q: credential no longer exists", credentialName)
+		return nil
+	}
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("get enrollment credential %q: %s", credentialName, status.Message)
+	}
+	if credential == nil || credential.Status == nil || !credential.Status.HasRevocation() {
+		log.Infof("Skipping enrollment credential revocation consequences for %q: credential is not revoked", credentialName)
+		return nil
+	}
+
 	if err := rejectPendingEnrollmentRequests(ctx, orgId, credentialName, enrollmentRequestSvc, log); err != nil {
 		return fmt.Errorf("reject pending enrollment requests for credential %q: %w", credentialName, err)
 	}

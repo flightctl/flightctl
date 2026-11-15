@@ -446,7 +446,7 @@ func (h *ServiceHandler) enqueueEnrollmentCredentialRevocationReconciliation(ctx
 	event := domain.GetBaseEvent(ctx, domain.CertificateSigningRequestKind, credentialName,
 		domain.EventReasonEnrollmentCredentialRevoked,
 		"Enrollment credential revocation reconciliation requested.", nil)
-	h.events.CreateEvent(ctx, orgId, event)
+	h.events.CreateEvent(context.WithoutCancel(ctx), orgId, event)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
