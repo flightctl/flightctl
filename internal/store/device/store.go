@@ -108,10 +108,11 @@ type Store interface {
 
 	// Used by fleet selector
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, error)
-	// FlagDevicesForRevokedEnrollmentCredential flags every device whose
+	// FlagDevicesForRevokedEnrollmentCredential flags up to limit devices whose
 	// enrollmentCredential projection references credentialName. The update is
-	// a single statement and is idempotent.
-	FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error)
+	// a single statement and is idempotent; callers repeat it until it returns
+	// zero rows.
+	FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, error)
 
 	// Used by catalog
 	ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
@@ -373,25 +374,54 @@ func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uu
 	return result.RowsAffected > 0, nil
 }
 
-// FlagDevicesForRevokedEnrollmentCredential flags every device whose
+// FlagDevicesForRevokedEnrollmentCredential flags up to limit devices whose
 // enrollmentCredential projection references credentialName. Conditions are
 // merged in place so unrelated service conditions survive, and already-flagged
-// devices are skipped to preserve the original transition time.
-func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
-	if credentialName == "" {
+// devices are skipped to preserve the original transition time. Callers repeat
+// the call until it returns zero rows.
+func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, error) {
+	if credentialName == "" || limit <= 0 {
 		return 0, nil
 	}
 	result := s.getDB(ctx).Exec(`
-		UPDATE devices
+		WITH batch AS (
+			SELECT d.name
+			FROM devices d
+			WHERE d.org_id = CAST(@org_id AS uuid)
+			  AND d.deleted_at IS NULL
+			  AND d.name IN (
+				  SELECT er.name
+				  FROM enrollment_requests er
+				  WHERE er.org_id = CAST(@org_id AS uuid)
+				    AND er.deleted_at IS NULL
+				    AND er.status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
+			  )
+			  AND (
+				  d.service_conditions->'conditions' IS NULL
+				  OR COALESCE(d.service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
+				  OR NOT (
+					  d.service_conditions->'conditions' @> jsonb_build_array(
+						  jsonb_build_object(
+							  'type', CAST(@condition_type AS text),
+							  'status', CAST(@condition_status AS text)
+						  )
+					  )
+				  )
+			  )
+			ORDER BY d.name
+			LIMIT CAST(@limit AS integer)
+			FOR UPDATE
+		)
+		UPDATE devices d
 		SET service_conditions = jsonb_set(
-				COALESCE(service_conditions, '{}'::jsonb) || jsonb_build_object(
+				COALESCE(d.service_conditions, '{}'::jsonb) || jsonb_build_object(
 					'enrollmentCredential',
-					COALESCE(service_conditions->'enrollmentCredential', '{}'::jsonb) || '{"revoked": true}'::jsonb
+					COALESCE(d.service_conditions->'enrollmentCredential', '{}'::jsonb) || '{"revoked": true}'::jsonb
 				),
 				'{conditions}',
 				COALESCE((
 					SELECT jsonb_agg(condition_json ORDER BY ordinal)
-					FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb))
+					FROM jsonb_array_elements(COALESCE(NULLIF(d.service_conditions->'conditions', 'null'::jsonb), '[]'::jsonb))
 						WITH ORDINALITY AS condition_rows(condition_json, ordinal)
 					WHERE condition_json->>'type' <> CAST(@condition_type AS text)
 				), '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
@@ -403,28 +433,10 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 				)),
 				true
 			),
-			resource_version = resource_version + 1
-		WHERE org_id = CAST(@org_id AS uuid)
-		  AND deleted_at IS NULL
-		  AND name IN (
-			  SELECT er.name
-			  FROM enrollment_requests er
-			  WHERE er.org_id = CAST(@org_id AS uuid)
-			    AND er.deleted_at IS NULL
-			    AND er.status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
-		  )
-		  AND (
-			  service_conditions->'conditions' IS NULL
-			  OR COALESCE(service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
-			  OR NOT (
-				  service_conditions->'conditions' @> jsonb_build_array(
-					  jsonb_build_object(
-						  'type', CAST(@condition_type AS text),
-						  'status', CAST(@condition_status AS text)
-					  )
-				  )
-			  )
-		  )
+			resource_version = d.resource_version + 1
+		FROM batch
+		WHERE d.org_id = CAST(@org_id AS uuid)
+		  AND d.name = batch.name
 	`, map[string]interface{}{
 		"org_id":            orgId,
 		"credential_name":   credentialName,
@@ -432,6 +444,7 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 		"condition_status":  string(domain.ConditionStatusTrue),
 		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
 		"condition_message": domain.EnrollmentCredentialRevokedMessage,
+		"limit":             limit,
 	})
 	if result.Error != nil {
 		return 0, store.ErrorFromGormError(result.Error)

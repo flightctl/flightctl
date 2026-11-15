@@ -180,7 +180,7 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	return true, nil
 }
 
-func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
 	var count int64
 	for name, request := range f.items {
 		if request.Status == nil || lo.FromPtr(request.Status.EnrollmentCertificateName) != credentialName {
@@ -219,11 +219,16 @@ func newFakeDeviceStore() *fakeDeviceStore {
 	}
 }
 
-func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
 	var count int64
 	for name, device := range f.items {
 		if f.credentials[name] != credentialName {
 			continue
+		}
+		if device.Status != nil && device.Status.EnrollmentCredential != nil && lo.FromPtr(device.Status.EnrollmentCredential.Revoked) {
+			if condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked); condition != nil && condition.Status == domain.ConditionStatusTrue {
+				continue
+			}
 		}
 		if device.Status == nil {
 			device.Status = &domain.DeviceStatus{}
@@ -951,7 +956,7 @@ func TestDenyEnrollmentRequestsForRevokedCredential(t *testing.T) {
 		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("credential-2")},
 	}
 
-	count, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName)
+	count, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize)
 
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.Equal(t, int64(1), count)

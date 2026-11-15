@@ -275,7 +275,7 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 	return &domain.DeviceList{}, nil
 }
 
-func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
 	var count int64
 	for name, stored := range s.devices {
 		if s.deviceCredentials[name] != credentialName {

@@ -429,9 +429,16 @@ func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx conte
 	if credential == nil || !lo.FromPtr(credential.Revoked) {
 		return
 	}
-	if _, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName); err != nil {
-		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
-		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
+	for {
+		count, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName, domain.EnrollmentCredentialRevocationBatchSize)
+		if err != nil {
+			h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+			h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
+			return
+		}
+		if count == 0 {
+			return
+		}
 	}
 }
 
@@ -686,8 +693,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
-	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
+	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName, limit)
 	if err != nil {
 		return 0, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
 	}

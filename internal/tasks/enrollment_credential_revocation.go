@@ -40,19 +40,39 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 }
 
 func rejectPendingEnrollmentRequests(ctx context.Context, orgId uuid.UUID, credentialName string, svc enrollmentrequestservice.Service, log logrus.FieldLogger) error {
-	count, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
-	if status.Code != http.StatusOK {
-		return fmt.Errorf("deny enrollment requests: %s", status.Message)
-	}
-	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", count, credentialName)
-	return nil
+	return updateInBatches(ctx, func(ctx context.Context) (int64, error) {
+		count, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize)
+		if status.Code != http.StatusOK {
+			return 0, fmt.Errorf("deny enrollment requests: %s", status.Message)
+		}
+		if count > 0 {
+			log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", count, credentialName)
+		}
+		return count, nil
+	})
 }
 
 func flagDevicesForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service, log logrus.FieldLogger) error {
-	count, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
-	if status.Code != http.StatusOK {
-		return fmt.Errorf("flag devices: %s", status.Message)
+	return updateInBatches(ctx, func(ctx context.Context) (int64, error) {
+		count, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize)
+		if status.Code != http.StatusOK {
+			return 0, fmt.Errorf("flag devices: %s", status.Message)
+		}
+		if count > 0 {
+			log.Infof("Flagged %d device(s) for revoked enrollment credential %q", count, credentialName)
+		}
+		return count, nil
+	})
+}
+
+func updateInBatches(ctx context.Context, update func(context.Context) (int64, error)) error {
+	for {
+		count, err := update(ctx)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return nil
+		}
 	}
-	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", count, credentialName)
-	return nil
 }

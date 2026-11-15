@@ -768,7 +768,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_enrollment_certificate_name")).To(BeTrue())
 		})
 
-		It("When revoking an enrollment credential it should flag all matching devices in one update", func() {
+		It("When revoking an enrollment credential it should flag all matching devices in bounded batches", func() {
 			erStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 			createDevice := func(name, credentialName string, revoked bool, conditions []api.Condition) {
 				status := api.NewDeviceStatus()
@@ -810,9 +810,13 @@ var _ = Describe("DeviceStore create", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			count, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
+			count, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a", 1)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(int64(3)))
+			Expect(count).To(Equal(int64(1)))
+
+			count, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a", 1000)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(int64(2)))
 
 			for _, name := range []string{"credential-a-one", "credential-a-two", "credential-a-legacy"} {
 				device, err := devStore.Get(ctx, orgId, name)
@@ -834,7 +838,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(lo.FromPtr(deviceB.Status.EnrollmentCredential.Revoked)).To(BeFalse())
 			Expect(api.FindStatusCondition(deviceB.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
 
-			count, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
+			count, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a", 1000)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(count).To(BeZero())
 		})

@@ -294,6 +294,10 @@ const (
 	EnrollmentCredentialRevokedMessage = "The enrollment credential that admitted this device was revoked"
 )
 
+// EnrollmentCredentialRevocationBatchSize bounds how many enrollment requests
+// or devices a single revocation bulk update may touch.
+const EnrollmentCredentialRevocationBatchSize = 1000
+
 func EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName string) string {
 	return fmt.Sprintf("Enrollment credential %q was revoked; enrollment request rejected", credentialName)
 }

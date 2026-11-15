@@ -1216,7 +1216,7 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 			st, _, svc := newTestHandler()
 			tt.setup(t, st.device)
 
-			results, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-1")
+			results, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-1", domain.EnrollmentCredentialRevocationBatchSize)
 
 			tt.assert(t, st.device, results, status)
 		})
