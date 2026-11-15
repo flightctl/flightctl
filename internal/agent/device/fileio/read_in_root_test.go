@@ -204,6 +204,24 @@ func TestReadFileInRoot(t *testing.T) {
 			wantErr: func(t *testing.T, err error) { require.ErrorIs(t, err, fs.ErrNotExist) },
 		},
 		{
+			name: "When the root does not exist it should fail",
+			setup: func(t *testing.T, imageRoot string) {
+				require.NoError(t, os.RemoveAll(imageRoot))
+			},
+			relPath: manifestRel,
+			limit:   size,
+			wantErr: func(t *testing.T, err error) { require.ErrorIs(t, err, fs.ErrNotExist) },
+		},
+		{
+			name: "When the root is a regular file it should fail",
+			setup: func(t *testing.T, imageRoot string) {
+				require.NoError(t, os.RemoveAll(imageRoot))
+				require.NoError(t, os.WriteFile(imageRoot, content, 0o600))
+			},
+			relPath: manifestRel,
+			limit:   size,
+		},
+		{
 			name: "When the root path itself is a symlink it should read beneath its target",
 			setup: func(t *testing.T, imageRoot string) {
 				target := filepath.Join(filepath.Dir(imageRoot), "storage")

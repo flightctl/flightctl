@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -998,4 +999,29 @@ func TestFirmwareSectionAppearsInLoggedConfigOnlyWhenConfigured(t *testing.T) {
 
 	configured := loadConfigLayers(t, yamlConfig+"\n"+narrowerFirmwareAccess)
 	require.Contains(configured.StringSanitized(), `"firmware":{"updater-access":`)
+}
+
+func TestUpdaterAccessPolicyDecodingNeverFails(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+		want  UpdaterAccessPolicy
+	}{
+		{"When the policy is an object it should decode each phase", `{"prepare":{"workspace-write":true},"verify":{"read-paths":["/etc/vendor"]}}`,
+			UpdaterAccessPolicy{Prepare: UpdaterAccessGrant{WorkspaceWrite: true}, Verify: UpdaterAccessGrant{ReadPaths: []string{"/etc/vendor"}}}},
+		{"When the policy is null it should decode to an empty policy", `null`, UpdaterAccessPolicy{}},
+		{"When the policy has the wrong type it should decode to an empty policy without failing", `["prepare"]`, UpdaterAccessPolicy{}},
+		{"When the policy has an unknown phase it should decode to an empty policy without failing", `{"install":{"read-paths":["/etc"]}}`, UpdaterAccessPolicy{}},
+		{"When an entry has the wrong type it should decode to an empty policy without failing", `{"prepare":{"read-paths":"/etc/vendor"}}`, UpdaterAccessPolicy{}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			var p UpdaterAccessPolicy
+			require.NoError(json.Unmarshal([]byte(tc.input), &p))
+			require.Equal(tc.want.Prepare, p.Prepare)
+			require.Equal(tc.want.Apply, p.Apply)
+			require.Equal(tc.want.Verify, p.Verify)
+		})
+	}
 }
