@@ -57,6 +57,7 @@ type fakeCSRService struct {
 	status              domain.Status
 	getCalls            int
 	revokeAfterFirstGet *domain.EnrollmentCertificateRevocation
+	statusAfterFirstGet *domain.Status
 }
 
 func newFakeCSRService() *fakeCSRService {
@@ -76,6 +77,9 @@ func (f *fakeCSRService) GetCertificateSigningRequest(ctx context.Context, orgId
 		return nil, domain.StatusInternalServerError(err.Error())
 	}
 	f.getCalls++
+	if f.getCalls > 1 && f.statusAfterFirstGet != nil {
+		return nil, *f.statusAfterFirstGet
+	}
 	if f.getCalls == 1 && f.revokeAfterFirstGet != nil {
 		if csr.Status == nil {
 			csr.Status = &domain.CertificateSigningRequestStatus{}
@@ -806,6 +810,26 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.NotNil(t, condition)
 		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
 		require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	})
+
+	t.Run("When revocation reconciliation fails it should enqueue a retry event", func(t *testing.T) {
+		h, fakeStore, _, _, fakeEvents, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-reconciliation-failure"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
+		failure := domain.StatusInternalServerError("boom")
+		csrs.statusAfterFirstGet = &failure
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		events := fakeEvents.createdWithReason(domain.EventReasonEnrollmentCredentialRevoked)
+		require.Len(t, events, 1)
+		require.Contains(t, events[0].Message, "reconciliation requested")
+		require.Equal(t, string(domain.CertificateSigningRequestKind), events[0].InvolvedObject.Kind)
+		require.Equal(t, "commissioning-credential", events[0].InvolvedObject.Name)
 	})
 
 	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {

@@ -423,6 +423,7 @@ func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx conte
 	credential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
 	if err != nil {
 		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
 		return
 	}
 	if credential == nil || !lo.FromPtr(credential.Revoked) {
@@ -430,7 +431,15 @@ func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx conte
 	}
 	if _, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName); err != nil {
 		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
 	}
+}
+
+func (h *ServiceHandler) enqueueEnrollmentCredentialRevocationReconciliation(ctx context.Context, orgId uuid.UUID, credentialName string) {
+	event := domain.GetBaseEvent(ctx, domain.CertificateSigningRequestKind, credentialName,
+		domain.EventReasonEnrollmentCredentialRevoked,
+		"Enrollment credential revocation reconciliation requested.", nil)
+	h.events.CreateEvent(ctx, orgId, event)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
