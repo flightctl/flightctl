@@ -249,17 +249,14 @@ func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx 
 		  AND deleted_at IS NULL
 		  AND status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
 		  AND COALESCE(status->'approval'->>'approved', 'false') <> 'true'
-		  AND NOT EXISTS (
-			  SELECT 1
-			  FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
-			  WHERE condition_json->>'type' = CAST(@approved_type AS text)
-			    AND condition_json->>'status' = CAST(@condition_status AS text)
-		  )
-		  AND NOT EXISTS (
-			  SELECT 1
-			  FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
-			  WHERE condition_json->>'type' = CAST(@denied_type AS text)
-			    AND condition_json->>'status' = CAST(@condition_status AS text)
+		  AND NOT jsonb_path_exists(
+			  COALESCE(status, '{}'::jsonb),
+			  CAST(@path AS jsonpath),
+			  jsonb_build_object(
+				  'approved', CAST(@approved_type AS text),
+				  'denied',   CAST(@denied_type AS text),
+				  'status',   CAST(@condition_status AS text)
+			  )
 		  )
 	`, map[string]interface{}{
 		"org_id":            orgId,
@@ -270,6 +267,7 @@ func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx 
 		"condition_status":  string(domain.ConditionStatusTrue),
 		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
 		"condition_message": domain.EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName),
+		"path":              "$.conditions[*] ? ((@.type == $approved || @.type == $denied) && @.status == $status)",
 	})
 	if result.Error != nil {
 		return 0, store.ErrorFromGormError(result.Error)
