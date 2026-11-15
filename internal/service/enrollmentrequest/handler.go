@@ -407,8 +407,30 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	}); err != nil {
 		return err
 	}
+
+	h.reconcileDeviceEnrollmentCredentialRevocation(ctx, orgId, enrollmentRequest, name)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
 	return nil
+}
+
+// reconcileDeviceEnrollmentCredentialRevocation closes the race where the
+// revocation worker finishes between the pre-creation status read and the
+// device insert.
+func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest, deviceName string) {
+	if enrollmentRequest.Status == nil || enrollmentRequest.Status.EnrollmentCertificateName == nil {
+		return
+	}
+	credential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
+	if err != nil {
+		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+		return
+	}
+	if credential == nil || !lo.FromPtr(credential.Revoked) {
+		return
+	}
+	if _, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName); err != nil {
+		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+	}
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

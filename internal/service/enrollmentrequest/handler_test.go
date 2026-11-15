@@ -53,8 +53,10 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 type fakeCSRService struct {
 	csrservice.Service
-	items  map[string]*domain.CertificateSigningRequest
-	status domain.Status
+	items               map[string]*domain.CertificateSigningRequest
+	status              domain.Status
+	getCalls            int
+	revokeAfterFirstGet *domain.EnrollmentCertificateRevocation
 }
 
 func newFakeCSRService() *fakeCSRService {
@@ -69,7 +71,18 @@ func (f *fakeCSRService) GetCertificateSigningRequest(ctx context.Context, orgId
 	if !ok {
 		return nil, domain.StatusResourceNotFound(domain.CertificateSigningRequestKind, name)
 	}
-	return csr, domain.StatusOK()
+	result, err := store.CloneJSON(csr)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	f.getCalls++
+	if f.getCalls == 1 && f.revokeAfterFirstGet != nil {
+		if csr.Status == nil {
+			csr.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		csr.Status.Revocation = f.revokeAfterFirstGet
+	}
+	return result, domain.StatusOK()
 }
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
@@ -191,11 +204,39 @@ func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(
 // used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
 	devicestore.Store
-	items map[string]*domain.Device
+	items       map[string]*domain.Device
+	credentials map[string]string
 }
 
 func newFakeDeviceStore() *fakeDeviceStore {
-	return &fakeDeviceStore{items: map[string]*domain.Device{}}
+	return &fakeDeviceStore{
+		items:       map[string]*domain.Device{},
+		credentials: map[string]string{},
+	}
+}
+
+func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
+	var count int64
+	for name, device := range f.items {
+		if f.credentials[name] != credentialName {
+			continue
+		}
+		if device.Status == nil {
+			device.Status = &domain.DeviceStatus{}
+		}
+		if device.Status.EnrollmentCredential == nil {
+			device.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
+		}
+		device.Status.EnrollmentCredential.Revoked = lo.ToPtr(true)
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedMessage,
+		})
+		count++
+	}
+	return count, nil
 }
 
 func (f *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
@@ -738,6 +779,29 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
 			Revoked: lo.ToPtr(true),
 		}, *device.Status.EnrollmentCredential)
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		require.NotNil(t, condition)
+		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+		require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	})
+
+	t.Run("When the credential is revoked after the device is created it should reconcile the new device", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-revocation-race"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
+		csrs.revokeAfterFirstGet = &domain.EnrollmentCertificateRevocation{Reason: "Compromised", RevokedBy: "security-officer"}
+		fakeDevices.credentials[cn] = "commissioning-credential"
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.NotNil(t, device.Status.EnrollmentCredential)
+		require.True(t, lo.FromPtr(device.Status.EnrollmentCredential.Revoked))
 		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
 		require.NotNil(t, condition)
 		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
