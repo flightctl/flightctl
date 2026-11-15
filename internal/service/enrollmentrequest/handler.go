@@ -36,6 +36,8 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+const revocationReconciliationEventTimeout = 5 * time.Second
+
 type ServiceHandler struct {
 	store              enrollmentrequeststore.Store
 	deviceStore        devicestore.Store
@@ -446,7 +448,9 @@ func (h *ServiceHandler) enqueueEnrollmentCredentialRevocationReconciliation(ctx
 	event := domain.GetBaseEvent(ctx, domain.CertificateSigningRequestKind, credentialName,
 		domain.EventReasonEnrollmentCredentialRevoked,
 		"Enrollment credential revocation reconciliation requested.", nil)
-	h.events.CreateEvent(context.WithoutCancel(ctx), orgId, event)
+	eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revocationReconciliationEventTimeout)
+	defer cancel()
+	h.events.CreateEvent(eventCtx, orgId, event)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

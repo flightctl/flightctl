@@ -313,9 +313,10 @@ func (f *fakeKVStore) SetNX(ctx context.Context, key string, value []byte) (bool
 // resource-specific callbacks that no longer exist on the slimmed events.Service interface.
 type fakeEventsService struct {
 	events.Service
-	createdEvents       []*domain.Event
-	createdEventCtxErrs []error
-	deleted             []string
+	createdEvents            []*domain.Event
+	createdEventCtxErrs      []error
+	createdEventHasDeadlines []bool
+	deleted                  []string
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
@@ -324,6 +325,8 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 	}
 	f.createdEvents = append(f.createdEvents, event)
 	f.createdEventCtxErrs = append(f.createdEventCtxErrs, ctx.Err())
+	_, hasDeadline := ctx.Deadline()
+	f.createdEventHasDeadlines = append(f.createdEventHasDeadlines, hasDeadline)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -851,6 +854,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Len(t, events, 1)
 		require.Len(t, fakeEvents.createdEventCtxErrs, 1)
 		require.NoError(t, fakeEvents.createdEventCtxErrs[0])
+		require.True(t, fakeEvents.createdEventHasDeadlines[0])
 	})
 
 	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {
