@@ -1158,6 +1158,7 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 				}
 				createDevice("device-1", "credential-1", false, nil)
 				createDevice("device-2", "credential-1", false, nil)
+				createDevice("partially-revoked", "credential-1", true, nil)
 				createDevice("already-revoked", "credential-1", true, []domain.Condition{{
 					Type:               domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
 					Status:             domain.ConditionStatusTrue,
@@ -1169,9 +1170,9 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 			},
 			assert: func(t *testing.T, deviceStore *fakeDeviceStore, count int64, status domain.Status) {
 				require.Equal(t, int32(http.StatusOK), status.Code)
-				require.Equal(t, int64(2), count)
+				require.Equal(t, int64(3), count)
 
-				for _, name := range []string{"device-1", "device-2"} {
+				for _, name := range []string{"device-1", "device-2", "partially-revoked"} {
 					stored := deviceStore.devices[name]
 					require.True(t, lo.FromPtr(stored.Status.EnrollmentCredential.Revoked))
 					condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)

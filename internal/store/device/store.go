@@ -416,12 +416,15 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 			    AND er.status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
 		  )
 		  AND (
-			  COALESCE(service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
-			  OR NOT EXISTS (
-				  SELECT 1
-				  FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
-				  WHERE condition_json->>'type' = CAST(@condition_type AS text)
-				    AND condition_json->>'status' = CAST(@condition_status AS text)
+			  service_conditions->'conditions' IS NULL
+			  OR COALESCE(service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'
+			  OR NOT (
+				  service_conditions->'conditions' @> jsonb_build_array(
+					  jsonb_build_object(
+						  'type', CAST(@condition_type AS text),
+						  'status', CAST(@condition_status AS text)
+					  )
+				  )
 			  )
 		  )
 	`, map[string]interface{}{
