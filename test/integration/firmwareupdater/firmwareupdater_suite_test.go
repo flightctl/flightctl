@@ -51,6 +51,7 @@ const (
 	roleSymlink        = "symlink-manifest"
 	roleUnsigned       = "unsigned"
 	roleOtherIdentity  = "other-identity"
+	roleManifestList   = "manifest-list"
 )
 
 var roleVersions = map[string]string{
@@ -60,6 +61,7 @@ var roleVersions = map[string]string{
 	roleSymlink:        "1.0.3",
 	roleUnsigned:       "1.0.4",
 	roleOtherIdentity:  "1.0.5",
+	roleManifestList:   "1.0.6",
 }
 
 type fixture struct {
@@ -306,6 +308,19 @@ func provision(ctx context.Context, work string) suiteState {
 			digest = push(role, tag, "", "")
 		case roleUnknownKey:
 			digest = push(role, tag, unknownKey, unknownPass)
+		case roleManifestList:
+			list := tag + "-list"
+			_, err := runPodman(ctx, env, "manifest", "create", list)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = runPodman(ctx, env, "manifest", "add", list, "containers-storage:"+tag)
+			Expect(err).NotTo(HaveOccurred())
+			digestFile := filepath.Join(work, role+".digest")
+			_, err = runPodman(ctx, env, "manifest", "push", "-q", "--all", "--authfile", st.AuthFile, "--digestfile", digestFile,
+				"--sign-by-sigstore-private-key", approvedKey, "--sign-passphrase-file", approvedPass, list, "docker://"+tag)
+			Expect(err).NotTo(HaveOccurred())
+			listDigest, err := os.ReadFile(digestFile)
+			Expect(err).NotTo(HaveOccurred())
+			digest = strings.TrimSpace(string(listDigest))
 		case roleOtherIdentity:
 			elsewhere := st.Registry + "/" + otherRepository + ":" + version
 			_, err := runPodman(ctx, env, "tag", tag, elsewhere)

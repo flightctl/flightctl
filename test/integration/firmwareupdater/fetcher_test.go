@@ -202,6 +202,21 @@ var _ = Describe("Fetching approved updater code", func() {
 		e.requireNoMountLeft()
 	})
 
+	It("When the approved package digest names a signed manifest list it should verify and record the platform image", func(ctx SpecContext) {
+		e := newFetchEnv(state.DiscoveryHome, state.AuthFile)
+		f := state.Fixtures[roleManifestList]
+		pkg, err := e.fetch(ctx, roleManifestList)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(e.recorder.subcommands()).To(Equal([]string{"pull", "image inspect", "image mount", "image unmount"}))
+		Expect(pkg.PackageDigest).To(Equal(f.Digest))
+		Expect(pkg.Reference).To(Equal(fixtureReference(roleManifestList)))
+		Expect(pkg.ManifestDigest).To(Equal(policy.Hash(f.Manifest)))
+		_, err = os.Stat(e.recordPath(roleManifestList))
+		Expect(err).NotTo(HaveOccurred())
+		e.requireNoSignaturePolicy()
+		e.requireNoMountLeft()
+	})
+
 	It("When no registry credentials are available it should report a retryable unavailable updater", func(ctx SpecContext) {
 		e := newFetchEnv(state.DiscoveryHome, filepath.Join(state.WorkDir, "missing-auth.json"))
 		pkg, err := e.fetch(ctx, roleValid)
