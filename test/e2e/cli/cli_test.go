@@ -80,6 +80,33 @@ var _ = Describe("cli operation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("200 OK"))
 		})
+
+		It("preserves recurring and one-time schedules through generic apply and get", Label("sanity", "client"), func() {
+			harness := e2e.GetWorkerHarness()
+			fleetName := "schedule-roundtrip-" + harness.GetTestIDFromContext()
+			fleet := fleetWithScheduleRoundTrip(fleetName, harness)
+
+			fleetYAML, err := yaml.Marshal(&fleet)
+			Expect(err).NotTo(HaveOccurred())
+
+			out, err := harness.CLIWithStdin(string(fleetYAML), applyOperation, "-f", "-")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("201 Created"))
+
+			out, err = harness.CLI("get", "fleet/"+fleetName, "-o", "yaml")
+			Expect(err).NotTo(HaveOccurred())
+
+			var retrievedFleet v1beta1.Fleet
+			Expect(yaml.Unmarshal([]byte(out), &retrievedFleet)).To(Succeed())
+			Expect(retrievedFleet.Metadata.Name).NotTo(BeNil())
+			Expect(*retrievedFleet.Metadata.Name).To(Equal(fleetName))
+
+			actualPolicyJSON, err := json.Marshal(retrievedFleet.Spec.Template.Spec.UpdatePolicy)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPolicyJSON, err := json.Marshal(fleet.Spec.Template.Spec.UpdatePolicy)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(actualPolicyJSON).To(MatchJSON(expectedPolicyJSON))
+		})
 	})
 
 	Context("certificate generation per user", func() {
@@ -1526,6 +1553,49 @@ spec:
         matchLabels:
             fleet: label-for-standalone-fleet-test
 `
+
+func fleetWithScheduleRoundTrip(name string, harness *e2e.Harness) v1beta1.Fleet {
+	selectorLabels := map[string]string{"fleet": "schedule-roundtrip"}
+	downloadAt := v1beta1.CronExpression("0 3 * * 1")
+	downloadDuration := v1beta1.Duration("1h")
+	downloadTimeZone := v1beta1.TimeZone("Asia/Jerusalem")
+	updateTimeZone := v1beta1.TimeZone("UTC")
+
+	fleet := v1beta1.Fleet{
+		ApiVersion: v1beta1.FleetAPIVersion,
+		Kind:       v1beta1.FleetKind,
+		Metadata: v1beta1.ObjectMeta{
+			Name: &name,
+		},
+		Spec: v1beta1.FleetSpec{
+			Selector: &v1beta1.LabelSelector{MatchLabels: &selectorLabels},
+		},
+	}
+	fleet.Spec.Template.Spec.Os = &v1beta1.DeviceOsSpec{Image: "quay.io/redhat/rhde:9.2"}
+	fleet.Spec.Template.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
+		DownloadSchedule: &v1beta1.UpdateSchedule{
+			At:                 &downloadAt,
+			StartGraceDuration: &downloadDuration,
+			TimeZone:           &downloadTimeZone,
+			OneTimeWindows: &[]v1beta1.OneTimeWindow{{
+				Date:               "2026-12-01",
+				At:                 "22:00",
+				StartGraceDuration: "90m",
+			}},
+		},
+		UpdateSchedule: &v1beta1.UpdateSchedule{
+			TimeZone: &updateTimeZone,
+			OneTimeWindows: &[]v1beta1.OneTimeWindow{{
+				Date:               "2000-01-01",
+				At:                 "00:00",
+				StartGraceDuration: "2h",
+			}},
+		},
+	}
+	harness.SetLabelsForFleetMetadata(&fleet.Metadata, nil)
+
+	return fleet
+}
 
 var (
 	newTestKey = "testKey"
