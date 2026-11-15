@@ -25,6 +25,12 @@ import (
 // nothing to write.
 var ErrMutateSkipWrite = errors.New("mutate skip write")
 
+// MutationResult identifies a resource written by a bulk mutation.
+type MutationResult struct {
+	Name            string `gorm:"column:name"`
+	ResourceVersion int64  `gorm:"column:resource_version"`
+}
+
 const retryIterations = 10
 
 // ResourceMutation is the unit GenericStore.Mutate applies and persists.

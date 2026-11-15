@@ -89,10 +89,15 @@ flightctl get devices --field-selector 'status.capabilities.osMode=package'
 
 #### Example 5: Filter by enrollment credential provenance
 
-These commands retrieve devices admitted by a specific credential and devices whose admitting credential has been revoked:
+The following command retrieves devices admitted by a specific enrollment credential:
 
 ```bash
 flightctl get devices --field-selector 'status.enrollmentCredential.certificateName=factory-credential'
+```
+
+The following command retrieves devices whose admitting enrollment credential has been revoked:
+
+```bash
 flightctl get devices --field-selector 'status.enrollmentCredential.revoked=true'
 ```
 

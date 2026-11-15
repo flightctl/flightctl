@@ -714,7 +714,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*devices.Items[0].Metadata.Name).To(Equal("delta-eligible"))
 		})
 
-		It("List with indexed enrollment credential field filters", func() {
+		It("When filtering by enrollment credential fields it should return the expected devices", func() {
 			createProjectedDevice := func(name, certificateName string, revoked bool) {
 				status := api.NewDeviceStatus()
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
@@ -765,7 +765,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 		})
 
-		It("Revokes enrollment credentials for all matching devices in one update", func() {
+		It("When revoking an enrollment credential it should flag all matching devices in one update", func() {
 			createDevice := func(name, credentialName string, revoked bool, conditions []api.Condition) {
 				status := api.NewDeviceStatus()
 				status.Conditions = conditions
@@ -790,9 +790,10 @@ var _ = Describe("DeviceStore create", func() {
 			createDevice("credential-a-two", "credential-a", false, nil)
 			createDevice("credential-b-one", "credential-b", false, nil)
 
-			count, err := devStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-a")
+			results, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(int64(2)))
+			Expect(results).To(HaveLen(2))
+			Expect(lo.Map(results, func(result store.MutationResult, _ int) string { return result.Name })).To(ConsistOf("credential-a-one", "credential-a-two"))
 
 			for _, name := range []string{"credential-a-one", "credential-a-two"} {
 				device, err := devStore.Get(ctx, orgId, name)
@@ -814,9 +815,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(lo.FromPtr(deviceB.Status.EnrollmentCredential.Revoked)).To(BeFalse())
 			Expect(api.FindStatusCondition(deviceB.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
 
-			count, err = devStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-a")
+			results, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(BeZero())
+			Expect(results).To(BeEmpty())
 		})
 
 		It("List with owner selector", func() {

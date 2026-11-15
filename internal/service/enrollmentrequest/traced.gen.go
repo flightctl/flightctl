@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -68,12 +69,12 @@ func (_d *TracedService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 	return s1
 }
 
-func (_d *TracedService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (i1 int64, s1 domain.Status) {
+func (_d *TracedService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (ma1 []store.MutationResult, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "DenyEnrollmentRequestsForRevokedCredential")
 
-	i1, s1 = _d.inner.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	ma1, s1 = _d.inner.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
 	endSpan(span, s1)
-	return i1, s1
+	return ma1, s1
 }
 
 func (_d *TracedService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (ep1 *domain.EnrollmentRequest, s1 domain.Status) {

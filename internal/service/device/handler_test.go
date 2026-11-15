@@ -1130,79 +1130,99 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 	})
 }
 
-func TestRevokeDevicesForEnrollmentCredential(t *testing.T) {
-	t.Run("When a credential is revoked it should flag every matching device in one update", func(t *testing.T) {
-		st, _, svc := newTestHandler()
-		ctx := context.Background()
-		orgId := uuid.New()
-		createDevice := func(name, credentialName string, revoked bool, conditions []domain.Condition) {
-			_, err := st.device.Create(ctx, orgId, &domain.Device{
-				Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-				Status: &domain.DeviceStatus{
-					Conditions: conditions,
-					EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
-						CertificateName: lo.ToPtr(credentialName),
-						Revoked:         lo.ToPtr(revoked),
-					},
-				},
-			}, nil)
-			require.NoError(t, err)
-		}
-		priorTransition := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		createDevice("device-1", "credential-1", false, nil)
-		createDevice("device-2", "credential-1", false, nil)
-		createDevice("already-revoked", "credential-1", true, []domain.Condition{{
-			Type:               domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
-			Status:             domain.ConditionStatusTrue,
-			Reason:             domain.EnrollmentCredentialRevokedReason,
-			Message:            "prior",
-			LastTransitionTime: priorTransition,
-		}})
-		createDevice("other-device", "credential-2", false, nil)
+func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+	priorTransition := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
-		count, status := svc.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-1")
+	tests := []struct {
+		name   string
+		setup  func(*testing.T, *fakeDeviceStore)
+		assert func(*testing.T, *fakeDeviceStore, []store.MutationResult, domain.Status)
+	}{
+		{
+			name: "When a credential is revoked it should flag every matching device in one update",
+			setup: func(t *testing.T, deviceStore *fakeDeviceStore) {
+				createDevice := func(name, credentialName string, revoked bool, conditions []domain.Condition) {
+					_, err := deviceStore.Create(ctx, orgId, &domain.Device{
+						Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+						Status: &domain.DeviceStatus{
+							Conditions: conditions,
+							EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
+								CertificateName: lo.ToPtr(credentialName),
+								Revoked:         lo.ToPtr(revoked),
+							},
+						},
+					}, nil)
+					require.NoError(t, err)
+				}
+				createDevice("device-1", "credential-1", false, nil)
+				createDevice("device-2", "credential-1", false, nil)
+				createDevice("already-revoked", "credential-1", true, []domain.Condition{{
+					Type:               domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+					Status:             domain.ConditionStatusTrue,
+					Reason:             domain.EnrollmentCredentialRevokedReason,
+					Message:            "prior",
+					LastTransitionTime: priorTransition,
+				}})
+				createDevice("other-device", "credential-2", false, nil)
+			},
+			assert: func(t *testing.T, deviceStore *fakeDeviceStore, results []store.MutationResult, status domain.Status) {
+				require.Equal(t, int32(http.StatusOK), status.Code)
+				require.Len(t, results, 2)
+				require.ElementsMatch(t, []string{"device-1", "device-2"}, lo.Map(results, func(result store.MutationResult, _ int) string {
+					return result.Name
+				}))
 
-		require.Equal(t, int32(http.StatusOK), status.Code)
-		require.Equal(t, int64(2), count)
+				for _, name := range []string{"device-1", "device-2"} {
+					stored := deviceStore.devices[name]
+					require.True(t, lo.FromPtr(stored.Status.EnrollmentCredential.Revoked))
+					condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+					require.NotNil(t, condition)
+					require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+					require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+				}
 
-		for _, name := range []string{"device-1", "device-2"} {
-			stored := st.device.devices[name]
-			require.True(t, lo.FromPtr(stored.Status.EnrollmentCredential.Revoked))
-			condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
-			require.NotNil(t, condition)
-			require.Equal(t, domain.ConditionStatusTrue, condition.Status)
-			require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
-		}
+				alreadyRevoked := deviceStore.devices["already-revoked"]
+				condition := domain.FindStatusCondition(alreadyRevoked.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+				require.NotNil(t, condition)
+				require.Equal(t, priorTransition, condition.LastTransitionTime)
+				require.Equal(t, "prior", condition.Message)
 
-		alreadyRevoked := st.device.devices["already-revoked"]
-		condition := domain.FindStatusCondition(alreadyRevoked.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
-		require.NotNil(t, condition)
-		require.Equal(t, priorTransition, condition.LastTransitionTime)
-		require.Equal(t, "prior", condition.Message)
+				other := deviceStore.devices["other-device"]
+				require.False(t, lo.FromPtr(other.Status.EnrollmentCredential.Revoked))
+				require.Nil(t, domain.FindStatusCondition(other.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked))
+			},
+		},
+		{
+			name: "When no device references the credential it should return zero",
+			setup: func(t *testing.T, deviceStore *fakeDeviceStore) {
+				_, err := deviceStore.Create(ctx, orgId, &domain.Device{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
+					Status: &domain.DeviceStatus{EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
+						CertificateName: lo.ToPtr("other-credential"),
+						Revoked:         lo.ToPtr(false),
+					}},
+				}, nil)
+				require.NoError(t, err)
+			},
+			assert: func(t *testing.T, _ *fakeDeviceStore, results []store.MutationResult, status domain.Status) {
+				require.Equal(t, int32(http.StatusOK), status.Code)
+				require.Empty(t, results)
+			},
+		},
+	}
 
-		other := st.device.devices["other-device"]
-		require.False(t, lo.FromPtr(other.Status.EnrollmentCredential.Revoked))
-		require.Nil(t, domain.FindStatusCondition(other.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			tt.setup(t, st.device)
 
-	t.Run("When no device references the credential it should return zero", func(t *testing.T) {
-		st, _, svc := newTestHandler()
-		ctx := context.Background()
-		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
-			Status: &domain.DeviceStatus{EnrollmentCredential: &domain.DeviceEnrollmentCredentialStatus{
-				CertificateName: lo.ToPtr("other-credential"),
-				Revoked:         lo.ToPtr(false),
-			}},
-		}, nil)
-		require.NoError(t, err)
+			results, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-1")
 
-		count, status := svc.RevokeDevicesForEnrollmentCredential(ctx, orgId, "credential-1")
-
-		require.Equal(t, int32(http.StatusOK), status.Code)
-		require.Zero(t, count)
-	})
+			tt.assert(t, st.device, results, status)
+		})
+	}
 }
 
 func TestReplaceDeviceStatusPreservesEnrollmentCredentialStatus(t *testing.T) {

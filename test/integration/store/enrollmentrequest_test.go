@@ -288,7 +288,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Status.Conditions[0].Type).To(Equal(api.ConditionTypeEnrollmentRequestApproved))
 		})
 
-		It("Denies pending enrollment requests for a revoked credential in one update", func() {
+		It("When a credential is revoked it should deny pending enrollment requests in one update", func() {
 			createRequest := func(name, credentialName string, conditions []api.Condition, approval *api.EnrollmentRequestApprovalStatus) {
 				request := api.EnrollmentRequest{
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
@@ -322,9 +322,10 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			}}, nil)
 			createRequest("pending-b", "credential-b", nil, nil)
 
-			count, err := enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			results, err := enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(int64(1)))
+			Expect(results).To(HaveLen(1))
+			Expect(lo.Map(results, func(result store.MutationResult, _ int) string { return result.Name })).To(ConsistOf("pending-a"))
 
 			pending, err := enrollmentRequestStore.Get(ctx, orgId, "pending-a")
 			Expect(err).ToNot(HaveOccurred())
@@ -349,9 +350,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(api.FindStatusCondition(other.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)).To(BeNil())
 
-			count, err = enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			results, err = enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(BeZero())
+			Expect(results).To(BeEmpty())
 		})
 	})
 })

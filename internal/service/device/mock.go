@@ -133,6 +133,21 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
+// FlagDevicesForRevokedEnrollmentCredential mocks base method.
+func (m *MockService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FlagDevicesForRevokedEnrollmentCredential", ctx, orgId, credentialName)
+	ret0, _ := ret[0].([]store.MutationResult)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// FlagDevicesForRevokedEnrollmentCredential indicates an expected call of FlagDevicesForRevokedEnrollmentCredential.
+func (mr *MockServiceMockRecorder) FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlagDevicesForRevokedEnrollmentCredential", reflect.TypeOf((*MockService)(nil).FlagDevicesForRevokedEnrollmentCredential), ctx, orgId, credentialName)
+}
+
 // ForceUpdateServerSideDeviceStatus mocks base method.
 func (m *MockService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
 	m.ctrl.T.Helper()
@@ -492,21 +507,6 @@ func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, reques
 func (mr *MockServiceMockRecorder) ResumeDevices(ctx, orgId, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeDevices", reflect.TypeOf((*MockService)(nil).ResumeDevices), ctx, orgId, request)
-}
-
-// RevokeDevicesForEnrollmentCredential mocks base method.
-func (m *MockService) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RevokeDevicesForEnrollmentCredential", ctx, orgId, credentialName)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// RevokeDevicesForEnrollmentCredential indicates an expected call of RevokeDevicesForEnrollmentCredential.
-func (mr *MockServiceMockRecorder) RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeDevicesForEnrollmentCredential", reflect.TypeOf((*MockService)(nil).RevokeDevicesForEnrollmentCredential), ctx, orgId, credentialName)
 }
 
 // SetDeviceOwner mocks base method.

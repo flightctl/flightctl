@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -195,8 +196,7 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 
 func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) (*domain.DeviceEnrollmentCredentialStatus, error) {
 	if enrollmentRequest.Status == nil ||
-		enrollmentRequest.Status.EnrollmentCertificateName == nil ||
-		h.csrService == nil {
+		enrollmentRequest.Status.EnrollmentCertificateName == nil {
 		return nil, nil
 	}
 	name := *enrollmentRequest.Status.EnrollmentCertificateName
@@ -225,7 +225,7 @@ func setDeviceEnrollmentCredentialStatus(deviceStatus *domain.DeviceStatus, cred
 		Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
 		Status:  domain.ConditionStatusTrue,
 		Reason:  domain.EnrollmentCredentialRevokedReason,
-		Message: "The enrollment credential that admitted this device was revoked",
+		Message: domain.EnrollmentCredentialRevokedMessage,
 	})
 }
 
@@ -657,12 +657,12 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
-	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status) {
+	results, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
 	if err != nil {
-		return 0, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
+		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
 	}
-	return count, domain.StatusOK()
+	return results, domain.StatusOK()
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

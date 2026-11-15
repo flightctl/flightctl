@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"fmt"
+
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
@@ -291,6 +293,10 @@ const (
 	EnrollmentCredentialRevokedReason  = v1beta1.EnrollmentCredentialRevokedReason
 	EnrollmentCredentialRevokedMessage = "The enrollment credential that admitted this device was revoked"
 )
+
+func EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName string) string {
+	return fmt.Sprintf("Enrollment credential %q was revoked; enrollment request rejected", credentialName)
+}
 
 // ========== Template Functions ==========
 

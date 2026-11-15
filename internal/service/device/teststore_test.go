@@ -267,8 +267,8 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 	return &domain.DeviceList{}, nil
 }
 
-func (s *fakeDeviceStore) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
-	var count int64
+func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error) {
+	var results []store.MutationResult
 	for name, stored := range s.devices {
 		if stored.Status == nil || stored.Status.EnrollmentCredential == nil || lo.FromPtr(stored.Status.EnrollmentCredential.CertificateName) != credentialName {
 			continue
@@ -287,9 +287,9 @@ func (s *fakeDeviceStore) RevokeDevicesForEnrollmentCredential(ctx context.Conte
 			Message: domain.EnrollmentCredentialRevokedMessage,
 		})
 		s.devices[name] = device
-		count++
+		results = append(results, store.MutationResult{Name: name})
 	}
-	return count, nil
+	return results, nil
 }
 
 func (s *fakeDeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {

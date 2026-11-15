@@ -163,8 +163,8 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	return true, nil
 }
 
-func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
-	var count int64
+func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error) {
+	var results []store.MutationResult
 	for name, request := range f.items {
 		if request.Status == nil || lo.FromPtr(request.Status.EnrollmentCertificateName) != credentialName {
 			continue
@@ -179,12 +179,12 @@ func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(
 			Type:    domain.ConditionTypeEnrollmentRequestDenied,
 			Status:  domain.ConditionStatusTrue,
 			Reason:  domain.EnrollmentCredentialRevokedReason,
-			Message: "Enrollment credential " + credentialName + " was revoked; enrollment request rejected",
+			Message: domain.EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName),
 		})
 		f.items[name] = &updated
-		count++
+		results = append(results, store.MutationResult{Name: name})
 	}
-	return count, nil
+	return results, nil
 }
 
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
@@ -865,10 +865,11 @@ func TestDenyEnrollmentRequestsForRevokedCredential(t *testing.T) {
 		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("credential-2")},
 	}
 
-	count, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName)
+	results, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName)
 
 	require.Equal(t, statusSuccessCode, status.Code)
-	require.Equal(t, int64(1), count)
+	require.Len(t, results, 1)
+	require.Equal(t, "pending", results[0].Name)
 	condition := domain.FindStatusCondition(store.items["pending"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
 	require.NotNil(t, condition)
 	require.Equal(t, domain.ConditionStatusTrue, condition.Status)

@@ -95,6 +95,14 @@ func (_d *TracedDeviceService) DeleteDevice(ctx context.Context, orgId uuid.UUID
 	return s1
 }
 
+func (_d *TracedDeviceService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (ma1 []store.MutationResult, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "FlagDevicesForRevokedEnrollmentCredential")
+
+	ma1, s1 = _d.inner.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
+	endSpan(span, s1)
+	return ma1, s1
+}
+
 func (_d *TracedDeviceService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (err error) {
 	ctx, span := startSpan(ctx, "ForceUpdateServerSideDeviceStatus")
 
@@ -293,14 +301,6 @@ func (_d *TracedDeviceService) ResumeDevices(ctx context.Context, orgId uuid.UUI
 	d1, s1 = _d.inner.ResumeDevices(ctx, orgId, request)
 	endSpan(span, s1)
 	return d1, s1
-}
-
-func (_d *TracedDeviceService) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (i1 int64, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "RevokeDevicesForEnrollmentCredential")
-
-	i1, s1 = _d.inner.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
-	endSpan(span, s1)
-	return i1, s1
 }
 
 func (_d *TracedDeviceService) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, newOwner *string) (dp1 *domain.Device, s1 domain.Status) {

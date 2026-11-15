@@ -23,15 +23,6 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 	if credentialName == "" {
 		return fmt.Errorf("enrollment credential revocation event is missing the credential name")
 	}
-	if enrollmentRequestSvc == nil {
-		return fmt.Errorf("enrollment request service is not configured")
-	}
-	if deviceSvc == nil {
-		return fmt.Errorf("device service is not configured")
-	}
-	if csrSvc == nil {
-		return fmt.Errorf("certificate signing request service is not configured")
-	}
 
 	if err := rejectPendingEnrollmentRequests(ctx, orgId, credentialName, enrollmentRequestSvc, log); err != nil {
 		return fmt.Errorf("reject pending enrollment requests for credential %q: %w", credentialName, err)
@@ -46,19 +37,19 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 }
 
 func rejectPendingEnrollmentRequests(ctx context.Context, orgId uuid.UUID, credentialName string, svc enrollmentrequestservice.Service, log logrus.FieldLogger) error {
-	count, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	results, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("deny enrollment requests: %s", status.Message)
 	}
-	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", count, credentialName)
+	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", len(results), credentialName)
 	return nil
 }
 
 func flagDevicesForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service, log logrus.FieldLogger) error {
-	count, status := svc.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
+	results, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("flag devices: %s", status.Message)
 	}
-	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", count, credentialName)
+	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", len(results), credentialName)
 	return nil
 }

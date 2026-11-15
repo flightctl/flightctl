@@ -1048,12 +1048,12 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	return domain.StatusOK()
 }
 
-func (h *DeviceServiceHandler) RevokeDevicesForEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
-	count, err := h.deviceStore.RevokeDevicesForEnrollmentCredential(ctx, orgId, credentialName)
+func (h *DeviceServiceHandler) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status) {
+	results, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
 	if err != nil {
-		return 0, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &credentialName)
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &credentialName)
 	}
-	return count, domain.StatusOK()
+	return results, domain.StatusOK()
 }
 
 // enrollmentHooksConditionChanged reports whether the EnrollmentHooks condition

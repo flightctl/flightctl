@@ -17,76 +17,96 @@ func TestMarkEnrollmentCredentialFlaggingCompleted(t *testing.T) {
 	nowFunc = func() time.Time { return completedAt }
 	t.Cleanup(func() { nowFunc = originalNow })
 
-	t.Run("When a revoked credential has no completion time it should record it", func(t *testing.T) {
-		h, store, _, _, _ := newTestHandler(t)
-		orgId := uuid.New()
-		name := "revoked-credential"
-		store.items[name] = &domain.CertificateSigningRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-			Status: &domain.CertificateSigningRequestStatus{
-				Revocation: &domain.EnrollmentCertificateRevocation{Reason: "Compromised"},
+	existingCompletion := completedAt.Add(-time.Hour)
+	tests := []struct {
+		name           string
+		credentialName string
+		setup          func(*fakeCertificateSigningRequestStore)
+		wantCode       int32
+		assert         func(*testing.T, *domain.CertificateSigningRequest)
+	}{
+		{
+			name:           "When a revoked credential has no completion time it should record it",
+			credentialName: "revoked-credential",
+			setup: func(csrStore *fakeCertificateSigningRequestStore) {
+				csrStore.items["revoked-credential"] = &domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("revoked-credential")},
+					Status: &domain.CertificateSigningRequestStatus{
+						Revocation: &domain.EnrollmentCertificateRevocation{Reason: "Compromised"},
+					},
+				}
 			},
-		}
-
-		result, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), orgId, name)
-
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.NotNil(t, result)
-		require.NotNil(t, result.Status.Revocation.FlaggingCompletedAt)
-		require.Equal(t, completedAt, *result.Status.Revocation.FlaggingCompletedAt)
-	})
-
-	t.Run("When completion is already recorded it should preserve the original time", func(t *testing.T) {
-		h, store, _, _, _ := newTestHandler(t)
-		orgId := uuid.New()
-		name := "already-completed"
-		existing := completedAt.Add(-time.Hour)
-		store.items[name] = &domain.CertificateSigningRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-			Status: &domain.CertificateSigningRequestStatus{
-				Revocation: &domain.EnrollmentCertificateRevocation{
-					Reason:              "Compromised",
-					FlaggingCompletedAt: &existing,
-				},
+			wantCode: statusSuccessCode,
+			assert: func(t *testing.T, result *domain.CertificateSigningRequest) {
+				require.NotNil(t, result)
+				require.NotNil(t, result.Status.Revocation.FlaggingCompletedAt)
+				require.Equal(t, completedAt, *result.Status.Revocation.FlaggingCompletedAt)
 			},
-		}
+		},
+		{
+			name:           "When completion is already recorded it should preserve the original time",
+			credentialName: "already-completed",
+			setup: func(csrStore *fakeCertificateSigningRequestStore) {
+				csrStore.items["already-completed"] = &domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("already-completed")},
+					Status: &domain.CertificateSigningRequestStatus{
+						Revocation: &domain.EnrollmentCertificateRevocation{
+							Reason:              "Compromised",
+							FlaggingCompletedAt: &existingCompletion,
+						},
+					},
+				}
+			},
+			wantCode: statusSuccessCode,
+			assert: func(t *testing.T, result *domain.CertificateSigningRequest) {
+				require.NotNil(t, result)
+				require.Equal(t, existingCompletion, *result.Status.Revocation.FlaggingCompletedAt)
+			},
+		},
+		{
+			name:           "When the credential is not revoked it should not record completion",
+			credentialName: "unrevoked-credential",
+			setup: func(csrStore *fakeCertificateSigningRequestStore) {
+				csrStore.items["unrevoked-credential"] = &domain.CertificateSigningRequest{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("unrevoked-credential")},
+					Status:   &domain.CertificateSigningRequestStatus{},
+				}
+			},
+			wantCode: statusSuccessCode,
+			assert: func(t *testing.T, result *domain.CertificateSigningRequest) {
+				require.NotNil(t, result)
+				require.Nil(t, result.Status.Revocation)
+			},
+		},
+		{
+			name:           "When the credential is missing it should return not found",
+			credentialName: "missing",
+			wantCode:       statusNotFoundCode,
+			assert: func(t *testing.T, result *domain.CertificateSigningRequest) {
+				require.Nil(t, result)
+			},
+		},
+		{
+			name:           "When the name is empty it should return bad request",
+			credentialName: "",
+			wantCode:       statusBadRequestCode,
+			assert: func(t *testing.T, result *domain.CertificateSigningRequest) {
+				require.Nil(t, result)
+			},
+		},
+	}
 
-		result, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), orgId, name)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, csrStore, _, _, _ := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(csrStore)
+			}
 
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.NotNil(t, result)
-		require.Equal(t, existing, *result.Status.Revocation.FlaggingCompletedAt)
-	})
+			result, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), uuid.New(), tt.credentialName)
 
-	t.Run("When the credential is not revoked it should not record completion", func(t *testing.T) {
-		h, store, _, _, _ := newTestHandler(t)
-		orgId := uuid.New()
-		name := "unrevoked-credential"
-		store.items[name] = &domain.CertificateSigningRequest{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-			Status:   &domain.CertificateSigningRequestStatus{},
-		}
-
-		result, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), orgId, name)
-
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.NotNil(t, result)
-		require.Nil(t, result.Status.Revocation)
-	})
-
-	t.Run("When the credential is missing it should return not found", func(t *testing.T) {
-		h, _, _, _, _ := newTestHandler(t)
-
-		_, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), uuid.New(), "missing")
-
-		require.Equal(t, statusNotFoundCode, status.Code)
-	})
-
-	t.Run("When the name is empty it should return bad request", func(t *testing.T) {
-		h, _, _, _, _ := newTestHandler(t)
-
-		_, status := h.MarkEnrollmentCredentialFlaggingCompleted(context.Background(), uuid.New(), "")
-
-		require.Equal(t, statusBadRequestCode, status.Code)
-	})
+			require.Equal(t, tt.wantCode, status.Code)
+			tt.assert(t, result)
+		})
+	}
 }
