@@ -322,10 +322,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			}}, nil)
 			createRequest("pending-b", "credential-b", nil, nil)
 
-			results, err := enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			count, err := enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(results).To(HaveLen(1))
-			Expect(lo.Map(results, func(result store.MutationResult, _ int) string { return result.Name })).To(ConsistOf("pending-a"))
+			Expect(count).To(Equal(int64(1)))
 
 			pending, err := enrollmentRequestStore.Get(ctx, orgId, "pending-a")
 			Expect(err).ToNot(HaveOccurred())
@@ -350,9 +349,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(api.FindStatusCondition(other.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)).To(BeNil())
 
-			results, err = enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
+			count, err = enrollmentRequestStore.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(results).To(BeEmpty())
+			Expect(count).To(BeZero())
 		})
 	})
 })

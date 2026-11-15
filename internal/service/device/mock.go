@@ -134,10 +134,10 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 }
 
 // FlagDevicesForRevokedEnrollmentCredential mocks base method.
-func (m *MockService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status) {
+func (m *MockService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FlagDevicesForRevokedEnrollmentCredential", ctx, orgId, credentialName)
-	ret0, _ := ret[0].([]store.MutationResult)
+	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }

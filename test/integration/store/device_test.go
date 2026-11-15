@@ -799,10 +799,9 @@ var _ = Describe("DeviceStore create", func() {
 			createDevice("credential-a-two", "credential-a", false, nil)
 			createDevice("credential-b-one", "credential-b", false, nil)
 
-			results, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
+			count, err := devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(results).To(HaveLen(2))
-			Expect(lo.Map(results, func(result store.MutationResult, _ int) string { return result.Name })).To(ConsistOf("credential-a-one", "credential-a-two"))
+			Expect(count).To(Equal(int64(2)))
 
 			for _, name := range []string{"credential-a-one", "credential-a-two"} {
 				device, err := devStore.Get(ctx, orgId, name)
@@ -824,9 +823,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(lo.FromPtr(deviceB.Status.EnrollmentCredential.Revoked)).To(BeFalse())
 			Expect(api.FindStatusCondition(deviceB.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
 
-			results, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
+			count, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(results).To(BeEmpty())
+			Expect(count).To(BeZero())
 		})
 
 		It("List with owner selector", func() {

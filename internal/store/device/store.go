@@ -111,7 +111,7 @@ type Store interface {
 	// FlagDevicesForRevokedEnrollmentCredential flags every device whose
 	// enrollmentCredential projection references credentialName. The update is
 	// a single statement and is idempotent.
-	FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error)
+	FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error)
 
 	// Used by catalog
 	ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
@@ -377,12 +377,11 @@ func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uu
 // enrollmentCredential projection references credentialName. Conditions are
 // merged in place so unrelated service conditions survive, and already-flagged
 // devices are skipped to preserve the original transition time.
-func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error) {
+func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
 	if credentialName == "" {
-		return nil, nil
+		return 0, nil
 	}
-	var results []store.MutationResult
-	result := s.getDB(ctx).Raw(`
+	result := s.getDB(ctx).Exec(`
 		UPDATE devices
 		SET service_conditions = jsonb_set(
 				jsonb_set(
@@ -425,7 +424,6 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 				    AND condition_json->>'status' = CAST(@condition_status AS text)
 			  )
 		  )
-		RETURNING name, resource_version
 	`, map[string]interface{}{
 		"org_id":            orgId,
 		"credential_name":   credentialName,
@@ -433,11 +431,11 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 		"condition_status":  string(domain.ConditionStatusTrue),
 		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
 		"condition_message": domain.EnrollmentCredentialRevokedMessage,
-	}).Scan(&results)
+	})
 	if result.Error != nil {
-		return nil, store.ErrorFromGormError(result.Error)
+		return 0, store.ErrorFromGormError(result.Error)
 	}
-	return results, nil
+	return result.RowsAffected, nil
 }
 
 func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store.EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *domain.Device, created bool, err error) {

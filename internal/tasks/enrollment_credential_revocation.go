@@ -37,19 +37,19 @@ func processEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID,
 }
 
 func rejectPendingEnrollmentRequests(ctx context.Context, orgId uuid.UUID, credentialName string, svc enrollmentrequestservice.Service, log logrus.FieldLogger) error {
-	results, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
+	count, status := svc.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("deny enrollment requests: %s", status.Message)
 	}
-	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", len(results), credentialName)
+	log.Infof("Denied %d pending enrollment request(s) for revoked enrollment credential %q", count, credentialName)
 	return nil
 }
 
 func flagDevicesForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, svc deviceservice.Service, log logrus.FieldLogger) error {
-	results, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
+	count, status := svc.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("flag devices: %s", status.Message)
 	}
-	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", len(results), credentialName)
+	log.Infof("Flagged %d device(s) for revoked enrollment credential %q", count, credentialName)
 	return nil
 }

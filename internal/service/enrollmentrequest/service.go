@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -18,5 +17,5 @@ type Service interface {
 	GetEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status)
 	ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status)
 	ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status)
-	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status)
+	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status)
 }

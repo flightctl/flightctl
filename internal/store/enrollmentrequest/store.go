@@ -27,7 +27,7 @@ type Store interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	// DenyEnrollmentRequestsForRevokedCredential denies every pending
 	// Enrollment Request bound to credentialName in one statement.
-	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error)
+	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -221,12 +221,11 @@ func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid
 // DenyEnrollmentRequestsForRevokedCredential denies every pending Enrollment
 // Request bound to credentialName. Approved and already-denied requests are
 // left unchanged, and the denial condition is merged in place.
-func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, error) {
+func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, error) {
 	if credentialName == "" {
-		return nil, nil
+		return 0, nil
 	}
-	var results []store.MutationResult
-	result := s.getDB(ctx).Raw(`
+	result := s.getDB(ctx).Exec(`
 		UPDATE enrollment_requests
 		SET status = jsonb_set(
 				COALESCE(status, '{}'::jsonb),
@@ -262,7 +261,6 @@ func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx 
 			  WHERE condition_json->>'type' = CAST(@denied_type AS text)
 			    AND condition_json->>'status' = CAST(@condition_status AS text)
 		  )
-		RETURNING name, resource_version
 	`, map[string]interface{}{
 		"org_id":            orgId,
 		"credential_name":   credentialName,
@@ -272,9 +270,9 @@ func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx 
 		"condition_status":  string(domain.ConditionStatusTrue),
 		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
 		"condition_message": domain.EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName),
-	}).Scan(&results)
+	})
 	if result.Error != nil {
-		return nil, store.ErrorFromGormError(result.Error)
+		return 0, store.ErrorFromGormError(result.Error)
 	}
-	return results, nil
+	return result.RowsAffected, nil
 }

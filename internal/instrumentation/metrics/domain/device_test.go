@@ -61,8 +61,8 @@ func (m *MockDevice) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, st
 	return false, nil
 }
 
-func (m *MockDevice) FlagDevicesForRevokedEnrollmentCredential(context.Context, uuid.UUID, string) ([]store.MutationResult, error) {
-	return nil, nil
+func (m *MockDevice) FlagDevicesForRevokedEnrollmentCredential(context.Context, uuid.UUID, string) (int64, error) {
+	return 0, nil
 }
 
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {

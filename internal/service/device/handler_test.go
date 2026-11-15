@@ -1138,7 +1138,7 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 	tests := []struct {
 		name   string
 		setup  func(*testing.T, *fakeDeviceStore)
-		assert func(*testing.T, *fakeDeviceStore, []store.MutationResult, domain.Status)
+		assert func(*testing.T, *fakeDeviceStore, int64, domain.Status)
 	}{
 		{
 			name: "When a credential is revoked it should flag every matching device in one update",
@@ -1167,12 +1167,9 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 				}})
 				createDevice("other-device", "credential-2", false, nil)
 			},
-			assert: func(t *testing.T, deviceStore *fakeDeviceStore, results []store.MutationResult, status domain.Status) {
+			assert: func(t *testing.T, deviceStore *fakeDeviceStore, count int64, status domain.Status) {
 				require.Equal(t, int32(http.StatusOK), status.Code)
-				require.Len(t, results, 2)
-				require.ElementsMatch(t, []string{"device-1", "device-2"}, lo.Map(results, func(result store.MutationResult, _ int) string {
-					return result.Name
-				}))
+				require.Equal(t, int64(2), count)
 
 				for _, name := range []string{"device-1", "device-2"} {
 					stored := deviceStore.devices[name]
@@ -1206,9 +1203,9 @@ func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {
 				require.NoError(t, err)
 				deviceStore.setEnrollmentCredential("device-1", "other-credential")
 			},
-			assert: func(t *testing.T, _ *fakeDeviceStore, results []store.MutationResult, status domain.Status) {
+			assert: func(t *testing.T, _ *fakeDeviceStore, count int64, status domain.Status) {
 				require.Equal(t, int32(http.StatusOK), status.Code)
-				require.Empty(t, results)
+				require.Zero(t, count)
 			},
 		},
 	}

@@ -9,7 +9,6 @@ import (
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -61,8 +60,8 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockDevice := deviceservice.NewMockService(ctrl)
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 
-		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).Return([]store.MutationResult{{Name: "er-1"}, {Name: "er-2"}, {Name: "er-3"}}, domain.StatusOK())
-		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName).Return([]store.MutationResult{{Name: "device-1"}, {Name: "device-2"}}, domain.StatusOK())
+		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).Return(int64(3), domain.StatusOK())
+		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName).Return(int64(2), domain.StatusOK())
 		mockCSR.EXPECT().MarkEnrollmentCredentialFlaggingCompleted(gomock.Any(), orgId, credentialName).Return(&domain.CertificateSigningRequest{}, domain.StatusOK())
 
 		err := processEnrollmentCredentialRevocation(ctx, orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, credentialName), mockDevice, mockER, mockCSR, logrus.New())
@@ -78,7 +77,7 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
-		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1").Return(nil, domain.StatusInternalServerError("boom"))
+		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1").Return(int64(0), domain.StatusInternalServerError("boom"))
 
 		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, "credential-1"), mockDevice, mockER, mockCSR, logrus.New())
 		require.Error(t, err)
@@ -93,8 +92,8 @@ func TestProcessEnrollmentCredentialRevocation(t *testing.T) {
 		mockCSR := certificatesigningrequestservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
-		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1").Return(nil, domain.StatusOK())
-		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, "credential-1").Return(nil, domain.StatusInternalServerError("boom"))
+		mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, "credential-1").Return(int64(0), domain.StatusOK())
+		mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, "credential-1").Return(int64(0), domain.StatusInternalServerError("boom"))
 
 		err := processEnrollmentCredentialRevocation(context.Background(), orgId, createTestEvent(domain.CertificateSigningRequestKind, domain.EventReasonEnrollmentCredentialRevoked, "credential-1"), mockDevice, mockER, mockCSR, logrus.New())
 		require.Error(t, err)
@@ -127,8 +126,8 @@ func TestDispatchTasks_EnrollmentCredentialRevocation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).Return(nil)
-	mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).Return(nil, domain.StatusOK())
-	mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName).Return(nil, domain.StatusOK())
+	mockER.EXPECT().DenyEnrollmentRequestsForRevokedCredential(gomock.Any(), orgId, credentialName).Return(int64(0), domain.StatusOK())
+	mockDevice.EXPECT().FlagDevicesForRevokedEnrollmentCredential(gomock.Any(), orgId, credentialName).Return(int64(0), domain.StatusOK())
 	mockCSR.EXPECT().MarkEnrollmentCredentialFlaggingCompleted(gomock.Any(), orgId, credentialName).Return(&domain.CertificateSigningRequest{}, domain.StatusOK())
 
 	handler := TaskConsumer{DeviceSvc: mockDevice, EnrollmentRequestSvc: mockER, CSRService: mockCSR}.dispatch()

@@ -14,7 +14,6 @@ import (
 	reflect "reflect"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
-	store "github.com/flightctl/flightctl/internal/store"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -87,10 +86,10 @@ func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, orgId, name any)
 }
 
 // DenyEnrollmentRequestsForRevokedCredential mocks base method.
-func (m *MockService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) ([]store.MutationResult, domain.Status) {
+func (m *MockService) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string) (int64, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DenyEnrollmentRequestsForRevokedCredential", ctx, orgId, credentialName)
-	ret0, _ := ret[0].([]store.MutationResult)
+	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
