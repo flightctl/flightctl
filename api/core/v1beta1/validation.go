@@ -720,7 +720,7 @@ func validateOneTimeWindow(index int, window OneTimeWindow) []error {
 		allErrs = append(allErrs, fmt.Errorf("%s.at must be a valid local time: %w", fieldPrefix, err))
 	}
 
-	durationValue := string(window.StartGraceDuration)
+	durationValue := window.StartGraceDuration
 	duration, err := time.ParseDuration(durationValue)
 	if err != nil {
 		allErrs = append(allErrs, fmt.Errorf("%s.startGraceDuration must be a valid duration: %w", fieldPrefix, err))
