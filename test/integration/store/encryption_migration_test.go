@@ -194,6 +194,28 @@ var _ = Describe("Encryption migration", func() {
 		Expect(string(appsJSON)).To(ContainSubstring("enc:v1:default:"))
 	})
 
+	It("When only configuration resources exist it should migrate and rotate their encryption", func() {
+		const payload = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"","authentication":{"authType":"docker","username":"device","password":"resource-migration-sentinel"},"consumers":[{"type":"os"}]}]}]`
+		Expect(db.WithContext(ctx).Exec(`INSERT INTO devices (org_id, name, generation, resource_version, created_at, updated_at, rendered_config_resources) VALUES (?, ?, 1, 1, NOW(), NOW(), ?::jsonb)`, orgId, "resources-only", payload).Error).To(Succeed())
+		migrator := newMigrator()
+		runUntilComplete(migrator, domain.DeviceKind, orgId)
+		var device model.Device
+		Expect(db.WithContext(ctx).First(&device, "org_id = ? AND name = ?", orgId, "resources-only").Error).To(Succeed())
+		Expect(string(device.RenderedConfigResources.Data)).To(ContainSubstring("enc:v1:default:"))
+		Expect(string(device.RenderedConfigResources.Data)).ToNot(ContainSubstring("resource-migration-sentinel"))
+		strategy := addEncryptionKey("resources-rotated")
+		defer func() { Expect(strategy.SetActiveKey("default")).To(Succeed()) }()
+		Expect(strategy.SetActiveKey("resources-rotated")).To(Succeed())
+		runUntilComplete(newMigrator(), domain.DeviceKind, orgId)
+		Expect(db.WithContext(ctx).First(&device, "org_id = ? AND name = ?", orgId, "resources-only").Error).To(Succeed())
+		Expect(string(device.RenderedConfigResources.Data)).To(ContainSubstring("enc:v1:resources-rotated:"))
+		resources, err := device.DecryptedConfigResources(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		data, err := json.Marshal(resources)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(data)).To(MatchJSON(payload))
+	})
+
 	It("When interrupted mid-scan it should resume from the checkpoint", func() {
 		seedPlaintextRepository("repo-a", "secret-a")
 		seedPlaintextRepository("repo-b", "secret-b")
