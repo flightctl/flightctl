@@ -7,7 +7,26 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+// registriesDConfig models the containers-registries.d(5) YAML schema.
+// The two top-level keys are "default-docker" and "docker"; registry-specific
+// settings belong under docker.<registry>.
+type registriesDConfig struct {
+	DefaultDocker *registriesDNamespace           `yaml:"default-docker,omitempty"`
+	Docker        map[string]registriesDNamespace `yaml:"docker,omitempty"`
+}
+
+// registriesDNamespace holds the per-registry keys defined by the
+// containers-registries.d(5) schema.
+type registriesDNamespace struct {
+	Lookaside        string `yaml:"lookaside,omitempty"`
+	LookasideStaging string `yaml:"lookaside-staging,omitempty"`
+	// Legacy alias for lookaside — accepted by older container runtimes.
+	Sigstore        string `yaml:"sigstore,omitempty"`
+	SigstoreStaging string `yaml:"sigstore-staging,omitempty"`
+}
 
 // TestSourceRegistriesRequiringSignatures verifies that the helper correctly
 // identifies registries whose images carry signatures enforced by RHEL.
@@ -81,63 +100,114 @@ func TestSourceRegistriesRequiringSignatures(t *testing.T) {
 	}
 }
 
+// TestRegistriesDExample verifies that registriesDExample returns YAML that
+// parses into a valid containers-registries.d(5) structure with the lookaside
+// key nested under docker.<registry>.
+func TestRegistriesDExample(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		registry string
+		path     string
+	}{
+		{
+			name:     "When given registry.redhat.io it should produce valid nested YAML",
+			registry: "registry.redhat.io",
+			path:     "file:///var/lib/containers/sigstore",
+		},
+		{
+			name:     "When given registry.access.redhat.com it should produce valid nested YAML",
+			registry: "registry.access.redhat.com",
+			path:     "file:///var/lib/containers/sigstore",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			example := registriesDExample(tt.registry, tt.path)
+
+			// Must parse as valid YAML.
+			var parsed registriesDConfig
+			err := yaml.Unmarshal([]byte(example), &parsed)
+			require.NoError(t, err, "generated example must be valid YAML")
+
+			// Must have a docker section, not top-level sigstore/lookaside.
+			require.NotNil(t, parsed.Docker, "example must use docker.<registry> nesting")
+			require.Contains(t, parsed.Docker, tt.registry,
+				"docker section must contain the target registry")
+
+			// The lookaside must be set to the expected path.
+			ns := parsed.Docker[tt.registry]
+			require.Equal(t, tt.path, ns.Lookaside,
+				"lookaside must point to the local sigstore path")
+
+			// Must NOT have a top-level default-docker with a sigstore/lookaside.
+			require.Nil(t, parsed.DefaultDocker,
+				"example must not set default-docker")
+		})
+	}
+}
+
 // TestWriteImportScript verifies the generated import.sh script content for
 // different variant and registry combinations.
 func TestWriteImportScript(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		variant            string
-		pairs              []ImagePair
-		wantRootCheck      bool
-		wantSigstoreConfig []string // registries.d filenames that should be configured
-		wantSkopeoCount    int
+		name              string
+		variant           string
+		pairs             []ImagePair
+		wantRootCheck     bool
+		wantSigstoreGuide []string // registries that should appear in guidance
+		wantSkopeoCount   int
 	}{
 		{
-			name:    "When variant uses only quay.io images it should not require root or configure sigstore",
+			name:    "When variant uses only quay.io images it should not require root or show sigstore guidance",
 			variant: "community-el9",
 			pairs: []ImagePair{
 				{Source: "quay.io/flightctl/flightctl-api-el9:latest"},
 				{Source: "quay.io/flightctl/flightctl-worker-el9:latest"},
 			},
-			wantRootCheck:      false,
-			wantSigstoreConfig: nil,
-			wantSkopeoCount:    2,
+			wantRootCheck:     false,
+			wantSigstoreGuide: nil,
+			wantSkopeoCount:   2,
 		},
 		{
-			name:    "When variant includes registry.redhat.io images it should require root and configure sigstore",
+			name:    "When variant includes registry.redhat.io images it should require root and show sigstore guidance",
 			variant: "rhem-el9",
 			pairs: []ImagePair{
 				{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
 				{Source: "registry.redhat.io/rhel9/postgresql-16:9.8"},
 			},
-			wantRootCheck:      true,
-			wantSigstoreConfig: []string{"registry.redhat.io.yaml"},
-			wantSkopeoCount:    2,
+			wantRootCheck:     true,
+			wantSigstoreGuide: []string{"registry.redhat.io"},
+			wantSkopeoCount:   2,
 		},
 		{
-			name:    "When variant includes registry.access.redhat.com images it should require root and configure sigstore",
+			name:    "When variant includes registry.access.redhat.com images it should require root and show sigstore guidance",
 			variant: "community-el9",
 			pairs: []ImagePair{
 				{Source: "quay.io/flightctl/flightctl-api-el9:latest"},
 				{Source: "registry.access.redhat.com/ubi9/ubi-minimal:9.8"},
 			},
-			wantRootCheck:      true,
-			wantSigstoreConfig: []string{"registry.access.redhat.com.yaml"},
-			wantSkopeoCount:    2,
+			wantRootCheck:     true,
+			wantSigstoreGuide: []string{"registry.access.redhat.com"},
+			wantSkopeoCount:   2,
 		},
 		{
-			name:    "When variant includes both signature registries it should configure both",
+			name:    "When variant includes both signature registries it should show guidance for both",
 			variant: "mixed-test",
 			pairs: []ImagePair{
 				{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
 				{Source: "registry.access.redhat.com/ubi9/ubi-minimal:9.8"},
 				{Source: "quay.io/flightctl/flightctl-worker-el9:latest"},
 			},
-			wantRootCheck:      true,
-			wantSigstoreConfig: []string{"registry.access.redhat.com.yaml", "registry.redhat.io.yaml"},
-			wantSkopeoCount:    3,
+			wantRootCheck:     true,
+			wantSigstoreGuide: []string{"registry.access.redhat.com", "registry.redhat.io"},
+			wantSkopeoCount:   3,
 		},
 		{
 			name:            "When pairs are empty it should produce a minimal script",
@@ -194,64 +264,97 @@ func TestWriteImportScript(t *testing.T) {
 			require.Equal(t, tt.wantSkopeoCount, skopeoCopies,
 				"unexpected number of skopeo copy commands")
 
-			// Verify sigstore configuration blocks.
-			for _, yamlFile := range tt.wantSigstoreConfig {
+			// Verify sigstore guidance for each expected registry.
+			for _, reg := range tt.wantSigstoreGuide {
+				yamlFile := reg + ".yaml"
 				require.Contains(t, script, yamlFile,
-					"script should configure sigstore for "+yamlFile)
-				require.Contains(t, script, "sigstore:.*file:///var/lib/containers/sigstore",
-					"script should reference the system sigstore directory")
+					"script should mention registries.d YAML file for "+reg)
+			}
+
+			// When no sigstore guidance is expected, verify none is present.
+			if len(tt.wantSigstoreGuide) == 0 {
+				require.NotContains(t, script, "Configure offline signature lookup",
+					"script should not show sigstore guidance when no signature registries present")
+			}
+		})
+	}
+}
+
+// TestWriteImportScriptNoHostMutation verifies that the generated script does
+// NOT write to any host configuration files.  It must not contain shell
+// redirects or tee commands targeting /etc paths.
+func TestWriteImportScriptNoHostMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		variant string
+		pairs   []ImagePair
+	}{
+		{
+			name:    "When variant has signature registries it should not write to /etc",
+			variant: "rhem-el9",
+			pairs: []ImagePair{
+				{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
+				{Source: "registry.redhat.io/rhel9/postgresql-16:9.8"},
+			},
+		},
+		{
+			name:    "When variant has both signature registries it should not write to /etc",
+			variant: "mixed-test",
+			pairs: []ImagePair{
+				{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
+				{Source: "registry.access.redhat.com/ubi9/ubi-minimal:9.8"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tmpDir := t.TempDir()
+			err := WriteImportScript(tmpDir, tt.pairs, tt.variant)
+			require.NoError(t, err)
+
+			content, err := os.ReadFile(filepath.Join(tmpDir, "import.sh"))
+			require.NoError(t, err)
+			script := string(content)
+
+			// Check that no shell lines (outside echo/printf) redirect to /etc paths.
+			for _, line := range strings.Split(script, "\n") {
+				trimmed := strings.TrimSpace(line)
+				// Skip comments, empty lines, and echo/printf (display only).
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
+					strings.HasPrefix(trimmed, "echo ") || strings.HasPrefix(trimmed, "printf ") {
+					continue
+				}
+				// No redirect to /etc.
+				require.NotContains(t, trimmed, ">> /etc/",
+					"script must not append to /etc/ files: "+trimmed)
+				require.NotContains(t, trimmed, "> /etc/",
+					"script must not write to /etc/ files: "+trimmed)
+				// No tee to /etc.
+				if strings.Contains(trimmed, "tee") && strings.Contains(trimmed, "/etc/") {
+					t.Errorf("script must not tee to /etc/ files: %s", trimmed)
+				}
 			}
 
 			// Safety: script must never contain --remove-signatures.
 			require.NotContains(t, script, "--remove-signatures",
 				"script must not strip signatures — that weakens the security policy")
 
-			// Safety: script must never modify policy.json.
-			require.NotContains(t, script, "policy.json",
-				"script must not modify the container signature policy")
+			// Safety: no shell command (outside echo/printf) should reference policy.json.
+			for _, line := range strings.Split(script, "\n") {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
+					strings.HasPrefix(trimmed, "echo ") || strings.HasPrefix(trimmed, "printf ") {
+					continue
+				}
+				require.NotContains(t, trimmed, "policy.json",
+					"non-echo line must not reference policy.json: "+trimmed)
+			}
 		})
-	}
-}
-
-// TestWriteImportScriptSigstorePreservesExisting verifies that the generated
-// sigstore configuration logic does not blindly overwrite existing files — it
-// appends only when the setting is not already present.
-func TestWriteImportScriptSigstorePreservesExisting(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	pairs := []ImagePair{
-		{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
-	}
-	err := WriteImportScript(tmpDir, pairs, "rhem-el9")
-	require.NoError(t, err)
-
-	content, err := os.ReadFile(filepath.Join(tmpDir, "import.sh"))
-	require.NoError(t, err)
-	script := string(content)
-
-	// The script should check whether the sigstore line already exists
-	// before appending, using grep.
-	require.Contains(t, script, "grep -q",
-		"sigstore config should check for existing setting before appending")
-
-	// The sigstore configuration section should only use >> (append), never
-	// a bare > (overwrite) as a shell redirect to the registries.d file.
-	// Extract lines that write to $REGFILE, excluding echo-quoted hints shown
-	// to the user (which may contain "> $REGFILE" as instructional text inside
-	// a quoted string).
-	sigstoreSection := script[strings.Index(script, "Configure signature lookup"):]
-	for _, line := range strings.Split(sigstoreSection, "\n") {
-		trimmed := strings.TrimSpace(line)
-		// Skip echo/printf lines — they only print advice, not write files.
-		if strings.HasPrefix(trimmed, "echo ") || strings.HasPrefix(trimmed, "printf ") {
-			continue
-		}
-		// Any remaining line that redirects to $REGFILE must use >>.
-		if strings.Contains(trimmed, "> \"$REGFILE\"") || strings.Contains(trimmed, "> $REGFILE") {
-			require.Contains(t, trimmed, ">>",
-				"sigstore config must append (>>), not overwrite (>): line: "+trimmed)
-		}
 	}
 }
 
@@ -274,4 +377,71 @@ func TestWriteImportScriptUsageSudo(t *testing.T) {
 	// Usage line should mention sudo.
 	require.Contains(t, script, "sudo ./import.sh",
 		"usage comment should recommend running with sudo")
+}
+
+// TestWriteImportScriptGuidanceContainsValidYAML verifies that the registries.d
+// examples shown in the generated script parse as valid containers-registries.d
+// YAML with the registry nested under the docker top-level key.
+func TestWriteImportScriptGuidanceContainsValidYAML(t *testing.T) {
+	t.Parallel()
+
+	// Generate a script with both signature-required registries.
+	tmpDir := t.TempDir()
+	pairs := []ImagePair{
+		{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
+		{Source: "registry.access.redhat.com/ubi9/ubi-minimal:9.8"},
+	}
+	err := WriteImportScript(tmpDir, pairs, "mixed-test")
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "import.sh"))
+	require.NoError(t, err)
+	script := string(content)
+
+	// Each sigstore-requiring registry should have its example producible
+	// by registriesDExample, which is validated separately.
+	for _, reg := range []string{"registry.redhat.io", "registry.access.redhat.com"} {
+		example := registriesDExample(reg, "file:///var/lib/containers/sigstore")
+		// The example YAML must be parseable.
+		var parsed registriesDConfig
+		err := yaml.Unmarshal([]byte(example), &parsed)
+		require.NoError(t, err, "YAML example for %s must parse", reg)
+		require.Contains(t, parsed.Docker, reg,
+			"docker section must contain %s", reg)
+		require.Equal(t, "file:///var/lib/containers/sigstore",
+			parsed.Docker[reg].Lookaside,
+			"lookaside must point to system sigstore for %s", reg)
+
+		// The script must reference this registry's YAML file.
+		require.Contains(t, script, reg+".yaml",
+			"script should reference registries.d file for "+reg)
+	}
+}
+
+// TestWriteImportScriptQuayOnlyNoRHConfig verifies that a variant using only
+// quay.io images does not include Red Hat-specific sigstore guidance.
+func TestWriteImportScriptQuayOnlyNoRHConfig(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	pairs := []ImagePair{
+		{Source: "quay.io/flightctl/flightctl-api-el9:latest"},
+		{Source: "quay.io/flightctl/flightctl-worker-el9:latest"},
+		{Source: "docker.io/library/registry:2"},
+	}
+	err := WriteImportScript(tmpDir, pairs, "quay-only-test")
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "import.sh"))
+	require.NoError(t, err)
+	script := string(content)
+
+	require.NotContains(t, script, "registry.redhat.io",
+		"quay-only variant must not mention registry.redhat.io")
+	require.NotContains(t, script, "registry.access.redhat.com",
+		"quay-only variant must not mention registry.access.redhat.com")
+	require.NotContains(t, script, "registries.d",
+		"quay-only variant must not mention registries.d configuration")
+	require.NotContains(t, script, "sigstore",
+		"quay-only variant must not mention sigstore")
 }

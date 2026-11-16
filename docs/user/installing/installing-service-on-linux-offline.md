@@ -183,16 +183,17 @@ curl http://localhost:5000/v2/
 ```
 
 > [!IMPORTANT]
-> The registry must run as root (with `sudo podman`) so that it persists across
-> user logouts and reboots. A rootless container stops when the owning user
-> session ends, which prevents the Flight Control services from pulling images.
+> Running the registry as root (with `sudo podman`) and enabling
+> `podman-restart.service` ensures it persists across logouts and reboots.
+> Without additional configuration such as lingering sessions, a rootless
+> container stops when the owning user session ends.
 
 ## Step 5: Import images into the local registry
 
 Run the included import script as root to push all bundled images into the local
 registry. Running as root ensures that image signatures are written to the
-system-wide signature store (`/var/lib/containers/sigstore/`), where the Flight
-Control services can verify them:
+default system-wide signature directory (`/var/lib/containers/sigstore/`),
+where the system's podman can find them for offline verification:
 
 ```bash
 cd ~/flightctl-bundle
@@ -205,10 +206,9 @@ By default `import.sh` targets `localhost:5000`. To use a different registry add
 sudo ./import.sh --registry <host>:<port>
 ```
 
-The import script also configures `/etc/containers/registries.d/` so that
-podman reads signatures from the local store. You can verify this after the
-import completes by checking the relevant `/etc/containers/registries.d/`
-YAML files for a `sigstore: file:///var/lib/containers/sigstore` line.
+After the import completes, the script prints instructions for configuring
+offline signature lookup. Complete those steps in
+[Step 7](#configure-offline-signature-lookup) before starting the services.
 
 Verify the images are available:
 
@@ -267,30 +267,52 @@ For `rhem-el9` or `rhem-el10` variants, add a mirror entry for
 > registry is configured with TLS, remove this flag and ensure its CA certificate
 > is trusted on the target system.
 
-### Verify offline signature lookup
+### Configure offline signature lookup
 
-The `import.sh` script in Step 5 automatically configures the signature lookup
-for registries that require it (`registry.redhat.io`, `registry.access.redhat.com`).
-Verify that the configuration is in place:
+RHEL's container policy requires signature verification for images from
+`registry.redhat.io` and `registry.access.redhat.com`. The `import.sh` script
+in Step 5 wrote detached signatures to `/var/lib/containers/sigstore/` (the
+default system-wide signature directory). You must configure each source
+registry's `registries.d` YAML file so that podman reads signatures from that
+directory instead of the internet.
+
+Edit the `registries.d` YAML file for each signature-required registry used by
+your variant. Merge the `lookaside` setting into the existing
+`docker.<registry>` section, preserving any other keys in that section (such
+as `lookaside-staging`). Do not add duplicate registry definitions across
+files.
+
+For `rhem-el9` or `rhem-el10` variants, edit
+`/etc/containers/registries.d/registry.redhat.io.yaml` so the `docker`
+section includes:
+
+```yaml
+docker:
+  registry.redhat.io:
+    lookaside: file:///var/lib/containers/sigstore
+```
+
+For all variants (including `community-el9` and `community-el10`), edit
+`/etc/containers/registries.d/registry.access.redhat.com.yaml` so the
+`docker` section includes:
+
+```yaml
+docker:
+  registry.access.redhat.com:
+    lookaside: file:///var/lib/containers/sigstore
+```
+
+> [!NOTE]
+> If your system uses a custom signature storage path (configured via
+> `lookaside-staging` or a non-default `lookaside` in `registries.d`), use
+> the actual path where `skopeo` wrote the signatures instead of the default
+> `/var/lib/containers/sigstore`.
+
+Verify the configuration is in place:
 
 ```bash
-grep sigstore /etc/containers/registries.d/registry.redhat.io.yaml
+sudo podman pull --log-level=debug registry.redhat.io/ubi9/ubi-minimal:latest 2>&1 | grep -i sigstore
 ```
-
-The output should include:
-
-```console
-sigstore: file:///var/lib/containers/sigstore
-```
-
-If the line is missing, add it manually:
-
-```bash
-echo "sigstore: file:///var/lib/containers/sigstore" | sudo tee -a /etc/containers/registries.d/registry.redhat.io.yaml
-```
-
-Repeat for `registry.access.redhat.com.yaml` if your variant includes images
-from `registry.access.redhat.com` (all variants include at least one such image).
 
 > [!IMPORTANT]
 > Do not remove or weaken the signature verification policy in

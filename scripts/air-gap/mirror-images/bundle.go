@@ -248,6 +248,14 @@ func fetchRepoFile(url, destPath string) error {
 	return err
 }
 
+// registriesDExample returns a correctly nested registries.d YAML snippet for
+// a given registry, suitable for display to the user.  The lookaside key is
+// placed under docker.<registry> as required by the containers-registries.d(5)
+// schema.
+func registriesDExample(registry, lookasidePath string) string {
+	return fmt.Sprintf("docker:\n  %s:\n    lookaside: %s\n", registry, lookasidePath)
+}
+
 // WriteImportScript writes an executable shell script to bundleDir/import.sh
 // that imports all bundled images into a local container registry.
 //
@@ -257,10 +265,11 @@ func fetchRepoFile(url, destPath string) error {
 //
 // When the image set includes registries whose images carry signatures that
 // RHEL enforces (registry.redhat.io, registry.access.redhat.com), the script
-// requires root so that skopeo writes detached signatures to the system-wide
-// lookaside (/var/lib/containers/sigstore/).  After the import it configures
-// /etc/containers/registries.d/ to point the local signature lookup at that
-// directory, preserving any unrelated settings in those files.
+// requires root so that skopeo writes detached signatures to the default
+// system-wide lookaside (/var/lib/containers/sigstore/).  After the import it
+// prints instructions for configuring /etc/containers/registries.d/ so that
+// podman can find those signatures offline.  The script does NOT modify host
+// configuration files — the user must merge the settings manually.
 func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) error {
 	scriptPath := filepath.Join(bundleDir, "import.sh")
 	f, err := os.Create(scriptPath)
@@ -295,15 +304,17 @@ set -euo pipefail
 `, variant, time.Now().UTC().Format(time.RFC3339))
 
 	// When signature-required registries are present, the script must run as
-	// root so that signatures land in the system-wide sigstore directory.
+	// root so that signatures land in the default system-wide lookaside
+	// directory (/var/lib/containers/sigstore/).
 	if needsSigstore {
 		fmt.Fprint(f, `# Images from signature-required registries are included in this bundle.
 # The script must run as root so that skopeo writes detached signatures to
-# /var/lib/containers/sigstore/ where the system's podman can find them.
+# the default system-wide lookaside directory (/var/lib/containers/sigstore/)
+# where the system's podman can find them.
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: this import script must run as root (sudo ./import.sh)." >&2
     echo "Images from signature-required registries need the system-wide" >&2
-    echo "sigstore directory (/var/lib/containers/sigstore/)." >&2
+    echo "lookaside directory (/var/lib/containers/sigstore/)." >&2
     exit 1
 fi
 
@@ -348,44 +359,44 @@ skopeo copy $DEST_TLS_FLAG "dir:$IMAGES_DIR/%s" "docker://$REGISTRY/%s"
 echo "Import complete: $TOTAL images imported to $REGISTRY"
 `)
 
-	// After importing, configure registries.d so the system's podman can find
-	// the detached signatures written to /var/lib/containers/sigstore/.
+	// After importing, display instructions for the user to configure
+	// registries.d manually.  The script does NOT write to /etc — the user
+	// must merge these settings into the existing registries.d YAML files,
+	// placing the lookaside key under the docker.<registry> section as
+	// required by the containers-registries.d(5) schema.
 	if needsSigstore {
-		fmt.Fprint(f, `
-# ---------------------------------------------------------------------------
-# Configure signature lookup for offline verification
-# ---------------------------------------------------------------------------
-# RHEL's container policy requires signatures for images from the upstream
-# registries below.  The signatures were written to /var/lib/containers/sigstore/
-# during the import above.  Point each registry's registries.d configuration at
-# that directory so podman can verify them offline.
-#
-# This appends a "sigstore: file:///var/lib/containers/sigstore" line to the
-# registries.d YAML for each registry, preserving any existing content.
-# If the setting is already present the file is left untouched.
-
-SIGSTORE_DIR="/var/lib/containers/sigstore"
-REGISTRIES_D="/etc/containers/registries.d"
-
+		fmt.Fprint(f, `echo ""
+echo "==========================================================================="
+echo "IMPORTANT: Configure offline signature lookup before starting services"
+echo "==========================================================================="
+echo ""
+echo "Image signatures were written to /var/lib/containers/sigstore/ during"
+echo "this import.  You must configure each source registry's registries.d"
+echo "YAML file so that podman reads signatures from that directory offline."
+echo ""
+echo "For each registry listed below, edit the corresponding file under"
+echo "/etc/containers/registries.d/ and merge the lookaside setting into"
+echo "the docker.<registry> section.  Preserve any existing keys (such as"
+echo "lookaside-staging) in that section.  If your system uses a custom"
+echo "lookaside path, use that path instead of the default shown here."
+echo ""
 `)
 		for _, reg := range sigRegs {
-			// The registries.d filename uses dots, e.g. registry.redhat.io.yaml
 			yamlFile := reg + ".yaml"
-			fmt.Fprintf(f, `REGFILE="$REGISTRIES_D/%s"
-if [ -f "$REGFILE" ]; then
-    if ! grep -q 'sigstore:.*file:///var/lib/containers/sigstore' "$REGFILE" 2>/dev/null; then
-        echo "sigstore: file://$SIGSTORE_DIR" >> "$REGFILE"
-        echo "Configured local signature lookup in $REGFILE"
-    else
-        echo "Local signature lookup already configured in $REGFILE"
-    fi
-else
-    echo "Warning: $REGFILE not found — signature verification for %s may fail." >&2
-    echo "Create the file with: echo 'sigstore: file://$SIGSTORE_DIR' > $REGFILE" >&2
-fi
-
-`, yamlFile, reg)
+			example := registriesDExample(reg, "file:///var/lib/containers/sigstore")
+			fmt.Fprintf(f, `echo "  File: /etc/containers/registries.d/%s"
+echo "  Merge into the existing docker section:"
+echo ""
+echo "    %s"
+echo ""
+`, yamlFile, strings.ReplaceAll(example, "\n", `"
+echo "    `))
 		}
+		fmt.Fprint(f, `echo "Do not modify /etc/containers/policy.json — signature verification"
+echo "must remain enabled.  The steps above ensure podman can find the"
+echo "bundled signatures locally."
+echo "==========================================================================="
+`)
 	}
 
 	if err := os.Chmod(scriptPath, 0o755); err != nil {
