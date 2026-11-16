@@ -438,6 +438,21 @@ func (mr *MockReaderMockRecorder) ReadFile(filePath any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockReader)(nil).ReadFile), filePath)
 }
 
+// ReadFileInRoot mocks base method.
+func (m *MockReader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileInRoot", root, relPath, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileInRoot indicates an expected call of ReadFileInRoot.
+func (mr *MockReaderMockRecorder) ReadFileInRoot(root, relPath, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileInRoot", reflect.TypeOf((*MockReader)(nil).ReadFileInRoot), root, relPath, limit)
+}
+
 // ReadFileLimited mocks base method.
 func (m *MockReader) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
 	m.ctrl.T.Helper()
@@ -644,6 +659,21 @@ func (m *MockReadWriter) ReadFile(filePath string) ([]byte, error) {
 func (mr *MockReadWriterMockRecorder) ReadFile(filePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockReadWriter)(nil).ReadFile), filePath)
+}
+
+// ReadFileInRoot mocks base method.
+func (m *MockReadWriter) ReadFileInRoot(root, relPath string, limit int64) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileInRoot", root, relPath, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileInRoot indicates an expected call of ReadFileInRoot.
+func (mr *MockReadWriterMockRecorder) ReadFileInRoot(root, relPath, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileInRoot", reflect.TypeOf((*MockReadWriter)(nil).ReadFileInRoot), root, relPath, limit)
 }
 
 // ReadFileLimited mocks base method.
