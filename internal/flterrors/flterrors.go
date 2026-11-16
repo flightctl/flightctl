@@ -38,15 +38,16 @@ var (
 	ErrOsTargetNotSupportedOnPackageMode = errors.New("OS target is not supported on package-mode devices")
 
 	// csr
-	ErrInvalidPEMBlock = errors.New("not a valid PEM block")
-	ErrUnknownPEMType  = errors.New("unknown PEM type")
-	ErrCNLength        = errors.New("CN must be at least 16 chars")
-	ErrCSRParse        = errors.New("could not parse CSR")
-	ErrCSRInvalid      = errors.New("invalid CSR")
-	ErrSignature       = errors.New("signature error")
-	ErrSignCert        = errors.New("error signing certificate")
-	ErrParseCert       = errors.New("could not parse certificate")
-	ErrEncodeCert      = errors.New("error encoding certificate")
+	ErrInvalidPEMBlock               = errors.New("not a valid PEM block")
+	ErrUnknownPEMType                = errors.New("unknown PEM type")
+	ErrCNLength                      = errors.New("CN must be at least 16 chars")
+	ErrCSRParse                      = errors.New("could not parse CSR")
+	ErrCSRInvalid                    = errors.New("invalid CSR")
+	ErrSignature                     = errors.New("signature error")
+	ErrSignCert                      = errors.New("error signing certificate")
+	ErrParseCert                     = errors.New("could not parse certificate")
+	ErrEncodeCert                    = errors.New("error encoding certificate")
+	ErrRevocationConsequencesPending = errors.New("enrollment credential revocation consequences are still pending")
 
 	// certificate extensions
 	ErrExtensionNotFound = errors.New("certificate extension not found")

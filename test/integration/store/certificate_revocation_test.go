@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -107,6 +108,42 @@ var _ = Describe("CSR revocation mutations", func() {
 		Expect(changed).To(BeFalse())
 		Expect(repeated.Status.Revocation).To(Equal(&revocation))
 		Expect(repeated.Metadata.ResourceVersion).To(Equal(current.Metadata.ResourceVersion))
+	})
+
+	It("When revocation consequences are pending it should block deletion until they complete", func() {
+		suite := newCertificatePersistenceSuite()
+		ctx, cancel := context.WithTimeout(suite.Ctx, 30*time.Second)
+		defer cancel()
+		provider := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		request := newStoredCSR()
+		created, err := provider.Create(ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+
+		issued := issueCSRWithCertificate(suite, ctx, provider, created)
+		revoked, changed, err := provider.Revoke(ctx, suite.OrgID, *issued.Metadata.Name, domain.EnrollmentCertificateRevocation{
+			Reason:    "Credential compromised",
+			RevokedBy: "security-officer",
+			RevokedAt: time.Date(2025, 3, 5, 6, 7, 8, 0, time.UTC),
+		}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+
+		deleted, err := provider.Delete(ctx, suite.OrgID, *revoked.Metadata.Name)
+		Expect(errors.Is(err, flterrors.ErrRevocationConsequencesPending)).To(BeTrue())
+		Expect(deleted).To(BeFalse())
+		_, err = provider.Get(ctx, suite.OrgID, *revoked.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+
+		completedAt := time.Date(2025, 3, 5, 6, 8, 9, 0, time.UTC)
+		revoked.Status.Revocation.FlaggingCompletedAt = &completedAt
+		_, err = seedCSRStatus(provider, ctx, suite.OrgID, revoked)
+		Expect(err).NotTo(HaveOccurred())
+
+		deleted, err = provider.Delete(ctx, suite.OrgID, *revoked.Metadata.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deleted).To(BeTrue())
+		_, err = provider.Get(ctx, suite.OrgID, *revoked.Metadata.Name)
+		Expect(errors.Is(err, flterrors.ErrResourceNotFound)).To(BeTrue())
 	})
 
 	It("When a CSR is deleted and recreated under the same name it should revoke the current row", func() {

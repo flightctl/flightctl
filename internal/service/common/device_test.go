@@ -851,3 +851,44 @@ func TestKeepDBDeviceStatusPreservesEnrollmentHooks(t *testing.T) {
 
 	assert.Equal(t, snapshot, incoming.Status.EnrollmentHooks)
 }
+
+func TestKeepDBDeviceStatusPreservesEnrollmentCredential(t *testing.T) {
+	tests := []struct {
+		name     string
+		stored   *domain.DeviceEnrollmentCredentialStatus
+		incoming *domain.DeviceEnrollmentCredentialStatus
+		expected *domain.DeviceEnrollmentCredentialStatus
+	}{
+		{
+			name:     "When the stored projection is revoked it should override the reported value",
+			stored:   &domain.DeviceEnrollmentCredentialStatus{Revoked: true},
+			incoming: &domain.DeviceEnrollmentCredentialStatus{Revoked: false},
+			expected: &domain.DeviceEnrollmentCredentialStatus{Revoked: true},
+		},
+		{
+			name:     "When the stored projection is absent it should drop the reported value",
+			incoming: &domain.DeviceEnrollmentCredentialStatus{Revoked: true},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := &domain.Device{
+				Status: &domain.DeviceStatus{
+					Summary:              domain.DeviceSummaryStatus{Status: domain.DeviceSummaryStatusUnknown},
+					EnrollmentCredential: tt.incoming,
+				},
+			}
+			dbDevice := &domain.Device{
+				Status: &domain.DeviceStatus{
+					EnrollmentCredential: tt.stored,
+				},
+			}
+
+			KeepDBDeviceStatus(incoming, dbDevice)
+
+			assert.Equal(t, tt.expected, incoming.Status.EnrollmentCredential)
+		})
+	}
+}

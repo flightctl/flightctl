@@ -347,6 +347,10 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if dbDevice.Status.EnrollmentHooks != nil {
 		device.Status.EnrollmentHooks = dbDevice.Status.EnrollmentHooks
 	}
+
+	// Preserve the server-owned enrollment credential projection, including its
+	// absence for devices that predate the projection; the agent never reports it.
+	device.Status.EnrollmentCredential = dbDevice.Status.EnrollmentCredential
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID) ResourceUpdates {

@@ -95,6 +95,14 @@ func (_d *TracedDeviceService) DeleteDevice(ctx context.Context, orgId uuid.UUID
 	return s1
 }
 
+func (_d *TracedDeviceService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (i1 int64, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "FlagDevicesForRevokedEnrollmentCredential")
+
+	i1, s1 = _d.inner.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName, limit)
+	endSpan(span, s1)
+	return i1, s1
+}
+
 func (_d *TracedDeviceService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (err error) {
 	ctx, span := startSpan(ctx, "ForceUpdateServerSideDeviceStatus")
 

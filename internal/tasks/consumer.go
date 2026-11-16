@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -42,6 +43,7 @@ type TaskConsumer struct {
 	CatalogSvc           catalogservice.Service
 	EventSvc             eventservice.Service
 	EnrollmentRequestSvc enrollmentrequestservice.Service
+	CSRService           certificatesigningrequestservice.Service
 	NotifySecretsStore   enrollmenthooknotifysecrets.Store
 	K8sClient            k8sclient.K8SClient
 	KVStore              kvstore.KVStore
@@ -193,6 +195,14 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 				// own deadline while still stopping on worker shutdown.
 				return enrollmentHookNotify(workerCtx, eventWithOrgId.OrgId, eventWithOrgId.Event,
 					d.DeviceSvc, d.EnrollmentRequestSvc, d.NotifySecretsStore, d.EventSvc, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
+		if shouldProcessEnrollmentCredentialRevocation(eventWithOrgId.Event) {
+			taskName = "enrollmentCredentialRevocation"
+			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+				return processEnrollmentCredentialRevocation(workerCtx, eventWithOrgId.OrgId, eventWithOrgId.Event,
+					d.DeviceSvc, d.EnrollmentRequestSvc, d.CSRService, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
