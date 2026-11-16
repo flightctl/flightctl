@@ -1,17 +1,32 @@
 # ── vm-to-quadlet build stage ─────────────────────────────────────────────────
 # Isolated from the main build to avoid module-cache contamination — the tool
 # pins k8s.io at a different version than flightctl.
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.10-1793622842 as vm-to-quadlet-build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as vm-to-quadlet-build
 USER 0
 ARG VM_TO_QUADLET_COMMIT=eb9f6cefda9f87f4517f258759477a315b3fa253
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/root/go/pkg/mod \
     git clone https://github.com/flightctl/vm-to-quadlet /src && \
     cd /src && git checkout ${VM_TO_QUADLET_COMMIT} && \
-    CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
+    CGO_ENABLED=0 GOFIPS140=v1.0.0 GOEXPERIMENT=strictfipsruntime GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
+
+# ── Helm CLI stage ───────────────────────────────────────────────────────────
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as helm-build
+USER 0
+ARG HELM_COMMIT=5caf0044d4ef3d62a955440272999e139aafbbed
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/go/pkg/mod \
+    git init /src && \
+    git -C /src fetch --depth=1 https://github.com/helm/helm.git ${HELM_COMMIT} && \
+    git -C /src checkout --detach FETCH_HEAD && \
+    cd /src && \
+    CGO_ENABLED=0 GOFIPS140=v1.0.0 GOEXPERIMENT=strictfipsruntime \
+    go build -buildvcs=false -trimpath \
+      -ldflags="-s -w -X helm.sh/helm/v4/internal/version.version=v4.1.1 -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_COMMIT} -X helm.sh/helm/v4/internal/version.gitTreeState=clean" \
+      -o /out/helm ./cmd/helm
 
 # ── flightctl worker build stage ─────────────────────────────────────────────
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.10-1793622842 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -68,5 +83,6 @@ LABEL \
 COPY --from=build /runtime-root/ /
 COPY --from=build /app/bin/flightctl-worker .
 COPY --from=vm-to-quadlet-build /out/vm-to-quadlet /usr/local/bin/vm-to-quadlet
+COPY --from=helm-build /out/helm /usr/local/bin/helm
 
 CMD ["./flightctl-worker"]

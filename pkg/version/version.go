@@ -1,6 +1,7 @@
 package version
 
 import (
+	"crypto/fips140"
 	"fmt"
 	"runtime"
 )
@@ -35,6 +36,8 @@ type Info struct {
 	Compiler     string `json:"compiler"`
 	Platform     string `json:"platform"`
 	Patch        string `json:"patch"`
+	FIPSMode     bool   `json:"fipsMode"`
+	FIPSModule   string `json:"fipsModule"`
 }
 
 func (info Info) String() string {
@@ -56,5 +59,7 @@ func Get() Info {
 		Compiler:     runtime.Compiler,
 		Platform:     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		Patch:        patchFromGit,
+		FIPSMode:     fips140.Enabled(),
+		FIPSModule:   fips140.Version(),
 	}
 }
