@@ -256,6 +256,11 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 		}
 	}
 	mutation := &devicestore.DeviceMutation{Device: current}
+	if prior := s.rendered[name]; prior != nil && prior.ConfigResources != "" {
+		if err := json.Unmarshal([]byte(prior.ConfigResources), &mutation.CurrentConfigResources); err != nil {
+			return nil, nil, false, err
+		}
+	}
 	if apply != nil {
 		if err := apply(mutation); err != nil {
 			if errors.Is(err, store.ErrMutateSkipWrite) {

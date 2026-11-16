@@ -121,7 +121,7 @@ var _ = Describe("Atomic firmware rollout safeguards", func() {
 			Expect(suite.DB.Where("org_id = ? AND name = ?", suite.OrgID, deviceName).Take(&newer).Error).To(Succeed())
 		})
 		DeferCleanup(func() { store.SetIntegrationTestCreateOrUpdateCallback(func() {}) })
-		status := suite.Device.UpdateRenderedDevice(context.Background(), suite.OrgID, deviceName, "stale-output", "", "stale-hash", "os:old", nil, false, nil, deviceservice.RenderedDeviceOptions{ExpectedGeneration: &expected})
+		status := suite.Device.UpdateRenderedDevice(context.Background(), suite.OrgID, deviceName, "stale-output", "", "stale-hash", "os:old", nil, nil, false, nil, deviceservice.RenderedDeviceOptions{ExpectedGeneration: &expected})
 		Expect(status.Code).To(Equal(int32(http.StatusConflict)))
 		var row model.Device
 		Expect(suite.DB.Where("org_id = ? AND name = ?", suite.OrgID, deviceName).Take(&row).Error).To(Succeed())

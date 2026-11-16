@@ -443,7 +443,7 @@ var _ = Describe("Device firmware hold", func() {
 
 	Context("rendered write races", func() {
 		updateRendered := func(name, specHash string) api.Status {
-			return deviceSvc.UpdateRenderedDevice(ctx, orgId, name, "[]", "[]", specHash, "", nil, false, nil)
+			return deviceSvc.UpdateRenderedDevice(ctx, orgId, name, "[]", "[]", specHash, "", nil, nil, false, nil)
 		}
 
 		It("When an outstanding attempt is committed between the hold check and the rendered write it should retry and hold", func() {

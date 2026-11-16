@@ -2168,6 +2168,58 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			return string(b), err
 		}
 
+		It("When only configuration resources change it should publish once and retain the prior state on failure", func() {
+			const name = "resource-versioning"
+			const payload = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"","authentication":{"authType":"docker","username":"device","password":"publication-sentinel"},"consumers":[{"type":"os"}]}]}]`
+			var resources []domain.ConfigResource
+			Expect(json.Unmarshal([]byte(payload), &resources)).To(Succeed())
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{Metadata: api.ObjectMeta{Name: lo.ToPtr(name)}, Spec: &api.DeviceSpec{}})
+			Expect(status.Code).To(Equal(int32(201)))
+			publish := func(collection []domain.ConfigResource) domain.Status {
+				return suite.Device.UpdateRenderedDevice(suite.Ctx, suite.OrgID, name, "[]", "[]", "stable-hash", "os-image", collection, nil, false, nil)
+			}
+			Expect(publish(nil).Code).To(Equal(int32(200)))
+			Expect(publish(resources).Code).To(Equal(int32(200)))
+			device, err := suite.DeviceStore.GetRendered(suite.Ctx, suite.OrgID, name, nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Version()).To(Equal("2"))
+			data, err := json.Marshal(device.Spec.ConfigResources)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(data)).To(MatchJSON(payload))
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, name)
+			delivered, status := suite.Device.GetRenderedDevice(agentCtx, suite.OrgID, name, domain.GetRenderedDeviceParams{})
+			Expect(status.Code).To(Equal(int32(200)))
+			deliveredJSON, err := json.Marshal(delivered.Spec.ConfigResources)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(deliveredJSON)).To(MatchJSON(payload))
+			Expect(publish(resources).Code).To(Equal(int32(200)))
+			unchanged, err := suite.DeviceStore.GetRendered(suite.Ctx, suite.OrgID, name, lo.ToPtr("2"), "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(unchanged).To(BeNil())
+			authored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authored.Spec.ConfigResources).To(BeNil())
+			Expect(lo.FromPtr(authored.Metadata.Generation)).To(Equal(int64(1)))
+			Expect(suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, name, map[string]string{domain.DeviceAnnotationRenderedVersion: "invalid"}, nil)).To(Succeed())
+			Expect(publish(nil).Code).ToNot(Equal(int32(200)))
+			failed, err := suite.DeviceStore.GetRendered(suite.Ctx, suite.OrgID, name, nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			data, err = json.Marshal(failed.Spec.ConfigResources)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(data)).To(MatchJSON(payload))
+			Expect(suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, name, map[string]string{domain.DeviceAnnotationRenderedVersion: "2"}, nil)).To(Succeed())
+			Expect(publish(nil).Code).To(Equal(int32(200)))
+			Expect(publish([]domain.ConfigResource{}).Code).To(Equal(int32(200)))
+			cleared, err := suite.DeviceStore.GetRendered(suite.Ctx, suite.OrgID, name, nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(cleared.Version()).To(Equal("3"))
+			Expect(lo.FromPtr(cleared.Spec.ConfigResources)).To(BeEmpty())
+			events, err := json.Marshal(getEventsForDevice(name))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(events)).ToNot(ContainSubstring("publication-sentinel"))
+		})
+
 		It("persists a new rendered version, updates derived status/SpecValid, and emits events", func() {
 			deviceName := "update-rendered-device-success"
 			device := api.Device{
@@ -2180,7 +2232,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			renderedConfig, err := buildRenderedConfig("update-rendered-device-config")
 			Expect(err).ToNot(HaveOccurred())
 
-			status = suite.Device.UpdateRenderedDevice(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", "", nil, false, nil)
+			status = suite.Device.UpdateRenderedDevice(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", "", nil, nil, false, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			updated, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)

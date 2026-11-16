@@ -444,7 +444,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints, deviceservice.RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(lo.FromPtr(device.Metadata.Generation))})
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, rendered.ConfigResources, syncRefs, bypassHashCheck, osHints, deviceservice.RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(lo.FromPtr(device.Metadata.Generation))})
 	if deviceservice.IsFirmwareHold(status) {
 		t.log.Infof("Rendered output of device %s/%s is held: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 		return nil
@@ -471,9 +471,10 @@ func firmwareHoldRecorded(device *domain.Device) bool {
 }
 
 type RenderedSpec struct {
-	OsImage      string
-	Config       []byte
-	Applications []byte
+	OsImage         string
+	Config          []byte
+	Applications    []byte
+	ConfigResources []domain.ConfigResource
 
 	configFingerprints []ConfigRefFingerprint
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
