@@ -308,10 +308,11 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	}
 
 	// rollback is a basic copy of the current rendered spec
-	// which contains the rendered version and the OS image.
+	// which contains the rendered version, OS image and configuration resources.
 	rollback := newVersionedDevice(current.Version())
 	rollback.Spec = &v1beta1.DeviceSpec{
-		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
+		Os:              &v1beta1.DeviceOsSpec{Image: currentOSImage},
+		ConfigResources: current.Spec.ConfigResources,
 	}
 
 	// Store the desired version and spec hash so we know which version/content
