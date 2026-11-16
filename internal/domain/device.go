@@ -11,6 +11,7 @@ import (
 type Device = v1beta1.Device
 type DeviceList = v1beta1.DeviceList
 type DeviceSpec = v1beta1.DeviceSpec
+type ConfigResource = v1beta1.ConfigResource
 type DeviceStatus = v1beta1.DeviceStatus
 
 // ========== Status Subtypes ==========
