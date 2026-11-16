@@ -28,6 +28,10 @@ type decision struct {
 	names    []string
 }
 
+// choose evaluates peers at the most-specific matching scope. All-disabled peers
+// block inheritance; an enabled anonymous peer allows configuration but contributes
+// no credential candidate. Authenticated Read peers take precedence over ReadWrite
+// peers, and every remaining supplier identity participates in ambiguity detection.
 func choose(peers []repository) decision {
 	if len(peers) == 0 {
 		return decision{outcome: OutcomeUnmatched}
@@ -45,6 +49,7 @@ func choose(peers []repository) decision {
 		}
 		read := peer.spec.AccessMode == nil || *peer.spec.AccessMode == domain.OciRepoAccessModeRead
 		if read && !readPreferred {
+			// The first Read peer supersedes all ReadWrite peers accumulated so far.
 			winners = nil
 			readPreferred = true
 		}
@@ -57,6 +62,7 @@ func choose(peers []repository) decision {
 		result.supplier = &winners[0]
 	}
 	if len(winners) > 1 {
+		// Equal credential values still represent distinct suppliers for rotation/deletion.
 		result.outcome = OutcomeAmbiguous
 		for _, winner := range winners {
 			result.names = append(result.names, winner.name)
@@ -66,8 +72,12 @@ func choose(peers []repository) decision {
 	return result
 }
 
-// Select returns one result per input need. Any error prevents publishing the batch.
+// Select returns one result per input need, preserving its order and consumer context.
+// Malformed input rejects the entire batch. Credential ambiguities return all valid
+// outcomes alongside the error so callers can report every conflicting entry;
+// callers must reject publication whenever an error is returned.
 func (s *Snapshot) Select(needs []PullNeed) ([]Selection, error) {
+	// Resolve all input scopes before selecting credentials to avoid partial input acceptance.
 	results := make([]Selection, len(needs))
 	peersByNeed := make([][]repository, len(needs))
 	for i, need := range needs {
@@ -79,6 +89,9 @@ func (s *Snapshot) Select(needs []PullNeed) ([]Selection, error) {
 		results[i] = Selection{Need: need, Registry: registry, Scope: scope}
 		peersByNeed[i] = peers
 	}
+	// A shared auth store can contain several endpoint/path entries. Sharing decisions
+	// at this granularity preserves narrow credentials while keeping compatible
+	// consumers on one supplier, regardless of application or reference order.
 	type entryKey struct {
 		destination string
 		registry    string
@@ -103,11 +116,12 @@ func (s *Snapshot) Select(needs []PullNeed) ([]Selection, error) {
 		if selected.supplier != nil {
 			supplier, err := supplierCopy(*selected.supplier)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("select supplier for pull need %d: %w", i, err)
 			}
 			result.Supplier = supplier
 		}
 	}
+	// Stable diagnostics expose the same conflicts when needs arrive in a different order.
 	slices.SortFunc(ambiguities, func(a, b *AmbiguityError) int {
 		return cmp.Or(cmp.Compare(a.Registry, b.Registry), cmp.Compare(a.Scope, b.Scope), cmp.Compare(a.Destination, b.Destination))
 	})

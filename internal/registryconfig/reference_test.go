@@ -61,6 +61,43 @@ func TestReferenceMatching(t *testing.T) {
 	}
 }
 
+func TestHelmChartRegistryMatching(t *testing.T) {
+	registry := credential(t, "single-label", "registry", "")
+	hub := credential(t, "docker-hub", "docker.io", "")
+	both := []rc.Candidate{registry, hub}
+	for _, tt := range []struct {
+		name, ref, wantRegistry, wantSupplier string
+		consumer                              rc.Consumer
+		candidates                            []rc.Candidate
+	}{
+		{"Helm chart with transport", "oci://registry/team/chart:1", "registry", "single-label", rc.ConsumerHelmChart, both},
+		{"Helm chart without transport", "registry/team/chart:1", "registry", "single-label", rc.ConsumerHelmChart, both},
+		{"Helm chart without a matching registry", "oci://registry/team/chart:1", "registry", "", rc.ConsumerHelmChart, []rc.Candidate{hub}},
+		{"container image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerContainer, both},
+		{"Helm workload image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerHelmImage, both},
+		{"OS image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerOS, both},
+	} {
+		t.Run("When selecting a "+tt.name+" it should use the consumer's registry semantics", func(t *testing.T) {
+			s, err := rc.NewSnapshot(orgID, tt.candidates)
+			require.NoError(t, err)
+			input := need(tt.ref)
+			input.Consumer = tt.consumer
+			got, err := s.Select([]rc.PullNeed{input})
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			require.Equal(t, tt.wantRegistry, got[0].Registry)
+			require.Empty(t, got[0].Scope)
+			if tt.wantSupplier == "" {
+				require.Equal(t, rc.OutcomeUnmatched, got[0].Outcome)
+				require.Nil(t, got[0].Supplier)
+			} else {
+				require.Equal(t, rc.OutcomeSelected, got[0].Outcome)
+				require.Equal(t, tt.wantSupplier, *got[0].Supplier.Metadata.Name)
+			}
+		})
+	}
+}
+
 func TestNeedValidation(t *testing.T) {
 	s, err := rc.NewSnapshot(orgID, nil)
 	require.NoError(t, err)

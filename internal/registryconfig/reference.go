@@ -23,11 +23,16 @@ func parseNeed(need PullNeed) (registry, path string, err error) {
 	}
 	named, err := reference.ParseNormalizedNamed(raw)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid OCI reference")
+		return "", "", &inputError{message: "invalid OCI reference", cause: err}
 	}
-	registry, err = normalizeRegistry(reference.Domain(named))
+	host := reference.Domain(named)
+	if need.Consumer == ConsumerHelmChart {
+		// Helm uses an explicit registry host, including single-label DNS names.
+		host, _, _ = strings.Cut(raw, "/")
+	}
+	registry, err = normalizeRegistry(host)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid OCI reference")
+		return "", "", fmt.Errorf("invalid OCI reference: %w", err)
 	}
 	return registry, reference.Path(named), nil
 }
@@ -39,14 +44,14 @@ func normalizeRegistry(raw string) (string, error) {
 	}
 	// Repository endpoints are explicit, including single-label DNS names.
 	if _, err := reference.Parse(host + "/flightctl-scope"); err != nil {
-		return "", fmt.Errorf("invalid registry")
+		return "", &inputError{message: "invalid registry", cause: err}
 	}
 	if !strings.ContainsAny(host, ".:") && host != "localhost" {
 		return host, nil
 	}
 	named, err := reference.ParseNormalizedNamed(host + "/flightctl-scope")
 	if err != nil {
-		return "", fmt.Errorf("invalid registry")
+		return "", &inputError{message: "invalid registry", cause: err}
 	}
 	return reference.Domain(named), nil
 }
@@ -54,7 +59,7 @@ func normalizeRegistry(raw string) (string, error) {
 func repositoryScope(spec domain.OciRepoSpec) (registry, scope string, err error) {
 	registry, err = normalizeRegistry(spec.Registry)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("normalize registry: %w", err)
 	}
 	namespace, repository := "", ""
 	if spec.Namespace != nil {
@@ -83,7 +88,7 @@ func repositoryScope(spec domain.OciRepoSpec) (registry, scope string, err error
 	}
 	parsed, err := reference.Parse(raw)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid scope")
+		return "", "", &inputError{message: "invalid scope", cause: err}
 	}
 	named, ok := parsed.(reference.Named)
 	if !ok {
@@ -96,7 +101,7 @@ func repositoryScope(spec domain.OciRepoSpec) (registry, scope string, err error
 	if registry == "docker.io" && namespace == "" {
 		normalized, err := reference.ParseNormalizedNamed(raw)
 		if err != nil {
-			return "", "", fmt.Errorf("invalid scope")
+			return "", "", &inputError{message: "invalid scope", cause: err}
 		}
 		scope = reference.Path(normalized)
 	}

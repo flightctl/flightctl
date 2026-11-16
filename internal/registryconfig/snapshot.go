@@ -29,7 +29,7 @@ func NewSnapshot(orgID uuid.UUID, candidates []Candidate) (*Snapshot, error) {
 		}
 		kind, err := c.Repository.Spec.Discriminator()
 		if err != nil {
-			return nil, fmt.Errorf("invalid Repository type")
+			return nil, &inputError{message: "invalid Repository type", cause: err}
 		}
 		if kind == string(domain.RepoSpecTypeGit) || kind == string(domain.RepoSpecTypeHttp) {
 			continue
@@ -47,18 +47,18 @@ func NewSnapshot(orgID uuid.UUID, candidates []Candidate) (*Snapshot, error) {
 		names[name] = true
 		spec, err := c.Repository.Spec.AsOciRepoSpec()
 		if err != nil {
-			return nil, fmt.Errorf("invalid OCI Repository %q", name)
+			return nil, &inputError{message: fmt.Sprintf("invalid OCI Repository %q", name), cause: err}
 		}
 		if spec.AccessMode != nil && *spec.AccessMode != domain.OciRepoAccessModeRead && *spec.AccessMode != domain.OciRepoAccessModeReadWrite {
 			return nil, fmt.Errorf("invalid access mode for Repository %q", name)
 		}
 		registry, scope, err := repositoryScope(spec)
 		if err != nil {
-			return nil, fmt.Errorf("invalid scope for Repository %q", name)
+			return nil, fmt.Errorf("invalid scope for Repository %q: %w", name, err)
 		}
 		resource, err := json.Marshal(c.Repository)
 		if err != nil {
-			return nil, fmt.Errorf("invalid resource for Repository %q", name)
+			return nil, &inputError{message: fmt.Sprintf("invalid resource for Repository %q", name), cause: err}
 		}
 		if s.registries[registry] == nil {
 			s.registries[registry] = make(map[string][]repository)
@@ -92,7 +92,7 @@ func (s *Snapshot) matchingScope(registry, path string, consumer Consumer) (stri
 func supplierCopy(repo repository) (*domain.Repository, error) {
 	var result domain.Repository
 	if err := json.Unmarshal(repo.resource, &result); err != nil {
-		return nil, fmt.Errorf("invalid stored Repository %q", repo.name)
+		return nil, &inputError{message: fmt.Sprintf("invalid stored Repository %q", repo.name), cause: err}
 	}
 	return &result, nil
 }
