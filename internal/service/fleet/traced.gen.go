@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -108,14 +109,6 @@ func (_d *TracedService) ListFleets(ctx context.Context, orgId uuid.UUID, params
 	return fp1, s1
 }
 
-func (_d *TracedService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) (s1 domain.Status) {
-	ctx, span := startSpan(ctx, "OverwriteFleetRepositoryRefs")
-
-	s1 = _d.inner.OverwriteFleetRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	endSpan(span, s1)
-	return s1
-}
-
 func (_d *TracedService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchFleet")
 
@@ -130,6 +123,14 @@ func (_d *TracedService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 	fp1, s1 = _d.inner.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
 	endSpan(span, s1)
 	return fp1, s1
+}
+
+func (_d *TracedService) ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, templateSpec *domain.DeviceSpec) (r1 common.RepositoryRefsOutcome, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceFleetRepositoryRefsIfCurrent")
+
+	r1, s1 = _d.inner.ReplaceFleetRepositoryRefsIfCurrent(ctx, orgId, name, generation, templateSpec)
+	endSpan(span, s1)
+	return r1, s1
 }
 
 func (_d *TracedService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (fp1 *domain.Fleet, s1 domain.Status) {
