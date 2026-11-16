@@ -282,22 +282,25 @@ signature lookaside using the **physical import destination** (`localhost:5000`
 by default) rather than the original source registry names. Configure a single
 lookaside entry for the import destination.
 
-Create a file under `/etc/containers/registries.d/` for the import
-destination. The filename can be any `.yaml` name; use a descriptive name
-that matches the registry. Preserve any existing keys (such as
-`lookaside-staging`) if merging into an existing file. Do not add duplicate
-registry definitions across files:
+Create or edit a file under `/etc/containers/registries.d/` — the
+filename is arbitrary (any `.yaml` name works); what matters is the
+`docker` namespace key matching your import destination:
 
 ```yaml
-# /etc/containers/registries.d/localhost-5000.yaml
+# /etc/containers/registries.d/flightctl-offline.yaml
 docker:
-  localhost:5000:
+  "localhost:5000":
     lookaside: file:///var/lib/containers/sigstore
 ```
 
 If you used `--registry <host>:<port>` during import, replace
-`localhost:5000` with your actual destination registry and use a matching
-filename.
+`localhost:5000` with your actual destination registry.
+
+If a `registries.d` file already contains a `docker` section for your
+import destination, merge the `lookaside` key into that existing section.
+Preserve any other keys in that section (such as `lookaside-staging` or
+`use-sigstore-attachments`). Do not duplicate the same `docker` namespace
+across multiple `registries.d` files.
 
 > [!NOTE]
 > If your system uses a custom signature storage path (configured via

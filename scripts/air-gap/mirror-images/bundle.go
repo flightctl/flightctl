@@ -255,7 +255,7 @@ func fetchRepoFile(url, destPath string) error {
 // resolves the lookaside using the physical destination host (not the original
 // source registry), so the key must match the import registry.
 func registriesDExample(destination, lookasidePath string) string {
-	return fmt.Sprintf("docker:\n  %s:\n    lookaside: %s\n", destination, lookasidePath)
+	return fmt.Sprintf("docker:\n  \"%s\":\n    lookaside: %s\n", destination, lookasidePath)
 }
 
 // WriteImportScript writes an executable shell script to bundleDir/import.sh
@@ -345,15 +345,23 @@ echo "Because registries.conf redirects pulls to the import registry,"
 echo "the registries.d lookaside must be scoped to the physical import"
 echo "destination — not the original source registry names."
 echo ""
-echo "Create or edit: /etc/containers/registries.d/${REGISTRY//:/-}.yaml"
+echo "Create or merge into: /etc/containers/registries.d/flightctl-offline.yaml"
+echo "(The filename is arbitrary; the docker namespace key below must match"
+echo "your import destination.)"
 echo ""
 echo "  docker:"
-echo "    $REGISTRY:"
+echo "    \"$REGISTRY\":"
 echo "      lookaside: file:///var/lib/containers/sigstore"
 echo ""
+echo "If a registries.d file already contains a docker section for your"
+echo "import destination, merge the lookaside key into that existing"
+echo "section.  Preserve any other keys (such as lookaside-staging or"
+echo "use-sigstore-attachments).  Do not duplicate the same namespace"
+echo "across multiple registries.d files."
+echo ""
 echo "If your system uses a custom signature storage path (configured via"
-echo "lookaside-staging or a non-default lookaside), use the actual path"
-echo "where skopeo wrote the signatures."
+echo "lookaside-staging), use the actual path where skopeo wrote the"
+echo "signatures instead of the default shown above."
 echo ""
 echo "Do not modify /etc/containers/policy.json — signature verification"
 echo "must remain enabled.  The above configuration tells podman where to"

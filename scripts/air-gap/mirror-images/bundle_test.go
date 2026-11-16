@@ -272,19 +272,28 @@ func TestWriteImportScript(t *testing.T) {
 			if tt.wantSigstoreGuide {
 				// Guidance must reference $REGISTRY (destination scope), not
 				// individual source registry names as YAML keys.
-				require.Contains(t, script, `$REGISTRY:`,
-					"guidance must reference $REGISTRY as the YAML key")
+				// The key is quoted for safe host:port/namespace values.
+				require.Contains(t, script, `\"$REGISTRY\":`,
+					"guidance must reference quoted $REGISTRY as the YAML key")
 				require.Contains(t, script, "lookaside: file:///var/lib/containers/sigstore",
 					"guidance must include the default sigstore path")
 				// Must be a single docker: block — count echo lines with "docker:"
 				dockerEchoCount := strings.Count(script, `echo "  docker:"`)
 				require.Equal(t, 1, dockerEchoCount,
 					"guidance must show exactly one destination-scoped docker: block")
+				// Filename must be flat and fixed, not derived from destination.
+				require.Contains(t, script, "flightctl-offline.yaml",
+					"guidance must use a fixed flat filename")
 				// Source registry names must NOT appear as YAML file references.
 				require.NotContains(t, script, "registry.redhat.io.yaml",
 					"guidance must not reference source registry YAML files")
 				require.NotContains(t, script, "registry.access.redhat.com.yaml",
 					"guidance must not reference source registry YAML files")
+				// Merge/preserve/no-duplicate instructions must be present.
+				require.Contains(t, script, "merge the lookaside key",
+					"guidance must include merge instructions")
+				require.Contains(t, script, "Do not duplicate",
+					"guidance must warn against duplicate namespaces")
 			}
 
 			// When no sigstore guidance is expected, verify none is present.
@@ -519,6 +528,9 @@ func extractDestinationEchoYAML(script string) string {
 			// and the display indentation added by the template.
 			payload := trimmed[len(`echo "`):]
 			payload = strings.TrimSuffix(payload, `"`)
+			// Unescape bash double-quote escapes (\" → ") so the extracted
+			// YAML contains real quotes for the destination key.
+			payload = strings.ReplaceAll(payload, `\"`, `"`)
 			// Remove display indent (2 spaces from the echo indentation).
 			payload = strings.TrimPrefix(payload, "  ")
 			if strings.TrimSpace(payload) != "" {
