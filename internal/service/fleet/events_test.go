@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -61,6 +63,37 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, updated.UpdatedFields, domain.Spec)
 		require.Contains(t, updated.UpdatedFields, domain.SpecTemplate)
+	})
+
+	t.Run("When a template only differs by JSON union metadata it should not report a template update", func(t *testing.T) {
+		oldFleet := prepareTestFleetForEvents("f1")
+		oldFleet.Metadata.Generation = lo.ToPtr(int64(1))
+		oldFleet.Spec.Template.Spec.Os = nil
+		oldFleet.Spec.Template.Spec.UpdatePolicy = &domain.DeviceUpdatePolicySpec{
+			UpdateSchedule: &domain.UpdateSchedule{
+				At:                 lo.ToPtr("0 4 * * 1"),
+				StartGraceDuration: lo.ToPtr("1h"),
+			},
+		}
+
+		serializedFleet, err := json.Marshal(oldFleet)
+		require.NoError(t, err)
+		newFleet := &domain.Fleet{}
+		require.NoError(t, json.Unmarshal(serializedFleet, newFleet))
+		newFleet.Metadata.Generation = lo.ToPtr(int64(2))
+
+		// The typed fields are equal, but JSON unmarshalling populates the generated
+		// union field, which makes reflect.DeepEqual report a false difference.
+		require.False(t, reflect.DeepEqual(oldFleet.Spec.Template, newFleet.Spec.Template))
+
+		ev := &fakeEventsService{}
+		EmitFleetUpdatedEvent(context.Background(), ev, logrus.New(), domain.FleetKind, uuid.New(), "f1", oldFleet, newFleet, false, nil)
+
+		require.Len(t, ev.created, 1)
+		updated, err := ev.created[0].Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Contains(t, updated.UpdatedFields, domain.Spec)
+		require.NotContains(t, updated.UpdatedFields, domain.SpecTemplate)
 	})
 
 	t.Run("When the fleet-valid condition transitions to true it should emit a FleetValid event", func(t *testing.T) {

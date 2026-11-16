@@ -198,8 +198,8 @@ func TestScheduleParse(t *testing.T) {
 					s.nowFn = func() time.Time { return now }
 					err := s.Parse(logger, &v1beta1.UpdateSchedule{
 						TimeZone:           tt.timeZone,
-						At:                 tt.at,
-						StartGraceDuration: tt.grace,
+						At:                 lo.ToPtr(tt.at),
+						StartGraceDuration: lo.ToPtr(tt.grace),
 					})
 					if tt.expectedError != "" {
 						require.ErrorContains(err, tt.expectedError)
@@ -564,8 +564,8 @@ func TestIsReadyAcrossTime(t *testing.T) {
 					}
 					setupRequire.NoError(s.Parse(logger, &v1beta1.UpdateSchedule{
 						TimeZone:           lo.ToPtr(tt.timeZone),
-						At:                 tt.at,
-						StartGraceDuration: tt.grace,
+						At:                 lo.ToPtr(tt.at),
+						StartGraceDuration: lo.ToPtr(tt.grace),
 					}))
 					setupRequire.Zero(clockReads, "parsing should be independent of the current time")
 
@@ -580,6 +580,82 @@ func TestIsReadyAcrossTime(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func TestIsReadyOneTimeWindows(t *testing.T) {
+	utc := time.UTC
+	tests := []struct {
+		name           string
+		currentTime    time.Time
+		updateSchedule *v1beta1.UpdateSchedule
+		wantReady      bool
+	}{
+		{
+			name:        "When the current time is before a one-time window it should not be ready",
+			currentTime: time.Date(2026, 11, 16, 3, 59, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: false,
+		},
+		{
+			name:        "When the current time is within a one-time window it should be ready",
+			currentTime: time.Date(2026, 11, 16, 5, 0, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+		{
+			name:        "When the current time is after a one-time window grace period it should not be ready",
+			currentTime: time.Date(2026, 11, 16, 6, 1, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: false,
+		},
+		{
+			name:        "When recurring and one-time windows are provided it should be ready if either window is open",
+			currentTime: time.Date(2026, 11, 16, 5, 30, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone:           lo.ToPtr("UTC"),
+				At:                 lo.ToPtr(v1beta1.CronExpression("0 4 * * 1")),
+				StartGraceDuration: lo.ToPtr(v1beta1.Duration("1h")),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			schedule := newSchedule(Update)
+			schedule.nowFn = func() time.Time { return tt.currentTime }
+
+			require.NoError(t, schedule.Parse(logger, tt.updateSchedule))
+			require.Equal(t, tt.wantReady, schedule.IsReady(logger))
 		})
 	}
 }
