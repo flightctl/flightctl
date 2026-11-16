@@ -114,23 +114,6 @@ C4Component
     UpdateLayoutConfig($c4ShapeInRow="4", $c4BoundaryInRow="1")
 ```
 
-## Rendered device publication
-
-The device store keeps authored specifications separate from rendered configuration,
-applications, and configuration resources. Rendered `configResources` use a dedicated
-encrypted JSONB column and are included when assembling an agent's rendered specification.
-Encryption migration and key rotation include this column, including resource-only rows.
-
-Publication updates configuration resources, configuration, applications, OS data,
-transfer estimates, and version annotations in one optimistic-lock update.
-Resource-only changes advance the rendered version. Identical resources preserve the
-existing no-op behavior, including its force-update and dependency-change overrides.
-Comparison reads the prior resources from the same row snapshot and refreshes them on retry.
-Resource contents stay separate from authored-spec event snapshots and version annotations.
-
-The agent retains configuration resources in saved current, desired, and rollback
-specifications, preserving explicit boolean values through restart.
-
 ## On-boarding Sequence
 
 ```mermaid

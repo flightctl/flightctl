@@ -57,9 +57,25 @@ func TestSavedConfigResources(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, s.Upgrade(ctx))
 			require.NoError(t, s.CreateRollback(ctx))
+			rollback, err := s.Read(Rollback)
+			require.NoError(t, err)
+			require.Nil(t, rollback.Spec.ConfigResources)
+			require.Equal(t, "os-image", rollback.Spec.Os.Image)
+			pending := newVersionedDevice("3")
+			pendingJSON, err := json.Marshal(pending)
+			require.NoError(t, err)
+			files[s.desiredPath] = pendingJSON
+			_, err = s.Read(Desired)
+			require.NoError(t, err)
+			rw.EXPECT().CopyFile(s.currentPath, s.desiredPath).DoAndReturn(func(src, dst string) error {
+				files[dst] = append([]byte(nil), files[src]...)
+				return nil
+			})
+			queue.EXPECT().Add(gomock.Any(), gomock.Any())
+			require.NoError(t, s.Rollback(ctx))
 			// Read through a fresh manager to exercise restoration from saved JSON.
 			restored := &manager{log: logger, cache: newCache(logger), deviceReadWriter: rw, currentPath: s.currentPath, desiredPath: s.desiredPath, rollbackPath: s.rollbackPath}
-			for _, kind := range []Type{Current, Desired, Rollback} {
+			for _, kind := range []Type{Current, Desired} {
 				device, err := restored.Read(kind)
 				require.NoError(t, err)
 				data, err := json.Marshal(device.Spec.ConfigResources)

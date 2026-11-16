@@ -100,7 +100,7 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 		holdTestDevice(t, st, orgId, nil, holdTestFirmware(), nil)
 		before := deepCopyDevice(st.device.devices["dev"])
 
-		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "new-hash", "", nil, nil, false, nil)
+		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "new-hash", "", nil, false, nil)
 
 		requireHeld(t, st, ev, status, before)
 	})
@@ -112,7 +112,7 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 			holdTestDevice(t, st, orgId, nil, nil, holdTestAttempt(phase))
 			before := deepCopyDevice(st.device.devices["dev"])
 
-			status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "new-hash", "", nil, nil, true, nil)
+			status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "new-hash", "", nil, true, nil)
 
 			requireHeld(t, st, ev, status, before)
 		})
@@ -122,10 +122,10 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 		st, _, svc := newTestHandler()
 		orgId := uuid.New()
 		holdTestDevice(t, st, orgId, nil, holdTestFirmware(), nil)
-		require.True(t, IsFirmwareHold(svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "new-hash", "", nil, nil, false, nil)))
+		require.True(t, IsFirmwareHold(svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "new-hash", "", nil, false, nil)))
 		writes := st.device.deviceWrites
 
-		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "new-hash", "", nil, nil, false, nil)
+		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "new-hash", "", nil, false, nil)
 
 		require.True(t, IsFirmwareHold(status))
 		assert.Equal(t, writes, st.device.deviceWrites)
@@ -142,7 +142,7 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 			}
 		}
 
-		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "hash", "", nil, nil, false, nil)
+		status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "hash", "", nil, false, nil)
 
 		require.True(t, IsFirmwareHold(status), status.Message)
 		requireFirmwareHoldCondition(t, st.device.devices["dev"])
@@ -158,7 +158,7 @@ func TestUpdateRenderedDeviceFirmwareHold(t *testing.T) {
 			holdTestDevice(t, st, orgId, nil, nil, holdTestAttempt(phase))
 			st.device.devices["dev"].Status.Conditions = nil
 
-			status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "hash", "", nil, nil, false, nil)
+			status := svc.UpdateRenderedDevice(context.Background(), orgId, "dev", "config", "apps", "", "hash", "", nil, false, nil)
 
 			require.Equal(t, int32(http.StatusOK), status.Code, status.Message)
 			condition := domain.FindStatusCondition(st.device.devices["dev"].Status.Conditions, domain.ConditionTypeDeviceSpecValid)

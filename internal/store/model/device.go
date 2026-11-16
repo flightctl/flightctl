@@ -307,21 +307,6 @@ func decryptRenderedField(ctx context.Context, field *JSONField[json.RawMessage]
 	return raw, nil
 }
 
-// DecryptedConfigResources returns the separately stored rendered intent.
-func (d *Device) DecryptedConfigResources(ctx context.Context) ([]domain.ConfigResource, error) {
-	data, err := decryptRenderedField(ctx, d.RenderedConfigResources)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt rendered configuration resources: %w", err)
-	}
-	var resources []domain.ConfigResource
-	if data != nil {
-		if err := json.Unmarshal(data, &resources); err != nil {
-			return nil, fmt.Errorf("invalid stored configuration resources")
-		}
-	}
-	return resources, nil
-}
-
 func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error) {
 	if d == nil {
 		return &domain.Device{}, nil
@@ -387,11 +372,13 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 			}
 			spec.Config = &config
 		}
-		resources, err := d.DecryptedConfigResources(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if resources != nil {
+		if data, err := decryptRenderedField(ctx, d.RenderedConfigResources); err != nil {
+			return nil, fmt.Errorf("decrypt rendered config resources: %w", err)
+		} else if data != nil {
+			var resources []domain.ConfigResource
+			if err := json.Unmarshal(data, &resources); err != nil {
+				return nil, fmt.Errorf("unmarshal rendered config resources: %w", err)
+			}
 			spec.ConfigResources = &resources
 		}
 		if data, err := decryptRenderedField(ctx, d.RenderedApplications); err != nil {

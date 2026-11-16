@@ -209,11 +209,9 @@ var _ = Describe("Encryption migration", func() {
 		runUntilComplete(newMigrator(), domain.DeviceKind, orgId)
 		Expect(db.WithContext(ctx).First(&device, "org_id = ? AND name = ?", orgId, "resources-only").Error).To(Succeed())
 		Expect(string(device.RenderedConfigResources.Data)).To(ContainSubstring("enc:v1:resources-rotated:"))
-		resources, err := device.DecryptedConfigResources(ctx)
-		Expect(err).ToNot(HaveOccurred())
-		data, err := json.Marshal(resources)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(string(data)).To(MatchJSON(payload))
+		var ciphertext string
+		Expect(json.Unmarshal(device.RenderedConfigResources.Data, &ciphertext)).To(Succeed())
+		Expect(decryptString(ciphertext)).To(MatchJSON(payload))
 	})
 
 	It("When interrupted mid-scan it should resume from the checkpoint", func() {
