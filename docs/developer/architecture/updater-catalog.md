@@ -255,7 +255,8 @@ container, and it does not extract, publish or run payload files.
    requested access outside the local `firmware.updater-access` policy.
 4. A verified record is reused when it still matches the release and the image
    is present. Otherwise the fetcher pulls `<repository>@<packageDigest>` under
-   a per-call signature policy and confirms the local image digest.
+   a per-call signature policy, bounded by the agent `pull-timeout` setting,
+   and confirms the local image digest.
 5. The fetcher mounts the image and reads `updater/manifest.json` beneath the
    mount root without following a symbolic link in any path component. The
    read must be a regular file of at most 1 MiB. The image is then unmounted.
@@ -510,7 +511,8 @@ updater access, because it may have changed the policy. YAML syntax errors in
 the main configuration file still stop the agent. Quote entries that look like
 numbers or booleans, such as `"123"` or `"on"`, because they are not converted
 to strings. A configuration reload applies the same rules, and
-`Fetcher.ReloadConfig` applies the reloaded policy to the next fetch.
+`Fetcher.ReloadConfig` applies the reloaded policy and pull timeout to the next
+fetch.
 
 This comparison decides only whether a release may be prepared on the device.
 Declared access is not runtime confinement: invoking updater code will require

@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 	catalog "github.com/flightctl/flightctl/internal/service/updatercatalog"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -54,12 +55,14 @@ type fakePodman struct {
 	mountExit                 int
 	unmountStderr             string
 	unmountExit, existsResult int
+	pullDeadline              time.Time
 }
 
-func (p *fakePodman) execute(_ context.Context, _ string, args ...string) (string, string, int) {
+func (p *fakePodman) execute(ctx context.Context, _ string, args ...string) (string, string, int) {
 	p.calls = append(p.calls, append([]string(nil), args...))
 	switch subcommand(args) {
 	case "pull":
+		p.pullDeadline, _ = ctx.Deadline()
 		if p.onPull != nil {
 			p.onPull(args)
 		}
@@ -982,4 +985,36 @@ func TestFetchHonorsCurrentAuthorizationBeforeUsingARecord(t *testing.T) {
 			require.NoError(err, "the record is kept as evidence")
 		})
 	}
+}
+
+func TestFetchBoundsThePullByTheAgentPullTimeout(t *testing.T) {
+	requirePullBound := func(t *testing.T, h *fetchHarness, started time.Time, want time.Duration) {
+		t.Helper()
+		require.False(t, h.podman.pullDeadline.IsZero(), "the pull must run with a deadline")
+		bound := h.podman.pullDeadline.Sub(started)
+		require.True(t, bound > want-time.Minute && bound <= want+time.Second, "pull bounded by %s, want %s", bound, want)
+	}
+
+	t.Run("When the agent configures a pull timeout it should bound the pull by it", func(t *testing.T) {
+		h := newFetchHarness(t)
+		h.cfg.PullTimeout = util.Duration(25 * time.Minute)
+		started := time.Now()
+		_, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+		require.NoError(t, err)
+		requirePullBound(t, h, started, 25*time.Minute)
+	})
+
+	t.Run("When a reload changes the pull timeout it should bound the next pull by the new value", func(t *testing.T) {
+		h := newFetchHarness(t)
+		h.cfg.PullTimeout = util.Duration(25 * time.Minute)
+		fetcher := h.fetcher()
+		reloaded := config.NewDefault()
+		reloaded.Firmware.UpdaterAccess = allowWorkspace()
+		reloaded.PullTimeout = util.Duration(3 * time.Minute)
+		require.NoError(t, fetcher.ReloadConfig(context.Background(), reloaded))
+		started := time.Now()
+		_, err := fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
+		require.NoError(t, err)
+		requirePullBound(t, h, started, 3*time.Minute)
+	})
 }
