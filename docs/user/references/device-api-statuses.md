@@ -103,7 +103,7 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 On agents with a stable version of 1.5 or newer, `Rebooting` confirms a forward reboot. Older agents may also use that reason for rollback, so it does not confirm the direction. An unknown or development agent version is also ambiguous. These reports retain `Updating` with unavailable stage detail.
 
-During a rollback OS reboot, the Updating reason remains `RollingBack` while `device.status.summary.status` is `Rebooting`. After the agent restarts, the reboot summary is cleared before it reports ordinary rollback work or the final outcome.
+When rollback starts, any earlier forward-reboot summary is cleared. During a rollback OS reboot, the Updating reason remains `RollingBack` while `device.status.summary.status` is `Rebooting`. After the agent restarts, that reboot summary is cleared before it reports ordinary rollback work or the final outcome.
 
 The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
 

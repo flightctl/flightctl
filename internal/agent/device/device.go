@@ -397,15 +397,7 @@ func (a *Agent) handleFailedUpgrade(ctx context.Context, current, desired *v1bet
 }
 
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncErr error, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) (bool, error) {
-	updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
-		Type:    v1beta1.ConditionTypeDeviceUpdating,
-		Status:  v1beta1.ConditionStatusTrue,
-		Reason:  string(v1beta1.UpdateStateRollingBack),
-		Message: "Device is rolling back to the previous renderedVersion: " + current.Version(),
-	})
-	if updateErr != nil {
-		a.log.Warnf("Failed setting status: %v", updateErr)
-	}
+	a.reportRollingBack(ctx, current)
 
 	needsOSRollback := false
 	if !errors.IsRetryable(syncErr) && a.specManager.ShouldApplyOSImageUpdate() {
@@ -421,6 +413,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		if err := syncFn(ctx, desired, current); err != nil {
 			a.log.Warnf("Rollback sync completed with errors, proceeding with OS rollback: %v", err)
 		}
+		a.reportRollingBack(ctx, current)
 		syncMsg := formatSyncErrorMessage(desired, syncErr)
 		// Persisting the error is best-effort and must not prevent rebooting into the rollback OS.
 		if err := a.specManager.RecordRollbackError(ctx, syncMsg); err != nil {
@@ -442,6 +435,24 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 	}
 
 	return false, syncFn(ctx, desired, current)
+}
+
+func (a *Agent) reportRollingBack(ctx context.Context, current *v1beta1.Device) {
+	_, err := a.statusManager.Update(ctx, func(deviceStatus *v1beta1.DeviceStatus) error {
+		if deviceStatus.Summary.Status == v1beta1.DeviceSummaryStatusRebooting {
+			deviceStatus.Summary.Status = v1beta1.DeviceSummaryStatusUnknown
+			deviceStatus.Summary.Info = nil
+		}
+		return nil
+	}, status.SetCondition(v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStateRollingBack),
+		Message: "Device is rolling back to the previous renderedVersion: " + current.Version(),
+	}))
+	if err != nil {
+		a.log.Warnf("Failed setting status: %v", err)
+	}
 }
 
 func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec, syncMsg string) error {
