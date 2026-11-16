@@ -253,13 +253,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			if setErr := a.specManager.SetUpgradeFailed(desired.Version(), desired.SpecHash()); setErr != nil {
 				a.log.Errorf("Failed to set upgrade failed: %v", setErr)
 			}
-			rebootPending, rbErr := a.rollbackDevice(ctx, current, desired, err, a.sync)
-			if rbErr != nil {
-				a.log.Errorf("Rollback did not complete cleanly: %v", rbErr)
-			}
-			if !rebootPending {
-				a.handleSyncError(ctx, desired, err)
-			}
+			a.handleFailedUpgrade(ctx, current, desired, err)
 		}
 		return
 	}
@@ -304,14 +298,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 		}
 
-		rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, a.sync)
-		if rollbackErr != nil {
-			a.log.Errorf("Rollback did not complete cleanly: %v", rollbackErr)
-		}
-
-		if !rebootPending {
-			a.handleSyncError(ctx, desired, syncErr)
-		}
+		a.handleFailedUpgrade(ctx, current, desired, syncErr)
 		return
 	}
 
@@ -397,6 +384,16 @@ func (a *Agent) handleMissingSpec(ctx context.Context, err error) bool {
 	}
 	a.log.Fatalf("Exiting due to missing spec file")
 	return true
+}
+
+func (a *Agent) handleFailedUpgrade(ctx context.Context, current, desired *v1beta1.Device, syncErr error) {
+	rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, a.sync)
+	if rollbackErr != nil {
+		a.log.Errorf("Rollback did not complete cleanly: %v", rollbackErr)
+	}
+	if !rebootPending {
+		a.handleSyncError(ctx, desired, syncErr)
+	}
 }
 
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncErr error, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) (bool, error) {
