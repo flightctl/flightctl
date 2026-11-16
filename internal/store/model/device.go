@@ -35,6 +35,8 @@ type Device struct {
 	// keeping the tag prevents GORM from attempting a column type migration.
 	RenderedConfig *JSONField[json.RawMessage] `gorm:"type:jsonb"`
 
+	RenderedConfigResources *JSONField[json.RawMessage] `gorm:"type:jsonb"`
+
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
@@ -299,6 +301,21 @@ func decryptRenderedField(ctx context.Context, field *JSONField[json.RawMessage]
 	return raw, nil
 }
 
+// DecryptedConfigResources returns the separately stored rendered intent.
+func (d *Device) DecryptedConfigResources(ctx context.Context) ([]domain.ConfigResource, error) {
+	data, err := decryptRenderedField(ctx, d.RenderedConfigResources)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt rendered configuration resources: %w", err)
+	}
+	var resources []domain.ConfigResource
+	if data != nil {
+		if err := json.Unmarshal(data, &resources); err != nil {
+			return nil, fmt.Errorf("invalid stored configuration resources")
+		}
+	}
+	return resources, nil
+}
+
 func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error) {
 	if d == nil {
 		return &domain.Device{}, nil
@@ -363,6 +380,13 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 				return nil, fmt.Errorf("unmarshal rendered config: %w", err)
 			}
 			spec.Config = &config
+		}
+		resources, err := d.DecryptedConfigResources(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if resources != nil {
+			spec.ConfigResources = &resources
 		}
 		if data, err := decryptRenderedField(ctx, d.RenderedApplications); err != nil {
 			return nil, fmt.Errorf("decrypt rendered applications: %w", err)

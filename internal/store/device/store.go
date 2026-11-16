@@ -128,9 +128,10 @@ type DeviceStore struct {
 // that are not represented directly on domain.Device. When set on
 // DeviceMutation, Mutate persists them and bumps render_timestamp.
 type DeviceRendered struct {
-	Config       string
-	Applications string
-	OsImage      string
+	Config          string
+	ConfigResources string
+	Applications    string
+	OsImage         string
 	// DeltaImage is the control-plane hint stored in the rendered OS spec.
 	DeltaImage     *string
 	DeltaEstimates *DeviceDeltaEstimates
@@ -186,8 +187,9 @@ func applyRenderedDeltaEstimates(device *model.Device, estimates *DeviceDeltaEst
 // DeviceMutation is the unit apply mutates. Handlers decide all field changes.
 // Device is nil on the create path until apply assigns it.
 type DeviceMutation struct {
-	Device   *domain.Device
-	Rendered *DeviceRendered
+	Device                 *domain.Device
+	Rendered               *DeviceRendered
+	CurrentConfigResources []domain.ConfigResource
 	// PreserveGeneration keeps metadata.generation unchanged on PersistUpdate
 	// even when Spec changes (e.g. decommission historically did not bump it).
 	PreserveGeneration bool
@@ -199,6 +201,11 @@ func (m *DeviceMutation) SetResource(device *domain.Device) { m.Device = device 
 
 func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) {
 	out := &DeviceMutation{PreserveGeneration: m.PreserveGeneration}
+	resources, err := store.CloneJSON(&m.CurrentConfigResources)
+	if err != nil {
+		return nil, err
+	}
+	out.CurrentConfigResources = *resources
 	if m.Device != nil {
 		cloned, err := store.CloneJSON(m.Device)
 		if err != nil {
@@ -250,6 +257,7 @@ type DeviceApplyFunc func(m *DeviceMutation) error
 
 type mutateConfig struct {
 	withTimestamp                        bool
+	withRenderedConfigResources          bool
 	allowDecommissionManagedLabelCleanup bool
 	preserveOmittedManagedLabels         bool
 	explicitLabelRemovalPaths            map[string]struct{}
@@ -264,6 +272,11 @@ func WithTimestamp() MutateOption {
 	return func(c *mutateConfig) {
 		c.withTimestamp = true
 	}
+}
+
+// WithRenderedConfigResources loads storage-only comparison data with the device snapshot.
+func WithRenderedConfigResources() MutateOption {
+	return func(c *mutateConfig) { c.withRenderedConfigResources = true }
 }
 
 // WithDecommissionManagedLabelCleanup allows decommission to remove all labels
@@ -714,9 +727,13 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		previous = nil
 	}
 
+	var currentResources []domain.ConfigResource
+	if cfg.withRenderedConfigResources {
+		previous = nil
+	}
 	hooks := store.MutateHooks[domain.Device]{
 		Wrap: func(device *domain.Device) store.ResourceMutation[domain.Device] {
-			return &DeviceMutation{Device: device}
+			return &DeviceMutation{Device: device, CurrentConfigResources: currentResources}
 		},
 		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Device]) (*domain.Device, error) {
 			dm := m.(*DeviceMutation)
@@ -727,13 +744,23 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 			return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
 		},
 	}
-	if cfg.withTimestamp {
+	if cfg.withTimestamp || cfg.withRenderedConfigResources {
 		hooks.Load = func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-			device, err := s.getWithTimestamp(ctx, orgId, name)
+			currentResources = nil
+			device, err := s.loadWithTimestamp(ctx, orgId, name)
 			if errors.Is(err, flterrors.ErrResourceNotFound) {
 				return nil, nil
 			}
-			return device, err
+			if err != nil {
+				return nil, err
+			}
+			if cfg.withRenderedConfigResources {
+				currentResources, err = device.DecryptedConfigResources(ctx)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return device.ToApiResource()
 		}
 	}
 
@@ -876,6 +903,11 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 			cfg = "[]"
 		}
 		deviceModel.RenderedConfig = model.MakeJSONField(json.RawMessage(cfg))
+		resources := rendered.ConfigResources
+		if strings.TrimSpace(resources) == "" {
+			resources = "[]"
+		}
+		deviceModel.RenderedConfigResources = model.MakeJSONField(json.RawMessage(resources))
 		apps := rendered.Applications
 		if strings.TrimSpace(apps) == "" {
 			apps = "[]"
@@ -963,6 +995,11 @@ func (s *DeviceStore) update(ctx context.Context, orgId uuid.UUID, before, devic
 		if strings.TrimSpace(apps) == "" {
 			apps = "[]"
 		}
+		resources := rendered.ConfigResources
+		if strings.TrimSpace(resources) == "" {
+			resources = "[]"
+		}
+		updates["rendered_config_resources"] = &resources
 		updates["rendered_config"] = &cfg
 		updates["rendered_applications"] = &apps
 		updates["rendered_os"] = model.MakeJSONField(renderedOsSpec(rendered))
@@ -1016,6 +1053,14 @@ func preserveDeltaEstimatesFromSnapshot(updated, existing *model.Device) {
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
+	device, err := s.loadWithTimestamp(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+	return device.ToApiResource(opts...)
+}
+
+func (s *DeviceStore) loadWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*model.DeviceWithTimestamp, error) {
 	var deviceModel model.DeviceWithTimestamp
 	// LEFT JOIN so a devices row without a device_timestamps row still loads
 	// (LastSeen nil → disconnected), instead of masquerading as not-found/create.
@@ -1029,11 +1074,7 @@ func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, nam
 	if device.RowsAffected == 0 {
 		return nil, flterrors.ErrResourceNotFound
 	}
-	ret, err := deviceModel.ToApiResource(opts...)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
+	return &deviceModel, nil
 }
 
 func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {

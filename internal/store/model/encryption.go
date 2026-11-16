@@ -40,6 +40,7 @@ var encryptionRegistry = []EncryptedField{
 	{domain.AuthProviderKind, []string{"Spec", "clientSecret"}},
 	{domain.EnrollmentHookPolicyKind, []string{"Spec", "afterEnrolling", "controlPlaneActions", "[]", "auth", "bearerToken"}},
 	{domain.DeviceKind, []string{"RenderedConfig"}},
+	{domain.DeviceKind, []string{"RenderedConfigResources"}},
 	{domain.DeviceKind, []string{"RenderedApplications"}},
 	{EnrollmentHookNotifySecretKind, []string{"BearerToken"}},
 }

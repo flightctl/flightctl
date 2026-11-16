@@ -156,7 +156,7 @@ func (r *deviceEncryptionResource) NextPage(ctx context.Context, orgID uuid.UUID
 	}
 	var rows []model.Device
 	q := r.db.WithContext(ctx).Model(&model.Device{}).
-		Where("org_id = ? AND (rendered_config IS NOT NULL OR rendered_applications IS NOT NULL)", orgID).
+		Where("org_id = ? AND (rendered_config IS NOT NULL OR rendered_applications IS NOT NULL OR rendered_config_resources IS NOT NULL)", orgID).
 		Order("name ASC").
 		Limit(limit)
 	if afterName != "" {
@@ -190,7 +190,7 @@ func (r *deviceMigratableRow) Persist(ctx context.Context) error {
 	expected := resourceVersionValue(r.row.ResourceVersion)
 	newRV := expected + 1
 	r.row.ResourceVersion = &newRV
-	return persistMigratedModel(ctx, r.db, r.row, r.row.OrgID, r.row.Name, expected, []string{"RenderedConfig", "RenderedApplications", "ResourceVersion", "UpdatedAt"})
+	return persistMigratedModel(ctx, r.db, r.row, r.row.OrgID, r.row.Name, expected, []string{"RenderedConfig", "RenderedApplications", "RenderedConfigResources", "ResourceVersion", "UpdatedAt"})
 }
 
 func migrateModelRow(ctx context.Context, row any, kind string, encrypt encryption.EncryptFunc, mgr *encryption.Manager, handler encryption.ModelEncryptHandler) (bool, []string, error) {

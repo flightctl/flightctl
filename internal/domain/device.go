@@ -11,6 +11,7 @@ import (
 type Device = v1beta1.Device
 type DeviceList = v1beta1.DeviceList
 type DeviceSpec = v1beta1.DeviceSpec
+type ConfigResource = v1beta1.ConfigResource
 type DeviceStatus = v1beta1.DeviceStatus
 
 // ========== Status Subtypes ==========
@@ -169,6 +170,10 @@ const (
 type TerminalSize = v1beta1.TerminalSize
 type DeviceConsoleSessionMetadata = v1beta1.DeviceConsoleSessionMetadata
 type DeviceCommand = v1beta1.DeviceCommand
+
+func ValidateConfigResources(resources []ConfigResource) []error {
+	return v1beta1.ValidateConfigResources(resources)
+}
 
 // NewDeviceStatus creates a new DeviceStatus with default values
 func NewDeviceStatus() DeviceStatus {
