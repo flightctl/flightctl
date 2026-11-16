@@ -225,6 +225,336 @@ never changes spec, retry generation, rollback or pinned attempt data and never
 executes code or arms a reboot. Mutation remains fenced pending execution and
 post-arm hold integration and qualification.
 
+## Agent updater code fetch and verification
+
+The agent package `internal/agent/device/firmware` contains a fetcher that
+obtains and authenticates the code of one approved updater release. Nothing
+calls it yet: firmware preparation will invoke it for the selected release.
+Firmware holds, unmanaged devices and support reporting are unchanged.
+
+The fetcher never executes image content. It runs only `podman pull`,
+`podman image inspect`, `podman image exists`, `podman image mount` and
+`podman image unmount`. It never runs an image entrypoint or an updater
+container, and it does not extract, publish or run payload files.
+
+### Fetch sequence
+
+`Fetch(name, version)` performs these checks in order:
+
+1. The release must be bound in the accepted policy and approved. A missing
+   binding, a tombstone or unavailable retained policy stops the fetch.
+2. The descriptor is decoded strictly: exact-case keys, no unknown or
+   duplicate keys and no trailing content. It must match its binding digest
+   and identity and carry a `sha256` package digest. Its publisher policy must
+   be a version 1 keyed `sigstoreSigned` requirement with an `exactRepository`
+   identity for a canonical repository without tag or digest, matching its
+   policy digest. Every schema digest must cover its exact bytes, and the
+   requested access must satisfy the catalog's access rules.
+3. Before any podman command, the fetcher rejects an unsupported protocol
+   (only protocol 1 is supported), any declared runtime dependency, and
+   requested access outside the local `firmware.updater-access` policy.
+4. A verified record is reused when it still matches the release and the image
+   is present. Otherwise the fetcher pulls `<repository>@<packageDigest>` under
+   a per-call signature policy and confirms the local image digest.
+5. The fetcher mounts the image and reads `updater/manifest.json` beneath the
+   mount root without following a symbolic link in any path component. The
+   read must be a regular file of at most 1 MiB. The image is then unmounted.
+6. The manifest must satisfy the closed updater manifest contract and bind the
+   approved release. Only then is a verified record written and a verified
+   package returned.
+
+### Trust layering
+
+Three checks apply, and none substitutes for another:
+
+- The approved descriptor authorizes the release.
+- The immutable package digest pins the content. The fetcher never pulls a tag.
+- A keyed sigstore signature for the exact repository authenticates the
+  publisher. The key and repository come only from the approved descriptor.
+
+Registry credentials only authenticate the transport. They never establish
+trust.
+
+For each pull the fetcher writes a containers signature policy to
+`<DataDir>/firmware/signature-policy/<descriptor-digest-hex>.json` with mode
+`0600` and removes it after the pull. It contains public key data only. It
+rejects every image by default and admits only the approved key for the exact
+repository:
+
+```json
+{
+  "default": [{"type": "reject"}],
+  "transports": {
+    "docker": {
+      "quay.io/example/updater": [
+        {
+          "type": "sigstoreSigned",
+          "keyData": "<base64-encoded PEM public key>",
+          "signedIdentity": {"type": "exactRepository", "dockerRepository": "quay.io/example/updater"}
+        }
+      ]
+    }
+  }
+}
+```
+
+### Host prerequisites
+
+The device administrator provides these prerequisites. The agent never writes
+host container configuration.
+
+- The agent runs rootful podman. Image mounts require root.
+- Podman supports `podman pull --signature-policy`. Supported device podman
+  versions remain a qualification item.
+- Sigstore attachment discovery is enabled for each approved updater
+  repository, for example in `/etc/containers/registries.d/updaters.yaml`:
+
+  ```yaml
+  docker:
+    quay.io/example/updater:
+      use-sigstore-attachments: true
+  ```
+
+- An authenticated registry needs credentials in the root containers auth file,
+  `/root/.config/containers/auth.json`. The agent resolves this path through its
+  pull configuration resolver: an inline file at this path in the desired
+  device specification is used through a temporary copy, otherwise the file on
+  disk is used. Without a file no `--authfile` is passed. Podman's own default
+  credential lookup then applies as for other agent pulls, but it is not a
+  supported credential source for updater code. The fetcher never reads,
+  copies, logs or records credential content. Credentials resolve only while
+  the resolver is initialized for an update, so the fetch belongs inside that
+  update lifecycle.
+- Native overlay storage mounts images read-only. `fuse-overlayfs`, which
+  podman uses when container storage lies on overlayfs, mounts them read-write.
+  The fetcher does not depend on a read-only mount: it never writes beneath the
+  mount and reads only through the link-refusing, bounded read.
+
+### Failure reasons
+
+Failures are typed with the reasons used in firmware status:
+
+- `UpdaterUnavailable`: no binding, an unapproved or revoked release,
+  unavailable policy, a descriptor that fails strict decoding or a catalog
+  access rule, a signature policy rejection, a digest mismatch, a missing,
+  symbolic link, oversized, malformed or mismatched manifest, and registry or
+  authentication failures.
+- `FirmwareNotSupported`: an unsupported protocol, any declared runtime
+  dependency, or requested access outside the local maxima, including the
+  deny-all policy left by invalid local configuration.
+
+Only pull failures other than a signature policy rejection are retryable,
+such as a registry outage or an authentication failure. The element of every
+error is the release `<name>/<version>`.
+
+A pull rejected by the signature policy reports exactly this message:
+
+```text
+updater <name>/<version>: publisher signature verification failed for <repository>@<digest>; the image must be signed by the approved publisher key for this exact repository, and the host must enable sigstore attachment discovery (use-sigstore-attachments) for <repository>
+```
+
+It names both remedies: sign the image with the approved key for this exact
+repository, and enable sigstore attachment discovery for the repository on the
+host. The podman reason is logged and kept as the wrapped cause, not in the
+message.
+
+### Updater manifest
+
+An updater image carries `/updater/manifest.json` and its payload beneath
+`/updater/payload/`. The manifest is a closed `updater-manifest/v1` document:
+
+| Field | Type | Rule |
+|-------|------|------|
+| `apiVersion` | string | exactly `updater-manifest/v1` |
+| `name` | string | equals the approved release name |
+| `version` | string | equals the approved release version |
+| `protocol` | integer | equals the approved protocol; only `1` is supported |
+| `entrypoint` | string | payload path naming a listed file marked executable |
+| `dependencies` | array | must be `[]` |
+| `schemas` | object | exactly `config`, `observation`, `request`, `result` and `checkpoint`, each equal to the approved schema digest |
+| `files` | array | at least one object with exactly `path`, `sha256`, `size` and `executable` |
+| `files[].path` | string | payload path, unique, not a parent directory of another listed path |
+| `files[].sha256` | string | 64 lowercase hexadecimal digits without a prefix |
+| `files[].size` | integer | from `0` to `9223372036854775807` |
+| `files[].executable` | boolean | `true` or `false` |
+
+Every field is required and `null` is rejected. Schema digests use the
+`sha256:<64 lowercase hexadecimal digits>` form. Integers must be plain
+non-negative integer tokens: no sign, fraction, exponent or leading zero.
+
+Payload paths are relative to `/updater/`. A payload path is a clean relative
+path without empty, `.` or `..` components or a NUL byte, and it lies strictly
+beneath `payload/`. For example, `payload/bin/updater` names
+`/updater/payload/bin/updater`. A path that is only a string prefix of another
+path, such as `payload/bin` and `payload/binary`, is allowed.
+
+The document must be a single JSON object followed only by whitespace. Unknown
+keys, duplicate keys, keys that differ only by case, and values of the wrong
+JSON type are rejected at every level. The manifest digest is the SHA-256 of
+the exact bytes read.
+
+This example binds a release named `vendor-uefi` version `1.4.2` whose schema
+documents are `{"title":"<key>","type":"object"}`:
+
+```json
+{
+  "apiVersion": "updater-manifest/v1",
+  "name": "vendor-uefi",
+  "version": "1.4.2",
+  "protocol": 1,
+  "entrypoint": "payload/bin/updater",
+  "dependencies": [],
+  "schemas": {
+    "config": "sha256:30f8846d7c81099cd8df2bc46ff49e8773141872fd5f3b945c0daff540c18aff",
+    "observation": "sha256:c27ee3be6dbff3e2ea17796af0cc2c87e5efb40d177ca205ee2929923f54669e",
+    "request": "sha256:1c5318c38d3cc8e1a6805576610151adf4cd8146444942e885a9daa3adda179a",
+    "result": "sha256:d43b7a6fa394712f500bd5f8ff4488f0943fcad506d1efa5eb332921538db563",
+    "checkpoint": "sha256:5382edc26276a0bedb506412928054659ef9d95c05f9d9083afe1cd916c1afac"
+  },
+  "files": [
+    {
+      "path": "payload/bin/updater",
+      "sha256": "905820073c735d475b79b03ae8617e4a495027dba3c83f5df6fe6536a3d1ed8b",
+      "size": 23,
+      "executable": true
+    },
+    {
+      "path": "payload/share/vendor/README",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "executable": false
+    }
+  ]
+}
+```
+
+The path rules are syntax checks only. The fetcher does not compare payload
+bytes with `files`, and it does not walk, open or copy anything beneath
+`/updater/payload/`.
+
+### Local updater access policy
+
+The agent configuration section `firmware.updater-access` sets the maximum
+access an approved release may declare in each phase. It denies all access by
+default. Each of `prepare`, `apply` and `verify` accepts these fields:
+`network-repositories`, `credential-repositories`, `read-paths`, `write-paths`,
+`read-devices`, `write-devices` and `workspace-write`. An omitted phase permits
+no access.
+
+The catalog's mandatory phase restrictions also apply to the local policy, and
+a local policy that grants more is invalid:
+
+- Only `prepare` may use network repositories and source credentials, and each
+  credential repository must also be a network repository of that phase.
+- Only `apply` may write host paths or devices.
+- `verify` must be read-only, including its workspace.
+- Repository entries are logical repository names such as `vendor-firmware`,
+  not image references or URLs.
+- Paths are explicit clean absolute paths without wildcards. Device entries
+  are paths under `/dev/`. Entries are unique within each list.
+
+Use a dedicated drop-in, for example `/etc/flightctl/conf.d/50-firmware.yaml`:
+
+```yaml
+firmware:
+  updater-access:
+    prepare:
+      network-repositories:
+        - vendor-firmware
+      credential-repositories:
+        - vendor-firmware
+      read-paths:
+        - /etc/vendor
+      read-devices:
+        - /dev/mtd0
+      workspace-write: true
+    apply:
+      read-paths:
+        - /etc/vendor
+      write-paths:
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+      write-devices:
+        - /dev/mtd0
+      workspace-write: true
+    verify:
+      read-paths:
+        - /etc/vendor
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+```
+
+Requested access is compared per phase and field:
+
+- Repository names and devices must match exactly and case-sensitively.
+- A requested path must equal an allowed path or lie beneath it by path
+  component, so `/opt/vendor` permits `/opt/vendor/fw` but not
+  `/opt/vendor-other` or `/opt`.
+- A read grant never permits a write, and `workspace-write` must be allowed
+  explicitly.
+
+A configuration file or drop-in that sets the `firmware` key replaces the whole
+inherited firmware section. `firmware: null`, `firmware: {}` and an empty
+`updater-access` clear it and deny all access without a warning. A file that
+does not set the key keeps the inherited section. Firmware settings from
+different files are never merged.
+
+An invalid firmware section does not stop the agent. This includes a value of
+the wrong type, an unknown key, a mistyped entry and a rule violation. Loading
+records a warning that names the file and denies all updater access, and the
+rest of the configuration loads as before. A later valid section replaces the
+invalid one, and the earlier warning remains. A skipped drop-in also denies all
+updater access, because it may have changed the policy. YAML syntax errors in
+the main configuration file still stop the agent. Quote entries that look like
+numbers or booleans, such as `"123"` or `"on"`, because they are not converted
+to strings. A configuration reload applies the same rules, and
+`Fetcher.ReloadConfig` applies the reloaded policy to the next fetch.
+
+This comparison decides only whether a release may be prepared on the device.
+Declared access is not runtime confinement: invoking updater code will require
+qualified runtime enforcement of the declared access.
+
+### Runtime dependencies
+
+Only dependency-free releases are supported. A descriptor that declares any
+runtime dependency is rejected with `FirmwareNotSupported` before any network
+use, whatever its constraint. The manifest must declare `dependencies: []`.
+Matching declared dependencies against the host requires a dependency
+vocabulary and probe design that do not exist yet. The agent never installs
+packages or changes the operating system.
+
+### Verified packages, cache and revocation
+
+A verified package identifies updater distribution content that passed the
+authorization, publisher signature, image digest, manifest, binding,
+dependency and access checks. It does not authorize execution. Payload bytes
+have not been verified against the manifest file list, nothing has been
+extracted, and declared access is not runtime confinement. Before updater code
+runs, extraction must verify payload bytes and invocation must check approval
+again.
+
+The verified record is written to
+`<DataDir>/firmware/packages/<descriptor-digest-hex>.json` with mode `0600`,
+using the same durable replacement as the retained policy. It is written only
+after every check passed. A record is reused only while all of these hold:
+
+- it is a well-formed `updater-package-record/v1` record;
+- it names the approved descriptor, package digest and publisher policy;
+- it binds the approved manifest identities;
+- the image is still present by digest.
+
+Otherwise the fetcher pulls and verifies the package again and rewrites the
+record, so a corrupt record is ignored. Approval and local access are checked
+before a record is used. A revoked release or an access request that the local
+policy no longer admits is refused even when a record exists. A new agent
+process reuses valid records after a restart.
+
+Images that fail checks after the pull are kept as evidence and never recorded
+as verified. Verified updater images are not yet protected from image pruning.
+If pruning removes one, the next fetch pulls and verifies it again.
+
 ## Helm installation and recovery
 
 Create an administrator-owned ConfigMap containing the whole catalog. This
