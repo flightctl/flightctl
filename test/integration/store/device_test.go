@@ -163,6 +163,31 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(attempts).To(Equal(2))
 	})
 
+	It("When prior rendered resources cannot be loaded it should reject mutation before applying changes", func() {
+		const name = "unreadable-resources"
+		_, err := devStore.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)}, Spec: &domain.DeviceSpec{}}, nil)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(db.Exec(`UPDATE devices SET rendered_config_resources = ?::jsonb WHERE org_id = ? AND name = ?`, `"enc:v1:missing:invalid"`, orgId, name).Error).To(Succeed())
+		var before model.Device
+		Expect(db.First(&before, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		for _, loadCtx := range []context.Context{ctx, canceled} {
+			applied := false
+			_, _, _, err = devStore.Mutate(loadCtx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+				applied = true
+				m.Rendered = &devicestore.DeviceRendered{ConfigResources: `[]`}
+				return nil
+			}, devicestore.WithRenderedConfigResources())
+			Expect(err).To(HaveOccurred())
+			Expect(applied).To(BeFalse())
+		}
+		var after model.Device
+		Expect(db.First(&after, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+		Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
+		Expect(after.RenderedConfigResources).To(Equal(before.RenderedConfigResources))
+	})
+
 	It("Mutate device create mode race", func() {
 		imageName := "tv"
 		device := api.Device{
