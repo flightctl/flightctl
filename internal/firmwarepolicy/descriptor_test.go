@@ -155,8 +155,22 @@ func TestDecodeDescriptor(t *testing.T) {
 		{"When a nested key differs from its field name only by case it should reject", func(t *testing.T) firmwarepolicy.Binding {
 			return rawBinding(t, func(s string) string { return strings.Replace(s, `"keyData":`, `"KeyData":`, 1) })
 		}},
+		{"When a key inside a list element differs only by case it should reject", func(t *testing.T) firmwarepolicy.Binding {
+			return mutatedBinding(t, func(m map[string]any) {
+				m["dependencies"] = []any{map[string]any{"Name": "fwupd", "constraint": ">=1.9"}}
+			})
+		}},
 		{"When a key is duplicated it should reject", func(t *testing.T) firmwarepolicy.Binding {
 			return rawBinding(t, func(s string) string { return strings.Replace(s, `{"name":`, `{"protocol":1,"name":`, 1) })
+		}},
+		{"When an object field has the wrong JSON type it should reject", func(t *testing.T) firmwarepolicy.Binding {
+			return mutatedBinding(t, func(m map[string]any) { m["publisher"] = 5 })
+		}},
+		{"When a list field has the wrong JSON type it should reject", func(t *testing.T) firmwarepolicy.Binding {
+			return mutatedBinding(t, func(m map[string]any) { m["budgetKeySet"] = "maxCycles" })
+		}},
+		{"When a numeric field is a string it should reject", func(t *testing.T) firmwarepolicy.Binding {
+			return mutatedBinding(t, func(m map[string]any) { m["protocol"] = "1" })
 		}},
 		{"When the descriptor has trailing content it should reject", func(t *testing.T) firmwarepolicy.Binding {
 			return rawBinding(t, func(s string) string { return s + ` {}` })

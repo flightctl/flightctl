@@ -1018,3 +1018,103 @@ func TestFetchBoundsThePullByTheAgentPullTimeout(t *testing.T) {
 		requirePullBound(t, h, started, 3*time.Minute)
 	})
 }
+
+func TestFetchErrorText(t *testing.T) {
+	t.Run("When a fetch fails for a reason other than the signature policy it should name the release and the cause", func(t *testing.T) {
+		require := require.New(t)
+		h := newFetchHarness(t)
+		h.podman.digest = policy.Hash([]byte("other image"))
+		_, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+		require.Error(err)
+		require.True(strings.HasPrefix(err.Error(), "updater "+h.release.Name+"/"+h.release.Version+": "), err.Error())
+		require.Contains(err.Error(), "differs from the approved package digest")
+	})
+
+	t.Run("When a fetch error carries no cause it should report its reason", func(t *testing.T) {
+		require.Equal(t, "FirmwareNotSupported", (&firmware.FetchError{Reason: firmware.ReasonFirmwareNotSupported}).Error())
+	})
+
+	t.Run("When podman reports a long multi-line error it should keep one bounded line", func(t *testing.T) {
+		require := require.New(t)
+		h := newFetchHarness(t)
+		h.podman.pullExit = 125
+		h.podman.pullStderr = "Error: initializing source: dial tcp: connect: connection refused\n" + strings.Repeat("detail\t\x1b[31mline\r\n", 400)
+		_, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
+		for _, text := range []string{err.Error(), errors.Unwrap(err).Error()} {
+			require.NotContains(text, "\n")
+			require.NotContains(text, "\r")
+			require.NotContains(text, "\t")
+			require.NotContains(text, "\x1b")
+			require.Less(len([]rune(text)), 1400)
+			require.True(strings.HasSuffix(text, "..."), "a truncated cause ends with an ellipsis")
+		}
+	})
+}
+
+func TestFetcherReloadConfigKeepsSettingsOnRefusal(t *testing.T) {
+	testCases := []struct {
+		name   string
+		reload func(f *firmware.Fetcher) error
+	}{
+		{"When the reload context is canceled it should keep the previous settings", func(f *firmware.Fetcher) error {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return f.ReloadConfig(ctx, config.NewDefault())
+		}},
+		{"When no configuration is given it should keep the previous settings", func(f *firmware.Fetcher) error {
+			return f.ReloadConfig(context.Background(), nil)
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			h := newFetchHarness(t)
+			fetcher := h.fetcher()
+			require.Error(tc.reload(fetcher))
+			pkg, err := fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.NoError(err, "the previous access policy still admits the release")
+			require.NotNil(pkg)
+		})
+	}
+}
+
+func TestFetchFailsClosedWhenALocalStepFails(t *testing.T) {
+	blockWith := func(dir string) func(h *fetchHarness) {
+		return func(h *fetchHarness) {
+			path := filepath.Join(h.root, testDataDir, "firmware", dir)
+			require.NoError(h.t, os.WriteFile(path, []byte("not a directory"), 0o600))
+		}
+	}
+	testCases := []struct {
+		name        string
+		setup       func(h *fetchHarness)
+		subcommands []string
+	}{
+		{"When the pulled image cannot be inspected it should report the updater unavailable", func(h *fetchHarness) { h.podman.inspectExit = 125 },
+			[]string{"pull", "image inspect"}},
+		{"When the image cannot be mounted it should report the updater unavailable", func(h *fetchHarness) { h.podman.mountExit = 125 },
+			[]string{"pull", "image inspect", "image mount"}},
+		{"When the verified record cannot be written it should report the updater unavailable after unmounting", blockWith("packages"),
+			[]string{"pull", "image inspect", "image mount", "image unmount"}},
+		{"When the signature policy cannot be written it should report the updater unavailable before any pull", blockWith("signature-policy"),
+			nil},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			h := newFetchHarness(t)
+			tc.setup(h)
+			pkg, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.Nil(pkg)
+			requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+			if tc.subcommands == nil {
+				require.Empty(h.podman.calls)
+			} else {
+				require.Equal(tc.subcommands, h.podman.subcommands())
+			}
+			_, statErr := os.Stat(h.recordPath())
+			require.Error(statErr, "no verified record may exist")
+		})
+	}
+}
