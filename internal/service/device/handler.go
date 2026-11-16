@@ -593,6 +593,10 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
+	// EnrollmentCredential is service-owned and must not be changed through generic status patches.
+	if err := rejectEnrollmentCredentialChangeViaStatusPatch(current, patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
@@ -613,6 +617,20 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 		return nil
 	}
 	return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+}
+
+func rejectEnrollmentCredentialChangeViaStatusPatch(current, patched *domain.Device) error {
+	var before, after *domain.DeviceEnrollmentCredentialStatus
+	if current != nil && current.Status != nil {
+		before = current.Status.EnrollmentCredential
+	}
+	if patched != nil && patched.Status != nil {
+		after = patched.Status.EnrollmentCredential
+	}
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	return errors.New("enrollmentCredential cannot be modified via status patch")
 }
 
 // allowedAgentEnrollmentHooksOutcome permits the agent to report hook completion

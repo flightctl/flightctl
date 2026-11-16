@@ -212,13 +212,13 @@ func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, o
 		return nil, nil
 	}
 	return &domain.DeviceEnrollmentCredentialStatus{
-		Revoked: lo.ToPtr(csr.Status.Revocation != nil),
+		Revoked: csr.Status.Revocation != nil,
 	}, nil
 }
 
 func setDeviceEnrollmentCredentialStatus(deviceStatus *domain.DeviceStatus, credential *domain.DeviceEnrollmentCredentialStatus) {
 	deviceStatus.EnrollmentCredential = credential
-	if credential == nil || !lo.FromPtr(credential.Revoked) {
+	if credential == nil || !credential.Revoked {
 		return
 	}
 	domain.SetStatusCondition(&deviceStatus.Conditions, domain.Condition{
@@ -428,7 +428,7 @@ func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx conte
 		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
 		return
 	}
-	if credential == nil || !lo.FromPtr(credential.Revoked) {
+	if credential == nil || !credential.Revoked {
 		return
 	}
 	for {

@@ -720,7 +720,7 @@ var _ = Describe("DeviceStore create", func() {
 			createProjectedDevice := func(name, certificateName string, revoked bool) {
 				status := api.NewDeviceStatus()
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
-					Revoked: lo.ToPtr(revoked),
+					Revoked: revoked,
 				}
 				_, err := devStore.Create(ctx, orgId, &api.Device{
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
@@ -774,7 +774,7 @@ var _ = Describe("DeviceStore create", func() {
 				status := api.NewDeviceStatus()
 				status.Conditions = conditions
 				status.EnrollmentCredential = &api.DeviceEnrollmentCredentialStatus{
-					Revoked: lo.ToPtr(revoked),
+					Revoked: revoked,
 				}
 				_, err := devStore.Create(ctx, orgId, &api.Device{
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
@@ -822,7 +822,7 @@ var _ = Describe("DeviceStore create", func() {
 				device, err := devStore.Get(ctx, orgId, name)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.EnrollmentCredential).ToNot(BeNil())
-				Expect(lo.FromPtr(device.Status.EnrollmentCredential.Revoked)).To(BeTrue())
+				Expect(device.Status.EnrollmentCredential.Revoked).To(BeTrue())
 				condition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)
 				Expect(condition).ToNot(BeNil())
 				Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
@@ -835,7 +835,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			deviceB, err := devStore.Get(ctx, orgId, "credential-b-one")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(lo.FromPtr(deviceB.Status.EnrollmentCredential.Revoked)).To(BeFalse())
+			Expect(deviceB.Status.EnrollmentCredential.Revoked).To(BeFalse())
 			Expect(api.FindStatusCondition(deviceB.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
 
 			count, err = devStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, "credential-a", 1000)

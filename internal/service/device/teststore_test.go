@@ -287,13 +287,13 @@ func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.
 		if stored.Status.EnrollmentCredential == nil {
 			stored.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
 		}
-		alreadyRevoked := lo.FromPtr(stored.Status.EnrollmentCredential.Revoked)
+		alreadyRevoked := stored.Status.EnrollmentCredential.Revoked
 		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
 		if alreadyRevoked && condition != nil && condition.Status == domain.ConditionStatusTrue {
 			continue
 		}
 		device := deepCopyDevice(stored)
-		device.Status.EnrollmentCredential.Revoked = lo.ToPtr(true)
+		device.Status.EnrollmentCredential.Revoked = true
 		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
 			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
 			Status:  domain.ConditionStatusTrue,

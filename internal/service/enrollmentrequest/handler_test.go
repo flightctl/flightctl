@@ -225,7 +225,7 @@ func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.
 		if f.credentials[name] != credentialName {
 			continue
 		}
-		if device.Status != nil && device.Status.EnrollmentCredential != nil && lo.FromPtr(device.Status.EnrollmentCredential.Revoked) {
+		if device.Status != nil && device.Status.EnrollmentCredential != nil && device.Status.EnrollmentCredential.Revoked {
 			if condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked); condition != nil && condition.Status == domain.ConditionStatusTrue {
 				continue
 			}
@@ -236,7 +236,7 @@ func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.
 		if device.Status.EnrollmentCredential == nil {
 			device.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
 		}
-		device.Status.EnrollmentCredential.Revoked = lo.ToPtr(true)
+		device.Status.EnrollmentCredential.Revoked = true
 		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
 			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
 			Status:  domain.ConditionStatusTrue,
@@ -771,7 +771,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
-			Revoked: lo.ToPtr(false),
+			Revoked: false,
 		}, *device.Status.EnrollmentCredential)
 	})
 
@@ -791,7 +791,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
-			Revoked: lo.ToPtr(true),
+			Revoked: true,
 		}, *device.Status.EnrollmentCredential)
 		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
 		require.NotNil(t, condition)
@@ -815,7 +815,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.NotNil(t, device.Status.EnrollmentCredential)
-		require.True(t, lo.FromPtr(device.Status.EnrollmentCredential.Revoked))
+		require.True(t, device.Status.EnrollmentCredential.Revoked)
 		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
 		require.NotNil(t, condition)
 		require.Equal(t, domain.ConditionStatusTrue, condition.Status)

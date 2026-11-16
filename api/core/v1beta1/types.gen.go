@@ -1490,7 +1490,7 @@ type DeviceDeltaApplyStatus struct {
 // DeviceEnrollmentCredentialStatus Server-owned enrollment credential revocation state for a device.
 type DeviceEnrollmentCredentialStatus struct {
 	// Revoked Whether the credential that admitted the device was revoked.
-	Revoked *bool `json:"revoked,omitempty"`
+	Revoked bool `json:"revoked"`
 }
 
 // DeviceEnrollmentHooksStatus Enrollment hooks state for a device.

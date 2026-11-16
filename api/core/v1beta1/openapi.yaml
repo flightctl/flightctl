@@ -10714,7 +10714,6 @@ components:
       properties:
         revoked:
           type: boolean
-          readOnly: true
           description: Whether the credential that admitted the device was revoked.
     EnrollmentHookSnapshot:
       type: object
