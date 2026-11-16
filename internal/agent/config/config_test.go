@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -690,4 +693,309 @@ func TestSystemInfoCustomYAMLDeserialization(t *testing.T) {
 			}
 		})
 	}
+}
+
+const firmwareAccessExample = `firmware:
+  updater-access:
+    prepare:
+      network-repositories:
+        - vendor-firmware
+      credential-repositories:
+        - vendor-firmware
+      read-paths:
+        - /etc/vendor
+      read-devices:
+        - /dev/mtd0
+      workspace-write: true
+    apply:
+      read-paths:
+        - /etc/vendor
+      write-paths:
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+      write-devices:
+        - /dev/mtd0
+      workspace-write: true
+    verify:
+      read-paths:
+        - /etc/vendor
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+`
+
+const narrowerFirmwareAccess = `firmware:
+  updater-access:
+    verify:
+      read-paths:
+        - /etc/vendor
+`
+
+var exampleUpdaterAccess = UpdaterAccessPolicy{
+	Prepare: UpdaterAccessGrant{
+		NetworkRepositories:    []string{"vendor-firmware"},
+		CredentialRepositories: []string{"vendor-firmware"},
+		ReadPaths:              []string{"/etc/vendor"},
+		ReadDevices:            []string{"/dev/mtd0"},
+		WorkspaceWrite:         true,
+	},
+	Apply: UpdaterAccessGrant{
+		ReadPaths:      []string{"/etc/vendor"},
+		WritePaths:     []string{"/opt/vendor"},
+		ReadDevices:    []string{"/dev/mtd0"},
+		WriteDevices:   []string{"/dev/mtd0"},
+		WorkspaceWrite: true,
+	},
+	Verify: UpdaterAccessGrant{
+		ReadPaths:   []string{"/etc/vendor", "/opt/vendor"},
+		ReadDevices: []string{"/dev/mtd0"},
+	},
+}
+
+var narrowerUpdaterAccess = UpdaterAccessPolicy{Verify: UpdaterAccessGrant{ReadPaths: []string{"/etc/vendor"}}}
+
+// firmwareGrant renders a firmware section granting entries to one phase field.
+func firmwareGrant(phase, field string, entries ...string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "firmware:\n  updater-access:\n    %s:\n      %s:\n", phase, field)
+	for _, e := range entries {
+		fmt.Fprintf(&b, "        - %s\n", e)
+	}
+	return b.String()
+}
+
+// loadConfigLayers writes the main config.yaml and the ordered conf.d drop-ins
+// beneath a test root and loads them through the public Load.
+func loadConfigLayers(t *testing.T, main string, dropins ...string) *Config {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv(TestRootDirEnvKey, root)
+	configDir := filepath.Join(root, DefaultConfigDir)
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(main), 0o600))
+	if len(dropins) > 0 {
+		dropinDir := filepath.Join(configDir, "conf.d")
+		require.NoError(t, os.MkdirAll(dropinDir, 0o755))
+		for i, content := range dropins {
+			require.NoError(t, os.WriteFile(filepath.Join(dropinDir, fmt.Sprintf("%02d-dropin.yaml", i+1)), []byte(content), 0o600))
+		}
+	}
+	cfg, err := Load(DefaultConfigFile)
+	require.NoError(t, err)
+	return cfg
+}
+
+func firmwareWarnings(cfg *Config) []string {
+	var warnings []string
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "firmware.updater-access") {
+			warnings = append(warnings, w)
+		}
+	}
+	return warnings
+}
+
+func TestFirmwareUpdaterAccessPolicy(t *testing.T) {
+	base := yamlConfig + "\n"
+	withExample := base + firmwareAccessExample
+
+	type layers struct {
+		main    string
+		dropins []string
+	}
+	testCases := []struct {
+		name             string
+		layers           layers
+		wantPolicy       UpdaterAccessPolicy
+		wantFirmwareWarn int
+		wantOtherWarn    int
+		check            func(t *testing.T, cfg *Config)
+	}{
+		{name: "When no firmware section exists it should deny all access without a warning", layers: layers{main: base}},
+		{name: "When the firmware section is valid it should parse every phase", layers: layers{main: withExample}, wantPolicy: exampleUpdaterAccess},
+		{name: "When apply grants network access it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("apply", "network-repositories", "vendor-firmware")}, wantFirmwareWarn: 1},
+		{name: "When verify grants network access it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("verify", "network-repositories", "vendor-firmware")}, wantFirmwareWarn: 1},
+		{name: "When apply grants source credentials it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("apply", "credential-repositories", "vendor-firmware")}, wantFirmwareWarn: 1},
+		{name: "When verify grants source credentials it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("verify", "credential-repositories", "vendor-firmware")}, wantFirmwareWarn: 1},
+		{name: "When prepare grants host path writes it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("prepare", "write-paths", "/opt/vendor")}, wantFirmwareWarn: 1},
+		{name: "When prepare grants device writes it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("prepare", "write-devices", "/dev/mtd0")}, wantFirmwareWarn: 1},
+		{name: "When verify grants host path writes it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("verify", "write-paths", "/opt/vendor")}, wantFirmwareWarn: 1},
+		{name: "When verify grants device writes it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("verify", "write-devices", "/dev/mtd0")}, wantFirmwareWarn: 1},
+		{name: "When verify grants workspace writes it should warn and deny all access",
+			layers: layers{main: base + "firmware:\n  updater-access:\n    verify:\n      workspace-write: true\n"}, wantFirmwareWarn: 1},
+		{name: "When a credential has no matching network grant it should warn and deny all access",
+			layers: layers{main: base + "firmware:\n  updater-access:\n    prepare:\n      network-repositories: [vendor-firmware]\n      credential-repositories: [other]\n"}, wantFirmwareWarn: 1},
+		{name: "When a list repeats an entry it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("verify", "read-paths", "/etc/vendor", "/etc/vendor")}, wantFirmwareWarn: 1},
+		{name: "When the access section has an unknown phase it should warn and deny all access",
+			layers: layers{main: base + "firmware:\n  updater-access:\n    install:\n      read-paths: [/etc/vendor]\n"}, wantFirmwareWarn: 1},
+		{name: "When a grant has an unknown key it should warn and deny all access",
+			layers: layers{main: base + firmwareGrant("prepare", "network-repository", "vendor-firmware")}, wantFirmwareWarn: 1},
+		{name: "When workspace-write is a string it should warn, deny all access and keep other settings",
+			layers: layers{main: base + "log-level: debug\nfirmware:\n  updater-access:\n    prepare:\n      workspace-write: \"yes\"\n"}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) { require.Equal(t, "debug", cfg.LogLevel) }},
+		{name: "When read-paths is a scalar it should warn, deny all access and keep other settings",
+			layers: layers{main: "firmware:\n  updater-access:\n    verify:\n      read-paths: /opt/vendor\nlog-level: debug\n" + base}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) {
+				require.Equal(t, "debug", cfg.LogLevel)
+				require.Equal(t, "https://management.endpoint", cfg.ManagementService.Service.Server)
+			}},
+		{name: "When a later drop-in sets a narrower policy it should replace the earlier section entirely",
+			layers: layers{main: withExample, dropins: []string{narrowerFirmwareAccess}}, wantPolicy: narrowerUpdaterAccess},
+		{name: "When a drop-in is skipped it should deny all access and warn alongside the skip warning",
+			layers: layers{main: withExample, dropins: []string{"{{{not yaml at all\n"}}, wantFirmwareWarn: 1, wantOtherWarn: 1},
+		{name: "When the main firmware section is an array it should load, warn, deny all access and keep other settings",
+			layers: layers{main: base + "log-level: debug\nfirmware: []\n"}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) {
+				require.Equal(t, "debug", cfg.LogLevel)
+				require.Equal(t, "https://enrollment.endpoint", cfg.EnrollmentService.Service.Server)
+			}},
+		{name: "When a drop-in sets firmware to null it should drop inherited grants without a warning",
+			layers: layers{main: withExample, dropins: []string{"firmware: null\n"}}},
+		{name: "When a drop-in sets firmware without a value it should drop inherited grants without a warning",
+			layers: layers{main: withExample, dropins: []string{"firmware:\n"}}},
+		{name: "When a drop-in sets firmware to an empty object it should drop inherited grants without a warning",
+			layers: layers{main: withExample, dropins: []string{"firmware: {}\n"}}},
+		{name: "When a drop-in sets updater-access to null it should drop inherited grants without a warning",
+			layers: layers{main: withExample, dropins: []string{"firmware:\n  updater-access: null\n"}}},
+		{name: "When a drop-in sets updater-access to an empty object it should drop inherited grants without a warning",
+			layers: layers{main: withExample, dropins: []string{"firmware:\n  updater-access: {}\n"}}},
+		{name: "When an invalid firmware drop-in is followed by an unrelated drop-in it should keep denying access and apply both settings",
+			layers: layers{main: withExample, dropins: []string{"log-level: debug\nfirmware: []\n", "metrics-enabled: true\n"}}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) {
+				require.Equal(t, "debug", cfg.LogLevel)
+				require.True(t, cfg.MetricsEnabled)
+			}},
+		{name: "When an invalid firmware drop-in is replaced by a later valid one it should apply the later policy and keep the warning",
+			layers: layers{main: withExample, dropins: []string{"firmware: invalid\n", narrowerFirmwareAccess}}, wantPolicy: narrowerUpdaterAccess, wantFirmwareWarn: 1},
+		{name: "When a drop-in does not set firmware it should keep the inherited policy",
+			layers: layers{main: withExample, dropins: []string{"log-level: debug\n"}}, wantPolicy: exampleUpdaterAccess,
+			check: func(t *testing.T, cfg *Config) { require.Equal(t, "debug", cfg.LogLevel) }},
+		{name: "When a repository entry is an unquoted number it should warn and deny all access",
+			layers: layers{main: base + "firmware:\n  updater-access:\n    prepare:\n      network-repositories: [123]\n"}, wantFirmwareWarn: 1},
+		{name: "When a repository entry is a YAML boolean it should warn and deny all access",
+			layers: layers{main: base + "firmware:\n  updater-access:\n    prepare:\n      network-repositories: [on]\n"}, wantFirmwareWarn: 1},
+		{name: "When a numeric repository name is quoted it should be accepted",
+			layers:     layers{main: base + "firmware:\n  updater-access:\n    prepare:\n      network-repositories: [\"123\"]\n"},
+			wantPolicy: UpdaterAccessPolicy{Prepare: UpdaterAccessGrant{NetworkRepositories: []string{"123"}}}},
+	}
+	for _, scalar := range []string{"invalid", "5", "true"} {
+		testCases = append(testCases, struct {
+			name             string
+			layers           layers
+			wantPolicy       UpdaterAccessPolicy
+			wantFirmwareWarn int
+			wantOtherWarn    int
+			check            func(t *testing.T, cfg *Config)
+		}{
+			name:   fmt.Sprintf("When the main firmware section is the scalar %s it should load, warn, deny all access and keep other settings", scalar),
+			layers: layers{main: base + "log-level: debug\nfirmware: " + scalar + "\n"}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) { require.Equal(t, "debug", cfg.LogLevel) },
+		})
+	}
+	for _, section := range []string{"firmware: {updater-access: []}", "firmware: {updater-access: invalid}", "firmware: {unknown: 1}"} {
+		testCases = append(testCases, struct {
+			name             string
+			layers           layers
+			wantPolicy       UpdaterAccessPolicy
+			wantFirmwareWarn int
+			wantOtherWarn    int
+			check            func(t *testing.T, cfg *Config)
+		}{
+			name:   fmt.Sprintf("When the main config has %q it should load, warn, deny all access and keep other settings", section),
+			layers: layers{main: base + "log-level: debug\n" + section + "\n"}, wantFirmwareWarn: 1,
+			check: func(t *testing.T, cfg *Config) { require.Equal(t, "debug", cfg.LogLevel) },
+		})
+	}
+	for _, repo := range []string{"quay.io/vendor/fw", "https://quay.io/vendor", "vendor:1.0", "vendor@sha256:" + strings.Repeat("a", 64), "-vendor", ".vendor", "a" + strings.Repeat("b", 128)} {
+		testCases = append(testCases, struct {
+			name             string
+			layers           layers
+			wantPolicy       UpdaterAccessPolicy
+			wantFirmwareWarn int
+			wantOtherWarn    int
+			check            func(t *testing.T, cfg *Config)
+		}{
+			name:   fmt.Sprintf("When repository %q is not a logical name it should warn and deny all access", repo),
+			layers: layers{main: base + firmwareGrant("prepare", "network-repositories", strconv.Quote(repo))}, wantFirmwareWarn: 1,
+		})
+	}
+	for _, p := range []string{"opt/vendor", "/", "/opt/vendor/", "/opt//vendor", "/opt/./vendor", "/opt/vendor/..", "/opt/*", "/opt/vendor?", "/opt/[ab]", "/opt/a\x00b", "/opt/a\rb", "/opt/a\nb"} {
+		testCases = append(testCases, struct {
+			name             string
+			layers           layers
+			wantPolicy       UpdaterAccessPolicy
+			wantFirmwareWarn int
+			wantOtherWarn    int
+			check            func(t *testing.T, cfg *Config)
+		}{
+			name:   fmt.Sprintf("When path %q is not an explicit clean absolute path it should warn and deny all access", p),
+			layers: layers{main: base + firmwareGrant("verify", "read-paths", strconv.Quote(p))}, wantFirmwareWarn: 1,
+		})
+	}
+	for _, device := range []string{"/sys/class/mtd/mtd0", "/devx/mtd0", "/dev/../mtd0"} {
+		testCases = append(testCases, struct {
+			name             string
+			layers           layers
+			wantPolicy       UpdaterAccessPolicy
+			wantFirmwareWarn int
+			wantOtherWarn    int
+			check            func(t *testing.T, cfg *Config)
+		}{
+			name:   fmt.Sprintf("When device %q is not a path under /dev it should warn and deny all access", device),
+			layers: layers{main: base + firmwareGrant("prepare", "read-devices", strconv.Quote(device))}, wantFirmwareWarn: 1,
+		})
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			cfg := loadConfigLayers(t, tc.layers.main, tc.layers.dropins...)
+			require.Equal(tc.wantPolicy, cfg.Firmware.UpdaterAccess)
+			require.Len(firmwareWarnings(cfg), tc.wantFirmwareWarn, "warnings: %v", cfg.Warnings)
+			require.Len(cfg.Warnings, tc.wantFirmwareWarn+tc.wantOtherWarn, "warnings: %v", cfg.Warnings)
+			if tc.check != nil {
+				tc.check(t, cfg)
+			}
+		})
+	}
+}
+
+func TestFirmwareSectionDoesNotRecoverMalformedMainYAML(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	t.Setenv(TestRootDirEnvKey, root)
+	configDir := filepath.Join(root, DefaultConfigDir)
+	require.NoError(os.MkdirAll(configDir, 0o755))
+	require.NoError(os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(yamlConfig+"\nfirmware: [\n"), 0o600))
+	cfg, err := Load(DefaultConfigFile)
+	require.Error(err)
+	require.Nil(cfg)
+}
+
+func TestFirmwareSectionDoesNotRecoverOtherSectionsInDropins(t *testing.T) {
+	require := require.New(t)
+	cfg := loadConfigLayers(t, yamlConfig+"\n"+firmwareAccessExample, "log-level: [debug]\n")
+	require.Equal(UpdaterAccessPolicy{}, cfg.Firmware.UpdaterAccess)
+	require.Equal(logrus.InfoLevel.String(), cfg.LogLevel)
+	require.Len(firmwareWarnings(cfg), 1, "warnings: %v", cfg.Warnings)
+	require.Len(cfg.Warnings, 2, "warnings: %v", cfg.Warnings)
+}
+
+func TestFirmwareSectionAppearsInLoggedConfigOnlyWhenConfigured(t *testing.T) {
+	require := require.New(t)
+	unmanaged := loadConfigLayers(t, yamlConfig)
+	require.NotContains(unmanaged.StringSanitized(), "firmware")
+
+	configured := loadConfigLayers(t, yamlConfig+"\n"+narrowerFirmwareAccess)
+	require.Contains(configured.StringSanitized(), `"firmware":{"updater-access":`)
 }
