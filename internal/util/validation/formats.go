@@ -222,6 +222,26 @@ func ValidateOciImageReferenceWithTemplates(s *string, path string) []error {
 	return ValidateString(s, path, 1, OciImageReferenceMaxLength, OciImageReferenceWithTemplatesRegexp, OciImageReferenceWithTemplatesFmt, "quay.io/flightctl/device:{{ .metadata.labels.version }}")
 }
 
+var (
+	outerConditionalRegexp = regexp.MustCompile(`^\{\{-?\s*if\s([^{}]*?)\s*-?\}\}(.*)\{\{-?\s*end\s*-?\}\}$`)
+	// A further end or else action means the leading if and the trailing end
+	// are not a matching pair enclosing the whole value: the value holds
+	// sibling or nested conditionals, or an else branch.
+	conditionalBodyRegexp = regexp.MustCompile(`\{\{-?\s*(?:end|else)\b`)
+)
+
+// SplitOuterConditional reports whether s consists of a single Go template
+// conditional with no else branch wrapping its entire body, and returns the
+// guard expression and the body with the wrapper removed. Any text outside the
+// wrapper, a second conditional, or an else branch makes s unrecognized.
+func SplitOuterConditional(s string) (guard, body string, ok bool) {
+	m := outerConditionalRegexp.FindStringSubmatch(s)
+	if m == nil || conditionalBodyRegexp.MatchString(m[2]) {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
+
 const (
 	// as per https://docs.github.com/en/get-started/using-git/dealing-with-special-characters-in-branch-and-tag-names#naming-branches-and-tags
 	GitRevisionFmt string = `[a-zA-Z0-9]([a-zA-Z0-9\.\-\_\/])*`
