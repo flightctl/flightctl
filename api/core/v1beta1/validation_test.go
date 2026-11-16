@@ -3953,6 +3953,37 @@ func TestDeviceSpecValidate_OsImageConditionalTemplate(t *testing.T) {
 			wantErr:       true,
 			errorStrings:  []string{"spec.os.image"},
 		},
+		{
+			name:          "When the guard is empty it should fail",
+			image:         `{{if }}quay.io/org/os:v2{{end}}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"invalid parameter syntax"},
+		},
+		{
+			name:          "When the guard combines supported functions it should pass as a fleet template",
+			image:         `{{ if and deviceHasImageMode .metadata.labels.tier }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body is a digest reference it should pass as a fleet template",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os@sha256:` + strings.Repeat("a", 64) + `{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body exceeds the maximum reference length it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/` + strings.Repeat("a", 3000) + `:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"Too long"},
+		},
+		{
+			name:          "When the guard makes the value exceed the maximum reference length it should fail",
+			image:         `{{ if or ` + strings.Repeat("deviceHasImageMode ", 200) + `}}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"Too long"},
+		},
 	}
 
 	for _, tt := range tests {
