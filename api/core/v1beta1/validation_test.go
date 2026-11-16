@@ -548,6 +548,24 @@ func TestValidateParametersInString(t *testing.T) {
 			expectError:    0,
 		},
 		{
+			name:           "deviceHasImageMode guard",
+			paramString:    `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`,
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "deviceHasImageMode guard with a label reference in the body",
+			paramString:    `{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.labels.version }}{{ end }}`,
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "deviceHasImageMode with an argument is rejected",
+			paramString:    `{{ if deviceHasImageMode .metadata.labels }}yes{{ end }}`,
+			containsParams: true,
+			expectError:    1,
+		},
+		{
 			name:           "excessive nesting depth is rejected",
 			paramString:    `{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}{{if .metadata.name}}deep{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}`,
 			containsParams: true,

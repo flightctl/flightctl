@@ -365,7 +365,25 @@ func GetGoTemplateFuncMap() template.FuncMap {
 		"lower":        toLower,
 		"replace":      replace,
 		"getOrDefault": getOrDefault,
+		// Placeholder so that a template naming this function can be parsed and
+		// validated before a device is in hand. ExecuteGoTemplateOnDevice()
+		// rebinds it to the device being rendered.
+		"deviceHasImageMode": func() bool { return true },
 	}
+}
+
+// deviceHasImageMode reports whether dev can apply an OS image target. Only an
+// explicit package OS mode makes it false, so a device that reports no mode
+// keeps applying OS images as it did before the label existed.
+func deviceHasImageMode(dev *Device) bool {
+	if dev.Metadata.Labels == nil {
+		return true
+	}
+	mode, ok := (*dev.Metadata.Labels)[DeviceLabelOsMode]
+	if !ok {
+		return true
+	}
+	return mode != string(OsModePackage)
 }
 
 // This function wraps template.Execute.  Instead of passing the device directly,
@@ -384,9 +402,19 @@ func ExecuteGoTemplateOnDevice(t *template.Template, dev *Device) (string, error
 		},
 	}
 
-	buf := new(bytes.Buffer)
-	err := t.Execute(buf, devMap)
+	// Bind the device-aware functions on a copy, so that a template rendered for
+	// several devices keeps the parse-time placeholders and no render observes
+	// another device's binding.
+	bound, err := t.Clone()
 	if err != nil {
+		return "", err
+	}
+	bound.Funcs(template.FuncMap{
+		"deviceHasImageMode": func() bool { return deviceHasImageMode(dev) },
+	})
+
+	buf := new(bytes.Buffer)
+	if err := bound.Execute(buf, devMap); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

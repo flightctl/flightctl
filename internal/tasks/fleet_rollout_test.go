@@ -2012,3 +2012,53 @@ func TestFleetRolloutIterationContext(t *testing.T) {
 		assert.True(t, errors.Is(iterCtx.Err(), context.Canceled))
 	})
 }
+
+func TestReplaceParametersInStringDeviceHasImageMode(t *testing.T) {
+	// The wire key the os-mode label-sync mapping writes onto devices.
+	const osModeLabel = "feature.flightctl.io/os.mode"
+	const osImage = `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`
+
+	tests := []struct {
+		name   string
+		labels *map[string]string
+		want   string
+	}{
+		{
+			name:   "When the device reports no labels it should render the OS image",
+			labels: nil,
+			want:   "quay.io/org/os:v2",
+		},
+		{
+			name:   "When the device reports labels without an OS mode it should render the OS image",
+			labels: &map[string]string{"region": "eu"},
+			want:   "quay.io/org/os:v2",
+		},
+		{
+			name:   "When the device reports image mode it should render the OS image",
+			labels: &map[string]string{osModeLabel: "image"},
+			want:   "quay.io/org/os:v2",
+		},
+		{
+			name:   "When the device reports package mode it should render an empty OS image",
+			labels: &map[string]string{osModeLabel: "package"},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev"), Labels: tt.labels}}
+
+			output, err := ReplaceParametersInString(osImage, device)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, output)
+		})
+	}
+}
+
+func TestReplaceParametersInStringMissingLabelInsideOsImageGuard(t *testing.T) {
+	device := &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev"), Labels: &map[string]string{}}}
+
+	_, err := ReplaceParametersInString(`{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.labels.version }}{{ end }}`, device)
+	require.ErrorContains(t, err, `map has no entry for key "version"`)
+}

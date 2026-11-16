@@ -44,6 +44,11 @@ const (
 	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
 	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
 
+	// DeviceLabelOsMode carries the device's OS management mode, one of the
+	// OsModeType values. Devices whose agent does not report a mode carry no
+	// such label.
+	DeviceLabelOsMode = "feature.flightctl.io/os.mode"
+
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
 	DeviceDisconnectedTimeout = 5 * time.Minute
