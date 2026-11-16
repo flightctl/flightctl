@@ -10,11 +10,43 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/executer"
 )
+
+// signatureRequiredRegistries lists upstream registries whose images carry
+// signatures that RHEL's default container policy enforces.  When images from
+// these registries are imported into a local air-gap registry, the import
+// script must run as root so that skopeo writes the detached signatures to
+// /var/lib/containers/sigstore/ (the system-wide lookaside directory), and
+// the corresponding registries.d YAML must be updated to point the local
+// signature lookup at that directory.
+var signatureRequiredRegistries = map[string]bool{
+	"registry.redhat.io":         true,
+	"registry.access.redhat.com": true,
+}
+
+// sourceRegistriesRequiringSignatures returns the deduplicated, sorted list of
+// source registries in pairs that require signature configuration on the
+// air-gapped host.
+func sourceRegistriesRequiringSignatures(pairs []ImagePair) []string {
+	seen := make(map[string]bool)
+	for _, p := range pairs {
+		host := strings.SplitN(p.Source, "/", 2)[0]
+		if signatureRequiredRegistries[host] {
+			seen[host] = true
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for reg := range seen {
+		result = append(result, reg)
+	}
+	sort.Strings(result)
+	return result
+}
 
 // BundleImages copies each image from the source registry directly into a
 // local directory using the skopeo dir: transport.  The directory layout
@@ -222,6 +254,13 @@ func fetchRepoFile(url, destPath string) error {
 // The script contains one explicit skopeo copy command per image, using the
 // dir: transport for the source and docker: for the destination.  Explicit
 // commands avoid any directory-iteration ambiguity and preserve namespace paths.
+//
+// When the image set includes registries whose images carry signatures that
+// RHEL enforces (registry.redhat.io, registry.access.redhat.com), the script
+// requires root so that skopeo writes detached signatures to the system-wide
+// lookaside (/var/lib/containers/sigstore/).  After the import it configures
+// /etc/containers/registries.d/ to point the local signature lookup at that
+// directory, preserving any unrelated settings in those files.
 func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) error {
 	scriptPath := filepath.Join(bundleDir, "import.sh")
 	f, err := os.Create(scriptPath)
@@ -229,6 +268,9 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 		return fmt.Errorf("create import script: %w", err)
 	}
 	defer f.Close()
+
+	sigRegs := sourceRegistriesRequiringSignatures(pairs)
+	needsSigstore := len(sigRegs) > 0
 
 	fmt.Fprintf(f, `#!/bin/bash
 # FlightCtl Air-gap Image Import Script
@@ -238,7 +280,7 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 # Copies all bundled container images into a local registry.
 #
 # Usage:
-#   ./import.sh [--registry host:port] [--tls]
+#   sudo ./import.sh [--registry host:port] [--tls]
 #
 # Options:
 #   --registry host:port   Destination registry (default: localhost:5000)
@@ -250,7 +292,25 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 
 set -euo pipefail
 
-REGISTRY="localhost:5000"
+`, variant, time.Now().UTC().Format(time.RFC3339))
+
+	// When signature-required registries are present, the script must run as
+	// root so that signatures land in the system-wide sigstore directory.
+	if needsSigstore {
+		fmt.Fprint(f, `# Images from signature-required registries are included in this bundle.
+# The script must run as root so that skopeo writes detached signatures to
+# /var/lib/containers/sigstore/ where the system's podman can find them.
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: this import script must run as root (sudo ./import.sh)." >&2
+    echo "Images from signature-required registries need the system-wide" >&2
+    echo "sigstore directory (/var/lib/containers/sigstore/)." >&2
+    exit 1
+fi
+
+`)
+	}
+
+	fmt.Fprintf(f, `REGISTRY="localhost:5000"
 DEST_TLS_FLAG="--dest-tls-verify=false"
 
 while [[ $# -gt 0 ]]; do
@@ -269,7 +329,7 @@ CURRENT=0
 echo "Importing $TOTAL images to $REGISTRY..."
 echo ""
 
-`, variant, time.Now().UTC().Format(time.RFC3339), len(pairs))
+`, len(pairs))
 
 	for _, p := range pairs {
 		parts := strings.SplitN(p.Source, "/", 2)
@@ -287,6 +347,46 @@ skopeo copy $DEST_TLS_FLAG "dir:$IMAGES_DIR/%s" "docker://$REGISTRY/%s"
 	fmt.Fprintf(f, `echo ""
 echo "Import complete: $TOTAL images imported to $REGISTRY"
 `)
+
+	// After importing, configure registries.d so the system's podman can find
+	// the detached signatures written to /var/lib/containers/sigstore/.
+	if needsSigstore {
+		fmt.Fprint(f, `
+# ---------------------------------------------------------------------------
+# Configure signature lookup for offline verification
+# ---------------------------------------------------------------------------
+# RHEL's container policy requires signatures for images from the upstream
+# registries below.  The signatures were written to /var/lib/containers/sigstore/
+# during the import above.  Point each registry's registries.d configuration at
+# that directory so podman can verify them offline.
+#
+# This appends a "sigstore: file:///var/lib/containers/sigstore" line to the
+# registries.d YAML for each registry, preserving any existing content.
+# If the setting is already present the file is left untouched.
+
+SIGSTORE_DIR="/var/lib/containers/sigstore"
+REGISTRIES_D="/etc/containers/registries.d"
+
+`)
+		for _, reg := range sigRegs {
+			// The registries.d filename uses dots, e.g. registry.redhat.io.yaml
+			yamlFile := reg + ".yaml"
+			fmt.Fprintf(f, `REGFILE="$REGISTRIES_D/%s"
+if [ -f "$REGFILE" ]; then
+    if ! grep -q 'sigstore:.*file:///var/lib/containers/sigstore' "$REGFILE" 2>/dev/null; then
+        echo "sigstore: file://$SIGSTORE_DIR" >> "$REGFILE"
+        echo "Configured local signature lookup in $REGFILE"
+    else
+        echo "Local signature lookup already configured in $REGFILE"
+    fi
+else
+    echo "Warning: $REGFILE not found — signature verification for %s may fail." >&2
+    echo "Create the file with: echo 'sigstore: file://$SIGSTORE_DIR' > $REGFILE" >&2
+fi
+
+`, yamlFile, reg)
+		}
+	}
 
 	if err := os.Chmod(scriptPath, 0o755); err != nil {
 		return fmt.Errorf("chmod import script: %w", err)

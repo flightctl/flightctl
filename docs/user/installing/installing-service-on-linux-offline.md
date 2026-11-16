@@ -144,24 +144,32 @@ The Flight Control quadlet services pull their images at startup. On an air-gapp
 machine those pulls must come from a local registry. The bundle includes
 `docker.io/library/registry:2` so you do not need internet access.
 
-Load the `registry:2` image from the bundle into podman's local image storage:
+Load the `registry:2` image from the bundle into the root user's podman image
+storage so the registry container runs as a system service:
 
 ```bash
-skopeo copy \
+sudo skopeo copy \
     "dir:$HOME/flightctl-bundle/images/library/registry:2" \
     "containers-storage:docker.io/library/registry:2"
 ```
 
-Create the registry data directory and start the registry container:
+Create the registry data directory and start the registry container as root:
 
 ```bash
-mkdir -p ~/registry-data
-podman run -d --name local-registry \
+sudo mkdir -p /var/lib/local-registry
+sudo podman run -d --name local-registry \
     --network=host \
     --security-opt label=disable \
-    -v ~/registry-data:/var/lib/registry \
+    -v /var/lib/local-registry:/var/lib/registry:Z \
     --restart=always \
     docker.io/library/registry:2
+```
+
+Enable `podman-restart.service` so the registry container starts automatically
+after a reboot:
+
+```bash
+sudo systemctl enable podman-restart.service
 ```
 
 Verify the registry is ready:
@@ -174,25 +182,33 @@ curl http://localhost:5000/v2/
 {}
 ```
 
-> [!NOTE]
-> `--network=host` avoids port-forwarding issues with rootless podman on RHEL 9.
-> Use `--security-opt label=disable` in place of the `:z` volume flag when
-> `--network=host` is set.
+> [!IMPORTANT]
+> The registry must run as root (with `sudo podman`) so that it persists across
+> user logouts and reboots. A rootless container stops when the owning user
+> session ends, which prevents the Flight Control services from pulling images.
 
 ## Step 5: Import images into the local registry
 
-Run the included import script to push all bundled images into the local registry:
+Run the included import script as root to push all bundled images into the local
+registry. Running as root ensures that image signatures are written to the
+system-wide signature store (`/var/lib/containers/sigstore/`), where the Flight
+Control services can verify them:
 
 ```bash
 cd ~/flightctl-bundle
-./import.sh
+sudo ./import.sh
 ```
 
 By default `import.sh` targets `localhost:5000`. To use a different registry address:
 
 ```bash
-./import.sh --registry <host>:<port>
+sudo ./import.sh --registry <host>:<port>
 ```
+
+The import script also configures `/etc/containers/registries.d/` so that
+podman reads signatures from the local store. You can verify this after the
+import completes by checking the relevant `/etc/containers/registries.d/`
+YAML files for a `sigstore: file:///var/lib/containers/sigstore` line.
 
 Verify the images are available:
 
@@ -250,6 +266,36 @@ For `rhem-el9` or `rhem-el10` variants, add a mirror entry for
 > (which is the default for the registry container started in Step 4). If your
 > registry is configured with TLS, remove this flag and ensure its CA certificate
 > is trusted on the target system.
+
+### Verify offline signature lookup
+
+The `import.sh` script in Step 5 automatically configures the signature lookup
+for registries that require it (`registry.redhat.io`, `registry.access.redhat.com`).
+Verify that the configuration is in place:
+
+```bash
+grep sigstore /etc/containers/registries.d/registry.redhat.io.yaml
+```
+
+The output should include:
+
+```console
+sigstore: file:///var/lib/containers/sigstore
+```
+
+If the line is missing, add it manually:
+
+```bash
+echo "sigstore: file:///var/lib/containers/sigstore" | sudo tee -a /etc/containers/registries.d/registry.redhat.io.yaml
+```
+
+Repeat for `registry.access.redhat.com.yaml` if your variant includes images
+from `registry.access.redhat.com` (all variants include at least one such image).
+
+> [!IMPORTANT]
+> Do not remove or weaken the signature verification policy in
+> `/etc/containers/policy.json`. The steps above configure podman to find the
+> bundled signatures locally so that verification succeeds offline.
 
 ## Step 8: Configure and start the Flight Control services
 
