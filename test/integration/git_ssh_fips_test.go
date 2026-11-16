@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"crypto/fips140"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -10,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -71,10 +71,10 @@ func startSshGitServerForFIPSTest(t *testing.T, pubKey gossh.PublicKey) (string,
 // TestGitSSHCloneWithFIPS tests that SSH git clone operations work correctly in FIPS mode
 // This test reproduces the bug where go-git defaults to non-FIPS-compliant algorithms like curve25519
 func TestGitSSHCloneWithFIPS(t *testing.T) {
-	// Check if OPENSSL_FORCE_FIPS_MODE is set to simulate FIPS environment
-	fipsMode := os.Getenv("OPENSSL_FORCE_FIPS_MODE") == "1"
+	// Native FIPS mode is selected when the test process starts.
+	fipsMode := fips140.Enabled()
 	if !fipsMode {
-		t.Skip("Skipping FIPS test - set OPENSSL_FORCE_FIPS_MODE=1 to run")
+		t.Skip("Skipping FIPS test - set GODEBUG=fips140=on to run")
 	}
 
 	require := require.New(t)
@@ -141,9 +141,9 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 // This ensures backward compatibility - existing functionality should continue to work
 func TestGitSSHCloneNonFIPS(t *testing.T) {
 	// Only run this when NOT in FIPS mode
-	fipsMode := os.Getenv("OPENSSL_FORCE_FIPS_MODE") == "1"
+	fipsMode := fips140.Enabled()
 	if fipsMode {
-		t.Skip("Skipping non-FIPS test - OPENSSL_FORCE_FIPS_MODE is set")
+		t.Skip("Skipping non-FIPS test - native FIPS mode is enabled")
 	}
 
 	require := require.New(t)

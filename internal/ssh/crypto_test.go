@@ -1,7 +1,6 @@
 package ssh
 
 import (
-	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -13,23 +12,8 @@ import (
 func TestGetSSHCryptoSettings_FIPSMode(t *testing.T) {
 	require := require.New(t)
 
-	// Save and restore environment
-	origOpenSSL, origSet := os.LookupEnv("OPENSSL_FORCE_FIPS_MODE")
-	defer func() {
-		if origSet {
-			os.Setenv("OPENSSL_FORCE_FIPS_MODE", origOpenSSL)
-		} else {
-			os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-		}
-		util.ResetFIPSCache()
-	}()
-
-	// Force FIPS mode via environment
-	os.Setenv("OPENSSL_FORCE_FIPS_MODE", "1")
-	util.ResetFIPSCache()
-
-	// Get SSH config with nil config (should use FIPS defaults)
-	settings := GetSSHCryptoSettings(nil)
+	// Select FIPS algorithms through the explicit crypto policy.
+	settings := GetSSHCryptoSettings(&config.Config{CryptoPolicy: &config.CryptoPolicyConfig{ForceFIPSMode: lo.ToPtr(true)}})
 
 	// Verify FIPS-compliant algorithms are selected
 	require.NotEmpty(settings.KeyExchanges, "Key exchanges should be set in FIPS mode")
@@ -51,31 +35,9 @@ func TestGetSSHCryptoSettings_FIPSMode(t *testing.T) {
 func TestGetSSHCryptoSettings_NonFIPSMode(t *testing.T) {
 	require := require.New(t)
 
-	// Ensure FIPS mode is NOT active via environment variables
-	origOpenSSL, origOpenSSLSet := os.LookupEnv("OPENSSL_FORCE_FIPS_MODE")
-	origGolang, origGolangSet := os.LookupEnv("GOLANG_FIPS")
-	defer func() {
-		if origOpenSSLSet {
-			os.Setenv("OPENSSL_FORCE_FIPS_MODE", origOpenSSL)
-		} else {
-			os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-		}
-		if origGolangSet {
-			os.Setenv("GOLANG_FIPS", origGolang)
-		} else {
-			os.Unsetenv("GOLANG_FIPS")
-		}
-		util.ResetFIPSCache()
-	}()
-
-	os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-	os.Unsetenv("GOLANG_FIPS")
-	util.ResetFIPSCache()
-
-	// Check if FIPS is still active despite unsetting env vars
-	// This would mean the host OS itself enforces FIPS mode
+	// Skip when the runtime was started in FIPS mode.
 	if util.IsFIPSEnabled() {
-		t.Skip("Skipping non-FIPS mode test: host OS enforces FIPS mode via crypto/fips140 or /proc/sys/crypto/fips_enabled")
+		t.Skip("Skipping non-FIPS mode test: the Go runtime has FIPS mode enabled")
 	}
 
 	// Get SSH config with nil config (should use library defaults)
@@ -91,19 +53,6 @@ func TestGetSSHCryptoSettings_NonFIPSMode(t *testing.T) {
 
 func TestGetSSHCryptoSettings_ExplicitFIPSForce(t *testing.T) {
 	require := require.New(t)
-
-	// Ensure environment doesn't force FIPS
-	origOpenSSL, origSet := os.LookupEnv("OPENSSL_FORCE_FIPS_MODE")
-	defer func() {
-		if origSet {
-			os.Setenv("OPENSSL_FORCE_FIPS_MODE", origOpenSSL)
-		} else {
-			os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-		}
-		util.ResetFIPSCache()
-	}()
-	os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-	util.ResetFIPSCache()
 
 	// Create config that explicitly forces FIPS mode
 	cfg := &config.Config{
@@ -125,19 +74,6 @@ func TestGetSSHCryptoSettings_ExplicitFIPSForce(t *testing.T) {
 func TestGetSSHCryptoSettings_ExplicitFIPSDisable(t *testing.T) {
 	require := require.New(t)
 
-	// Force FIPS mode via environment
-	origOpenSSL, origSet := os.LookupEnv("OPENSSL_FORCE_FIPS_MODE")
-	defer func() {
-		if origSet {
-			os.Setenv("OPENSSL_FORCE_FIPS_MODE", origOpenSSL)
-		} else {
-			os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-		}
-		util.ResetFIPSCache()
-	}()
-	os.Setenv("OPENSSL_FORCE_FIPS_MODE", "1")
-	util.ResetFIPSCache()
-
 	// Create config that explicitly disables FIPS mode
 	cfg := &config.Config{
 		CryptoPolicy: &config.CryptoPolicyConfig{
@@ -149,7 +85,7 @@ func TestGetSSHCryptoSettings_ExplicitFIPSDisable(t *testing.T) {
 
 	settings := GetSSHCryptoSettings(cfg)
 
-	// Should NOT set FIPS algorithms even though environment detection says FIPS is active
+	// An explicit disable selects the library defaults regardless of runtime mode.
 	// Empty slices mean golang.org/x/crypto/ssh will use its defaults
 	require.Empty(settings.KeyExchanges, "Should use library defaults when FIPS is explicitly disabled")
 	require.Empty(settings.Ciphers, "Should use library defaults when FIPS is explicitly disabled")
@@ -187,24 +123,12 @@ func TestGetSSHCryptoSettings_ManualOverride(t *testing.T) {
 func TestGetSSHCryptoSettings_PartialManualOverride(t *testing.T) {
 	require := require.New(t)
 
-	// Force FIPS mode
-	origOpenSSL, origSet := os.LookupEnv("OPENSSL_FORCE_FIPS_MODE")
-	defer func() {
-		if origSet {
-			os.Setenv("OPENSSL_FORCE_FIPS_MODE", origOpenSSL)
-		} else {
-			os.Unsetenv("OPENSSL_FORCE_FIPS_MODE")
-		}
-		util.ResetFIPSCache()
-	}()
-	os.Setenv("OPENSSL_FORCE_FIPS_MODE", "1")
-	util.ResetFIPSCache()
-
 	// Create config with only some algorithms specified
 	customKex := []string{"custom-kex-1", "custom-kex-2"}
 
 	cfg := &config.Config{
 		CryptoPolicy: &config.CryptoPolicyConfig{
+			ForceFIPSMode: lo.ToPtr(true),
 			SSH: &config.SSHCryptoConfig{
 				KeyExchangeAlgorithms: customKex,
 				// Other fields left empty - should use FIPS defaults
