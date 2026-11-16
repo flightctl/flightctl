@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -280,9 +282,33 @@ func TestWriteImportScript(t *testing.T) {
 	}
 }
 
+// hostWritePattern matches shell output redirection (>> or >) targeting /etc
+// or a variable that could resolve to an /etc path (e.g. $REGFILE, $REGISTRIES_D).
+// It is intentionally pattern-based, not a full shell parser.  It catches the
+// specific regression from the original echo-append approach while allowing
+// echo lines that merely mention /etc paths as instructional text (without
+// a redirect operator).
+//
+// Matches: echo "..." >> /etc/..., echo "..." >> "$REGFILE", tee /etc/...,
+//
+//	echo "..." > "$REGISTRIES_D/...", printf ... >> /etc/...
+//
+// Does not match: echo "/etc/containers/registries.d/..." (display only),
+//
+//	echo "..." >&2 (stderr diagnostic)
+var hostWritePattern = regexp.MustCompile(
+	`(?:>>?\s*/etc/)|` + // redirect to literal /etc path
+		`(?:>>?\s*"\$(?:REGFILE|REGISTRIES_D)["/])|` + // redirect to config variable
+		`(?:>>?\s*\$(?:REGFILE|REGISTRIES_D)["/\s])|` + // unquoted variable redirect
+		`(?:tee\s+(?:-a\s+)?(?:/etc/|"\$(?:REGFILE|REGISTRIES_D)))`, // tee to config path
+)
+
 // TestWriteImportScriptNoHostMutation verifies that the generated script does
-// NOT write to any host configuration files.  It must not contain shell
-// redirects or tee commands targeting /etc paths.
+// NOT write to any host configuration files.  Unlike the previous version
+// which skipped echo/printf lines entirely (missing the echo >> regression),
+// this checks ALL lines including echo and printf for output redirection to
+// host paths.  Lines that merely display /etc paths as instructional text
+// (without redirect operators) are allowed.
 func TestWriteImportScriptNoHostMutation(t *testing.T) {
 	t.Parallel()
 
@@ -321,22 +347,14 @@ func TestWriteImportScriptNoHostMutation(t *testing.T) {
 			require.NoError(t, err)
 			script := string(content)
 
-			// Check that no shell lines (outside echo/printf) redirect to /etc paths.
-			for _, line := range strings.Split(script, "\n") {
+			// Check ALL lines (including echo/printf) for host-file writes.
+			for i, line := range strings.Split(script, "\n") {
 				trimmed := strings.TrimSpace(line)
-				// Skip comments, empty lines, and echo/printf (display only).
-				if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
-					strings.HasPrefix(trimmed, "echo ") || strings.HasPrefix(trimmed, "printf ") {
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 					continue
 				}
-				// No redirect to /etc.
-				require.NotContains(t, trimmed, ">> /etc/",
-					"script must not append to /etc/ files: "+trimmed)
-				require.NotContains(t, trimmed, "> /etc/",
-					"script must not write to /etc/ files: "+trimmed)
-				// No tee to /etc.
-				if strings.Contains(trimmed, "tee") && strings.Contains(trimmed, "/etc/") {
-					t.Errorf("script must not tee to /etc/ files: %s", trimmed)
+				if hostWritePattern.MatchString(trimmed) {
+					t.Errorf("line %d writes to host config path: %s", i+1, trimmed)
 				}
 			}
 
@@ -344,7 +362,7 @@ func TestWriteImportScriptNoHostMutation(t *testing.T) {
 			require.NotContains(t, script, "--remove-signatures",
 				"script must not strip signatures — that weakens the security policy")
 
-			// Safety: no shell command (outside echo/printf) should reference policy.json.
+			// Safety: no non-display line should operate on policy.json.
 			for _, line := range strings.Split(script, "\n") {
 				trimmed := strings.TrimSpace(line)
 				if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
@@ -354,6 +372,77 @@ func TestWriteImportScriptNoHostMutation(t *testing.T) {
 				require.NotContains(t, trimmed, "policy.json",
 					"non-echo line must not reference policy.json: "+trimmed)
 			}
+		})
+	}
+}
+
+// TestHostWritePatternCatchesRegressions verifies that the hostWritePattern
+// correctly identifies the echo-append pattern from the original implementation
+// (which wrote to host registries.d files) and rejects similar patterns using
+// config-path variables, while allowing display-only mentions of /etc paths.
+func TestHostWritePatternCatchesRegressions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		line      string
+		wantMatch bool
+	}{
+		// Must match: original regression patterns
+		{
+			name:      "When echo appends to /etc it should match",
+			line:      `echo "sigstore: file:///var/lib/containers/sigstore" >> /etc/containers/registries.d/registry.redhat.io.yaml`,
+			wantMatch: true,
+		},
+		{
+			name:      "When echo appends to REGFILE variable it should match",
+			line:      `echo "sigstore: file://$SIGSTORE_DIR" >> "$REGFILE"`,
+			wantMatch: true,
+		},
+		{
+			name:      "When echo writes to REGISTRIES_D variable it should match",
+			line:      `echo "content" > "$REGISTRIES_D/registry.redhat.io.yaml"`,
+			wantMatch: true,
+		},
+		{
+			name:      "When tee appends to /etc it should match",
+			line:      `echo "sigstore: ..." | tee -a /etc/containers/registries.d/registry.redhat.io.yaml`,
+			wantMatch: true,
+		},
+		{
+			name:      "When tee writes to REGFILE variable it should match",
+			line:      `echo "..." | tee "$REGFILE"`,
+			wantMatch: true,
+		},
+		// Must NOT match: display-only mentions
+		{
+			name:      "When echo displays /etc path without redirect it should not match",
+			line:      `echo "  File: /etc/containers/registries.d/registry.redhat.io.yaml"`,
+			wantMatch: false,
+		},
+		{
+			name:      "When echo writes to stderr it should not match",
+			line:      `echo "Error: something went wrong" >&2`,
+			wantMatch: false,
+		},
+		{
+			name:      "When echo mentions docker section it should not match",
+			line:      `echo "  Merge into the existing docker section:"`,
+			wantMatch: false,
+		},
+		{
+			name:      "When a comment mentions /etc it should not match",
+			line:      `# configure /etc/containers/registries.d/`,
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hostWritePattern.MatchString(tt.line)
+			require.Equal(t, tt.wantMatch, got,
+				"hostWritePattern.MatchString(%q) = %v, want %v", tt.line, got, tt.wantMatch)
 		})
 	}
 }
@@ -379,9 +468,60 @@ func TestWriteImportScriptUsageSudo(t *testing.T) {
 		"usage comment should recommend running with sudo")
 }
 
-// TestWriteImportScriptGuidanceContainsValidYAML verifies that the registries.d
-// examples shown in the generated script parse as valid containers-registries.d
-// YAML with the registry nested under the docker top-level key.
+// extractEchoYAML extracts YAML content from the generated script's echo lines
+// for a given registry.  It finds the "Merge into" marker after the registry's
+// YAML file reference, then collects subsequent echo lines containing YAML
+// (docker:, registry name, lookaside) until a blank echo following content.
+func extractEchoYAML(script, registry string) string {
+	lines := strings.Split(script, "\n")
+	marker := registry + ".yaml"
+	var foundMarker, collecting bool
+	var yamlLines []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// First find the file marker for this registry.
+		if !foundMarker && strings.Contains(trimmed, marker) && strings.HasPrefix(trimmed, "echo ") {
+			foundMarker = true
+			continue
+		}
+		if !foundMarker {
+			continue
+		}
+		// Skip the "Merge into..." instruction line and blank echos before YAML.
+		if !collecting {
+			if trimmed == `echo ""` || strings.Contains(trimmed, "Merge into") {
+				continue
+			}
+			collecting = true
+		}
+		if collecting {
+			// A blank echo or non-echo line after we've collected YAML ends the block.
+			if trimmed == `echo ""` || trimmed == "" || !strings.HasPrefix(trimmed, "echo ") {
+				if len(yamlLines) > 0 {
+					break
+				}
+				continue
+			}
+			// Extract payload from echo "..." — remove echo prefix, quotes,
+			// and the display indentation added by the template.
+			payload := trimmed[len(`echo "`):]
+			payload = strings.TrimSuffix(payload, `"`)
+			// Remove display indent (4 spaces added in the Fprintf template).
+			payload = strings.TrimPrefix(payload, "    ")
+			if strings.TrimSpace(payload) != "" {
+				yamlLines = append(yamlLines, payload)
+			}
+		}
+	}
+	return strings.Join(yamlLines, "\n") + "\n"
+}
+
+// TestWriteImportScriptGuidanceContainsValidYAML extracts the ACTUAL echo
+// payloads from the generated script (not the helper function output) and
+// validates that they parse as valid containers-registries.d(5) YAML with the
+// registry nested under docker.<registry>.  It also runs bash -n to verify
+// the generated script has valid shell syntax.
 func TestWriteImportScriptGuidanceContainsValidYAML(t *testing.T) {
 	t.Parallel()
 
@@ -394,27 +534,34 @@ func TestWriteImportScriptGuidanceContainsValidYAML(t *testing.T) {
 	err := WriteImportScript(tmpDir, pairs, "mixed-test")
 	require.NoError(t, err)
 
-	content, err := os.ReadFile(filepath.Join(tmpDir, "import.sh"))
+	scriptPath := filepath.Join(tmpDir, "import.sh")
+	content, err := os.ReadFile(scriptPath)
 	require.NoError(t, err)
 	script := string(content)
 
-	// Each sigstore-requiring registry should have its example producible
-	// by registriesDExample, which is validated separately.
+	// Validate shell syntax with bash -n (syntax check only, no execution).
+	cmd := exec.Command("bash", "-n", scriptPath)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "bash -n syntax check failed: %s", string(out))
+
+	// Extract and validate ACTUAL YAML from the generated echo payloads for
+	// each registry — not the helper function output.
 	for _, reg := range []string{"registry.redhat.io", "registry.access.redhat.com"} {
-		example := registriesDExample(reg, "file:///var/lib/containers/sigstore")
-		// The example YAML must be parseable.
+		extractedYAML := extractEchoYAML(script, reg)
+		require.NotEmpty(t, extractedYAML,
+			"should find YAML guidance for %s in the generated script", reg)
+
 		var parsed registriesDConfig
-		err := yaml.Unmarshal([]byte(example), &parsed)
-		require.NoError(t, err, "YAML example for %s must parse", reg)
+		err := yaml.Unmarshal([]byte(extractedYAML), &parsed)
+		require.NoError(t, err,
+			"extracted YAML for %s must parse; got:\n%s", reg, extractedYAML)
+		require.NotNil(t, parsed.Docker,
+			"extracted YAML for %s must have docker section", reg)
 		require.Contains(t, parsed.Docker, reg,
-			"docker section must contain %s", reg)
+			"docker section in extracted YAML must contain %s", reg)
 		require.Equal(t, "file:///var/lib/containers/sigstore",
 			parsed.Docker[reg].Lookaside,
-			"lookaside must point to system sigstore for %s", reg)
-
-		// The script must reference this registry's YAML file.
-		require.Contains(t, script, reg+".yaml",
-			"script should reference registries.d file for "+reg)
+			"lookaside in extracted YAML must point to sigstore for %s", reg)
 	}
 }
 

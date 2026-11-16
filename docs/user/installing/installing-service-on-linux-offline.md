@@ -191,9 +191,10 @@ curl http://localhost:5000/v2/
 ## Step 5: Import images into the local registry
 
 Run the included import script as root to push all bundled images into the local
-registry. Running as root ensures that image signatures are written to the
-default system-wide signature directory (`/var/lib/containers/sigstore/`),
-where the system's podman can find them for offline verification:
+registry. Running as root causes `skopeo` to write detached image signatures to
+the default system-wide directory (`/var/lib/containers/sigstore/`). If your
+system has a custom `lookaside-staging` path configured in `registries.d`, the
+signatures are written there instead:
 
 ```bash
 cd ~/flightctl-bundle
@@ -308,11 +309,21 @@ docker:
 > the actual path where `skopeo` wrote the signatures instead of the default
 > `/var/lib/containers/sigstore`.
 
-Verify the configuration is in place:
+Verify the configuration by pulling one of the images included in your bundle.
+To find the original source reference and tag for a bundled image, check the
+`import.sh` script — each `skopeo copy` line shows the image path. For example,
+if the script contains `docker://$REGISTRY/rhel9/postgresql-16:9.8`, the
+original source reference is `registry.redhat.io/rhel9/postgresql-16:9.8`:
 
 ```bash
-sudo podman pull --log-level=debug registry.redhat.io/ubi9/ubi-minimal:latest 2>&1 | grep -i sigstore
+sudo podman pull --log-level=debug <source_registry>/<image_path>:<tag>
 ```
+
+Replace `<source_registry>/<image_path>:<tag>` with an image and tag from your
+bundle's `import.sh`. The pull should succeed with the registry redirect
+resolving to `localhost:5000` and signature verification completing against the
+local directory. If it fails, review the full output for `lookaside` or
+`sigstore` path messages that indicate where podman looked for signatures.
 
 > [!IMPORTANT]
 > Do not remove or weaken the signature verification policy in
