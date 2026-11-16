@@ -247,6 +247,36 @@ func TestCatalogYAMLAndSchemaContracts(t *testing.T) {
 	})
 }
 
+func TestImplicitObjectSchemaClosure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		schema string
+		valid  bool
+	}{
+		{"additional properties without type", `{"additionalProperties":true}`, false},
+		{"empty schema", `{}`, false},
+		{"boolean schema", `true`, false},
+		{"annotation only", `{"description":"any value"}`, false},
+		{"closed implicit object", `{"additionalProperties":false}`, true},
+		{"explicit scalar", `{"type":"string"}`, true},
+		{"literal object", `{"const":{"type":"object"}}`, true},
+		{"finite enumeration", `{"enum":[{"known":1},null]}`, true},
+	} {
+		t.Run("When nested schema has "+tc.name+" it should enforce closed objects", func(t *testing.T) {
+			c := fixture(t)
+			s := release(c)["schemas"].(map[string]any)["config"].(map[string]any)
+			raw := `{"type":"object","additionalProperties":false,"properties":{"value":` + tc.schema + `}}`
+			s["bytes"], s["digest"] = raw, digest(raw)
+			_, err := updatercatalog.ParseAdministratorConfig(encode(t, c))
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
 func TestBudgetEvidenceIdentity(t *testing.T) {
 	t.Run("When shared schema keys have different budget evidence it should reject", func(t *testing.T) {
 		c := fixture(t)

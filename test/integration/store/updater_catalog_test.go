@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -15,6 +16,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"gorm.io/gorm"
@@ -77,6 +79,39 @@ var _ = Describe("Updater catalog persistence", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(snapshot).To(Equal(revoked.Snapshot))
 
+	})
+
+	It("When a full catalog is revoked it should deliver policy and migrate at capacity", func() {
+		c := updaterCandidate(1, "")
+		for i := range 256 {
+			c.Releases = append(c.Releases, updaterCandidate(1, fmt.Sprint(i)).Releases[0])
+		}
+		_, err := catalog.Activate(ctx, c)
+		Expect(err).NotTo(HaveOccurred())
+		revoked, err := catalog.Activate(ctx, updaterCandidate(2, ""))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(revoked.Snapshot.Releases).To(HaveLen(256))
+		Expect(revoked.Snapshot.Tombstones).To(HaveLen(256))
+		org := uuid.New()
+		Expect(db.Create(&model.Device{Resource: model.Resource{OrgID: org, Name: "policy-capacity"}, Spec: model.MakeJSONField(api.DeviceSpec{})}).Error).To(Succeed())
+		view, err := catalog.PolicyForDevice(ctx, org, "policy-capacity")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(view.Digest).To(Equal(revoked.Snapshot.PolicyDigest))
+		Expect(catalog.InitialMigration(ctx)).To(Succeed())
+		// A corrupt retained history must still fail closed beyond either limit.
+		extra := revoked.Snapshot.Releases[0]
+		extra.Version = "overflow"
+		Expect(db.Create(&extra).Error).To(Succeed())
+		_, err = catalog.PolicyForDevice(ctx, org, "policy-capacity")
+		Expect(err).To(MatchError(ContainSubstring("retained record limit")))
+		Expect(catalog.InitialMigration(ctx)).To(MatchError(ContainSubstring("retained record limit")))
+		Expect(db.Delete(&extra).Error).To(Succeed())
+		extraTombstone := revoked.Snapshot.Tombstones[0]
+		extraTombstone.Version = "overflow"
+		Expect(db.Create(&extraTombstone).Error).To(Succeed())
+		_, err = catalog.PolicyForDevice(ctx, org, "policy-capacity")
+		Expect(err).To(MatchError(ContainSubstring("retained record limit")))
+		Expect(catalog.InitialMigration(ctx)).To(MatchError(ContainSubstring("retained record limit")))
 	})
 
 	It("When migration detects an unexpected policy digest mismatch it should fail closed", func() {

@@ -204,7 +204,7 @@ func readPolicySnapshot(tx *gorm.DB, head model.UpdaterCatalogHead) (Snapshot, e
 	if err := tx.Limit(maxRetainedReleases + 1).Find(&result.Tombstones).Error; err != nil {
 		return Snapshot{}, err
 	}
-	if len(result.Releases)+len(result.Tombstones) > maxRetainedReleases {
+	if len(result.Releases) > maxRetainedReleases || len(result.Tombstones) > maxRetainedReleases {
 		return Snapshot{}, errors.New("updater policy exceeds the retained record limit")
 	}
 	canonicalOrder(&result)

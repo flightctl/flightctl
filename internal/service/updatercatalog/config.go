@@ -325,12 +325,19 @@ func validateSchema(s SchemaDocument) error {
 
 func validateClosedSchema(value any) error {
 	switch v := value.(type) {
+	case bool:
+		if v {
+			return errors.New("unrestricted schemas must not admit open objects")
+		}
 	case map[string]any:
 		typ, _ := v["type"].(string)
 		_, typePresent := v["type"]
-		_, hasProperties := v["properties"]
-		_, hasPatternProperties := v["patternProperties"]
-		objectType := !typePresent && (hasProperties || hasPatternProperties)
+		// Without a type, a schema admits objects too. Finite literals and
+		// references to locally validated schemas do not introduce open keys.
+		_, hasConst := v["const"]
+		_, hasEnum := v["enum"]
+		_, hasRef := v["$ref"]
+		objectType := !typePresent && !hasConst && !hasEnum && !hasRef
 		if typ == "object" {
 			objectType = true
 		}
