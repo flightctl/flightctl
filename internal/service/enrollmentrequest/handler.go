@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 )
+
+const revocationReconciliationEventTimeout = 5 * time.Second
 
 type ServiceHandler struct {
 	store              enrollmentrequeststore.Store
@@ -152,10 +155,12 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
+	enrollmentCertificateName := enrollmentRequest.Status.EnrollmentCertificateName
 	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  existingConditions,
-		Approval:    approval,
+		Certificate:               lo.ToPtr(string(certData)),
+		Conditions:                existingConditions,
+		Approval:                  approval,
+		EnrollmentCertificateName: enrollmentCertificateName,
 	}
 
 	// Merge user-provided labels with agent-provided labels (only if not replacing)
@@ -188,6 +193,40 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 			Conditions:  []domain.Condition{},
 		}
 	}
+}
+
+func (h *ServiceHandler) deviceEnrollmentCredentialStatus(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) (*domain.DeviceEnrollmentCredentialStatus, error) {
+	if enrollmentRequest.Status == nil ||
+		enrollmentRequest.Status.EnrollmentCertificateName == nil {
+		return nil, nil
+	}
+	name := *enrollmentRequest.Status.EnrollmentCertificateName
+	csr, status := h.csrService.GetCertificateSigningRequest(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
+		return nil, nil
+	}
+	if status.Code != http.StatusOK {
+		return nil, fmt.Errorf("resolving enrollment credential %q: %s", name, status.Message)
+	}
+	if csr == nil || csr.Status == nil || csr.Status.Certificate == nil {
+		return nil, nil
+	}
+	return &domain.DeviceEnrollmentCredentialStatus{
+		Revoked: csr.Status.Revocation != nil,
+	}, nil
+}
+
+func setDeviceEnrollmentCredentialStatus(deviceStatus *domain.DeviceStatus, credential *domain.DeviceEnrollmentCredentialStatus) {
+	deviceStatus.EnrollmentCredential = credential
+	if credential == nil || !credential.Revoked {
+		return
+	}
+	domain.SetStatusCondition(&deviceStatus.Conditions, domain.Condition{
+		Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+		Status:  domain.ConditionStatusTrue,
+		Reason:  domain.EnrollmentCredentialRevokedReason,
+		Message: domain.EnrollmentCredentialRevokedMessage,
+	})
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
@@ -284,6 +323,12 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		}
 	}
 
+	enrollmentCredential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
+	if err != nil {
+		return err
+	}
+	setDeviceEnrollmentCredentialStatus(&deviceStatus, enrollmentCredential)
+
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
 	ehStatus, secrets, err := snapshotEnrollmentHookPolicy(ctx, h.ehPolicySvc, orgId, name)
@@ -364,8 +409,48 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	}); err != nil {
 		return err
 	}
+
+	h.reconcileDeviceEnrollmentCredentialRevocation(ctx, orgId, enrollmentRequest, name)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
 	return nil
+}
+
+// reconcileDeviceEnrollmentCredentialRevocation closes the race where the
+// revocation worker finishes between the pre-creation status read and the
+// device insert.
+func (h *ServiceHandler) reconcileDeviceEnrollmentCredentialRevocation(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest, deviceName string) {
+	if enrollmentRequest.Status == nil || enrollmentRequest.Status.EnrollmentCertificateName == nil {
+		return
+	}
+	credential, err := h.deviceEnrollmentCredentialStatus(ctx, orgId, enrollmentRequest)
+	if err != nil {
+		h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
+		return
+	}
+	if credential == nil || !credential.Revoked {
+		return
+	}
+	for {
+		count, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName, domain.EnrollmentCredentialRevocationBatchSize)
+		if err != nil {
+			h.log.WithError(err).Warnf("Failed to reconcile enrollment credential revocation for device %s", deviceName)
+			h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, orgId, *enrollmentRequest.Status.EnrollmentCertificateName)
+			return
+		}
+		if count == 0 {
+			return
+		}
+	}
+}
+
+func (h *ServiceHandler) enqueueEnrollmentCredentialRevocationReconciliation(ctx context.Context, orgId uuid.UUID, credentialName string) {
+	event := domain.GetBaseEvent(ctx, domain.CertificateSigningRequestKind, credentialName,
+		domain.EventReasonEnrollmentCredentialRevoked,
+		"Enrollment credential revocation reconciliation requested.", nil)
+	eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revocationReconciliationEventTimeout)
+	defer cancel()
+	h.events.CreateEvent(eventCtx, orgId, event)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
@@ -610,6 +695,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
 	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+}
+
+func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
+	count, err := h.store.DenyEnrollmentRequestsForRevokedCredential(ctx, orgId, credentialName, limit)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &credentialName)
+	}
+	return count, domain.StatusOK()
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

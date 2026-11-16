@@ -46,6 +46,7 @@ const (
 type fakeCertificateSigningRequestStore struct {
 	items             map[string]*domain.CertificateSigningRequest
 	revokeErr         error
+	deleteErr         error
 	casMissRevocation *domain.EnrollmentCertificateRevocation
 }
 
@@ -117,6 +118,9 @@ func (f *fakeCertificateSigningRequestStore) List(ctx context.Context, orgId uui
 }
 
 func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	if f.deleteErr != nil {
+		return false, f.deleteErr
+	}
 	if _, exists := f.items[name]; !exists {
 		return false, nil
 	}
@@ -1008,6 +1012,18 @@ func TestDeleteCertificateSigningRequest(t *testing.T) {
 	require.NotContains(t, fakeStore.items, "foo")
 	require.Len(t, fakeEvents.events, 1)
 	require.Equal(t, domain.EventReasonResourceDeleted, fakeEvents.events[0].Reason)
+
+	t.Run("When revocation consequences are still pending it should return a conflict", func(t *testing.T) {
+		h, fakeStore, _, fakeEvents, _ := newTestHandler(t)
+		csr := domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}
+		fakeStore.items["foo"] = &csr
+		fakeStore.deleteErr = flterrors.ErrRevocationConsequencesPending
+
+		status := h.DeleteCertificateSigningRequest(context.Background(), uuid.New(), "foo")
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Contains(t, fakeStore.items, "foo")
+		require.Empty(t, fakeEvents.events)
+	})
 }
 
 func TestPatchCertificateSigningRequest(t *testing.T) {

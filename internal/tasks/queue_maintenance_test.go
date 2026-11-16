@@ -162,3 +162,37 @@ func TestQueueMaintenanceTaskWhenDeltaJobHasShorterFleetTimeoutItShouldUseDeploy
 	err = provider.timeoutHandlers[consts.DeltaGenerationTaskQueue]("delta-entry", payload, 2*time.Minute)
 	require.ErrorIs(t, err, queues.ErrMessageNotTimedOut)
 }
+
+func TestQueueMaintenanceTaskWhenRevocationTaskRunsItShouldUseRevocationLease(t *testing.T) {
+	provider := &queueMaintenanceRecordingProvider{}
+	controller := gomock.NewController(t)
+	eventSvc := eventservice.NewMockService(controller)
+	eventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	task := tasks.NewQueueMaintenanceTask(
+		logrus.New(),
+		nil,
+		eventSvc,
+		nil,
+		15*time.Minute,
+		10*time.Minute,
+		provider,
+		nil,
+		nil,
+	)
+	require.NoError(t, task.Execute(context.Background()))
+
+	payload, err := json.Marshal(worker_client.EventWithOrgId{
+		OrgId: uuid.New(),
+		Event: domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: domain.CertificateSigningRequestKind,
+				Name: "credential",
+			},
+			Reason: domain.EventReasonEnrollmentCredentialRevoked,
+		},
+	})
+	require.NoError(t, err)
+
+	err = provider.timeoutHandlers[consts.TaskQueue]("revocation-entry", payload, tasks.EnrollmentCredentialRevocationProcessingTimeout-time.Second)
+	require.ErrorIs(t, err, queues.ErrMessageNotTimedOut)
+}

@@ -16,6 +16,21 @@ type compositeTestModel struct {
 	Field4 string `gorm:"type:jsonb" selector:"model.fieldc4"`
 }
 
+type compositeExprTestModel struct {
+	Field1 string `selector:"model.field1"`
+}
+
+func (m *compositeExprTestModel) ResolveSelector(name SelectorName) (*SelectorField, error) {
+	if name.String() == "derived" {
+		return &SelectorField{Type: String, FieldName: "(SELECT 1)"}, nil
+	}
+	return nil, nil
+}
+
+func (m *compositeExprTestModel) ListSelectors() SelectorNameSet {
+	return NewSelectorFieldNameSet().Add(NewSelectorName("derived"))
+}
+
 func TestCompositeResolverQueries(t *testing.T) {
 	ctx := context.Background()
 	testCases := map[string]string{
@@ -89,5 +104,28 @@ func TestCompositeResolverList(t *testing.T) {
 
 	if !slices.Equal(expectedList, actualList) {
 		t.Errorf("resolved field lists do not match:\nexpected: %v\nactual:   %v", expectedList, actualList)
+	}
+}
+
+func TestCompositeResolverSkipsPrefixForParenthesizedFields(t *testing.T) {
+	resolver, err := NewCompositeSelectorResolver(&compositeExprTestModel{})
+	if err != nil {
+		t.Fatalf("failed to create CompositeSelectorResolver: %v", err)
+	}
+
+	derived, err := resolver.ResolveFields(NewSelectorName("derived"))
+	if err != nil {
+		t.Fatalf("failed to resolve derived selector: %v", err)
+	}
+	if len(derived) != 1 || derived[0].FieldName != "(SELECT 1)" {
+		t.Fatalf("expected parenthesized field without table prefix, got %#v", derived)
+	}
+
+	ordinary, err := resolver.ResolveFields(NewSelectorName("model.field1"))
+	if err != nil {
+		t.Fatalf("failed to resolve ordinary selector: %v", err)
+	}
+	if len(ordinary) != 1 || ordinary[0].FieldName != "composite_expr_test_models.field1" {
+		t.Fatalf("expected ordinary field with table prefix, got %#v", ordinary)
 	}
 }

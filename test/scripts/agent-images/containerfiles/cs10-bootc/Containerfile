@@ -40,6 +40,8 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     # bootc install-to-filesystem. CS10 e2e tests use the nftables backend so iptables-nft
     # is not needed.
     dnf install -y --setopt=install_weak_deps=False firewalld && \
+    dnf distro-sync -y nftables libnftnl && \
+    nft --version && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
 

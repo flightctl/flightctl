@@ -287,6 +287,9 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	deleted, err := h.store.Delete(ctx, orgId, name)
+	if errors.Is(err, flterrors.ErrRevocationConsequencesPending) {
+		return domain.StatusConflict(fmt.Sprintf("cannot delete certificate signing request %q: enrollment credential revocation consequences are still pending", name))
+	}
 	if err == nil && deleted {
 		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
 	}

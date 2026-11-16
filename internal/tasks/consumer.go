@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -42,6 +43,7 @@ type TaskConsumer struct {
 	CatalogSvc           catalogservice.Service
 	EventSvc             eventservice.Service
 	EnrollmentRequestSvc enrollmentrequestservice.Service
+	CSRService           certificatesigningrequestservice.Service
 	NotifySecretsStore   enrollmenthooknotifysecrets.Store
 	K8sClient            k8sclient.K8SClient
 	KVStore              kvstore.KVStore
@@ -196,6 +198,14 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
+		if shouldProcessEnrollmentCredentialRevocation(eventWithOrgId.Event) {
+			taskName = "enrollmentCredentialRevocation"
+			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+				return processEnrollmentCredentialRevocation(workerCtx, eventWithOrgId.OrgId, eventWithOrgId.Event,
+					d.DeviceSvc, d.EnrollmentRequestSvc, d.CSRService, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
 		if shouldRunEncryptionMigration(eventWithOrgId.Event) {
 			taskName = "encryptionMigration"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
@@ -262,7 +272,7 @@ func runTaskWithMetrics(name string, workerMetrics *worker.WorkerCollector, fn f
 func shouldRolloutFleet(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a devices's owner or labels were updated return true
 	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.DeviceKind {
-		return hasUpdatedFields(event.Details, log, domain.Owner, domain.Labels)
+		return hasUpdatedFields(event.Details, log, domain.Owner, domain.Labels, domain.UpdatedFieldStatusFirmware)
 	}
 
 	if event.Reason == domain.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == domain.FleetKind {
@@ -358,6 +368,9 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
 	if event.Reason == domain.EventReasonResourceUpdated {
+		if hasUpdatedFields(event.Details, log, domain.UpdatedFieldStatusFirmware) && !hasUpdatedFields(event.Details, log, domain.Spec) {
+			return true
+		}
 		if !hasUpdatedFields(event.Details, log, domain.Spec) {
 			return false
 		}

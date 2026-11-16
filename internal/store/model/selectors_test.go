@@ -80,6 +80,68 @@ func TestDeviceOsModeSelector(t *testing.T) {
 	}
 }
 
+func TestDeviceEnrollmentCredentialSelectors(t *testing.T) {
+	tests := []struct {
+		name          string
+		selectorName  string
+		wantType      selector.SelectorType
+		wantFieldName string
+	}{
+		{
+			name:          "When the revoked selector is resolved it should map to the server-owned credential path",
+			selectorName:  "status.enrollmentCredential.revoked",
+			wantType:      selector.Bool,
+			wantFieldName: "service_conditions -> 'enrollmentCredential' ->> 'revoked'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name := selector.NewSelectorName(tt.selectorName)
+			var device Device
+
+			field, err := device.ResolveSelector(name)
+			if err != nil {
+				t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
+			}
+			if field.Type != tt.wantType {
+				t.Errorf("Type = %v, want %v", field.Type, tt.wantType)
+			}
+			if field.FieldType != "jsonb" {
+				t.Errorf("FieldType = %q, want jsonb", field.FieldType)
+			}
+			if field.FieldName != tt.wantFieldName {
+				t.Errorf("FieldName = %q, want %q", field.FieldName, tt.wantFieldName)
+			}
+			if !device.ListSelectors().Contains(name) {
+				t.Errorf("ListSelectors() missing %q", name)
+			}
+		})
+	}
+}
+
+func TestDeviceEnrollmentCertificateNameSelector(t *testing.T) {
+	name := selector.NewSelectorName("enrollmentCertificateName")
+	var device Device
+
+	field, err := device.ResolveSelector(name)
+	if err != nil {
+		t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
+	}
+	if field.Type != selector.String {
+		t.Errorf("Type = %v, want String", field.Type)
+	}
+	if field.FieldType != "" {
+		t.Errorf("FieldType = %q, want empty for derived selector", field.FieldType)
+	}
+	if !strings.Contains(field.FieldName, "enrollment_requests") {
+		t.Errorf("FieldName = %q, want a subquery over enrollment_requests", field.FieldName)
+	}
+	if !device.ListSelectors().Contains(name) {
+		t.Errorf("ListSelectors() missing %q", name)
+	}
+}
+
 func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap) error {
 	schema := scanAPISchema(schemaName, apischema)
 	for s, typ := range selectors {

@@ -194,7 +194,39 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
+	db := s.getDB(ctx)
+	result := db.Exec(`
+		DELETE FROM certificate_signing_requests
+		WHERE org_id = CAST(@org_id AS uuid)
+		  AND name = CAST(@name AS text)
+		  AND spec IS NOT NULL
+		  AND NOT (
+			  status->'revocation' IS NOT NULL
+			  AND jsonb_typeof(status->'revocation') = 'object'
+			  AND status->'revocation'->>'flaggingCompletedAt' IS NULL
+		  )
+	`, map[string]interface{}{"org_id": orgId, "name": name})
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return true, nil
+	}
+
+	var existing int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM certificate_signing_requests
+		WHERE org_id = CAST(@org_id AS uuid)
+		  AND name = CAST(@name AS text)
+		  AND spec IS NOT NULL
+	`, map[string]interface{}{"org_id": orgId, "name": name}).Scan(&existing).Error; err != nil {
+		return false, store.ErrorFromGormError(err)
+	}
+	if existing > 0 {
+		return false, flterrors.ErrRevocationConsequencesPending
+	}
+	return false, nil
 }
 
 // Mutate applies an atomic create-or-update; apply decides which resource fields change.

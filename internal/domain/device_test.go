@@ -191,3 +191,65 @@ func TestDeviceStatusOsMode(t *testing.T) {
 		})
 	}
 }
+
+func TestFirmwareAttemptOutstanding(t *testing.T) {
+	tests := []struct {
+		name    string
+		attempt *FirmwareAttemptStatus
+		want    bool
+	}{
+		{name: "When there is no attempt it should not be outstanding", attempt: nil, want: false},
+		{name: "When the attempt is Preparing it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhasePreparing}, want: true},
+		{name: "When the attempt is WaitingForPolicy it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseWaitingForPolicy}, want: true},
+		{name: "When the attempt is Staging it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseStaging}, want: true},
+		{name: "When the attempt is AwaitingReboot it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseAwaitingReboot}, want: true},
+		{name: "When the attempt is Verifying it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseVerifying}, want: true},
+		{name: "When the attempt Succeeded it should not be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseSucceeded}, want: false},
+		{name: "When the attempt Failed it should not be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseFailed}, want: false},
+		{name: "When the attempt was Canceled it should not be outstanding", attempt: &FirmwareAttemptStatus{Phase: FirmwareAttemptPhaseCanceled}, want: false},
+		{name: "When the attempt phase is not recognized it should be outstanding", attempt: &FirmwareAttemptStatus{Phase: "Flashing"}, want: true},
+		{name: "When the attempt phase is empty it should be outstanding", attempt: &FirmwareAttemptStatus{}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FirmwareAttemptOutstanding(tt.attempt))
+		})
+	}
+}
+
+func TestDeviceRequiresFirmwareHold(t *testing.T) {
+	desired := &FirmwareSpec{Profile: "orin-example-profile"}
+	outstanding := &FirmwareAttemptStatus{Id: "attempt-1", Phase: FirmwareAttemptPhaseStaging}
+	terminal := &FirmwareAttemptStatus{Id: "attempt-1", Phase: FirmwareAttemptPhaseSucceeded}
+	withFirmware := func(firmware *FirmwareSpec, status *FirmwareStatus) *Device {
+		return &Device{
+			Spec:   &DeviceSpec{Firmware: firmware},
+			Status: &DeviceStatus{Firmware: status},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		device *Device
+		want   bool
+	}{
+		{name: "When the device is nil it should not hold", device: nil, want: false},
+		{name: "When the device has no spec and no status it should not hold", device: &Device{}, want: false},
+		{name: "When firmware is absent and no firmware status is reported it should not hold", device: withFirmware(nil, nil), want: false},
+		{name: "When firmware is absent and the status has no attempt it should not hold", device: withFirmware(nil, &FirmwareStatus{}), want: false},
+		{name: "When firmware is absent and only terminal attempt history remains it should not hold", device: withFirmware(nil, &FirmwareStatus{Attempt: terminal}), want: false},
+		{name: "When firmware was withdrawn while an attempt is outstanding it should hold", device: withFirmware(nil, &FirmwareStatus{Attempt: outstanding}), want: true},
+		{name: "When desired firmware is present and no firmware status is reported it should hold", device: withFirmware(desired, nil), want: true},
+		{name: "When desired firmware is present and an attempt is outstanding it should hold", device: withFirmware(desired, &FirmwareStatus{Attempt: outstanding}), want: true},
+		{name: "When desired firmware is present and the attempt is terminal it should hold", device: withFirmware(desired, &FirmwareStatus{Attempt: terminal}), want: true},
+		{name: "When desired firmware is present and the device has no status it should hold", device: &Device{Spec: &DeviceSpec{Firmware: desired}}, want: true},
+		{name: "When an outstanding attempt is reported for a device without a spec it should hold", device: &Device{Status: &DeviceStatus{Firmware: &FirmwareStatus{Attempt: outstanding}}}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DeviceRequiresFirmwareHold(tt.device))
+		})
+	}
+}

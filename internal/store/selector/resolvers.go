@@ -85,6 +85,9 @@ func (r *CompositeSelectorResolver) ResolveFields(name SelectorName) ([]*Selecto
 		}
 		if len(fields) > 0 {
 			for i := range fields {
+				if len(fields[i].FieldName) > 0 && fields[i].FieldName[0] == '(' {
+					continue
+				}
 				fields[i].FieldName = cr.table + "." + fields[i].FieldName
 			}
 			return fields, nil

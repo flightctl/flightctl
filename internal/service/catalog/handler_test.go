@@ -83,7 +83,7 @@ func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, *de
 func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Device, devicestore.DeviceApplyFunc, ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
+func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device, ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
@@ -129,6 +129,9 @@ func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uu
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) ReplaceRepositoryRefsIfCurrent(context.Context, uuid.UUID, string, int64, ...string) (bool, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
 	panic("not implemented")
 }
@@ -166,6 +169,9 @@ func (f *fakeDeviceStore) Summary(context.Context, uuid.UUID, store.ListParams) 
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) ListDevicesByServiceCondition(context.Context, uuid.UUID, string, string, store.ListParams) (*domain.DeviceList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(context.Context, uuid.UUID, string, int) (int64, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {
@@ -260,6 +266,9 @@ func (f *fakeFleetStore) UnsetOwner(context.Context, *gorm.DB, uuid.UUID, string
 	panic("not implemented")
 }
 func (f *fakeFleetStore) UnsetOwnerByKind(context.Context, *gorm.DB, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) ReplaceRepositoryRefsIfCurrent(context.Context, uuid.UUID, string, int64, ...string) (bool, error) {
 	panic("not implemented")
 }
 func (f *fakeFleetStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {

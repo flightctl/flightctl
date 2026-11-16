@@ -25,6 +25,10 @@ type Store interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
+	// DenyEnrollmentRequestsForRevokedCredential denies up to limit pending
+	// Enrollment Requests bound to credentialName in one statement. Callers
+	// repeat it until it returns zero rows.
+	DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -119,6 +123,14 @@ func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
 		}
 	}
 
+	if db.Dialector.Name() == "postgres" {
+		if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_enrollment_requests_enrollment_certificate_name
+			ON enrollment_requests (org_id, (status->>'enrollmentCertificateName'))
+			WHERE deleted_at IS NULL`).Error; err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -205,4 +217,73 @@ func (s *EnrollmentRequestStore) persistMutation(ctx context.Context, orgId uuid
 	updated, err := record.ToApiResource()
 	mutation.SetResource(updated)
 	return false, err
+}
+
+// DenyEnrollmentRequestsForRevokedCredential denies up to limit pending
+// Enrollment Requests bound to credentialName. Approved and already-denied
+// requests are left unchanged, and the denial condition is merged in place.
+// Callers repeat the call until it returns zero rows.
+func (s *EnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, error) {
+	if credentialName == "" || limit <= 0 {
+		return 0, nil
+	}
+	result := s.getDB(ctx).Exec(`
+		WITH batch AS (
+			SELECT name
+			FROM enrollment_requests
+			WHERE org_id = CAST(@org_id AS uuid)
+			  AND deleted_at IS NULL
+			  AND status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
+			  AND COALESCE(status->'approval'->>'approved', 'false') <> 'true'
+			  AND NOT jsonb_path_exists(
+				  COALESCE(status, '{}'::jsonb),
+				  CAST(@path AS jsonpath),
+				  jsonb_build_object(
+					  'approved', CAST(@approved_type AS text),
+					  'denied',   CAST(@denied_type AS text),
+					  'status',   CAST(@condition_status AS text)
+				  )
+			  )
+			ORDER BY name
+			LIMIT CAST(@limit AS integer)
+			FOR UPDATE
+		)
+		UPDATE enrollment_requests er
+		SET status = jsonb_set(
+				COALESCE(er.status, '{}'::jsonb),
+				'{conditions}',
+				COALESCE((
+					SELECT jsonb_agg(condition_json ORDER BY ordinal)
+					FROM jsonb_array_elements(COALESCE(NULLIF(er.status->'conditions', 'null'::jsonb), '[]'::jsonb))
+						WITH ORDINALITY AS condition_rows(condition_json, ordinal)
+					WHERE condition_json->>'type' <> CAST(@condition_type AS text)
+				), '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+					'type', CAST(@condition_type AS text),
+					'status', CAST(@condition_status AS text),
+					'reason', CAST(@condition_reason AS text),
+					'message', CAST(@condition_message AS text),
+					'lastTransitionTime', to_jsonb(now())
+				)),
+				true
+			),
+			resource_version = COALESCE(er.resource_version, 0) + 1
+		FROM batch
+		WHERE er.org_id = CAST(@org_id AS uuid)
+		  AND er.name = batch.name
+	`, map[string]interface{}{
+		"org_id":            orgId,
+		"credential_name":   credentialName,
+		"approved_type":     string(domain.ConditionTypeEnrollmentRequestApproved),
+		"denied_type":       string(domain.ConditionTypeEnrollmentRequestDenied),
+		"condition_type":    string(domain.ConditionTypeEnrollmentRequestDenied),
+		"condition_status":  string(domain.ConditionStatusTrue),
+		"condition_reason":  domain.EnrollmentCredentialRevokedReason,
+		"condition_message": domain.EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName),
+		"path":              "$.conditions[*] ? ((@.type == $approved || @.type == $denied) && @.status == $status)",
+		"limit":             limit,
+	})
+	if result.Error != nil {
+		return 0, store.ErrorFromGormError(result.Error)
+	}
+	return result.RowsAffected, nil
 }

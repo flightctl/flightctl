@@ -14,6 +14,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -70,16 +71,108 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices          map[string]*domain.Device
-	rendered         map[string]*devicestore.DeviceRendered
-	repoRefs         map[string][]string
-	lastSeen         map[string]*time.Time
-	healthcheckCalls []healthcheckCall
-	healthcheckErr   error
-	getCalls         int
-	getRenderedCalls int
-	getRenderedErr   error
-	mutateErr        error
+	devices           map[string]*domain.Device
+	deviceCredentials map[string]string
+	rendered          map[string]*devicestore.DeviceRendered
+	repoRefs          map[string][]string
+	lastSeen          map[string]*time.Time
+	healthcheckCalls  []healthcheckCall
+	healthcheckErr    error
+	getCalls          int
+	getRenderedCalls  int
+	getRenderedErr    error
+	mutateErr         error
+	// repoRefWrites counts the reference sets written together with a device.
+	repoRefWrites int
+	// repoRefsWriteErr fails reference writes, after the device write they
+	// accompany, to exercise rollback.
+	repoRefsWriteErr  error
+	fleetRefs         map[string][]model.DependencyRef
+	fleetRefsWriteErr error
+	// mutateCalls counts Mutate calls. beforeMutate, when set, runs at the
+	// start of each call, before the device is loaded, so a test can change
+	// the stored device between two mutations.
+	mutateCalls  int
+	beforeMutate func(call int)
+	// deviceWrites counts the device writes that Mutate persisted.
+	deviceWrites int
+}
+
+func (s *fakeDeviceStore) setEnrollmentCredential(deviceName, credentialName string) {
+	if s.deviceCredentials == nil {
+		s.deviceCredentials = map[string]string{}
+	}
+	s.deviceCredentials[deviceName] = credentialName
+}
+
+func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
+	var count int64
+	for name, stored := range s.devices {
+		if s.deviceCredentials[name] != credentialName {
+			continue
+		}
+		if stored.Status == nil {
+			stored.Status = &domain.DeviceStatus{}
+		}
+		if stored.Status.EnrollmentCredential == nil {
+			stored.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
+		}
+		alreadyRevoked := stored.Status.EnrollmentCredential.Revoked
+		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		if alreadyRevoked && condition != nil && condition.Status == domain.ConditionStatusTrue {
+			continue
+		}
+		device := deepCopyDevice(stored)
+		device.Status.EnrollmentCredential.Revoked = true
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedMessage,
+		})
+		s.devices[name] = device
+		count++
+	}
+	return count, nil
+}
+
+// WithTransaction runs fn and, when it fails, restores the devices and
+// references it changed, as a rolled back store transaction would.
+func (s *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	devices := map[string]*domain.Device{}
+	for name, device := range s.devices {
+		devices[name] = deepCopyDevice(device)
+	}
+	repoRefs := map[string][]string{}
+	for name, refs := range s.repoRefs {
+		repoRefs[name] = append([]string{}, refs...)
+	}
+	fleetRefs, err := store.CloneJSON(&s.fleetRefs)
+	if err != nil {
+		return err
+	}
+	rendered := map[string]*devicestore.DeviceRendered{}
+	for name, value := range s.rendered {
+		copy, err := store.CloneJSON(value)
+		if err != nil {
+			return err
+		}
+		rendered[name] = copy
+	}
+	lastSeen := map[string]*time.Time{}
+	for name, value := range s.lastSeen {
+		if value == nil {
+			lastSeen[name] = nil
+		} else {
+			copy := *value
+			lastSeen[name] = &copy
+		}
+	}
+	if err := fn(ctx); err != nil {
+		s.devices, s.repoRefs, s.rendered, s.lastSeen, s.fleetRefs = devices, repoRefs, rendered, lastSeen, *fleetRefs
+		return err
+	}
+	return nil
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
@@ -146,6 +239,10 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	if s.mutateErr != nil {
 		return nil, nil, false, s.mutateErr
 	}
+	s.mutateCalls++
+	if s.beforeMutate != nil {
+		s.beforeMutate(s.mutateCalls)
+	}
 	old, ok := s.devices[name]
 	creating := !ok
 	var before *domain.Device
@@ -173,8 +270,28 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	if mutation.Device == nil {
 		return nil, nil, false, flterrors.ErrResourceIsNil
 	}
+	if mutation.FleetDependencyRefs != nil && s.fleetRefsWriteErr != nil {
+		return nil, nil, false, s.fleetRefsWriteErr
+	}
+	if mutation.RepositoryRefs != nil && s.repoRefsWriteErr != nil {
+		return nil, nil, false, s.repoRefsWriteErr
+	}
+	if mutation.FleetDependencyRefs != nil {
+		if s.fleetRefs == nil {
+			s.fleetRefs = map[string][]model.DependencyRef{}
+		}
+		s.fleetRefs[name] = append([]model.DependencyRef{}, (*mutation.FleetDependencyRefs)...)
+	}
+	if mutation.RepositoryRefs != nil {
+		if s.repoRefsWriteErr != nil {
+			return nil, nil, false, s.repoRefsWriteErr
+		}
+		s.repoRefs[name] = append([]string{}, (*mutation.RepositoryRefs)...)
+		s.repoRefWrites++
+	}
 	d := deepCopyDevice(mutation.Device)
 	s.devices[name] = d
+	s.deviceWrites++
 	s.rememberLastSeen(name, d)
 	if mutation.Rendered != nil {
 		if s.rendered == nil {
@@ -186,18 +303,46 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	return deepCopyDevice(d), before, creating, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
+	merge := devicestore.StatusMergeOf(opts...)
 	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		m.Device.Status = device.Status
+		if merge == nil {
+			m.Device.Status = device.Status
+			return nil
+		}
+		status, err := merge(deepCopyDevice(m.Device))
+		if err != nil {
+			return err
+		}
+		m.Device.Status = status
 		return nil
 	})
 	if err == nil {
 		s.rememberLastSeen(name, device)
 	}
+	return updated, before, err
+}
+
+func (s *fakeDeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if device.Status == nil {
+			return nil
+		}
+		if m.Device.Status == nil {
+			m.Device.Status = &domain.DeviceStatus{}
+		}
+		m.Device.Status.Conditions = device.Status.Conditions
+		m.Device.Status.DeltaGeneration = device.Status.DeltaGeneration
+		return nil
+	})
 	return updated, before, err
 }
 
@@ -231,6 +376,22 @@ func (s *fakeDeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uui
 	}
 	s.repoRefs[name] = repositoryNames
 	return nil
+}
+
+func (s *fakeDeviceStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	device, ok := s.devices[name]
+	if !ok {
+		return false, flterrors.ErrResourceNotFound
+	}
+	if lo.FromPtr(device.Metadata.Generation) != generation || lo.FromPtr(device.Metadata.Owner) != "" {
+		return false, nil
+	}
+	if s.repoRefsWriteErr != nil {
+		return false, s.repoRefsWriteErr
+	}
+	s.repoRefs[name] = append([]string{}, repositoryNames...)
+	s.repoRefWrites++
+	return true, nil
 }
 
 func (s *fakeDeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {

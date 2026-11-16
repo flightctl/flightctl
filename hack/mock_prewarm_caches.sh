@@ -16,6 +16,9 @@ for r in "$@"; do
   # Create chroot and caches (root cache, package manager cache etc)
   mock -r "$r" --enable-network --init
 
+  # Resolve the toolchain constraint before publishing a reusable builder.
+  mock -r "$r" --install '(golang >= 1.27.3 with golang < 1.28)'
+
   # Drop only the live chroot, keep caches to make runtime builds fast
   mock -r "$r" --scrub=chroot
 
