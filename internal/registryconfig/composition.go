@@ -22,15 +22,23 @@ func (e *TransportConflictError) Error() string {
 	return fmt.Sprintf("conflicting transport settings for %s: Repositories %s", e.Registry, strings.Join(e.RepositoryNames, ", "))
 }
 
-// Compose selects credentials and composes endpoint settings from the snapshot.
-// Any error returns no composition.
+// Compose selects credentials and composes endpoint trust and transport from one
+// organization-scoped snapshot. Selections retain input order; endpoint settings
+// and their contributor identities are sorted independently of need order.
+// Any selection or composition error rejects the entire batch and returns nil.
 func (s *Snapshot) Compose(needs []PullNeed) (*Composition, error) {
 	selections, err := s.Select(needs)
 	if err != nil {
 		return nil, err
 	}
+	// Credential selection determines which needs are blocked. Collect all enabled
+	// matching scopes for the remaining needs so broader CA-only Repositories and
+	// peers whose credentials lose selection can still contribute endpoint settings.
+	// Repository identity deduplicates contributions across shared or repeated needs.
 	contributors := make(map[string]map[string]repository)
 	for _, selection := range selections {
+		// A blocked need contributes nothing; allowed needs on the same endpoint
+		// can still supply host-wide trust shared by both paths.
 		if selection.Outcome == OutcomeBlocked {
 			continue
 		}
@@ -38,6 +46,8 @@ func (s *Snapshot) Compose(needs []PullNeed) (*Composition, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Trust uses the parsed reference path even for Helm charts, whose
+		// registry-wide credential restriction is separate from trust matching.
 		for scope, peers := range s.registries[selection.Registry] {
 			if scope != "" && path != scope && !strings.HasPrefix(path, scope+"/") {
 				continue
@@ -57,6 +67,7 @@ func (s *Snapshot) Compose(needs []PullNeed) (*Composition, error) {
 	for registry := range contributors {
 		registries = append(registries, registry)
 	}
+	// Canonical endpoint order also makes aggregated error messages stable.
 	slices.Sort(registries)
 	result := &Composition{Selections: selections}
 	var errs []error
@@ -80,11 +91,14 @@ func composeEndpoint(registry string, contributors map[string]repository) (Endpo
 		endpoint.RepositoryNames = append(endpoint.RepositoryNames, name)
 	}
 	slices.Sort(endpoint.RepositoryNames)
+	// DER identity deduplicates overlapping bundles and PEM formatting variants.
 	certificates := make(map[string]struct{})
 	var errs []error
 	conflict := false
 	for i, name := range endpoint.RepositoryNames {
 		spec := contributors[name].spec
+		// Omitted fields contribute verified HTTPS, including on credential-only
+		// and CA-only Repositories; every contributor participates in policy checks.
 		scheme, skip := domain.OciRepoSchemeHttps, false
 		if spec.Scheme != nil {
 			scheme = *spec.Scheme
@@ -92,6 +106,8 @@ func composeEndpoint(registry string, contributors map[string]repository) (Endpo
 		if spec.SkipServerVerification != nil {
 			skip = *spec.SkipServerVerification
 		}
+		// The first policy is a comparison baseline. Any disagreement rejects
+		// the endpoint, so ordering cannot choose a more permissive policy.
 		if i == 0 {
 			endpoint.Scheme, endpoint.SkipServerVerification = scheme, skip
 		} else if scheme != endpoint.Scheme || skip != endpoint.SkipServerVerification {
@@ -118,6 +134,7 @@ func composeEndpoint(registry string, contributors map[string]repository) (Endpo
 	for cert := range certificates {
 		ordered = append(ordered, cert)
 	}
+	// Re-encode in DER order so bundle contents are stable across input ordering.
 	slices.Sort(ordered)
 	var bundle strings.Builder
 	for _, cert := range ordered {
@@ -133,6 +150,9 @@ func decodeCertificates(encoded string) ([]string, error) {
 		return nil, err
 	}
 	var certificates []string
+	// Apply the same usable-certificate filter as x509.CertPool.AppendCertsFromPEM.
+	// Bundle composition checks certificate structure, leaving chain and expiry
+	// validation to TLS clients. Unusable blocks contribute no certificate.
 	for len(data) > 0 {
 		block, rest := pem.Decode(data)
 		if block == nil {

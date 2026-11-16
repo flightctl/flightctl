@@ -43,7 +43,10 @@ type Composition struct {
 	Endpoints  []EndpointConfig
 }
 
-// EndpointConfig contains the composed trust and transport for a registry endpoint.
+// EndpointConfig contains the connection settings shared by needs at one host[:port].
+// CABundle is canonical PEM containing only applicable Repository certificates;
+// an empty bundle leaves trust to the client's defaults. Scheme and verification
+// are explicit effective values. RepositoryNames lists all contributors in lexical order.
 type EndpointConfig struct {
 	Registry               string
 	CABundle               string // PEM-encoded certificates.
