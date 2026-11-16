@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,8 @@ type fakePodman struct {
 	pullStderr                string
 	pullExit                  int
 	digest                    string
+	repoDigests               []string
+	inspectOutput             string
 	inspectExit               int
 	mountExit                 int
 	unmountStderr             string
@@ -74,7 +77,16 @@ func (p *fakePodman) execute(ctx context.Context, _ string, args ...string) (str
 		if p.inspectExit != 0 {
 			return "", "Error: image not known", p.inspectExit
 		}
-		return p.digest + "\n", "", 0
+		if p.inspectOutput != "" {
+			return p.inspectOutput + "\n", "", 0
+		}
+		if !slices.Contains(args, "{{json .}}") {
+			p.t.Errorf("unexpected image inspect format: %v", args)
+			return "", "unexpected format", 125
+		}
+		out, err := json.Marshal(map[string]any{"Id": "0f0e0d0c", "Digest": p.digest, "RepoDigests": p.repoDigests})
+		require.NoError(p.t, err)
+		return string(out) + "\n", "", 0
 	case "image mount":
 		if p.mountExit != 0 {
 			return "", "Error: mount failed", p.mountExit
@@ -326,7 +338,7 @@ func TestFetchVerifiesAndRecordsAnApprovedUncachedRelease(t *testing.T) {
 	ref := h.reference()
 	require.Equal([][]string{
 		{"pull", ref, "--signature-policy", h.policyPath()},
-		{"image", "inspect", "--format", "{{.Digest}}", ref},
+		{"image", "inspect", "--format", "{{json .}}", ref},
 		{"image", "mount", ref},
 		{"image", "unmount", ref},
 	}, h.podman.calls)
@@ -546,6 +558,48 @@ func TestFetchRejectsADigestMismatch(t *testing.T) {
 	require.Equal([]string{"pull", "image inspect"}, h.podman.subcommands())
 	h.requireNoRecord()
 	h.requirePolicyRemoved()
+}
+
+func TestFetchConfirmsThePinnedDigest(t *testing.T) {
+	rewritten := policy.Hash([]byte("manifest rewritten by local storage"))
+	testCases := []struct {
+		name    string
+		setup   func(h *fetchHarness)
+		wantErr bool
+	}{
+		{"When podman reports the approved digest as the image digest it should verify the package", func(h *fetchHarness) {}, false},
+		{"When podman stored a rewritten manifest but records the pinned repository digest it should verify the package", func(h *fetchHarness) {
+			h.podman.digest = rewritten
+			h.podman.repoDigests = []string{"registry.example.com/acme/other@" + rewritten, h.reference()}
+		}, false},
+		{"When the approved digest is recorded only for another repository it should refuse the image", func(h *fetchHarness) {
+			h.podman.digest = rewritten
+			h.podman.repoDigests = []string{"registry.example.com/acme/other@" + h.release.PackageDigest}
+		}, true},
+		{"When podman image metadata cannot be parsed it should refuse the image", func(h *fetchHarness) {
+			h.podman.inspectOutput = "not image metadata"
+		}, true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			h := newFetchHarness(t)
+			tc.setup(h)
+			pkg, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			if tc.wantErr {
+				require.Nil(pkg)
+				requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+				require.Equal([]string{"pull", "image inspect"}, h.podman.subcommands())
+				h.requireNoRecord()
+				h.requirePolicyRemoved()
+				return
+			}
+			require.NoError(err)
+			require.NotNil(pkg)
+			require.Equal([]string{"pull", "image inspect", "image mount", "image unmount"}, h.podman.subcommands())
+			require.FileExists(h.recordPath())
+		})
+	}
 }
 
 func TestFetchRejectsInvalidManifestsAfterUnmounting(t *testing.T) {

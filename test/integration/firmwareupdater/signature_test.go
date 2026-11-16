@@ -3,6 +3,7 @@ package firmwareupdater_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -42,9 +43,10 @@ var _ = Describe("Publisher signature verification at pull", func() {
 		ref := fixtureReference(roleValid)
 		podman, err := pullWithApprovedPolicy(ctx, ref)
 		Expect(err).NotTo(HaveOccurred())
-		digest, err := podman.ImageDigest(ctx, ref)
+		metadata, err := podman.ImageMetadata(ctx, ref)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(digest).To(Equal(state.Fixtures[roleValid].Digest))
+		Expect(metadata.Digest == state.Fixtures[roleValid].Digest || slices.Contains(metadata.RepoDigests, ref)).To(BeTrue(),
+			"the admitted image must be the pinned manifest: digest %s, repository digests %v", metadata.Digest, metadata.RepoDigests)
 	})
 
 	DescribeTable("rejected images",
