@@ -892,3 +892,80 @@ func TestKeepDBDeviceStatusPreservesEnrollmentCredential(t *testing.T) {
 		})
 	}
 }
+
+func TestKeepDBDeviceStatusDoesNotInheritRollbackReboot(t *testing.T) {
+	tests := []struct {
+		name            string
+		reason          string
+		incomingSummary domain.DeviceSummaryStatusType
+		wantSummary     domain.DeviceSummaryStatusType
+	}{
+		{name: "When rolling back it should not inherit stale reboot", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusUnknown, wantSummary: domain.DeviceSummaryStatusUnknown},
+		{name: "When rollback reboot is reported it should keep fresh reboot", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusRebooting, wantSummary: domain.DeviceSummaryStatusRebooting},
+		{name: "When forward rebooting it should retain existing inheritance", reason: string(domain.UpdateStateRebooting), incomingSummary: domain.DeviceSummaryStatusUnknown, wantSummary: domain.DeviceSummaryStatusRebooting},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := &domain.Device{Status: &domain.DeviceStatus{
+				Summary:    domain.DeviceSummaryStatus{Status: tt.incomingSummary},
+				Conditions: []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: tt.reason}},
+			}}
+			stored := &domain.Device{Status: &domain.DeviceStatus{
+				Summary: domain.DeviceSummaryStatus{Status: domain.DeviceSummaryStatusRebooting},
+			}}
+
+			KeepDBDeviceStatus(incoming, stored)
+			assert.Equal(t, tt.wantSummary, incoming.Status.Summary.Status)
+		})
+	}
+}
+
+func TestRollbackRebootServerSummaries(t *testing.T) {
+	tests := []struct {
+		name       string
+		reason     string
+		summary    domain.DeviceSummaryStatusType
+		wantDevice domain.DeviceSummaryStatusType
+		wantApp    domain.ApplicationsSummaryStatusType
+	}{
+		{name: "When rollback is rebooting it should show reboot summaries", reason: string(domain.UpdateStateRollingBack), summary: domain.DeviceSummaryStatusRebooting, wantDevice: domain.DeviceSummaryStatusRebooting, wantApp: domain.ApplicationsSummaryStatusDegraded},
+		{name: "When rollback is ordinary work it should not show reboot summaries", reason: string(domain.UpdateStateRollingBack), summary: domain.DeviceSummaryStatusOnline, wantDevice: domain.DeviceSummaryStatusOnline, wantApp: domain.ApplicationsSummaryStatusHealthy},
+		{name: "When forward reboot is active it should show reboot summaries", reason: string(domain.UpdateStateRebooting), summary: domain.DeviceSummaryStatusRebooting, wantDevice: domain.DeviceSummaryStatusRebooting, wantApp: domain.ApplicationsSummaryStatusDegraded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{Status: &domain.DeviceStatus{
+				LastSeen:            lo.ToPtr(time.Now()),
+				Summary:             domain.DeviceSummaryStatus{Status: tt.summary},
+				ApplicationsSummary: domain.DeviceApplicationsSummaryStatus{Status: domain.ApplicationsSummaryStatusHealthy},
+				Applications:        []domain.DeviceApplicationStatus{{Name: "app1", Status: domain.ApplicationStatusRunning}},
+				Conditions:          []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: tt.reason}},
+			}}
+
+			updateServerSideDeviceStatus(device)
+			updateServerSideApplicationStatus(device)
+			assert.Equal(t, tt.wantDevice, device.Status.Summary.Status)
+			assert.Equal(t, tt.wantApp, device.Status.ApplicationsSummary.Status)
+		})
+	}
+}
+
+func TestOrdinaryRollbackAfterStoredReboot(t *testing.T) {
+	incomingStatus := domain.NewDeviceStatus()
+	incomingStatus.LastSeen = lo.ToPtr(time.Now())
+	incomingStatus.Conditions = []domain.Condition{{
+		Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: string(domain.UpdateStateRollingBack),
+	}}
+	incoming := &domain.Device{Status: &incomingStatus}
+	storedStatus := domain.NewDeviceStatus()
+	storedStatus.Summary.Status = domain.DeviceSummaryStatusRebooting
+	stored := &domain.Device{Status: &storedStatus}
+
+	KeepDBDeviceStatus(incoming, stored)
+	UpdateServiceSideStatus(context.Background(), uuid.New(), incoming, &stubFleetStore{}, logrus.New())
+
+	assert.Equal(t, domain.DeviceSummaryStatusOnline, incoming.Status.Summary.Status)
+	assert.Equal(t, domain.DeviceUpdatedStatusUpdating, incoming.Status.Updated.Status)
+}

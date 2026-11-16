@@ -320,7 +320,10 @@ func updateServerSideApplicationStatus(device *domain.Device) bool {
 
 // do not overwrite valid service-side statuses with placeholder device-side status
 func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
-	if device.Status.Summary.Status == domain.DeviceSummaryStatusUnknown {
+	if device.Status.Summary.Status == domain.DeviceSummaryStatusUnknown &&
+		!(dbDevice.Status.Summary.Status == domain.DeviceSummaryStatusRebooting &&
+			device.IsUpdating() &&
+			domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating).Reason == string(domain.UpdateStateRollingBack)) {
 		device.Status.Summary.Status = dbDevice.Status.Summary.Status
 	}
 	if device.Status.Lifecycle.Status == domain.DeviceLifecycleStatusUnknown {
