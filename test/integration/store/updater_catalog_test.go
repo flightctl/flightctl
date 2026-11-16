@@ -93,6 +93,7 @@ var _ = Describe("Updater catalog persistence", func() {
 		Expect(revoked.Snapshot.Releases).To(HaveLen(256))
 		Expect(revoked.Snapshot.Tombstones).To(HaveLen(256))
 		org := uuid.New()
+		Expect(db.Create(&model.Organization{ID: org, ExternalID: org.String(), DisplayName: "Policy capacity test"}).Error).To(Succeed())
 		Expect(db.Create(&model.Device{Resource: model.Resource{OrgID: org, Name: "policy-capacity"}, Spec: model.MakeJSONField(api.DeviceSpec{})}).Error).To(Succeed())
 		view, err := catalog.PolicyForDevice(ctx, org, "policy-capacity")
 		Expect(err).NotTo(HaveOccurred())
