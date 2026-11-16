@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAgentRenderedConfigResources(t *testing.T) {
+	spec, err := GetSpec()
+	require.NoError(t, err)
+	device := spec.Paths.Find("/devices/{name}/rendered").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value
+	require.NotNil(t, device.Properties["spec"].Value.Properties["configResources"])
+}
+
 func TestAgentStatusDeltaOutcomes(t *testing.T) {
 	spec, err := GetSpec()
 	require.NoError(t, err)

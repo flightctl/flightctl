@@ -198,6 +198,9 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+	if errs := common.ValidateAuthoredConfigPatch(patch, true); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
