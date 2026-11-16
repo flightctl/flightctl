@@ -168,6 +168,18 @@ stateDiagram
     Known --> Unknown
 ```
 
+### Registry configuration support
+
+The optional `device.status.systemInfo.configResourcesSupported` field reports whether the agent supports registry configuration resources. Only an explicit `true` permits rendering generated registry configuration or removing previously published configuration resources. Agent versions and labels do not establish support.
+
+When support is `false` or absent and this work is required, rendering fails with `SpecValid=False`, reason `UnsupportedConfigResources`, and the following message:
+
+```text
+Device does not report support for registry configResources. Upgrade the agent before applying this configuration.
+```
+
+The last successful rendered payload and version remain unchanged. Ordinary file-only configuration remains available when neither generated registry configuration nor cleanup is required. A replacement status report that omits the field clears a previously reported `true`.
+
 ### OS delta status
 
 You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output:
