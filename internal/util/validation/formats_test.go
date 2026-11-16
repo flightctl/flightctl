@@ -219,3 +219,181 @@ func TestValidateOciImageReferenceWithTemplates(t *testing.T) {
 		assert.NotEmpty(errors, fmt.Sprintf("Expected invalid template reference %q to fail validation", val))
 	}
 }
+
+func TestSplitOuterConditional(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		wantGuard string
+		wantBody  string
+		wantOk    bool
+	}{
+		{
+			name:   "When the reference is a plain literal it should not split",
+			value:  "quay.io/org/os:v2",
+			wantOk: false,
+		},
+		{
+			name:   "When the reference is empty it should not split",
+			value:  "",
+			wantOk: false,
+		},
+		{
+			name:      "When the reference is wrapped in a helper guard it should split",
+			value:     `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the reference is wrapped in a hand-written label guard it should split",
+			value:     `{{ if eq (getOrDefault .metadata.labels "feature.flightctl.io/os.mode" "image") "image" }}quay.io/org/os:v2{{ end }}`,
+			wantGuard: `eq (getOrDefault .metadata.labels "feature.flightctl.io/os.mode" "image") "image"`,
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the guard is an arbitrary supported expression it should split",
+			value:     `{{ if .metadata.labels.tier }}quay.io/org/os:v2{{ end }}`,
+			wantGuard: ".metadata.labels.tier",
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the wrapper uses trim markers it should split without them",
+			value:     `{{- if deviceHasImageMode -}}quay.io/org/os:v2{{- end -}}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the wrapper has no inner spaces it should split",
+			value:     `{{if deviceHasImageMode}}quay.io/org/os:v2{{end}}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the wrapper mixes tight and spaced markers it should split",
+			value:     `{{if deviceHasImageMode}}quay.io/org/os:v2{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the body is a parameterized tag it should split",
+			value:     `{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.labels.version }}{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:{{ .metadata.labels.version }}",
+			wantOk:    true,
+		},
+		{
+			name:      "When the body is empty it should split with an empty body",
+			value:     `{{ if deviceHasImageMode }}{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "",
+			wantOk:    true,
+		},
+		{
+			name:      "When the body mentions the guard helper it should return the guard without it",
+			value:     `{{ if deviceHasImageMode }}quay.io/org/devicehasimagemode:v2{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/devicehasimagemode:v2",
+			wantOk:    true,
+		},
+		{
+			name:      "When the body mentions the mode label key it should return the guard without it",
+			value:     `{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.labels.version }}-os.mode{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/os:{{ .metadata.labels.version }}-os.mode",
+			wantOk:    true,
+		},
+		{
+			name:      "When the image name merely contains end it should split",
+			value:     `{{ if deviceHasImageMode }}quay.io/org/legend:v2{{ end }}`,
+			wantGuard: "deviceHasImageMode",
+			wantBody:  "quay.io/org/legend:v2",
+			wantOk:    true,
+		},
+		{
+			name:   "When there are two sibling conditionals with spaced end markers it should not split",
+			value:  `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ end }}{{ if deviceHasImageMode }}quay.io/org/b:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When there are two sibling conditionals with tight end markers it should not split",
+			value:  `{{if deviceHasImageMode}}quay.io/org/a:v1{{end}}{{if deviceHasImageMode}}quay.io/org/b:v2{{end}}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the wrapper has an else branch it should not split",
+			value:  `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ else }}quay.io/org/b:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the wrapper has an else if branch it should not split",
+			value:  `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ else if deviceHasImageMode }}quay.io/org/b:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the conditionals are nested it should not split",
+			value:  `{{ if deviceHasImageMode }}{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When nested conditionals use trim markers it should not split",
+			value:  `{{- if deviceHasImageMode -}}{{- if deviceHasImageMode -}}quay.io/org/os:v2{{- end -}}{{- end -}}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the wrapper is unterminated it should not split",
+			value:  `{{ if deviceHasImageMode }}quay.io/org/os:v2`,
+			wantOk: false,
+		},
+		{
+			name:   "When there is only an end marker it should not split",
+			value:  `{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When a literal precedes the wrapper it should not split",
+			value:  `quay.io/org/os:{{ if deviceHasImageMode }}v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When a literal follows the wrapper it should not split",
+			value:  `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}-suffix`,
+			wantOk: false,
+		},
+		{
+			name:   "When the wrapper is a range it should not split",
+			value:  `{{ range .metadata.labels }}quay.io/org/os:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the wrapper is a with it should not split",
+			value:  `{{ with .metadata.labels }}quay.io/org/os:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the if keyword is only a prefix of another identifier it should not split",
+			value:  `{{ ifdef deviceHasImageMode }}quay.io/org/os:v2{{ end }}`,
+			wantOk: false,
+		},
+		{
+			name:   "When the body spans multiple lines it should not split",
+			value:  "{{ if deviceHasImageMode }}quay.io/org/\nos:v2{{ end }}",
+			wantOk: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert := assert.New(t)
+			guard, body, ok := SplitOuterConditional(tt.value)
+			assert.Equal(tt.wantOk, ok)
+			assert.Equal(tt.wantGuard, guard)
+			assert.Equal(tt.wantBody, body)
+		})
+	}
+}
