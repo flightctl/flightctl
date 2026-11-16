@@ -1,10 +1,10 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.27.3-1793903644 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs openssl-libs tzdata
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
@@ -23,7 +23,6 @@ COPY ./deploy ./deploy
 COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
-COPY ./test ./test
 
 # Define version info ARGs right before build
 ARG SOURCE_GIT_TAG
@@ -40,7 +39,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-imagebuilder-worker
 
-FROM quay.io/flightctl/flightctl-base:10.1-1769518576
+FROM registry.access.redhat.com/ubi10/ubi-micro:10.2-1792455530
 
 USER 0
 COPY --from=build /runtime-root/ /

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -1068,46 +1067,15 @@ func generateEKCertWithRealPublicKey(tmpPublic *tpm2.TPM2BPublic) ([]byte, error
 
 // generateEKCertWithRealECCPublicKey creates a certificate using the actual TPM ECC EK public key
 func generateEKCertWithRealECCPublicKey(tpmPublic *tpm2.TPM2BPublic) ([]byte, error) {
-	// Get the TPM public key contents
-	publicContents, err := tpmPublic.Contents()
+	publicKey, err := convertTPM2BPublicToPublicKey(tpmPublic)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not convert TPM EK public key: %w", err)
 	}
-
-	// Extract the ECC public key
-	eccUnique, err := publicContents.Unique.ECC()
-	if err != nil {
-		return nil, err
+	ecdsaPublicKey, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("expected ECDSA EK public key, got %T", publicKey)
 	}
-
-	// Get curve information from the parameters
-	eccParams, err := publicContents.Parameters.ECCDetail()
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to Go elliptic curve
-	var curve elliptic.Curve
-	switch eccParams.CurveID {
-	case tpm2.TPMECCNistP256:
-		curve = elliptic.P256()
-	case tpm2.TPMECCNistP384:
-		curve = elliptic.P384()
-	case tpm2.TPMECCNistP521:
-		curve = elliptic.P521()
-	default:
-		return nil, fmt.Errorf("unsupported ECC curve: %v", eccParams.CurveID)
-	}
-
-	// Create Go ECDSA public key from TPM data
-	x := new(big.Int).SetBytes(eccUnique.X.Buffer)
-	y := new(big.Int).SetBytes(eccUnique.Y.Buffer)
-
-	ecdsaPublicKey := &ecdsa.PublicKey{
-		Curve: curve,
-		X:     x,
-		Y:     y,
-	}
+	curve := ecdsaPublicKey.Curve
 
 	// Create certificate template
 	template := x509.Certificate{
