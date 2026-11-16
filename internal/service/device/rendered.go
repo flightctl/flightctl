@@ -1,6 +1,8 @@
 package device
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -15,10 +17,29 @@ import (
 func applyRenderedUpdate(
 	m *devicestore.DeviceMutation,
 	renderedConfig, renderedApplications, specHash, osImage string,
+	configResources []domain.ConfigResource,
 	configFingerprints []domain.DependencySyncConfigRefStatus,
 	forceUpdate bool,
 	osHints *RenderedOSHints,
 ) (renderedVersion string, err error) {
+	if len(domain.ValidateConfigResources(configResources)) > 0 {
+		return "", fmt.Errorf("invalid rendered configuration resources")
+	}
+	if configResources == nil {
+		configResources = []domain.ConfigResource{}
+	}
+	resourcesJSON, err := json.Marshal(configResources)
+	if err != nil {
+		return "", fmt.Errorf("encode rendered configuration resources")
+	}
+	previous := m.CurrentConfigResources
+	if previous == nil {
+		previous = []domain.ConfigResource{}
+	}
+	resourcesUnchanged := domain.DeviceSpecsAreEqual(
+		domain.DeviceSpec{ConfigResources: &configResources},
+		domain.DeviceSpec{ConfigResources: &previous},
+	)
 	device := m.Device
 	ann := util.EnsureMap(lo.FromPtr(device.Metadata.Annotations))
 	var deviceStatus *domain.DeviceStatus
@@ -31,7 +52,7 @@ func applyRenderedUpdate(
 	}
 	specUnchanged := lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) &&
 		ann[domain.DeviceAnnotationRenderedSpecHash] == specHash
-	if specUnchanged && len(configFingerprints) == 0 && !forceUpdate {
+	if specUnchanged && resourcesUnchanged && len(configFingerprints) == 0 && !forceUpdate {
 		return "", store.ErrMutateSkipWrite
 	}
 	ann[domain.DeviceAnnotationRenderedVersion] = next
@@ -53,9 +74,10 @@ func applyRenderedUpdate(
 	})
 
 	m.Rendered = &devicestore.DeviceRendered{
-		Config:       renderedConfig,
-		Applications: renderedApplications,
-		OsImage:      osImage,
+		Config:          renderedConfig,
+		ConfigResources: string(resourcesJSON),
+		Applications:    renderedApplications,
+		OsImage:         osImage,
 	}
 	if osHints != nil {
 		m.Rendered.DeltaImage = osHints.DeltaImage

@@ -943,7 +943,7 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status {
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configResources []domain.ConfigResource, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status {
 	specValid := domain.Condition{
 		Type:   domain.ConditionTypeDeviceSpecValid,
 		Status: domain.ConditionStatusTrue,
@@ -963,7 +963,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		if m.Device.Status != nil {
 			oldConditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
 		}
-		version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+		version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configResources, configFingerprints, forceUpdate, osHints)
 		if err != nil {
 			return err
 		}
@@ -982,7 +982,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		// Always emit the update when renderedVersion advanced, even if USSS made no status change.
 		updated = m.Device
 		return nil
-	}, devicestore.WithTimestamp())
+	}, devicestore.WithTimestamp(), devicestore.WithRenderedConfigResources())
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
