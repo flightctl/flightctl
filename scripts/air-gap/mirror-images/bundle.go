@@ -10,43 +10,11 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/executer"
 )
-
-// signatureRequiredRegistries lists upstream registries whose images carry
-// signatures that RHEL's default container policy enforces.  When images from
-// these registries are imported into a local air-gap registry, the import
-// script must run as root so that skopeo writes the detached signatures to
-// /var/lib/containers/sigstore/ (the system-wide lookaside directory), and
-// the corresponding registries.d YAML must be updated to point the local
-// signature lookup at that directory.
-var signatureRequiredRegistries = map[string]bool{
-	"registry.redhat.io":         true,
-	"registry.access.redhat.com": true,
-}
-
-// sourceRegistriesRequiringSignatures returns the deduplicated, sorted list of
-// source registries in pairs that require signature configuration on the
-// air-gapped host.
-func sourceRegistriesRequiringSignatures(pairs []ImagePair) []string {
-	seen := make(map[string]bool)
-	for _, p := range pairs {
-		host := strings.SplitN(p.Source, "/", 2)[0]
-		if signatureRequiredRegistries[host] {
-			seen[host] = true
-		}
-	}
-	result := make([]string, 0, len(seen))
-	for reg := range seen {
-		result = append(result, reg)
-	}
-	sort.Strings(result)
-	return result
-}
 
 // BundleImages copies each image from the source registry directly into a
 // local directory using the skopeo dir: transport.  The directory layout
@@ -248,30 +216,12 @@ func fetchRepoFile(url, destPath string) error {
 	return err
 }
 
-// registriesDExample returns a correctly nested registries.d YAML snippet for
-// a given import destination, suitable for display to the user or for testing.
-// The lookaside key is placed under docker.<destination> as required by the
-// containers-registries.d(5) schema.  After a registries.conf redirect, podman
-// resolves the lookaside using the physical destination host (not the original
-// source registry), so the key must match the import registry.
-func registriesDExample(destination, lookasidePath string) string {
-	return fmt.Sprintf("docker:\n  \"%s\":\n    lookaside: %s\n", destination, lookasidePath)
-}
-
 // WriteImportScript writes an executable shell script to bundleDir/import.sh
 // that imports all bundled images into a local container registry.
 //
 // The script contains one explicit skopeo copy command per image, using the
 // dir: transport for the source and docker: for the destination.  Explicit
 // commands avoid any directory-iteration ambiguity and preserve namespace paths.
-//
-// When the image set includes registries whose images carry signatures that
-// RHEL enforces (registry.redhat.io, registry.access.redhat.com), the script
-// requires root so that skopeo writes detached signatures to the default
-// system-wide lookaside (/var/lib/containers/sigstore/).  After the import it
-// prints instructions for configuring /etc/containers/registries.d/ so that
-// podman can find those signatures offline.  The script does NOT modify host
-// configuration files — the user must merge the settings manually.
 func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) error {
 	scriptPath := filepath.Join(bundleDir, "import.sh")
 	f, err := os.Create(scriptPath)
@@ -279,9 +229,6 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 		return fmt.Errorf("create import script: %w", err)
 	}
 	defer f.Close()
-
-	sigRegs := sourceRegistriesRequiringSignatures(pairs)
-	needsSigstore := len(sigRegs) > 0
 
 	fmt.Fprintf(f, `#!/bin/bash
 # FlightCtl Air-gap Image Import Script
@@ -291,7 +238,7 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 # Copies all bundled container images into a local registry.
 #
 # Usage:
-#   sudo ./import.sh [--registry host:port] [--tls]
+#   ./import.sh [--registry host:port] [--tls]
 #
 # Options:
 #   --registry host:port   Destination registry (default: localhost:5000)
@@ -303,11 +250,7 @@ func WriteImportScript(bundleDir string, pairs []ImagePair, variant string) erro
 
 set -euo pipefail
 
-`, variant, time.Now().UTC().Format(time.RFC3339))
-
-	// Parse arguments before the root guard so that $REGISTRY is available
-	// for the signature guidance output.
-	fmt.Fprintf(f, `REGISTRY="localhost:5000"
+REGISTRY="localhost:5000"
 DEST_TLS_FLAG="--dest-tls-verify=false"
 
 while [[ $# -gt 0 ]]; do
@@ -323,73 +266,10 @@ IMAGES_DIR="$SCRIPT_DIR/images"
 TOTAL=%d
 CURRENT=0
 
-`, len(pairs))
-
-	// Display signature configuration guidance before the root guard so the
-	// user can read it even when running without root.  Uses $REGISTRY so
-	// the guidance matches the actual import destination.  After a
-	// registries.conf redirect, podman resolves the signature lookaside by
-	// the physical destination host, not the original source registry —
-	// therefore the registries.d entry must be scoped to $REGISTRY.
-	if needsSigstore {
-		fmt.Fprint(f, `echo ""
-echo "==========================================================================="
-echo "Signature configuration required for offline operation"
-echo "==========================================================================="
-echo ""
-echo "This bundle includes images from registries that require signature"
-echo "verification.  After import, configure registries.d so that podman"
-echo "reads detached signatures from the local sigstore directory."
-echo ""
-echo "Because registries.conf redirects pulls to the import registry,"
-echo "the registries.d lookaside must be scoped to the physical import"
-echo "destination — not the original source registry names."
-echo ""
-echo "Create or merge into: /etc/containers/registries.d/flightctl-offline.yaml"
-echo "(The filename is arbitrary; the docker namespace key below must match"
-echo "your import destination.)"
-echo ""
-echo "  docker:"
-echo "    \"$REGISTRY\":"
-echo "      lookaside: file:///var/lib/containers/sigstore"
-echo ""
-echo "If a registries.d file already contains a docker section for your"
-echo "import destination, merge the lookaside key into that existing"
-echo "section.  Preserve any other keys (such as lookaside-staging or"
-echo "use-sigstore-attachments).  Do not duplicate the same namespace"
-echo "across multiple registries.d files."
-echo ""
-echo "If your system uses a custom signature storage path (configured via"
-echo "lookaside-staging), use the actual path where skopeo wrote the"
-echo "signatures instead of the default shown above."
-echo ""
-echo "Do not modify /etc/containers/policy.json — signature verification"
-echo "must remain enabled.  The above configuration tells podman where to"
-echo "find the bundled signatures locally."
-echo "==========================================================================="
+echo "Importing $TOTAL images to $REGISTRY..."
 echo ""
 
-`)
-	}
-
-	// Root guard — enforced before ANY image import.  When signature-required
-	// registries are present, the script must run as root so that skopeo
-	// writes detached signatures to the system-wide lookaside directory.
-	if needsSigstore {
-		fmt.Fprint(f, `if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: this import script must run as root (sudo ./import.sh)." >&2
-    echo "Images from signature-required registries need the system-wide" >&2
-    echo "lookaside directory (/var/lib/containers/sigstore/)." >&2
-    exit 1
-fi
-
-`)
-	}
-
-	fmt.Fprint(f, `echo "Importing $TOTAL images to $REGISTRY..."
-echo ""
-
-`)
+`, variant, time.Now().UTC().Format(time.RFC3339), len(pairs))
 
 	for _, p := range pairs {
 		parts := strings.SplitN(p.Source, "/", 2)
@@ -404,16 +284,9 @@ skopeo copy $DEST_TLS_FLAG "dir:$IMAGES_DIR/%s" "docker://$REGISTRY/%s"
 `, imageRelPath, imageRelPath, imageRelPath)
 	}
 
-	fmt.Fprint(f, `echo ""
+	fmt.Fprintf(f, `echo ""
 echo "Import complete: $TOTAL images imported to $REGISTRY"
 `)
-
-	if needsSigstore {
-		fmt.Fprint(f, `echo ""
-echo "Complete the offline signature configuration shown above before"
-echo "starting services."
-`)
-	}
 
 	if err := os.Chmod(scriptPath, 0o755); err != nil {
 		return fmt.Errorf("chmod import script: %w", err)

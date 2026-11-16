@@ -207,9 +207,10 @@ By default `import.sh` targets `localhost:5000`. To use a different registry add
 sudo ./import.sh --registry <host>:<port>
 ```
 
-After the import completes, the script prints instructions for configuring
-offline signature lookup. Complete those steps in
-[Step 7](#configure-offline-signature-lookup) before starting the services.
+If your bundle includes images from `registry.redhat.io` or
+`registry.access.redhat.com`, complete the steps in
+[Configure offline signature lookup](#configure-offline-signature-lookup) before
+starting the services.
 
 Verify the images are available:
 
