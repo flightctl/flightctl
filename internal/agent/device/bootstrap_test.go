@@ -79,7 +79,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -113,7 +113,7 @@ func TestInitialization(t *testing.T) {
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -148,7 +148,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -239,9 +239,9 @@ func TestUpdateStatus(t *testing.T) {
 		wantMsgContain string
 	}{
 		{
-			name:       "When upgrading it should report Rebooting",
+			name:       "When resuming an upgrade it should report ApplyingUpdate",
 			upgrading:  true,
-			wantReason: string(v1beta1.UpdateStateRebooting),
+			wantReason: string(v1beta1.UpdateStateApplyingUpdate),
 		},
 		{
 			name:       "When not upgrading and no rollback info it should report Updated",
@@ -286,15 +286,17 @@ func TestUpdateStatus(t *testing.T) {
 			mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1")
 
 			var gotCondition v1beta1.Condition
-			mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			var gotSummary v1beta1.DeviceSummaryStatus
+			mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, fns ...status.UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
-					ds := &v1beta1.DeviceStatus{}
+					ds := &v1beta1.DeviceStatus{Summary: v1beta1.DeviceSummaryStatus{Status: v1beta1.DeviceSummaryStatusRebooting}}
 					for _, fn := range fns {
 						require.NoError(fn(ds))
 					}
 					cond := v1beta1.FindStatusCondition(ds.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 					require.NotNil(cond)
 					gotCondition = *cond
+					gotSummary = ds.Summary
 					return ds, nil
 				},
 			)
@@ -307,6 +309,7 @@ func TestUpdateStatus(t *testing.T) {
 			b.updateStatus(ctx)
 
 			require.Equal(tt.wantReason, gotCondition.Reason)
+			require.Equal(v1beta1.DeviceSummaryStatusOnline, gotSummary.Status)
 			if tt.wantMessage != "" {
 				require.Equal(tt.wantMessage, gotCondition.Message)
 			}
@@ -916,7 +919,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
