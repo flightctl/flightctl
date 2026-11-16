@@ -8,6 +8,10 @@
 # must NOT be duplicated here — the mirror tool reads both sources and
 # the helm-chart-opts entries take precedence for the redhat variants.
 
+gateway:
+  image: registry.redhat.io/rhel9/nginx-124
+  tag: "1-1792441608"
+
 pam-issuer:
   image: registry.redhat.io/rhem/flightctl-pam-issuer-rhel9
 
