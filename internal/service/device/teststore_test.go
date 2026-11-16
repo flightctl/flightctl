@@ -71,16 +71,17 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices          map[string]*domain.Device
-	rendered         map[string]*devicestore.DeviceRendered
-	repoRefs         map[string][]string
-	lastSeen         map[string]*time.Time
-	healthcheckCalls []healthcheckCall
-	healthcheckErr   error
-	getCalls         int
-	getRenderedCalls int
-	getRenderedErr   error
-	mutateErr        error
+	devices           map[string]*domain.Device
+	deviceCredentials map[string]string
+	rendered          map[string]*devicestore.DeviceRendered
+	repoRefs          map[string][]string
+	lastSeen          map[string]*time.Time
+	healthcheckCalls  []healthcheckCall
+	healthcheckErr    error
+	getCalls          int
+	getRenderedCalls  int
+	getRenderedErr    error
+	mutateErr         error
 	// repoRefWrites counts the reference sets written together with a device.
 	repoRefWrites int
 	// repoRefsWriteErr fails reference writes, after the device write they
@@ -95,6 +96,44 @@ type fakeDeviceStore struct {
 	beforeMutate func(call int)
 	// deviceWrites counts the device writes that Mutate persisted.
 	deviceWrites int
+}
+
+func (s *fakeDeviceStore) setEnrollmentCredential(deviceName, credentialName string) {
+	if s.deviceCredentials == nil {
+		s.deviceCredentials = map[string]string{}
+	}
+	s.deviceCredentials[deviceName] = credentialName
+}
+
+func (s *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
+	var count int64
+	for name, stored := range s.devices {
+		if s.deviceCredentials[name] != credentialName {
+			continue
+		}
+		if stored.Status == nil {
+			stored.Status = &domain.DeviceStatus{}
+		}
+		if stored.Status.EnrollmentCredential == nil {
+			stored.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
+		}
+		alreadyRevoked := stored.Status.EnrollmentCredential.Revoked
+		condition := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		if alreadyRevoked && condition != nil && condition.Status == domain.ConditionStatusTrue {
+			continue
+		}
+		device := deepCopyDevice(stored)
+		device.Status.EnrollmentCredential.Revoked = true
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedMessage,
+		})
+		s.devices[name] = device
+		count++
+	}
+	return count, nil
 }
 
 // WithTransaction runs fn and, when it fails, restores the devices and
@@ -285,6 +324,25 @@ func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, dev
 	if err == nil {
 		s.rememberLastSeen(name, device)
 	}
+	return updated, before, err
+}
+
+func (s *fakeDeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if device.Status == nil {
+			return nil
+		}
+		if m.Device.Status == nil {
+			m.Device.Status = &domain.DeviceStatus{}
+		}
+		m.Device.Status.Conditions = device.Status.Conditions
+		m.Device.Status.DeltaGeneration = device.Status.DeltaGeneration
+		return nil
+	})
 	return updated, before, err
 }
 

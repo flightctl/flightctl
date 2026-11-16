@@ -812,6 +812,10 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
+	// EnrollmentCredential is service-owned and must not be changed through generic status patches.
+	if err := rejectEnrollmentCredentialChangeViaStatusPatch(current, patched); err != nil {
+		return nil, err
+	}
 	if err := applyFirmwareStatusPatchOutcome(firmwareOutcome, storedFirmwareStatus(current), patched); err != nil {
 		return nil, err
 	}
@@ -861,6 +865,20 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 		return nil
 	}
 	return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+}
+
+func rejectEnrollmentCredentialChangeViaStatusPatch(current, patched *domain.Device) error {
+	var before, after *domain.DeviceEnrollmentCredentialStatus
+	if current != nil && current.Status != nil {
+		before = current.Status.EnrollmentCredential
+	}
+	if patched != nil && patched.Status != nil {
+		after = patched.Status.EnrollmentCredential
+	}
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	return errors.New("enrollmentCredential cannot be modified via status patch")
 }
 
 // allowedAgentEnrollmentHooksOutcome permits the agent to report hook completion
@@ -1033,6 +1051,14 @@ func (h *DeviceServiceHandler) validateDevicePatch(ctx context.Context, orgId uu
 	}
 	_, status := h.admitFirmware(ctx, orgId, current.Spec, patched.Spec, false, current.Metadata.Owner)
 	return status
+}
+
+func (h *DeviceServiceHandler) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
+	count, err := h.deviceStore.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName, limit)
+	if err != nil {
+		return 0, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &credentialName)
+	}
+	return count, domain.StatusOK()
 }
 
 func applyDevicePatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
