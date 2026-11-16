@@ -34,7 +34,12 @@ func parseNeed(need PullNeed) (registry, path string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("invalid OCI reference: %w", err)
 	}
-	return registry, reference.Path(named), nil
+	path = reference.Path(named)
+	if need.Consumer == ConsumerHelmChart && registry != reference.Domain(named) {
+		// Docker normalization includes a single-label Helm host in the path.
+		path = strings.TrimPrefix(path, host+"/")
+	}
+	return registry, path, nil
 }
 
 func normalizeRegistry(raw string) (string, error) {
