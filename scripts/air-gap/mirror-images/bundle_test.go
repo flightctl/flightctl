@@ -104,24 +104,26 @@ func TestSourceRegistriesRequiringSignatures(t *testing.T) {
 
 // TestRegistriesDExample verifies that registriesDExample returns YAML that
 // parses into a valid containers-registries.d(5) structure with the lookaside
-// key nested under docker.<registry>.
+// key nested under docker.<destination>.  After a registries.conf redirect,
+// podman resolves the lookaside by the physical destination, so the key must
+// match the import registry — not the original source.
 func TestRegistriesDExample(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		registry string
-		path     string
+		name        string
+		destination string
+		path        string
 	}{
 		{
-			name:     "When given registry.redhat.io it should produce valid nested YAML",
-			registry: "registry.redhat.io",
-			path:     "file:///var/lib/containers/sigstore",
+			name:        "When given default localhost:5000 it should produce valid nested YAML",
+			destination: "localhost:5000",
+			path:        "file:///var/lib/containers/sigstore",
 		},
 		{
-			name:     "When given registry.access.redhat.com it should produce valid nested YAML",
-			registry: "registry.access.redhat.com",
-			path:     "file:///var/lib/containers/sigstore",
+			name:        "When given a custom host:port it should produce valid nested YAML",
+			destination: "registry.internal.example.com:8443",
+			path:        "file:///var/lib/containers/sigstore",
 		},
 	}
 
@@ -129,20 +131,20 @@ func TestRegistriesDExample(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			example := registriesDExample(tt.registry, tt.path)
+			example := registriesDExample(tt.destination, tt.path)
 
 			// Must parse as valid YAML.
 			var parsed registriesDConfig
 			err := yaml.Unmarshal([]byte(example), &parsed)
 			require.NoError(t, err, "generated example must be valid YAML")
 
-			// Must have a docker section, not top-level sigstore/lookaside.
-			require.NotNil(t, parsed.Docker, "example must use docker.<registry> nesting")
-			require.Contains(t, parsed.Docker, tt.registry,
-				"docker section must contain the target registry")
+			// Must have a docker section with destination key, not source registries.
+			require.NotNil(t, parsed.Docker, "example must use docker.<destination> nesting")
+			require.Contains(t, parsed.Docker, tt.destination,
+				"docker section must contain the import destination")
 
 			// The lookaside must be set to the expected path.
-			ns := parsed.Docker[tt.registry]
+			ns := parsed.Docker[tt.destination]
 			require.Equal(t, tt.path, ns.Lookaside,
 				"lookaside must point to the local sigstore path")
 
@@ -163,7 +165,7 @@ func TestWriteImportScript(t *testing.T) {
 		variant           string
 		pairs             []ImagePair
 		wantRootCheck     bool
-		wantSigstoreGuide []string // registries that should appear in guidance
+		wantSigstoreGuide bool // whether destination-scoped guidance should appear
 		wantSkopeoCount   int
 	}{
 		{
@@ -174,7 +176,7 @@ func TestWriteImportScript(t *testing.T) {
 				{Source: "quay.io/flightctl/flightctl-worker-el9:latest"},
 			},
 			wantRootCheck:     false,
-			wantSigstoreGuide: nil,
+			wantSigstoreGuide: false,
 			wantSkopeoCount:   2,
 		},
 		{
@@ -185,7 +187,7 @@ func TestWriteImportScript(t *testing.T) {
 				{Source: "registry.redhat.io/rhel9/postgresql-16:9.8"},
 			},
 			wantRootCheck:     true,
-			wantSigstoreGuide: []string{"registry.redhat.io"},
+			wantSigstoreGuide: true,
 			wantSkopeoCount:   2,
 		},
 		{
@@ -196,11 +198,11 @@ func TestWriteImportScript(t *testing.T) {
 				{Source: "registry.access.redhat.com/ubi9/ubi-minimal:9.8"},
 			},
 			wantRootCheck:     true,
-			wantSigstoreGuide: []string{"registry.access.redhat.com"},
+			wantSigstoreGuide: true,
 			wantSkopeoCount:   2,
 		},
 		{
-			name:    "When variant includes both signature registries it should show guidance for both",
+			name:    "When variant includes both signature registries it should show a single destination-scoped block",
 			variant: "mixed-test",
 			pairs: []ImagePair{
 				{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
@@ -208,7 +210,7 @@ func TestWriteImportScript(t *testing.T) {
 				{Source: "quay.io/flightctl/flightctl-worker-el9:latest"},
 			},
 			wantRootCheck:     true,
-			wantSigstoreGuide: []string{"registry.access.redhat.com", "registry.redhat.io"},
+			wantSigstoreGuide: true,
 			wantSkopeoCount:   3,
 		},
 		{
@@ -266,17 +268,37 @@ func TestWriteImportScript(t *testing.T) {
 			require.Equal(t, tt.wantSkopeoCount, skopeoCopies,
 				"unexpected number of skopeo copy commands")
 
-			// Verify sigstore guidance for each expected registry.
-			for _, reg := range tt.wantSigstoreGuide {
-				yamlFile := reg + ".yaml"
-				require.Contains(t, script, yamlFile,
-					"script should mention registries.d YAML file for "+reg)
+			// Verify destination-scoped sigstore guidance.
+			if tt.wantSigstoreGuide {
+				// Guidance must reference $REGISTRY (destination scope), not
+				// individual source registry names as YAML keys.
+				require.Contains(t, script, `$REGISTRY:`,
+					"guidance must reference $REGISTRY as the YAML key")
+				require.Contains(t, script, "lookaside: file:///var/lib/containers/sigstore",
+					"guidance must include the default sigstore path")
+				// Must be a single docker: block — count echo lines with "docker:"
+				dockerEchoCount := strings.Count(script, `echo "  docker:"`)
+				require.Equal(t, 1, dockerEchoCount,
+					"guidance must show exactly one destination-scoped docker: block")
+				// Source registry names must NOT appear as YAML file references.
+				require.NotContains(t, script, "registry.redhat.io.yaml",
+					"guidance must not reference source registry YAML files")
+				require.NotContains(t, script, "registry.access.redhat.com.yaml",
+					"guidance must not reference source registry YAML files")
 			}
 
 			// When no sigstore guidance is expected, verify none is present.
-			if len(tt.wantSigstoreGuide) == 0 {
-				require.NotContains(t, script, "Configure offline signature lookup",
+			if !tt.wantSigstoreGuide {
+				require.NotContains(t, script, "Signature configuration",
 					"script should not show sigstore guidance when no signature registries present")
+			}
+
+			// Verify args are parsed BEFORE the root guard (if present).
+			if tt.wantRootCheck {
+				argsPos := strings.Index(script, `REGISTRY="localhost:5000"`)
+				guardPos := strings.Index(script, rootCheckMarker)
+				require.Greater(t, guardPos, argsPos,
+					"argument parsing must appear before the root guard")
 			}
 		})
 	}
@@ -468,37 +490,27 @@ func TestWriteImportScriptUsageSudo(t *testing.T) {
 		"usage comment should recommend running with sudo")
 }
 
-// extractEchoYAML extracts YAML content from the generated script's echo lines
-// for a given registry.  It finds the "Merge into" marker after the registry's
-// YAML file reference, then collects subsequent echo lines containing YAML
-// (docker:, registry name, lookaside) until a blank echo following content.
-func extractEchoYAML(script, registry string) string {
+// extractDestinationEchoYAML extracts the destination-scoped YAML content
+// from the generated script's echo lines.  It looks for the echo "  docker:"
+// line that starts the YAML block, then collects subsequent echo lines
+// (destination key, lookaside) until a blank echo following content.
+func extractDestinationEchoYAML(script string) string {
 	lines := strings.Split(script, "\n")
-	marker := registry + ".yaml"
-	var foundMarker, collecting bool
+	var collecting bool
 	var yamlLines []string
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		// First find the file marker for this registry.
-		if !foundMarker && strings.Contains(trimmed, marker) && strings.HasPrefix(trimmed, "echo ") {
-			foundMarker = true
-			continue
-		}
-		if !foundMarker {
-			continue
-		}
-		// Skip the "Merge into..." instruction line and blank echos before YAML.
-		if !collecting {
-			if trimmed == `echo ""` || strings.Contains(trimmed, "Merge into") {
-				continue
-			}
+		// Find the docker: echo line that starts the YAML block.
+		if !collecting && trimmed == `echo "  docker:"` {
 			collecting = true
+			yamlLines = append(yamlLines, "docker:")
+			continue
 		}
 		if collecting {
 			// A blank echo or non-echo line after we've collected YAML ends the block.
 			if trimmed == `echo ""` || trimmed == "" || !strings.HasPrefix(trimmed, "echo ") {
-				if len(yamlLines) > 0 {
+				if len(yamlLines) > 1 {
 					break
 				}
 				continue
@@ -507,8 +519,8 @@ func extractEchoYAML(script, registry string) string {
 			// and the display indentation added by the template.
 			payload := trimmed[len(`echo "`):]
 			payload = strings.TrimSuffix(payload, `"`)
-			// Remove display indent (4 spaces added in the Fprintf template).
-			payload = strings.TrimPrefix(payload, "    ")
+			// Remove display indent (2 spaces from the echo indentation).
+			payload = strings.TrimPrefix(payload, "  ")
 			if strings.TrimSpace(payload) != "" {
 				yamlLines = append(yamlLines, payload)
 			}
@@ -518,14 +530,16 @@ func extractEchoYAML(script, registry string) string {
 }
 
 // TestWriteImportScriptGuidanceContainsValidYAML extracts the ACTUAL echo
-// payloads from the generated script (not the helper function output) and
-// validates that they parse as valid containers-registries.d(5) YAML with the
-// registry nested under docker.<registry>.  It also runs bash -n to verify
-// the generated script has valid shell syntax.
+// payloads from the generated script and validates that they form a valid
+// containers-registries.d(5) YAML structure with the lookaside nested under
+// docker.<destination>.  The destination is $REGISTRY (a bash variable),
+// which appears literally in the extracted YAML.  It also runs bash -n to
+// verify the generated script has valid shell syntax.
 func TestWriteImportScriptGuidanceContainsValidYAML(t *testing.T) {
 	t.Parallel()
 
 	// Generate a script with both signature-required registries.
+	// Even with multiple sources, there should be a single destination block.
 	tmpDir := t.TempDir()
 	pairs := []ImagePair{
 		{Source: "registry.redhat.io/rhem/flightctl-api-rhel9:1.0"},
@@ -544,25 +558,27 @@ func TestWriteImportScriptGuidanceContainsValidYAML(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "bash -n syntax check failed: %s", string(out))
 
-	// Extract and validate ACTUAL YAML from the generated echo payloads for
-	// each registry — not the helper function output.
-	for _, reg := range []string{"registry.redhat.io", "registry.access.redhat.com"} {
-		extractedYAML := extractEchoYAML(script, reg)
-		require.NotEmpty(t, extractedYAML,
-			"should find YAML guidance for %s in the generated script", reg)
+	// Extract and validate the single destination-scoped YAML block.
+	// The key is "$REGISTRY" (a bash variable, literal in the script text).
+	extractedYAML := extractDestinationEchoYAML(script)
+	require.NotEqual(t, "\n", extractedYAML,
+		"should find destination-scoped YAML guidance in the generated script")
 
-		var parsed registriesDConfig
-		err := yaml.Unmarshal([]byte(extractedYAML), &parsed)
-		require.NoError(t, err,
-			"extracted YAML for %s must parse; got:\n%s", reg, extractedYAML)
-		require.NotNil(t, parsed.Docker,
-			"extracted YAML for %s must have docker section", reg)
-		require.Contains(t, parsed.Docker, reg,
-			"docker section in extracted YAML must contain %s", reg)
-		require.Equal(t, "file:///var/lib/containers/sigstore",
-			parsed.Docker[reg].Lookaside,
-			"lookaside in extracted YAML must point to sigstore for %s", reg)
-	}
+	var parsed registriesDConfig
+	err = yaml.Unmarshal([]byte(extractedYAML), &parsed)
+	require.NoError(t, err,
+		"extracted YAML must parse; got:\n%s", extractedYAML)
+	require.NotNil(t, parsed.Docker,
+		"extracted YAML must have docker section")
+	// The key is "$REGISTRY" literally (bash variable, not yet expanded).
+	require.Contains(t, parsed.Docker, "$REGISTRY",
+		"docker section must contain $REGISTRY as the destination key")
+	require.Equal(t, "file:///var/lib/containers/sigstore",
+		parsed.Docker["$REGISTRY"].Lookaside,
+		"lookaside must point to the default sigstore path")
+	// Must be exactly one entry — destination scope, not per-source.
+	require.Len(t, parsed.Docker, 1,
+		"guidance must contain exactly one docker entry (destination-scoped)")
 }
 
 // TestWriteImportScriptQuayOnlyNoRHConfig verifies that a variant using only

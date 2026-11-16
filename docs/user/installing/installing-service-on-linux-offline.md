@@ -273,35 +273,31 @@ For `rhem-el9` or `rhem-el10` variants, add a mirror entry for
 RHEL's container policy requires signature verification for images from
 `registry.redhat.io` and `registry.access.redhat.com`. The `import.sh` script
 in Step 5 wrote detached signatures to `/var/lib/containers/sigstore/` (the
-default system-wide signature directory). You must configure each source
-registry's `registries.d` YAML file so that podman reads signatures from that
-directory instead of the internet.
+default system-wide signature directory). You must configure `registries.d` so
+that podman reads signatures from that directory instead of the internet.
 
-Edit the `registries.d` YAML file for each signature-required registry used by
-your variant. Merge the `lookaside` setting into the existing
-`docker.<registry>` section, preserving any other keys in that section (such
-as `lookaside-staging`). Do not add duplicate registry definitions across
-files.
+Because the registry redirect in Step 7 routes pulls from the original source
+registries to the local registry via `registries.conf`, podman resolves the
+signature lookaside using the **physical import destination** (`localhost:5000`
+by default) rather than the original source registry names. Configure a single
+lookaside entry for the import destination.
 
-For `rhem-el9` or `rhem-el10` variants, edit
-`/etc/containers/registries.d/registry.redhat.io.yaml` so the `docker`
-section includes:
+Create a file under `/etc/containers/registries.d/` for the import
+destination. The filename can be any `.yaml` name; use a descriptive name
+that matches the registry. Preserve any existing keys (such as
+`lookaside-staging`) if merging into an existing file. Do not add duplicate
+registry definitions across files:
 
 ```yaml
+# /etc/containers/registries.d/localhost-5000.yaml
 docker:
-  registry.redhat.io:
+  localhost:5000:
     lookaside: file:///var/lib/containers/sigstore
 ```
 
-For all variants (including `community-el9` and `community-el10`), edit
-`/etc/containers/registries.d/registry.access.redhat.com.yaml` so the
-`docker` section includes:
-
-```yaml
-docker:
-  registry.access.redhat.com:
-    lookaside: file:///var/lib/containers/sigstore
-```
+If you used `--registry <host>:<port>` during import, replace
+`localhost:5000` with your actual destination registry and use a matching
+filename.
 
 > [!NOTE]
 > If your system uses a custom signature storage path (configured via

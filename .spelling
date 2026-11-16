@@ -38,6 +38,7 @@ CRD
 CSR
 darwin
 decryptable
+destination
 DeviceTemplate
 df
 e.g.
@@ -50,6 +51,7 @@ Envoy
 env
 EPEL
 FIDO
+filename
 filesystem
 FIPS
 firewalld
@@ -85,6 +87,7 @@ distroVersion
 lifecycle
 lifecycle-bound
 linux
+lookaside
 macOS
 must-gather
 sosreport

@@ -249,11 +249,13 @@ func fetchRepoFile(url, destPath string) error {
 }
 
 // registriesDExample returns a correctly nested registries.d YAML snippet for
-// a given registry, suitable for display to the user.  The lookaside key is
-// placed under docker.<registry> as required by the containers-registries.d(5)
-// schema.
-func registriesDExample(registry, lookasidePath string) string {
-	return fmt.Sprintf("docker:\n  %s:\n    lookaside: %s\n", registry, lookasidePath)
+// a given import destination, suitable for display to the user or for testing.
+// The lookaside key is placed under docker.<destination> as required by the
+// containers-registries.d(5) schema.  After a registries.conf redirect, podman
+// resolves the lookaside using the physical destination host (not the original
+// source registry), so the key must match the import registry.
+func registriesDExample(destination, lookasidePath string) string {
+	return fmt.Sprintf("docker:\n  %s:\n    lookaside: %s\n", destination, lookasidePath)
 }
 
 // WriteImportScript writes an executable shell script to bundleDir/import.sh
@@ -303,24 +305,8 @@ set -euo pipefail
 
 `, variant, time.Now().UTC().Format(time.RFC3339))
 
-	// When signature-required registries are present, the script must run as
-	// root so that signatures land in the default system-wide lookaside
-	// directory (/var/lib/containers/sigstore/).
-	if needsSigstore {
-		fmt.Fprint(f, `# Images from signature-required registries are included in this bundle.
-# The script must run as root so that skopeo writes detached signatures to
-# the default system-wide lookaside directory (/var/lib/containers/sigstore/)
-# where the system's podman can find them.
-if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: this import script must run as root (sudo ./import.sh)." >&2
-    echo "Images from signature-required registries need the system-wide" >&2
-    echo "lookaside directory (/var/lib/containers/sigstore/)." >&2
-    exit 1
-fi
-
-`)
-	}
-
+	// Parse arguments before the root guard so that $REGISTRY is available
+	// for the signature guidance output.
 	fmt.Fprintf(f, `REGISTRY="localhost:5000"
 DEST_TLS_FLAG="--dest-tls-verify=false"
 
@@ -337,10 +323,65 @@ IMAGES_DIR="$SCRIPT_DIR/images"
 TOTAL=%d
 CURRENT=0
 
-echo "Importing $TOTAL images to $REGISTRY..."
+`, len(pairs))
+
+	// Display signature configuration guidance before the root guard so the
+	// user can read it even when running without root.  Uses $REGISTRY so
+	// the guidance matches the actual import destination.  After a
+	// registries.conf redirect, podman resolves the signature lookaside by
+	// the physical destination host, not the original source registry —
+	// therefore the registries.d entry must be scoped to $REGISTRY.
+	if needsSigstore {
+		fmt.Fprint(f, `echo ""
+echo "==========================================================================="
+echo "Signature configuration required for offline operation"
+echo "==========================================================================="
+echo ""
+echo "This bundle includes images from registries that require signature"
+echo "verification.  After import, configure registries.d so that podman"
+echo "reads detached signatures from the local sigstore directory."
+echo ""
+echo "Because registries.conf redirects pulls to the import registry,"
+echo "the registries.d lookaside must be scoped to the physical import"
+echo "destination — not the original source registry names."
+echo ""
+echo "Create or edit: /etc/containers/registries.d/${REGISTRY//:/-}.yaml"
+echo ""
+echo "  docker:"
+echo "    $REGISTRY:"
+echo "      lookaside: file:///var/lib/containers/sigstore"
+echo ""
+echo "If your system uses a custom signature storage path (configured via"
+echo "lookaside-staging or a non-default lookaside), use the actual path"
+echo "where skopeo wrote the signatures."
+echo ""
+echo "Do not modify /etc/containers/policy.json — signature verification"
+echo "must remain enabled.  The above configuration tells podman where to"
+echo "find the bundled signatures locally."
+echo "==========================================================================="
 echo ""
 
-`, len(pairs))
+`)
+	}
+
+	// Root guard — enforced before ANY image import.  When signature-required
+	// registries are present, the script must run as root so that skopeo
+	// writes detached signatures to the system-wide lookaside directory.
+	if needsSigstore {
+		fmt.Fprint(f, `if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: this import script must run as root (sudo ./import.sh)." >&2
+    echo "Images from signature-required registries need the system-wide" >&2
+    echo "lookaside directory (/var/lib/containers/sigstore/)." >&2
+    exit 1
+fi
+
+`)
+	}
+
+	fmt.Fprint(f, `echo "Importing $TOTAL images to $REGISTRY..."
+echo ""
+
+`)
 
 	for _, p := range pairs {
 		parts := strings.SplitN(p.Source, "/", 2)
@@ -355,51 +396,14 @@ skopeo copy $DEST_TLS_FLAG "dir:$IMAGES_DIR/%s" "docker://$REGISTRY/%s"
 `, imageRelPath, imageRelPath, imageRelPath)
 	}
 
-	fmt.Fprintf(f, `echo ""
+	fmt.Fprint(f, `echo ""
 echo "Import complete: $TOTAL images imported to $REGISTRY"
 `)
 
-	// After importing, display instructions for the user to configure
-	// registries.d manually.  The script does NOT write to /etc — the user
-	// must merge these settings into the existing registries.d YAML files,
-	// placing the lookaside key under the docker.<registry> section as
-	// required by the containers-registries.d(5) schema.
 	if needsSigstore {
 		fmt.Fprint(f, `echo ""
-echo "==========================================================================="
-echo "IMPORTANT: Configure offline signature lookup before starting services"
-echo "==========================================================================="
-echo ""
-echo "Detached image signatures were written to the system-wide lookaside"
-echo "directory (by default /var/lib/containers/sigstore/).  If your system"
-echo "has a custom lookaside-staging path configured in registries.d, the"
-echo "signatures were written there instead."
-echo ""
-echo "You must configure each source registry's registries.d YAML file so"
-echo "that podman reads signatures from that directory offline."
-echo ""
-echo "For each registry listed below, edit the corresponding file under"
-echo "/etc/containers/registries.d/ and merge the lookaside setting into"
-echo "the docker.<registry> section.  Preserve any existing keys (such as"
-echo "lookaside-staging) in that section.  Use the actual path where skopeo"
-echo "wrote the signatures if it differs from the default."
-echo ""
-`)
-		for _, reg := range sigRegs {
-			yamlFile := reg + ".yaml"
-			example := registriesDExample(reg, "file:///var/lib/containers/sigstore")
-			fmt.Fprintf(f, `echo "  File: /etc/containers/registries.d/%s"
-echo "  Merge into the existing docker section:"
-echo ""
-echo "    %s"
-echo ""
-`, yamlFile, strings.ReplaceAll(example, "\n", `"
-echo "    `))
-		}
-		fmt.Fprint(f, `echo "Do not modify /etc/containers/policy.json — signature verification"
-echo "must remain enabled.  The steps above ensure podman can find the"
-echo "bundled signatures locally."
-echo "==========================================================================="
+echo "Complete the offline signature configuration shown above before"
+echo "starting services."
 `)
 	}
 
