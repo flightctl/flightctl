@@ -20,6 +20,7 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
   - **Full flow (deploy + e2e):** `make e2e-test` – deploys cluster, builds e2e agent images, prepares qcow2, runs e2e.  
   - **Cluster already up:** `make in-cluster-e2e-test` – skips deploy, runs e2e.  
   - **Filter:** `GO_E2E_DIRS=test/e2e/agent`, `GINKGO_FOCUS="description"`, `GINKGO_PROCS=N`.  
+  - **Flake retries:** `GINKGO_FLAKE_ATTEMPTS=N` – retry each failed spec up to N total attempts (default `0`, no retries; CI sets `2` for one automatic retry).
   - Some e2e suites (e.g. quadlets) need a quadlet-capable VM; see `test/e2e/quadlets/README.md` and `test/e2e/tpm/README.md`. Rollout tests use multiple VMs and have higher RAM requirements; see `test/e2e/rollout/README.md`.
 
 ## E2E layout and harness
