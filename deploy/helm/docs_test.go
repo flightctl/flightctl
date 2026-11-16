@@ -46,3 +46,15 @@ func TestHelmDocumentation_WhenSoftwareCatalogProcedureIsChecked_ItShouldInclude
 		})
 	}
 }
+
+func TestHelmDocumentation_WhenRHEMChartIsGenerated_ItShouldIncludeSoftwareCatalogProcedure(t *testing.T) {
+	content, err := os.ReadFile("flightctl/README.md.gotmpl")
+	if err != nil {
+		t.Fatalf("read README template: %v", err)
+	}
+
+	const rhemChartGuard = `{{ if or (eq .Name "flightctl") (eq .Name "redhat-rhem") }}`
+	if !strings.Contains(string(content), rhemChartGuard) {
+		t.Fatalf("README template does not enable the Software Catalog procedure for the RHEM chart")
+	}
+}
