@@ -67,6 +67,10 @@ type Reader interface {
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
 	ReadFileLimited(filePath string, limit int64) ([]byte, error)
+	// ReadFileInRoot reads relPath beneath root without following a symbolic link
+	// in any component of relPath. It fails for absolute or escaping paths,
+	// non-regular files, and files larger than limit.
+	ReadFileInRoot(root, relPath string, limit int64) ([]byte, error)
 	ReadDir(dirPath string) ([]fs.DirEntry, error)
 	PathExists(path string, opts ...PathExistsOption) (bool, error)
 }
