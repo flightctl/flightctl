@@ -171,10 +171,6 @@ type TerminalSize = v1beta1.TerminalSize
 type DeviceConsoleSessionMetadata = v1beta1.DeviceConsoleSessionMetadata
 type DeviceCommand = v1beta1.DeviceCommand
 
-func ValidateConfigResources(resources []ConfigResource) []error {
-	return v1beta1.ValidateConfigResources(resources)
-}
-
 // NewDeviceStatus creates a new DeviceStatus with default values
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{

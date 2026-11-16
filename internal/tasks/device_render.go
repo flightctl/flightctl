@@ -433,7 +433,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, rendered.ConfigResources, syncRefs, bypassHashCheck, osHints)
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), string(rendered.ConfigResources), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
 	if err := common.ApiStatusToErr(status); err != nil {
 		return t.setErrorStatus(ctx, err)
 	}
@@ -446,7 +446,7 @@ type RenderedSpec struct {
 	OsImage         string
 	Config          []byte
 	Applications    []byte
-	ConfigResources []domain.ConfigResource
+	ConfigResources []byte
 
 	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
