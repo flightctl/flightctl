@@ -2,7 +2,6 @@ package firmware
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -40,9 +39,12 @@ type VerifiedPackage struct {
 	Reference             string
 	PublisherPolicyDigest string
 	ManifestDigest        string
-	PolicyRevision        int64
-	Manifest              Manifest
-	Cached                bool
+	// PolicyRevision is the accepted policy revision under which this fetch
+	// found the release approved.
+	PolicyRevision int64
+	Manifest       Manifest
+	// Cached reports that a verified record and the present image were reused.
+	Cached bool
 }
 
 // Fetcher obtains and authenticates approved updater code without executing
@@ -117,6 +119,9 @@ func (f *Fetcher) Fetch(ctx context.Context, name, version string) (*VerifiedPac
 	}
 	if err := CheckAccess(d.Access, *f.access.Load()); err != nil {
 		return nil, notSupported(release, err)
+	}
+	if pkg, ok := f.cachedPackage(ctx, view.Revision, binding.DescriptorDigest, d); ok {
+		return pkg, nil
 	}
 	return f.fetch(ctx, view.Revision, binding.DescriptorDigest, d)
 }
@@ -232,38 +237,6 @@ func (f *Fetcher) readManifest(ctx context.Context, reference string) ([]byte, e
 		return nil, fmt.Errorf("read %s from %s: %w", ManifestPath, reference, err)
 	}
 	return data, nil
-}
-
-type packageRecord struct {
-	Name                  string   `json:"name"`
-	Version               string   `json:"version"`
-	DescriptorDigest      string   `json:"descriptorDigest"`
-	PackageDigest         string   `json:"packageDigest"`
-	PublisherPolicyDigest string   `json:"publisherPolicyDigest"`
-	ManifestDigest        string   `json:"manifestDigest"`
-	PolicyRevision        int64    `json:"policyRevision"`
-	Manifest              Manifest `json:"manifest"`
-}
-
-func (f *Fetcher) writeRecord(pkg *VerifiedPackage) error {
-	data, err := json.Marshal(packageRecord{
-		Name:                  pkg.Name,
-		Version:               pkg.Version,
-		DescriptorDigest:      pkg.DescriptorDigest,
-		PackageDigest:         pkg.PackageDigest,
-		PublisherPolicyDigest: pkg.PublisherPolicyDigest,
-		ManifestDigest:        pkg.ManifestDigest,
-		PolicyRevision:        pkg.PolicyRevision,
-		Manifest:              pkg.Manifest,
-	})
-	if err != nil {
-		return err
-	}
-	return f.rw.WriteFileDurable(f.recordPath(pkg.DescriptorDigest), data, 0o700, 0o600)
-}
-
-func (f *Fetcher) recordPath(descriptorDigest string) string {
-	return filepath.Join(f.dataDir, "firmware", "packages", digestHex(descriptorDigest)+".json")
 }
 
 func digestHex(digest string) string { return strings.TrimPrefix(digest, "sha256:") }
