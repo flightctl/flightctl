@@ -348,8 +348,10 @@ Failures are typed with the reasons used in firmware status:
   deny-all policy left by invalid local configuration.
 
 Only pull failures other than a signature policy rejection are retryable,
-such as a registry outage or an authentication failure. The element of every
-error is the release `<name>/<version>`.
+such as a registry outage or an authentication failure. The agent's existing
+retry classification reads the same result: a retryable fetch error matches
+the retryable error marker and any other matches the no-retry marker. The
+element of every error is the release `<name>/<version>`.
 
 A pull rejected by the signature policy reports exactly this message:
 

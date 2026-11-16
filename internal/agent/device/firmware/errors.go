@@ -50,6 +50,20 @@ func (e *FetchError) Error() string {
 
 func (e *FetchError) Unwrap() error { return e.Err }
 
+// Is exposes Retryable to the agent's retry classification: a retryable fetch
+// error matches deviceerrors.ErrRetryable and any other matches
+// deviceerrors.ErrNoRetry.
+func (e *FetchError) Is(target error) bool {
+	switch target {
+	case deviceerrors.ErrRetryable:
+		return e.Retryable
+	case deviceerrors.ErrNoRetry:
+		return !e.Retryable
+	default:
+		return false
+	}
+}
+
 func newFetchError(reason Reason, retryable bool, release string, err error) *FetchError {
 	return &FetchError{Reason: reason, Retryable: retryable, Err: fmt.Errorf("updater %w: %w", deviceerrors.WithElement(release), err)}
 }

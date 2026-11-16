@@ -1118,3 +1118,33 @@ func TestFetchFailsClosedWhenALocalStepFails(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchErrorsCarryTheAgentRetryClassification(t *testing.T) {
+	testCases := []struct {
+		name      string
+		setup     func(h *fetchHarness)
+		retryable bool
+	}{
+		{"When the registry is unreachable it should classify as retryable", func(h *fetchHarness) {
+			h.podman.pullExit = 125
+			h.podman.pullStderr = "Error: initializing source: dial tcp: connect: connection refused\n"
+		}, true},
+		{"When the signature policy rejects the pull it should classify as not retryable", func(h *fetchHarness) {
+			h.podman.pullExit = 125
+			h.podman.pullStderr = "Error: Source image rejected: A signature was required, but no signature exists\n"
+		}, false},
+		{"When the release is revoked it should classify as not retryable", func(h *fetchHarness) { h.approve(h.release, true) }, false},
+		{"When the release is not supported it should classify as not retryable", func(h *fetchHarness) {
+			h.cfg.Firmware.UpdaterAccess = config.UpdaterAccessPolicy{}
+		}, false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newFetchHarness(t)
+			tc.setup(h)
+			_, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
+			require.Error(t, err)
+			require.Equal(t, tc.retryable, deviceerrors.IsRetryable(err))
+		})
+	}
+}
