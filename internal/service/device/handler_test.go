@@ -950,8 +950,12 @@ func TestUpdateRenderedDevice(t *testing.T) {
 		Status: lo.ToPtr(domain.NewDeviceStatus()),
 	}, nil)
 	require.NoError(t, err)
-	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "", "hash", "", nil, false, nil)
+	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "[]", "hash", "", nil, false, nil)
 	require.Equal(t, int32(http.StatusOK), status.Code)
+	stored, err := st.device.Get(ctx, orgId, "foo")
+	require.NoError(t, err)
+	require.Equal(t, "1", stored.Version())
+	require.Nil(t, st.device.rendered["foo"])
 }
 
 func TestServiceConditionsFromDevice(t *testing.T) {

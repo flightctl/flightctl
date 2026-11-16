@@ -253,10 +253,10 @@ func TestPathsForKind_AllKinds(t *testing.T) {
 	require.Equal(t, []string{"Spec", "clientSecret"}, apPaths[0])
 
 	devicePaths := PathsForKind(domain.DeviceKind)
-	require.Len(t, devicePaths, 3)
-	require.Contains(t, devicePaths, []string{"RenderedConfig"})
-	require.Contains(t, devicePaths, []string{"RenderedApplications"})
-	require.Contains(t, devicePaths, []string{"RenderedConfigResources"})
+	require.Len(t, devicePaths, 3, "Device should have 3 encrypted paths")
+	require.Equal(t, []string{"RenderedConfig"}, devicePaths[0])
+	require.Equal(t, []string{"RenderedConfigResources"}, devicePaths[1])
+	require.Equal(t, []string{"RenderedApplications"}, devicePaths[2])
 
 	unknownPaths := PathsForKind("UnknownKind")
 	require.Nil(t, unknownPaths, "Unknown kind should return nil")

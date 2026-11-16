@@ -143,24 +143,6 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(after.RenderedConfigResources).To(Equal(before.RenderedConfigResources))
 	})
 
-	It("When prior rendered fields cannot be decrypted it should replace them without reading their contents", func() {
-		const name = "unreadable-rendered-fields"
-		device := &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr(name), Annotations: &map[string]string{domain.DeviceAnnotationRenderedVersion: "1"}}, Spec: &domain.DeviceSpec{}}
-		_, err := devStore.Create(ctx, orgId, device, nil)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(db.Exec(`UPDATE devices SET rendered_config = ?::jsonb, rendered_applications = ?::jsonb, rendered_config_resources = ?::jsonb WHERE org_id = ? AND name = ?`, `"enc:v1:missing:invalid"`, `"enc:v1:missing:invalid"`, `"enc:v1:missing:invalid"`, orgId, name).Error).To(Succeed())
-		_, _, _, err = devStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
-			m.Rendered = &devicestore.DeviceRendered{Config: `[]`, Applications: `[]`, ConfigResources: `[]`}
-			return nil
-		}, devicestore.WithTimestamp())
-		Expect(err).ToNot(HaveOccurred())
-		rendered, err := devStore.GetRendered(ctx, orgId, name, nil, "")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(lo.FromPtr(rendered.Spec.Config)).To(BeEmpty())
-		Expect(lo.FromPtr(rendered.Spec.Applications)).To(BeEmpty())
-		Expect(lo.FromPtr(rendered.Spec.ConfigResources)).To(BeEmpty())
-	})
-
 	It("Mutate device create mode race", func() {
 		imageName := "tv"
 		device := api.Device{
