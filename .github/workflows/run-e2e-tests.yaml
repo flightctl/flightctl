@@ -221,6 +221,7 @@ jobs:
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           GINKGO_KEEP_GOING: "true"
+          GINKGO_FLAKE_ATTEMPTS: "2"
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}

@@ -44,6 +44,8 @@ DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
 GINKGO_KEEP_GOING=${GINKGO_KEEP_GOING:-""}
 # Global timeout for the entire test run (e.g. 120m, 180m). Default: 120m.
 GINKGO_TIMEOUT=${GINKGO_TIMEOUT:-120m}
+# Number of times to attempt each spec (e.g. 2 = one retry on failure). Default: 0 (no retries).
+GINKGO_FLAKE_ATTEMPTS=${GINKGO_FLAKE_ATTEMPTS:-0}
 FOCUS_FLAG=""
 
 
@@ -383,6 +385,9 @@ fi
 CMD+=(--timeout "${GINKGO_TIMEOUT}" --race -vv -nodes="${GINKGO_PROCS}")
 if [[ "${GINKGO_KEEP_GOING}" == "true" || "${GINKGO_KEEP_GOING}" == "1" ]]; then
     CMD+=(--keep-going)
+fi
+if [[ "${GINKGO_FLAKE_ATTEMPTS}" -gt 0 ]]; then
+    CMD+=(--flake-attempts="${GINKGO_FLAKE_ATTEMPTS}")
 fi
 CMD+=(--show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
 
