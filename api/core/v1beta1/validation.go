@@ -1934,9 +1934,14 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 func validateOsImageReference(imageRef *string, path string, fleetTemplate bool) []error {
 	if fleetTemplate && imageRef != nil {
 		if _, body, ok := validation.SplitOuterConditional(*imageRef); ok {
-			// The guard is part of the template and is held to the same
-			// parameter rules as the body, so validate the value as written
-			// before narrowing the OCI grammar to what a device renders.
+			// The guard is part of the template and is held to the same length
+			// limit and parameter rules as the body, so check the value as
+			// written before narrowing the OCI grammar to what a device
+			// renders. Without the explicit length check only the body would
+			// be measured, leaving the guard unbounded.
+			if errs := validation.ValidateString(imageRef, path, 1, validation.OciImageReferenceMaxLength, nil, ""); len(errs) > 0 {
+				return errs
+			}
 			if _, errs := validateParametersInString(imageRef, path, fleetTemplate); len(errs) > 0 {
 				return errs
 			}
