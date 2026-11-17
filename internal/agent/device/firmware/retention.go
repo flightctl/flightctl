@@ -507,9 +507,6 @@ func retainedFailure(ctx context.Context, release string, err error) error {
 // single links, no extra or missing entries, and listed sizes and digests,
 // all within limits.
 func verifyPublishedTree(ctx context.Context, updaters fileio.Anchor, dir, manifestDigest string, limits policy.ExtractionLimits) (*Manifest, error) {
-	changed := func(format string, args ...any) error {
-		return fmt.Errorf("%w: %s", ErrRetainedPayloadChanged, fmt.Sprintf(format, args...))
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -519,83 +516,111 @@ func verifyPublishedTree(ctx context.Context, updaters fileio.Anchor, dir, manif
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, ErrRetainedPayloadMissing
 		}
-		return nil, changed("version directory: %v", err)
+		return nil, retainedChanged("version directory: %v", err)
 	}
 	if !e.IsDir() || e.Perm != publishedDirMode || int64(e.UID) != int64(owner) {
-		return nil, changed("version directory has type %s, mode %s, owner %d", e.Type, e.Perm, e.UID)
+		return nil, retainedChanged("version directory has type %s, mode %s, owner %d", e.Type, e.Perm, e.UID)
 	}
 	final, err := updaters.OpenDir(dir, fileio.DirOptions{ReadOnly: true})
 	if err != nil {
-		return nil, changed("open version directory: %v", err)
+		return nil, retainedChanged("open version directory: %v", err)
 	}
 	defer final.Close()
 	data, err := final.ReadFile(manifestFileName, limits.MaxExtractedManifestBytes)
 	if err != nil {
-		return nil, changed("read manifest: %v", err)
+		return nil, retainedChanged("read manifest: %v", err)
 	}
 	if policy.Hash(data) != manifestDigest {
-		return nil, changed("manifest digest differs")
+		return nil, retainedChanged("manifest digest differs")
 	}
 	m, err := ParseManifest(data)
 	if err != nil {
-		return nil, changed("manifest: %v", err)
+		return nil, retainedChanged("manifest: %v", err)
 	}
 	plan, err := planPayload(m.Name+"/"+m.Version, m, data, limits)
 	if err != nil {
-		return nil, changed("manifest exceeds the retained limits: %v", err)
+		return nil, retainedChanged("manifest exceeds the retained limits: %v", err)
 	}
+	if err := verifyPublishedEntries(ctx, final, plan, owner); err != nil {
+		return nil, err
+	}
+	if err := verifyPublishedDigests(ctx, final, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func retainedChanged(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrRetainedPayloadChanged, fmt.Sprintf(format, args...))
+}
+
+// verifyPublishedEntries walks the version directory and requires exactly the
+// planned entries with published types, modes, owner, links and sizes.
+func verifyPublishedEntries(ctx context.Context, final fileio.Anchor, plan *payloadPlan, owner int) error {
 	seen := make(map[string]bool, len(plan.expected))
 	walkErr := final.Walk(ctx, ".", fileio.WalkBounds{MaxEntries: len(plan.expected), MaxDepth: MaxPayloadDepth, MaxNameBytes: maxEntryName}, func(rel string, e fileio.EntryInfo) error {
 		want, ok := plan.expected[rel]
 		if !ok {
-			return changed("unexpected entry %q", rel)
+			return retainedChanged("unexpected entry %q", rel)
 		}
-		if int64(e.UID) != int64(owner) {
-			return changed("entry %q is owned by uid %d", rel, e.UID)
-		}
-		if want.dir {
-			if !e.IsDir() || e.Perm != publishedDirMode {
-				return changed("entry %q has type %s and mode %s", rel, e.Type, e.Perm)
-			}
-		} else {
-			mode := publishedFileMode
-			if want.exec {
-				mode = publishedExecMode
-			}
-			if !e.IsRegular() || e.Perm != mode || e.Nlink != 1 || e.Size != want.size {
-				return changed("file %q has type %s, mode %s, %d links and %d bytes", rel, e.Type, e.Perm, e.Nlink, e.Size)
-			}
+		if err := checkPublishedEntry(rel, e, want, owner); err != nil {
+			return err
 		}
 		seen[rel] = true
 		return nil
 	})
 	if walkErr != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 		if errors.Is(walkErr, ErrRetainedPayloadChanged) {
-			return nil, walkErr
+			return walkErr
 		}
-		return nil, changed("%v", walkErr)
+		return retainedChanged("%v", walkErr)
 	}
 	for rel := range plan.expected {
 		if !seen[rel] {
-			return nil, changed("entry %q is missing", rel)
+			return retainedChanged("entry %q is missing", rel)
 		}
 	}
+	return nil
+}
+
+func checkPublishedEntry(rel string, e fileio.EntryInfo, want expectedEntry, owner int) error {
+	if int64(e.UID) != int64(owner) {
+		return retainedChanged("entry %q is owned by uid %d", rel, e.UID)
+	}
+	if want.dir {
+		if !e.IsDir() || e.Perm != publishedDirMode {
+			return retainedChanged("entry %q has type %s and mode %s", rel, e.Type, e.Perm)
+		}
+		return nil
+	}
+	mode := publishedFileMode
+	if want.exec {
+		mode = publishedExecMode
+	}
+	if !e.IsRegular() || e.Perm != mode || e.Nlink != 1 || e.Size != want.size {
+		return retainedChanged("file %q has type %s, mode %s, %d links and %d bytes", rel, e.Type, e.Perm, e.Nlink, e.Size)
+	}
+	return nil
+}
+
+// verifyPublishedDigests hashes every listed file within its listed size.
+func verifyPublishedDigests(ctx context.Context, final fileio.Anchor, m *Manifest) error {
 	for _, f := range m.Files {
 		d, err := final.Hash(ctx, f.Path, fileio.CopyBounds{MaxBytes: f.Size})
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return ctx.Err()
 			}
-			return nil, changed("file %q: %v", f.Path, err)
+			return retainedChanged("file %q: %v", f.Path, err)
 		}
 		if d.Size != f.Size || d.SHA256 != f.SHA256 {
-			return nil, changed("file %q content differs", f.Path)
+			return retainedChanged("file %q content differs", f.Path)
 		}
 	}
-	return m, nil
+	return nil
 }
 
 // RetainedImageReferences returns the digest-pinned image references of every
