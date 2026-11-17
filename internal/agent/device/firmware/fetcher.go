@@ -46,6 +46,8 @@ type VerifiedPackage struct {
 	Manifest       Manifest
 	// Cached reports that a verified record and the present image were reused.
 	Cached bool
+
+	extraction boundExtraction
 }
 
 // Fetcher obtains and authenticates approved updater code without executing
@@ -200,6 +202,7 @@ func (f *Fetcher) fetch(ctx context.Context, s *settings, revision int64, descri
 		ManifestDigest:        policy.Hash(data),
 		PolicyRevision:        revision,
 		Manifest:              *manifest,
+		extraction:            bindExtraction(descriptorDigest, d),
 	}
 	if err := f.writeRecord(pkg); err != nil {
 		return nil, unavailable(release, false, fmt.Errorf("record verified updater package: %w", err))

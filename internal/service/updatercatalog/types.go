@@ -24,6 +24,7 @@ type ReleaseBinding struct {
 	Access           *PhaseAccess        `json:"access" yaml:"access"`
 	Limits           ExecutionLimits     `json:"limits" yaml:"limits"`
 	BudgetKeySet     []string            `json:"budgetKeySet" yaml:"budgetKeySet"`
+	Extraction       *ExtractionLimits   `json:"extraction,omitempty" yaml:"extraction,omitempty"`
 	ReferencePaths   []ReferencePath     `json:"referencePaths,omitempty" yaml:"referencePaths,omitempty"`
 	GUIDPaths        []string            `json:"guidPaths,omitempty" yaml:"guidPaths,omitempty"`
 	TemplatablePaths []string            `json:"templatablePaths,omitempty" yaml:"templatablePaths,omitempty"`
@@ -104,6 +105,17 @@ type ExecutionLimits struct {
 	MaxCycles            int64 `json:"maxCycles" yaml:"maxCycles"`
 	MaxReboots           int64 `json:"maxReboots" yaml:"maxReboots"`
 	MaxAttempts          int64 `json:"maxAttempts" yaml:"maxAttempts"`
+}
+
+// ExtractionLimits is the optional budget for extracting a release payload on
+// the device. Its field names are budget keys.
+type ExtractionLimits struct {
+	MaxExtractedManifestBytes int64 `json:"maxExtractedManifestBytes" yaml:"maxExtractedManifestBytes"`
+	MaxExtractedFiles         int64 `json:"maxExtractedFiles" yaml:"maxExtractedFiles"`
+	MaxExtractedFileBytes     int64 `json:"maxExtractedFileBytes" yaml:"maxExtractedFileBytes"`
+	MaxExtractedTotalBytes    int64 `json:"maxExtractedTotalBytes" yaml:"maxExtractedTotalBytes"`
+	ExtractionScratchBytes    int64 `json:"extractionScratchBytes" yaml:"extractionScratchBytes"`
+	MaxExtractionSeconds      int64 `json:"maxExtractionSeconds" yaml:"maxExtractionSeconds"`
 }
 
 type Revocation struct {

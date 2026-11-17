@@ -22,6 +22,9 @@
     "limits": {
       "$ref": "#/definitions/ExecutionLimits"
     },
+    "extraction": {
+      "$ref": "#/definitions/ExtractionLimits"
+    },
     "budgetKeySet": true,
     "referencePaths": {
       "items": {
@@ -134,6 +137,17 @@
         "maxCycles": true,
         "maxReboots": true,
         "maxAttempts": true
+      },
+      "additionalProperties": false
+    },
+    "ExtractionLimits": {
+      "properties": {
+        "maxExtractedManifestBytes": true,
+        "maxExtractedFiles": true,
+        "maxExtractedFileBytes": true,
+        "maxExtractedTotalBytes": true,
+        "extractionScratchBytes": true,
+        "maxExtractionSeconds": true
       },
       "additionalProperties": false
     },
