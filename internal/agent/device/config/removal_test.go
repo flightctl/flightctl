@@ -1,14 +1,15 @@
 package config
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -435,4 +436,91 @@ func TestIsCleanupCandidate(t *testing.T) {
 			require.Equal(t, tt.want, isCleanupCandidate(tt.dir))
 		})
 	}
+}
+
+func newGuardController(t *testing.T, dataDir string) (*Controller, string, *bytes.Buffer) {
+	t.Helper()
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(tempDir)), fileio.NewWriter(fileio.WithWriterRootDir(tempDir)))
+	logs := &bytes.Buffer{}
+	logger := log.NewPrefixLogger("test")
+	logger.SetOutput(logs)
+	return NewController(rw, dataDir, logger), tempDir, logs
+}
+
+func TestSyncRejectsReservedFirmwarePaths(t *testing.T) {
+	const dataDir = "/var/lib/flightctl"
+	rejected := []string{
+		"/var/lib/flightctl/firmware",
+		"/var/lib/flightctl/firmware/updaters/x",
+		"/var/lib/flightctl/firmware/evidence/y.json",
+		"/var/lib/flightctl/firmware/",
+		"/var/lib/flightctl//firmware/x",
+		"/var/lib/flightctl/./firmware/x",
+		"/var/lib/flightctl/sub/../firmware/x",
+	}
+	for _, path := range rejected {
+		t.Run("When a desired file is "+path+" it should reject the whole configuration", func(t *testing.T) {
+			require := require.New(t)
+			controller, root, _ := newGuardController(t, dataDir)
+			require.NoError(os.MkdirAll(filepath.Join(root, "etc", "app"), 0o755))
+			require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o644))
+			current := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/etc/app/old.conf")}
+			desired := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/etc/app/a.conf", path, "/etc/app/b.conf")}
+			err := controller.Sync(context.Background(), current, desired)
+			require.ErrorIs(err, errors.ErrReservedConfigPath)
+			require.Equal(path, errors.GetElement(err))
+			require.False(errors.IsRetryable(err))
+			_, statErr := os.Stat(filepath.Join(root, "etc", "app", "a.conf"))
+			require.True(os.IsNotExist(statErr), "nothing is written")
+			_, statErr = os.Stat(filepath.Join(root, "etc", "app", "old.conf"))
+			require.NoError(statErr, "nothing is removed")
+			_, statErr = os.Stat(filepath.Join(root, "var", "lib", "flightctl", "firmware"))
+			require.True(os.IsNotExist(statErr))
+		})
+	}
+	allowed := []string{
+		"/var/lib/flightctl/firmware-x/a",
+		"/var/lib/flightctl/firmwarex",
+		"/var/lib/flightctl/other",
+		"/etc/flightctl/firmware/a",
+		"/var/lib/flightctl/sub/../other/firmware/a",
+	}
+	for _, path := range allowed {
+		t.Run("When a desired file is "+path+" it should write it", func(t *testing.T) {
+			require := require.New(t)
+			controller, root, _ := newGuardController(t, dataDir)
+			desired := &v1beta1.DeviceSpec{Config: inlineProvider(t, path)}
+			require.NoError(controller.Sync(context.Background(), &v1beta1.DeviceSpec{}, desired))
+			_, err := os.Stat(filepath.Join(root, filepath.Clean(path)))
+			require.NoError(err)
+		})
+	}
+	t.Run("When the data directory is custom it should guard that directory only", func(t *testing.T) {
+		require := require.New(t)
+		controller, root, _ := newGuardController(t, "/opt/agent-data")
+		err := controller.Sync(context.Background(), &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{Config: inlineProvider(t, "/opt/agent-data/firmware/a")})
+		require.ErrorIs(err, errors.ErrReservedConfigPath)
+		require.NoError(controller.Sync(context.Background(), &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{Config: inlineProvider(t, "/var/lib/flightctl/firmware/a")}))
+		_, err = os.Stat(filepath.Join(root, "var", "lib", "flightctl", "firmware", "a"))
+		require.NoError(err)
+	})
+}
+
+func TestSyncDoesNotRemoveReservedFirmwarePaths(t *testing.T) {
+	require := require.New(t)
+	controller, root, logs := newGuardController(t, "/var/lib/flightctl")
+	reserved := filepath.Join(root, "var", "lib", "flightctl", "firmware", "updaters", "x")
+	require.NoError(os.MkdirAll(filepath.Dir(reserved), 0o755))
+	require.NoError(os.WriteFile(reserved, []byte("retained"), 0o644))
+	require.NoError(os.MkdirAll(filepath.Join(root, "etc", "app"), 0o755))
+	require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o644))
+	current := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/var/lib/flightctl/firmware/updaters/x", "/etc/app/old.conf")}
+	require.NoError(controller.Sync(context.Background(), current, &v1beta1.DeviceSpec{}))
+	data, err := os.ReadFile(reserved)
+	require.NoError(err)
+	require.Equal([]byte("retained"), data)
+	_, err = os.Stat(filepath.Join(root, "etc", "app", "old.conf"))
+	require.True(os.IsNotExist(err))
+	require.Contains(logs.String(), "/var/lib/flightctl/firmware/updaters/x")
 }
