@@ -55,6 +55,8 @@ type fetchEnv struct {
 	recorder *recordingExecuter
 	logs     *syncBuffer
 	fetcher  *firmware.Fetcher
+	receiver *receiver.Manager
+	logger   *log.PrefixLogger
 }
 
 func newFetchEnv(home, authFile string) *fetchEnv {
@@ -78,6 +80,7 @@ func newFetchEnv(home, authFile string) *fetchEnv {
 	Expect(rw.WriteFileDurable(filepath.Join(e.dataDir, "firmware", "policy.json"), data, 0o700, 0o600)).To(Succeed())
 	recv, err := receiver.New("device", e.dataDir, rw, client.NewMockManagement(gomock.NewController(GinkgoT())), logger)
 	Expect(err).NotTo(HaveOccurred())
+	e.receiver, e.logger = recv, logger
 
 	resolver := dependency.NewPullConfigResolver(logger, fileio.NewReadWriterFactory(""))
 	resolver.BeforeUpdate(&v1beta1.DeviceSpec{})
