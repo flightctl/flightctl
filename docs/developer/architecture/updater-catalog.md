@@ -85,6 +85,13 @@ is present. Releases without the object stay valid, but the agent extracts only
 releases that declare it. `extractionScratchBytes` is the free space required
 before extraction starts; it is not a reservation.
 
+Because extraction keys are budget keys, releases that share a retained lookup
+key (see "Retained evidence") must also agree on whether they declare the
+object, and retained evidence keeps the budget-key set of every key already
+accepted. An updater whose accepted releases lack the object therefore needs
+configuration and observation schema digests of its own for releases that
+declare it.
+
 ## Revision and history rules
 
 Accepted input has its own canonical digest, separate from the materialized
