@@ -16,6 +16,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/samber/lo"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -666,11 +667,11 @@ func TestDeviceSortBy(t *testing.T) {
 	tests := []struct {
 		name     string
 		sortBy   string
-		expected api.ListDevicesParamsSortBy
+		expected *api.ListDevicesParamsSortBy
 	}{
-		{name: "When no sort field is given it should request alias ordering", sortBy: "", expected: api.ListDevicesSortByAlias},
-		{name: "When name is given it should request name ordering", sortBy: "name", expected: api.ListDevicesSortByName},
-		{name: "When alias is given it should request alias ordering", sortBy: "alias", expected: api.ListDevicesSortByAlias},
+		{name: "When no sort field is given it should leave the server default", sortBy: "", expected: nil},
+		{name: "When name is given it should request name ordering", sortBy: "name", expected: lo.ToPtr(api.ListDevicesSortByName)},
+		{name: "When alias is given it should request alias ordering", sortBy: "alias", expected: lo.ToPtr(api.ListDevicesSortByAlias)},
 	}
 
 	for _, tt := range tests {
@@ -678,8 +679,8 @@ func TestDeviceSortBy(t *testing.T) {
 			opts := DefaultGetOptions()
 			opts.SortBy = tt.sortBy
 			got := opts.deviceSortBy()
-			if got == nil || *got != tt.expected {
-				t.Errorf("expected %q, got %v", tt.expected, got)
+			if (got == nil) != (tt.expected == nil) || (got != nil && *got != *tt.expected) {
+				t.Errorf("expected %v, got %v", lo.FromPtr(tt.expected), lo.FromPtr(got))
 			}
 		})
 	}

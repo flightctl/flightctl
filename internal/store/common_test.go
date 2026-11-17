@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestRetryUpdateBudget(testingT *testing.T) {
@@ -207,8 +208,15 @@ func TestNullableAliasPredicate(t *testing.T) {
 }
 
 func TestCountRemainingItems(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:count-remaining-items?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:count-remaining-items?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	// The shared in-memory database lives until its last connection closes, so
+	// close it to give each run of this test a fresh table.
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.Exec("CREATE TABLE devices (name TEXT NOT NULL, alias TEXT)").Error)
 	require.NoError(t, db.Exec(`INSERT INTO devices (name, alias) VALUES
 		('dev-1', 'alpha'), ('dev-2', ''), ('dev-3', NULL), ('dev-4', NULL), ('dev-5', 'alpha')`).Error)

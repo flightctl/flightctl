@@ -139,7 +139,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
 	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include related ImageExport resources when getting imagebuilds.")
-	fs.StringVar(&o.SortBy, FlagSortBy, o.SortBy, "Field to sort results by. For device lists: 'alias' (default) or 'name'. For vulnerabilities, see the vulnerability commands.")
+	fs.StringVar(&o.SortBy, FlagSortBy, o.SortBy, "Field to sort results by. For device lists: 'name' (default) or 'alias'. For vulnerabilities, see the vulnerability commands.")
 	fs.StringVar(&o.Order, FlagOrder, o.Order, "Sort order: 'asc' or 'desc' (for vulnerabilities).")
 	fs.StringVar(&o.CveId, FlagCveId, o.CveId, "Filter devices by CVE ID (e.g., CVE-2023-44487).")
 	o.hideHelpContextualFlags(fs)
@@ -459,12 +459,11 @@ func (o *GetOptions) validateDeviceSortBy(kind ResourceKind, names []string) err
 	return nil
 }
 
-// deviceSortBy returns the sort to request when listing devices. The CLI
-// lists devices by alias unless the user asks otherwise, so devices that
-// share an alias appear together.
+// deviceSortBy returns the sort to request when listing devices. Alias order
+// is opt-in: without --sort-by the server's default name order applies.
 func (o *GetOptions) deviceSortBy() *api.ListDevicesParamsSortBy {
 	if o.SortBy == "" {
-		return lo.ToPtr(api.ListDevicesSortByAlias)
+		return nil
 	}
 	return lo.ToPtr(api.ListDevicesParamsSortBy(o.SortBy))
 }
