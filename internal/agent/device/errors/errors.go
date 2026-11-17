@@ -103,6 +103,9 @@ var (
 	ErrNotExist    = os.ErrNotExist
 	ErrInvalidPath = errors.New("invalid path")
 
+	// configuration
+	ErrReservedConfigPath = errors.New("configuration file path is reserved for agent-managed firmware state")
+
 	// anchored file access
 	ErrUnsafeFileType     = errors.New("unsafe file type")
 	ErrHardLinkedFile     = errors.New("file has more than one link")
