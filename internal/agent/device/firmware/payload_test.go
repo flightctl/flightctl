@@ -213,6 +213,8 @@ type hooks struct {
 	revalidate func(dir string) error
 	removeTree func(name string) (fileio.RemoveResult, error, bool)
 	available  func() (uint64, bool)
+	xattr      func(rel, attr string) ([]byte, fileio.XattrState, error, bool)
+	replace    func(dir, name string) error
 }
 
 type hooked struct {
