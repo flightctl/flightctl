@@ -127,7 +127,10 @@ func (s *imagePromotionStore) List(ctx context.Context, orgId uuid.UUID, listPar
 	}
 
 	if listParams.Limit > 0 && len(models) > listParams.Limit {
-		nextContinue, numRemaining = s.calculateContinue(ctx, orgId, models, listParams)
+		nextContinue, numRemaining, err = s.calculateContinue(ctx, orgId, models, listParams)
+		if err != nil {
+			return nil, err
+		}
 		models = models[:len(models)-1]
 	}
 
@@ -138,7 +141,7 @@ func (s *imagePromotionStore) List(ctx context.Context, orgId uuid.UUID, listPar
 	return &list, nil
 }
 
-func (s *imagePromotionStore) calculateContinue(ctx context.Context, orgId uuid.UUID, models []ImagePromotion, listParams flightctlstore.ListParams) (*string, *int64) {
+func (s *imagePromotionStore) calculateContinue(ctx context.Context, orgId uuid.UUID, models []ImagePromotion, listParams flightctlstore.ListParams) (*string, *int64, error) {
 	lastIndex := len(models) - 1
 	lastItem := models[lastIndex]
 
@@ -152,12 +155,16 @@ func (s *imagePromotionStore) calculateContinue(ctx context.Context, orgId uuid.
 		}
 	} else {
 		countQuery, err := flightctlstore.ListQuery(&ImagePromotion{}).Build(ctx, getDB(ctx, s.db).WithContext(ctx), orgId, listParams)
-		if err == nil {
-			numRemainingVal = flightctlstore.CountRemainingItems(countQuery, continueValues, listParams)
+		if err != nil {
+			return nil, nil, err
+		}
+		numRemainingVal, err = flightctlstore.CountRemainingItems(countQuery, continueValues, listParams)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
-	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal
+	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal, nil
 }
 
 // Delete removes an ImagePromotion resource by name

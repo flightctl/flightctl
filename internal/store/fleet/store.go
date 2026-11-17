@@ -590,7 +590,10 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = store.CountRemainingItems(countQuery, nextContinueStruct.Names, listParams)
+			numRemainingVal, err = store.CountRemainingItems(countQuery, nextContinueStruct.Names, listParams)
+			if err != nil {
+				return nil, err
+			}
 		}
 		nextContinueStruct.Count = numRemainingVal
 		contByte, _ := json.Marshal(nextContinueStruct)

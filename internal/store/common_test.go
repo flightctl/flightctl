@@ -7,6 +7,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestRetryUpdateBudget(testingT *testing.T) {
@@ -200,6 +202,79 @@ func TestNullableAliasPredicate(t *testing.T) {
 				assert.Equal(t, tt.expectedPredicate, predicate)
 				assert.Equal(t, tt.expectedArgs, args)
 			}
+		})
+	}
+}
+
+func TestCountRemainingItems(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:count-remaining-items?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE devices (name TEXT NOT NULL, alias TEXT)").Error)
+	require.NoError(t, db.Exec(`INSERT INTO devices (name, alias) VALUES
+		('dev-1', 'alpha'), ('dev-2', ''), ('dev-3', NULL), ('dev-4', NULL), ('dev-5', 'alpha')`).Error)
+
+	aliasName := ListParams{SortColumns: []SortColumn{SortByAlias, SortByName}}
+
+	tests := []struct {
+		name          string
+		table         string
+		nextValues    []string
+		listParams    ListParams
+		expectedCount int64
+		expectError   bool
+	}{
+		{
+			name:          "When sorting by name it should count the rows from the next value on",
+			table:         "devices",
+			nextValues:    []string{"dev-3"},
+			expectedCount: 3,
+		},
+		{
+			name:          "When sorting by alias from an aliased row it should count later aliases and every NULL alias",
+			table:         "devices",
+			nextValues:    []string{"alpha", "dev-5"},
+			listParams:    aliasName,
+			expectedCount: 3,
+		},
+		{
+			name:          "When sorting by alias from a NULL alias it should count only the remaining NULL aliases",
+			table:         "devices",
+			nextValues:    []string{nullSortValue, "dev-4"},
+			listParams:    aliasName,
+			expectedCount: 1,
+		},
+		{
+			name:          "When the value count does not match the sort columns it should return zero",
+			table:         "devices",
+			nextValues:    []string{"dev-3"},
+			listParams:    aliasName,
+			expectedCount: 0,
+		},
+		{
+			name:        "When the name count query fails it should return the error",
+			table:       "missing_table",
+			nextValues:  []string{"dev-3"},
+			expectError: true,
+		},
+		{
+			name:        "When the alias count query fails it should return the error",
+			table:       "missing_table",
+			nextValues:  []string{"alpha", "dev-1"},
+			listParams:  aliasName,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			count, err := CountRemainingItems(db.Table(tt.table), tt.nextValues, tt.listParams)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Zero(t, count)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedCount, count)
 		})
 	}
 }

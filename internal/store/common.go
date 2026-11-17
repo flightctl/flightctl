@@ -309,30 +309,34 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams 
 	)
 }
 
-func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListParams) int64 {
+// CountRemainingItems counts the rows at or after the next page's first row.
+// A failed count is returned as an error rather than as zero, so callers do
+// not hand out a continue token with a wrong remaining count.
+func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListParams) (int64, error) {
 	var count int64
 
 	columns, _, op := getSortColumns(listParams)
 	if len(columns) != len(nextValues) {
-		return 0
+		return 0, nil
 	}
 	if predicate, args, ok := nullableAliasPredicate(columns, nextValues, op); ok {
-		query.Where(predicate, args...).Count(&count)
-		return count
+		query = query.Where(predicate, args...)
+	} else {
+		columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
+			return string(c)
+		}), ", "))
+
+		placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+		query = query.Where(
+			fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+			lo.ToAnySlice(nextValues)...,
+		)
 	}
 
-	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
-		return string(c)
-	}), ", "))
-
-	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
-	query = query.Where(
-		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
-		lo.ToAnySlice(nextValues)...,
-	)
-
-	query.Count(&count)
-	return count
+	if err := query.Count(&count).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return count, nil
 }
 
 // nullSortValue marks a NULL sort value in a continue token. PostgreSQL text

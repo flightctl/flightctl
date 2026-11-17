@@ -1364,7 +1364,10 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 				numRemainingVal = 1
 			}
 		} else {
-			numRemainingVal = store.CountRemainingItems(baseQuery, continueValues, listParams.ListParams)
+			numRemainingVal, err = store.CountRemainingItems(baseQuery, continueValues, listParams.ListParams)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		nextContinue = store.BuildContinueString(continueValues, numRemainingVal)
@@ -1437,7 +1440,10 @@ func (s *DeviceStore) ListConnectivityChanged(ctx context.Context, orgId uuid.UU
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = store.CountRemainingItems(countQuery, continueValues, listParams)
+			numRemainingVal, err = store.CountRemainingItems(countQuery, continueValues, listParams)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		nextContinue = store.BuildContinueString(continueValues, numRemainingVal)

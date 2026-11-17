@@ -553,7 +553,10 @@ func (s *GenericStore[P, M, A, AL]) ListWithQuery(ctx context.Context, orgId uui
 			if modify != nil {
 				countQuery = modify(countQuery)
 			}
-			numRemainingVal = CountRemainingItems(countQuery, continueValues, listParams)
+			numRemainingVal, err = CountRemainingItems(countQuery, continueValues, listParams)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		nextContinue = BuildContinueString(continueValues, numRemainingVal)
