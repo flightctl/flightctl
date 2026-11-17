@@ -84,7 +84,7 @@ func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap)
 func scanAPISchema(schemaName string, apischema any) selectorToTypeMap {
 	result := make(selectorToTypeMap)
 	typ := reflect.TypeOf(apischema)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -109,7 +109,7 @@ func dfsType(typ reflect.Type, path selector.SelectorName, result selectorToType
 
 		name, _, _ := strings.Cut(tag, ",")
 		fieldPath := selector.NewSelectorName(path.String() + "." + name)
-		for fieldType.Kind() == reflect.Ptr {
+		for fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 
@@ -142,7 +142,7 @@ func dfsType(typ reflect.Type, path selector.SelectorName, result selectorToType
 		case reflect.Slice, reflect.Array:
 			// Assign slice and array types and recurse if the element is a struct
 			elemType := fieldType.Elem()
-			for elemType.Kind() == reflect.Ptr {
+			for elemType.Kind() == reflect.Pointer {
 				elemType = elemType.Elem()
 			}
 			result[fieldPath] = getArrayTypeConstant(elemType)
