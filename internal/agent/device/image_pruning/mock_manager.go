@@ -108,3 +108,41 @@ func (mr *MockManagerMockRecorder) RequestPrune() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPrune", reflect.TypeOf((*MockManager)(nil).RequestPrune))
 }
+
+// MockRetainedReferenceProvider is a mock of RetainedReferenceProvider interface.
+type MockRetainedReferenceProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockRetainedReferenceProviderMockRecorder
+}
+
+// MockRetainedReferenceProviderMockRecorder is the mock recorder for MockRetainedReferenceProvider.
+type MockRetainedReferenceProviderMockRecorder struct {
+	mock *MockRetainedReferenceProvider
+}
+
+// NewMockRetainedReferenceProvider creates a new mock instance.
+func NewMockRetainedReferenceProvider(ctrl *gomock.Controller) *MockRetainedReferenceProvider {
+	mock := &MockRetainedReferenceProvider{ctrl: ctrl}
+	mock.recorder = &MockRetainedReferenceProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRetainedReferenceProvider) EXPECT() *MockRetainedReferenceProviderMockRecorder {
+	return m.recorder
+}
+
+// RetainedImageReferences mocks base method.
+func (m *MockRetainedReferenceProvider) RetainedImageReferences(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetainedImageReferences", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetainedImageReferences indicates an expected call of RetainedImageReferences.
+func (mr *MockRetainedReferenceProviderMockRecorder) RetainedImageReferences(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetainedImageReferences", reflect.TypeOf((*MockRetainedReferenceProvider)(nil).RetainedImageReferences), ctx)
+}
