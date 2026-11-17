@@ -507,6 +507,21 @@ func TestSyncRejectsReservedFirmwarePaths(t *testing.T) {
 	})
 }
 
+func TestSyncWithoutDataDirectoryKeepsLegacyBehavior(t *testing.T) {
+	t.Run("When no data directory is configured it should write and remove firmware paths like any other file", func(t *testing.T) {
+		require := require.New(t)
+		controller, root, _ := newGuardController(t, "")
+		const path = "/var/lib/flightctl/firmware/a"
+		desired := &v1beta1.DeviceSpec{Config: inlineProvider(t, path)}
+		require.NoError(controller.Sync(context.Background(), &v1beta1.DeviceSpec{}, desired))
+		_, err := os.Stat(filepath.Join(root, path))
+		require.NoError(err)
+		require.NoError(controller.Sync(context.Background(), desired, &v1beta1.DeviceSpec{}))
+		_, err = os.Stat(filepath.Join(root, path))
+		require.True(os.IsNotExist(err))
+	})
+}
+
 func TestSyncDoesNotRemoveReservedFirmwarePaths(t *testing.T) {
 	require := require.New(t)
 	controller, root, logs := newGuardController(t, "/var/lib/flightctl")

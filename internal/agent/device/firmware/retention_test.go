@@ -114,6 +114,7 @@ func TestRetentionPins(t *testing.T) {
 		{name: "When the role is unknown it should refuse the pin", mutate: func(p *firmware.Pin) { p.Role = "spare" }},
 		{name: "When the attempt is empty it should refuse the pin", mutate: func(p *firmware.Pin) { p.AttemptID = "" }},
 		{name: "When the limits are invalid it should refuse the pin", mutate: func(p *firmware.Pin) { p.Limits.MaxExtractedFiles = 0 }},
+		{name: "When a digest is not a sha256 digest it should refuse the pin", mutate: func(p *firmware.Pin) { p.ManifestDigest = "md5:" + strings.Repeat("a", 32) }},
 	}
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
