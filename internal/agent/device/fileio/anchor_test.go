@@ -522,7 +522,7 @@ func TestAnchorCopyAndHash(t *testing.T) {
 		rw, root := anchorFixture(t)
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "data", "src"), 0o700))
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "data", "dst"), 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(root, "data", "src", "file"), payload, 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "data", "src", "file"), payload, 0o600))
 		src, err := rw.OpenAnchor("/data/src", DirOptions{ReadOnly: true})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = src.Close() })
@@ -630,7 +630,7 @@ func TestAnchorCopyAndHash(t *testing.T) {
 		{
 			name: "When the source carries file capabilities it should refuse it",
 			prepare: func(t *testing.T, dir string) {
-				require.NoError(t, os.WriteFile(filepath.Join(dir, "bad"), []byte("x"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "bad"), []byte("x"), 0o600))
 			},
 			src:  func(a Anchor) Anchor { return capabilitySource{Anchor: a} },
 			want: errors.ErrFileCapability,
@@ -659,7 +659,7 @@ func TestAnchorCopyAndHash(t *testing.T) {
 func chmodFile(mode fs.FileMode) func(t *testing.T, dir string) {
 	return func(t *testing.T, dir string) {
 		p := filepath.Join(dir, "bad")
-		require.NoError(t, os.WriteFile(p, []byte("x"), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
 		require.NoError(t, os.Chmod(p, mode&fs.ModePerm|toGoMode(mode)))
 	}
 }
@@ -1127,7 +1127,7 @@ func TestRemoveTreeOpenHandleLimit(t *testing.T) {
 		fdLimitChild(t)
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRemoveTreeOpenHandleLimit$", "-test.v")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRemoveTreeOpenHandleLimit$", "-test.v") //nolint:gosec // G204: re-executes this test binary with fixed arguments
 	cmd.Env = append(os.Environ(), "FILEIO_FD_LIMIT_CHILD=1", "FILEIO_FD_LIMIT_DIR="+t.TempDir())
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))

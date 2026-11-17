@@ -303,9 +303,8 @@ func (a hooked) AvailableBytes() (uint64, error) {
 
 type slowSource struct {
 	fileio.Anchor
-	delay   time.Duration
-	onRead  func()
-	readsTo int
+	delay  time.Duration
+	onRead func()
 }
 
 func (s *slowSource) OpenFile(rel string) (fileio.File, error) {
