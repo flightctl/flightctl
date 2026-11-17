@@ -27,6 +27,7 @@ const (
 	CleanupMaxDirRetries = 4
 
 	stagingPrefix    = ".staging-"
+	quarantinePrefix = ".quarantine-"
 	stagingAttempts  = 8
 	removalBatchSize = 128
 	maxEntryName     = 255
@@ -174,6 +175,7 @@ func contextFailure(ctx context.Context, release string, state PublishState, op 
 
 type expectedEntry struct {
 	dir  bool
+	exec bool
 	size int64
 }
 
@@ -254,7 +256,7 @@ func planPayload(release string, m *Manifest, manifestBytes []byte, limits polic
 		if plan.expected[f.Path].dir {
 			return nil, invalid("manifest file %q is also a directory", f.Path)
 		}
-		plan.expected[f.Path] = expectedEntry{size: f.Size}
+		plan.expected[f.Path] = expectedEntry{size: f.Size, exec: f.Executable}
 	}
 	entry := slices.IndexFunc(m.Files, func(f ManifestFile) bool { return f.Path == m.Entrypoint })
 	if entry < 0 || !m.Files[entry].Executable {
