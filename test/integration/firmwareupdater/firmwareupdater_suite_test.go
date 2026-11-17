@@ -44,6 +44,11 @@ const (
 	releaseName     = "test-updater"
 	registryUser    = "firmware"
 	schemaJSON      = `{"type":"object","additionalProperties":false,"properties":{}}`
+	// extractableSchemaJSON gives the extractable fixture schema digests of its
+	// own: the catalog requires every release of a name that shares a schema
+	// digest to declare the same budget keys, and only this fixture declares
+	// extraction budgets.
+	extractableSchemaJSON = `{"title":"extractable","type":"object","additionalProperties":false,"properties":{}}`
 )
 
 // Fixture roles. Each role is an updater image pushed to the test registry and
@@ -353,6 +358,8 @@ func provision(ctx context.Context, work string) suiteState {
 	for role, f := range st.Fixtures {
 		r := release(repo, f.Version, f.Digest, approved.KeyData())
 		if role == roleExtractable {
+			schema := catalog.SchemaDocument{Digest: policy.Hash([]byte(extractableSchemaJSON)), Bytes: extractableSchemaJSON}
+			r.Schemas = catalog.SchemaBundle{Config: schema, Observation: schema, Request: schema, Result: schema, Checkpoint: schema}
 			r.Extraction = &catalog.ExtractionLimits{MaxExtractedManifestBytes: 65536, MaxExtractedFiles: 16, MaxExtractedFileBytes: 1 << 20, MaxExtractedTotalBytes: 2 << 20, ExtractionScratchBytes: 3 << 20, MaxExtractionSeconds: 300}
 			r.BudgetKeySet = append(r.BudgetKeySet, "maxExtractedManifestBytes", "maxExtractedFiles", "maxExtractedFileBytes", "maxExtractedTotalBytes", "extractionScratchBytes", "maxExtractionSeconds")
 		}
@@ -482,6 +489,8 @@ func extractableManifest(version string, files map[string]string) []byte {
 		list = append(list, map[string]any{"path": path, "sha256": hex.EncodeToString(sum[:]), "size": len(content), "executable": path == "payload/bin/updater"})
 	}
 	m["files"] = list
+	digest := policy.Hash([]byte(extractableSchemaJSON))
+	m["schemas"] = map[string]any{"config": digest, "observation": digest, "request": digest, "result": digest, "checkpoint": digest}
 	data, err := json.Marshal(m)
 	Expect(err).NotTo(HaveOccurred())
 	return data
