@@ -1618,3 +1618,31 @@ func TestMigrationPinnedNoNewFleetAfterExpiredListing(t *testing.T) {
 	require.Equal(t, 0, capture.total(),
 		"processed must be 0: no fleet operation should start after the listing consumed the budget")
 }
+
+func TestMigrationRecordsADeferredFleetOnlyOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	// The fleet was already reported to its owner by an earlier poll. Seeing it
+	// again must not grow the checkpoint.
+	checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+		Version:  packageModeTemplateMigrationVersion,
+		Phase:    packageModeMigrationRunning,
+		Deferred: []deferredFleet{{Name: "from-git", Owner: "ResourceSync/the-sync"}},
+	})
+
+	owned := fleetWithImage("from-git", "quay.io/org/os:v2")
+	owned.Metadata.Owner = lo.ToPtr("ResourceSync/the-sync")
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil, owned), domain.StatusOK()).Times(1)
+
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+	require.NoError(t, err)
+	task.Poll(t.Context(), orgID)
+
+	stored := checkpoints.stored(t, orgID)
+	require.Len(t, stored.Deferred, 1, "a deferred fleet is recorded once, not once per poll")
+	require.Equal(t, "ResourceSync/the-sync", stored.Deferred[0].Owner)
+}

@@ -197,8 +197,8 @@ type migrationRun struct {
 	// the start instead, so that fleet is seen again.
 	retryOverflow bool
 	// failed is true when any fleet could not be completed in this poll.
-	failed                       bool
-	processed, skipped, deferred int
+	failed                                 bool
+	processed, skipped, deferred, eligible int
 	// attemptedRetries tracks names attempted this poll so a re-queued failure
 	// is not retried again in the same poll (bounded per-poll work).
 	attemptedRetries map[string]bool
@@ -438,14 +438,35 @@ func (t *PackageModeFleetTemplateMigrationTask) queueRetryOrKeepPending(run *mig
 	return true
 }
 
-// applyToFleet advances one fleet. Until classification and rewriting are in
-// place every fleet counts as processed and nothing is written.
+// applyToFleet classifies one fleet and acts on the classification. Rewriting
+// is not in place yet, so an eligible fleet is counted and left alone.
 func (t *PackageModeFleetTemplateMigrationTask) applyToFleet(_ context.Context, _ uuid.UUID, run *migrationRun, fleet *domain.Fleet) {
 	if fleet == nil || fleet.Metadata.Name == nil {
 		return
 	}
 	run.processed++
-	run.skipped++
+
+	disposition, owner := classifyFleetForMigration(fleet)
+	switch disposition {
+	case dispositionDeferResourceSync:
+		run.deferred++
+		t.rememberDeferred(run, *fleet.Metadata.Name, owner)
+	case dispositionTransform:
+		run.eligible++
+	default:
+		run.skipped++
+	}
+}
+
+// rememberDeferred records a fleet the migration will not rewrite together with
+// the owner that has to make the change instead.
+func (t *PackageModeFleetTemplateMigrationTask) rememberDeferred(run *migrationRun, name, owner string) {
+	for _, existing := range run.checkpoint.Deferred {
+		if existing.Name == name {
+			return
+		}
+	}
+	run.checkpoint.Deferred = append(run.checkpoint.Deferred, deferredFleet{Name: name, Owner: owner})
 }
 
 // rememberRetry records that a fleet must be reattempted on the next poll. When
