@@ -64,11 +64,28 @@ func TestRevokeValidate(t *testing.T) {
 			errContains: "--reason is required",
 		},
 		{
-			name:        "When the reason exceeds 1024 bytes it should be rejected",
+			name:   "When the reason is exactly 1024 characters it should be accepted",
+			args:   []string{"csr/credential-a"},
+			reason: strings.Repeat("x", 1024),
+		},
+		{
+			name:        "When the reason exceeds 1024 characters it should be rejected",
 			args:        []string{"csr/credential-a"},
 			reason:      strings.Repeat("x", 1025),
 			wantErr:     true,
-			errContains: "at most 1024 bytes",
+			errContains: "at most 1024 characters",
+		},
+		{
+			name:   "When the reason contains 1024 multibyte characters it should be accepted",
+			args:   []string{"csr/credential-a"},
+			reason: strings.Repeat("é", 1024),
+		},
+		{
+			name:        "When the reason exceeds 1024 multibyte characters it should be rejected",
+			args:        []string{"csr/credential-a"},
+			reason:      strings.Repeat("é", 1025),
+			wantErr:     true,
+			errContains: "at most 1024 characters",
 		},
 		{
 			name:        "When extra resource names are supplied it should be rejected",

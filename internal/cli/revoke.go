@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
@@ -12,7 +13,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const maxRevocationReasonBytes = 1024
+const maxRevocationReasonCharacters = 1024
 
 type RevokeOptions struct {
 	GlobalOptions
@@ -60,6 +61,7 @@ management certificate renewal.`,
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
+	// MarkFlagRequired only fails when the flag is undefined; "reason" is bound above.
 	_ = cmd.MarkFlagRequired("reason")
 	return cmd
 }
@@ -95,8 +97,8 @@ func (o *RevokeOptions) Validate(args []string) error {
 	if len(reason) == 0 {
 		return fmt.Errorf("--reason is required to revoke a certificate signing request")
 	}
-	if len(reason) > maxRevocationReasonBytes {
-		return fmt.Errorf("--reason must be at most %d bytes", maxRevocationReasonBytes)
+	if utf8.RuneCountInString(reason) > maxRevocationReasonCharacters {
+		return fmt.Errorf("--reason must be at most %d characters", maxRevocationReasonCharacters)
 	}
 
 	return nil

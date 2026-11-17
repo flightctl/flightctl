@@ -212,7 +212,7 @@ flightctl revoke TYPE NAME --reason <reason>
 
 ### Flags
 
-* `-r, --reason <reason>` - Required security reason for the revocation. The reason must be 1 to 1024 bytes.
+* `-r, --reason <reason>` - Required security reason for the revocation. The reason must be 1 to 1024 characters.
 
 ### Description
 
