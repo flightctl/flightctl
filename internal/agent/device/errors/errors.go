@@ -103,6 +103,20 @@ var (
 	ErrNotExist    = os.ErrNotExist
 	ErrInvalidPath = errors.New("invalid path")
 
+	// anchored file access
+	ErrUnsafeFileType     = errors.New("unsafe file type")
+	ErrHardLinkedFile     = errors.New("file has more than one link")
+	ErrUnsafeFileMode     = errors.New("unsafe file mode")
+	ErrFileCapability     = errors.New("file carries capabilities")
+	ErrFileLimitExceeded  = errors.New("file exceeds size limit")
+	ErrWalkLimitExceeded  = errors.New("directory traversal limit exceeded")
+	ErrDestinationExists  = errors.New("destination already exists")
+	ErrUntrustedDirectory = errors.New("untrusted directory")
+	ErrCrossDevice        = errors.New("entry is on a different device")
+	ErrReadOnlyAnchor     = errors.New("directory handle is read-only")
+	ErrAnchorMoved        = errors.New("directory handle no longer matches its path")
+	ErrRemoveChurn        = errors.New("directory kept changing during removal")
+
 	// images
 	ErrImageNotFound     = errors.New("image not found")
 	ErrImageUnauthorized = errors.New("image unauthorized")
