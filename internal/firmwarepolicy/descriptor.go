@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -29,6 +30,7 @@ type ReleaseDescriptor struct {
 	Access           *PhaseAccess        `json:"access"`
 	Limits           ExecutionLimits     `json:"limits"`
 	BudgetKeySet     []string            `json:"budgetKeySet"`
+	Extraction       *ExtractionLimits   `json:"extraction,omitempty"`
 	ReferencePaths   []ReferencePath     `json:"referencePaths,omitempty"`
 	GUIDPaths        []string            `json:"guidPaths,omitempty"`
 	TemplatablePaths []string            `json:"templatablePaths,omitempty"`
@@ -105,6 +107,56 @@ type ExecutionLimits struct {
 	MaxAttempts          int64 `json:"maxAttempts"`
 }
 
+// ExtractionLimits is the optional authenticated budget for extracting an
+// updater payload. Its JSON field names are its budget keys.
+type ExtractionLimits struct {
+	MaxExtractedManifestBytes int64 `json:"maxExtractedManifestBytes"`
+	MaxExtractedFiles         int64 `json:"maxExtractedFiles"`
+	MaxExtractedFileBytes     int64 `json:"maxExtractedFileBytes"`
+	MaxExtractedTotalBytes    int64 `json:"maxExtractedTotalBytes"`
+	// ExtractionScratchBytes is the free space required before extraction
+	// starts; it is not a reservation.
+	ExtractionScratchBytes int64 `json:"extractionScratchBytes"`
+	MaxExtractionSeconds   int64 `json:"maxExtractionSeconds"`
+}
+
+// maxExtractionSeconds bounds the extraction time a release may declare.
+const maxExtractionSeconds = 86400
+
+// Values returns the limits keyed by their budget keys.
+func (l ExtractionLimits) Values() map[string]int64 {
+	return map[string]int64{
+		"maxExtractedManifestBytes": l.MaxExtractedManifestBytes,
+		"maxExtractedFiles":         l.MaxExtractedFiles,
+		"maxExtractedFileBytes":     l.MaxExtractedFileBytes,
+		"maxExtractedTotalBytes":    l.MaxExtractedTotalBytes,
+		"extractionScratchBytes":    l.ExtractionScratchBytes,
+		"maxExtractionSeconds":      l.MaxExtractionSeconds,
+	}
+}
+
+// Validate requires positive budgets, a per-file budget within the total, a
+// scratch budget that holds the files plus the manifest, and an extraction
+// time of at most one day.
+func (l ExtractionLimits) Validate() error {
+	for key, value := range l.Values() {
+		if value <= 0 {
+			return fmt.Errorf("extraction budget %s must be a positive integer", key)
+		}
+	}
+	if l.MaxExtractedFileBytes > l.MaxExtractedTotalBytes {
+		return errors.New("extraction budget maxExtractedFileBytes exceeds maxExtractedTotalBytes")
+	}
+	if l.MaxExtractedTotalBytes > math.MaxInt64-l.MaxExtractedManifestBytes ||
+		l.ExtractionScratchBytes < l.MaxExtractedTotalBytes+l.MaxExtractedManifestBytes {
+		return errors.New("extraction budget extractionScratchBytes must hold maxExtractedTotalBytes plus maxExtractedManifestBytes")
+	}
+	if l.MaxExtractionSeconds > maxExtractionSeconds {
+		return fmt.Errorf("extraction budget maxExtractionSeconds exceeds %d", maxExtractionSeconds)
+	}
+	return nil
+}
+
 type ReferencePath struct {
 	Path string `json:"path"`
 	Kind string `json:"kind"`
@@ -118,7 +170,8 @@ const (
 // DecodeDescriptor strictly decodes b.Descriptor and verifies its digest, its
 // name/version against b, its package digest form, its v1 keyed sigstoreSigned
 // exactRepository publisher policy, the exact-byte digest of every schema, and
-// its access against ValidateAccess.
+// its access against ValidateAccess, and its optional extraction budget,
+// whose keys must all be listed in budgetKeySet.
 func DecodeDescriptor(b Binding) (*ReleaseDescriptor, error) {
 	if len(b.Descriptor) == 0 || Hash(b.Descriptor) != b.DescriptorDigest {
 		return nil, errors.New("release descriptor digest differs from its policy binding")
@@ -152,6 +205,16 @@ func DecodeDescriptor(b Binding) (*ReleaseDescriptor, error) {
 	}
 	if err := ValidateAccess(d.Access); err != nil {
 		return nil, fmt.Errorf("release descriptor access: %w", err)
+	}
+	if d.Extraction != nil {
+		if err := d.Extraction.Validate(); err != nil {
+			return nil, fmt.Errorf("release descriptor extraction: %w", err)
+		}
+		for key := range d.Extraction.Values() {
+			if !slices.Contains(d.BudgetKeySet, key) {
+				return nil, fmt.Errorf("release descriptor extraction budget %s is not listed in budgetKeySet", key)
+			}
+		}
 	}
 	return &d, nil
 }

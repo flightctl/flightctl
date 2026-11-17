@@ -115,5 +115,6 @@ func (f *Fetcher) cachedPackage(ctx context.Context, revision int64, descriptorD
 		PolicyRevision:        revision,
 		Manifest:              record.Manifest,
 		Cached:                true,
+		extraction:            bindExtraction(descriptorDigest, d),
 	}, true
 }
