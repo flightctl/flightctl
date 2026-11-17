@@ -632,6 +632,19 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 			wantReady: false,
 		},
 		{
+			name:        "When a one-time window uses a non-UTC timezone it should be evaluated in that timezone",
+			currentTime: time.Date(2026, 11, 16, 2, 30, 0, 0, utc), // 04:30 in Asia/Jerusalem
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("Asia/Jerusalem"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+		{
 			name:        "When recurring and one-time windows are provided it should be ready if either window is open",
 			currentTime: time.Date(2026, 11, 16, 5, 30, 0, 0, utc),
 			updateSchedule: &v1beta1.UpdateSchedule{
