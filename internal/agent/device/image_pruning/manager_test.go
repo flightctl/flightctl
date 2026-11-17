@@ -1216,3 +1216,77 @@ func TestPrune_keepsPrunePendingOnRemovalErrors(t *testing.T) {
 	require.NoError(err)
 	require.True(m.PrunePending(), "after Prune with removal errors, PrunePending should stay true (retry until timeout or success)")
 }
+
+type fakeRetainedReferences struct {
+	refs []string
+	err  error
+}
+
+func (f *fakeRetainedReferences) RetainedImageReferences(context.Context) ([]string, error) {
+	return f.refs, f.err
+}
+
+func TestManager_retainedUpdaterImages(t *testing.T) {
+	const updater = "quay.io/example/updater@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	enabled := true
+	cfg := config.ImagePruning{Enabled: &enabled}
+	logger := log.NewPrefixLogger("test")
+	newManager := func(t *testing.T, provider RetainedReferenceProvider) (*manager, string) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		mockExec := executer.NewMockExecuter(ctrl)
+		mockSpec := spec.NewMockManager(ctrl)
+		tmpDir := t.TempDir()
+		rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(tmpDir)), fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)))
+		previous, err := json.Marshal(ImageArtifactReferences{Timestamp: "2025-01-01T00:00:00Z", References: []ImageRef{{Image: updater, Type: RefTypePodman}}})
+		require.NoError(t, err)
+		require.NoError(t, rw.MkdirAll(tmpDir, fileio.DefaultDirectoryPermissions))
+		require.NoError(t, rw.WriteFile(filepath.Join(tmpDir, ReferencesFileName), previous, fileio.DefaultFilePermissions))
+		mockSpec.EXPECT().Read(spec.Current).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil).AnyTimes()
+		mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).AnyTimes()
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", updater}).Return("", "", 0).AnyTimes()
+		root := client.NewPodman(logger, mockExec, rw, poll.Config{})
+		factory := func(v1beta1.Username) (*client.Podman, error) { return root, nil }
+		rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+		var opts []Option
+		if provider != nil {
+			opts = append(opts, WithRetainedReferences(provider))
+		}
+		return New(factory, root, nil, mockSpec, rwFactory, rw, logger, cfg, tmpDir, opts...).(*manager), tmpDir
+	}
+	retainedRef := ImageRef{Image: updater, Type: RefTypePodman}
+
+	t.Run("When an updater image is retained it should not be eligible for pruning", func(t *testing.T) {
+		m, _ := newManager(t, &fakeRetainedReferences{refs: []string{updater}})
+		got, err := m.determineEligibleImages(context.Background())
+		require.NoError(t, err)
+		require.NotContains(t, got.Images, retainedRef)
+	})
+	t.Run("When the updater image is no longer retained it should become eligible", func(t *testing.T) {
+		m, _ := newManager(t, &fakeRetainedReferences{})
+		got, err := m.determineEligibleImages(context.Background())
+		require.NoError(t, err)
+		require.Contains(t, got.Images, retainedRef)
+	})
+	t.Run("When the retained references cannot be read it should skip the pruning cycle", func(t *testing.T) {
+		m, _ := newManager(t, &fakeRetainedReferences{err: errors.New("registry unreadable")})
+		_, err := m.determineEligibleImages(context.Background())
+		require.Error(t, err)
+	})
+	t.Run("When no provider is configured it should behave as before", func(t *testing.T) {
+		m, _ := newManager(t, nil)
+		got, err := m.determineEligibleImages(context.Background())
+		require.NoError(t, err)
+		require.Contains(t, got.Images, retainedRef)
+	})
+	t.Run("When references are recorded it should record retained updater images", func(t *testing.T) {
+		m, dir := newManager(t, &fakeRetainedReferences{refs: []string{updater}})
+		require.NoError(t, m.readWriter.RemoveFile(filepath.Join(dir, ReferencesFileName)))
+		require.NoError(t, m.RecordReferences(context.Background(), &v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil))
+		data, err := m.readWriter.ReadFile(filepath.Join(dir, ReferencesFileName))
+		require.NoError(t, err)
+		var recorded ImageArtifactReferences
+		require.NoError(t, json.Unmarshal(data, &recorded))
+		require.Contains(t, recorded.References, retainedRef)
+	})
+}
