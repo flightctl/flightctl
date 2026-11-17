@@ -1903,7 +1903,7 @@ type DeviceSystemInfo struct {
 	// BootcVersion Version reported by `bootc --version`. Absent when bootc is not installed or the version command fails.
 	BootcVersion *string `json:"bootcVersion,omitempty"`
 
-	// ConfigResourcesSupported Whether the agent supports registry configuration resources. Only true permits generated registry configuration or cleanup of previously published resources. Omitted when the agent does not report support.
+	// ConfigResourcesSupported Whether the agent supports registry configuration resources. Only true permits generated registry configuration resources. Omitted when the agent does not report support.
 	ConfigResourcesSupported *bool `json:"configResourcesSupported,omitempty"`
 
 	// CustomInfo User-defined information about the device.

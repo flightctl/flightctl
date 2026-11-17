@@ -2,7 +2,6 @@ package tasks_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -186,9 +185,8 @@ var _ = Describe("DeviceRender", func() {
 
 	Context("configResources capability gate", func() {
 		const resources = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"","authentication":{"authType":"docker","username":"device","password":"capability-test-secret"},"consumers":[{"type":"os"}]}]}]`
-		const unsupportedMessage = "Device does not report support for registry configResources. Upgrade the agent before applying this configuration."
 
-		DescribeTable("When rendering configResources it should require explicit support only for handler work",
+		DescribeTable("When a render has no candidate configResources it should publish regardless of support or previous resources",
 			func(support *bool, previousResources string, published bool) {
 				status := api.NewDeviceStatus()
 				status.SystemInfo.ConfigResourcesSupported = support
@@ -215,78 +213,36 @@ var _ = Describe("DeviceRender", func() {
 				_, err = repoStore.Create(ctx, orgId, &api.Repository{Metadata: api.ObjectMeta{Name: &repoName}, Spec: repoSpec})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(deviceStore.OverwriteRepositoryRefs(ctx, orgId, deviceName, repoName)).To(Succeed())
-				var before model.Device
-				Expect(db.First(&before, "org_id = ? AND name = ?", orgId, deviceName).Error).To(Succeed())
 
 				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil)
 				err = logic.RenderDevice(ctx, orgId, api.Event{
 					Reason: api.EventReasonResourceUpdated, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
 				})
-				blocked := previousResources == resources && !lo.FromPtr(support)
 				got, getStatus := deviceSvc.GetDevice(ctx, orgId, deviceName)
 				Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
 				condition := api.FindStatusCondition(got.Status.Conditions, api.ConditionTypeDeviceSpecValid)
 				Expect(condition).ToNot(BeNil())
-				if blocked {
-					Expect(err).To(MatchError(unsupportedMessage))
-					Expect(condition.Status).To(Equal(api.ConditionStatusFalse))
-					Expect(condition.Reason).To(Equal("UnsupportedConfigResources"))
-					Expect(condition.Message).To(Equal(unsupportedMessage))
-					Expect(got.Version()).To(Equal("1"))
-					var after model.Device
-					Expect(db.First(&after, "org_id = ? AND name = ?", orgId, deviceName).Error).To(Succeed())
-					Expect(after.RenderedConfig).To(Equal(before.RenderedConfig))
-					Expect(after.RenderedApplications).To(Equal(before.RenderedApplications))
-					Expect(after.RenderedConfigResources).To(Equal(before.RenderedConfigResources))
-					Expect(after.RenderedOs).To(Equal(before.RenderedOs))
-					Expect(after.RenderTimestamp).To(Equal(before.RenderTimestamp))
-					refs, err := deviceStore.GetRepositoryRefs(ctx, orgId, deviceName)
-					Expect(err).ToNot(HaveOccurred())
-					Expect(refs.Items).To(HaveLen(1))
-					Expect(lo.FromPtr(refs.Items[0].Metadata.Name)).To(Equal(repoName))
-
-					replacement := api.NewDeviceStatus()
-					_, getStatus = deviceSvc.ReplaceDeviceStatus(ctx, orgId, deviceName, api.Device{Metadata: api.ObjectMeta{Name: &deviceName}, Status: &replacement}, false)
-					Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
-					got, getStatus = deviceSvc.GetDevice(ctx, orgId, deviceName)
-					Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
-					condition = api.FindStatusCondition(got.Status.Conditions, api.ConditionTypeDeviceSpecValid)
-					Expect(condition).ToNot(BeNil())
-					Expect(condition.Reason).To(Equal("UnsupportedConfigResources"))
-					Expect(condition.Message).To(Equal(unsupportedMessage))
-					eventStore := eventstore.NewEventStore(db, log)
-					eventList, err := eventStore.List(ctx, orgId, store.ListParams{Limit: 100})
-					Expect(err).ToNot(HaveOccurred())
-					found := false
-					for _, event := range eventList.Items {
-						if event.Reason == api.EventReasonDeviceSpecInvalid {
-							found = true
-							Expect(event.Message).To(ContainSubstring(unsupportedMessage))
-						}
-					}
-					Expect(found).To(BeTrue())
-					data, err := json.Marshal(eventList)
-					Expect(err).ToNot(HaveOccurred())
-					Expect(string(data)).ToNot(ContainSubstring("capability-test-secret"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
+				Expect(condition.Reason).To(Equal("Valid"))
+				if published {
+					Expect(got.Version()).To(Equal("2"))
 				} else {
-					Expect(err).ToNot(HaveOccurred())
-					Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
-					if published {
-						Expect(got.Version()).To(Equal("2"))
-					} else {
-						Expect(got.Version()).To(Equal("1"))
-					}
-					renderedDevice, getStatus := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
-					Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
-					Expect(renderedDevice.Spec.Os.Image).To(Equal("quay.io/example/os:new"))
-					Expect(renderedDevice.Spec.Config).ToNot(BeNil())
-					Expect(*renderedDevice.Spec.Config).To(HaveLen(1))
-					Expect(lo.FromPtr(renderedDevice.Spec.ConfigResources)).To(BeEmpty())
+					Expect(got.Version()).To(Equal("1"))
 				}
+				renderedDevice, getStatus := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+				Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
+				Expect(renderedDevice.Spec.Os.Image).To(Equal("quay.io/example/os:new"))
+				Expect(renderedDevice.Spec.Config).ToNot(BeNil())
+				Expect(*renderedDevice.Spec.Config).To(HaveLen(1))
+				Expect(lo.FromPtr(renderedDevice.Spec.ConfigResources)).To(BeEmpty())
+				refs, err := deviceStore.GetRepositoryRefs(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(refs.Items).To(BeEmpty())
 			},
-			Entry("unsupported cleanup", lo.ToPtr(false), resources, true),
-			Entry("unreported cleanup", (*bool)(nil), resources, true),
-			Entry("supported cleanup", lo.ToPtr(true), resources, true),
+			Entry("unsupported with previous resources", lo.ToPtr(false), resources, true),
+			Entry("unreported with previous resources", (*bool)(nil), resources, true),
+			Entry("supported with previous resources", lo.ToPtr(true), resources, true),
 			Entry("unsupported first file-only render", lo.ToPtr(false), "", false),
 			Entry("unreported first file-only render", (*bool)(nil), "", false),
 			Entry("supported first file-only render", lo.ToPtr(true), "", false),
