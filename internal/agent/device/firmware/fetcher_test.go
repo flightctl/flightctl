@@ -290,6 +290,16 @@ func (h *fetchHarness) requireAllowlisted() {
 	}
 }
 
+// requireSamePackage compares the exported identity of two packages.
+func requireSamePackage(t *testing.T, want, got *firmware.VerifiedPackage) {
+	t.Helper()
+	wantJSON, err := json.Marshal(want)
+	require.NoError(t, err)
+	gotJSON, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.JSONEq(t, string(wantJSON), string(gotJSON))
+}
+
 func requireFetchError(t *testing.T, err error, reason firmware.Reason, retryable bool) {
 	t.Helper()
 	var fetchErr *firmware.FetchError
@@ -352,7 +362,7 @@ func TestFetchVerifiesAndRecordsAnApprovedUncachedRelease(t *testing.T) {
 
 	parsed, err := firmware.ParseManifest(h.manifest)
 	require.NoError(err)
-	require.Equal(&firmware.VerifiedPackage{
+	requireSamePackage(t, &firmware.VerifiedPackage{
 		Name:                  h.release.Name,
 		Version:               h.release.Version,
 		DescriptorDigest:      h.binding.DescriptorDigest,
@@ -364,6 +374,8 @@ func TestFetchVerifiesAndRecordsAnApprovedUncachedRelease(t *testing.T) {
 		Manifest:              *parsed,
 		Cached:                false,
 	}, pkg)
+	_, hasBudget := pkg.ExtractionLimits()
+	require.False(hasBudget, "a release without an extraction object binds no budget")
 
 	info, err := os.Stat(h.recordPath())
 	require.NoError(err)

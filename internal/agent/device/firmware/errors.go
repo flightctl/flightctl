@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
@@ -19,6 +20,23 @@ const (
 	// ReasonFirmwareNotSupported means this device cannot support the approved
 	// release: its protocol, runtime dependencies or requested access.
 	ReasonFirmwareNotSupported Reason = "FirmwareNotSupported"
+	// ReasonResourceLimitExceeded means extraction exceeded a budget admitted
+	// for the release; FetchError.ExceededBudget names that budget.
+	ReasonResourceLimitExceeded Reason = Reason(v1beta1.FirmwareErrorReasonResourceLimitExceeded)
+	// ReasonInsufficientSpace means the cache lacked the free space the
+	// release requires for extraction.
+	ReasonInsufficientSpace Reason = "InsufficientSpace"
+)
+
+var (
+	ErrRetainedPayloadMissing         = errors.New("retained updater payload is missing")
+	ErrRetainedPayloadChanged         = errors.New("retained updater payload changed")
+	ErrRetainedVerificationIncomplete = errors.New("retained updater payload verification did not complete")
+	ErrPinConflict                    = errors.New("retention pin conflicts with the package identity")
+	ErrNoExtractionBudget             = errors.New("updater release declares no extraction budget")
+	ErrUnmountFailed                  = errors.New("updater image unmount failed")
+	ErrEvidenceNotPersisted           = errors.New("updater host evidence was not persisted")
+	ErrPublishContended               = errors.New("updater payload publication stayed contended after one retry")
 )
 
 const (
@@ -33,6 +51,9 @@ type FetchError struct {
 	Reason    Reason
 	Retryable bool
 	Err       error
+	// ExceededBudget names the admitted release budget that was exceeded. It
+	// is set exactly when Reason is ReasonResourceLimitExceeded.
+	ExceededBudget string
 
 	message string
 }
