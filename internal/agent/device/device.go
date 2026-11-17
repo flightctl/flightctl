@@ -2,7 +2,9 @@ package device
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
+	stdos "os"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -14,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	firmwarepolicy "github.com/flightctl/flightctl/internal/agent/device/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -31,6 +34,9 @@ import (
 
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
+	firmwarePolicy         *firmwarepolicy.Manager
+	firmwarePolicyUpdates  spec.Watcher
+	firmwarePolicyChecked  bool
 	name                   string
 	systemdClient          *client.Systemd
 	deviceWriter           fileio.Writer
@@ -61,6 +67,15 @@ type Agent struct {
 	log     *log.PrefixLogger
 }
 
+type AgentOption func(*Agent)
+
+func WithFirmwarePolicyReceiver(receiver *firmwarepolicy.Manager, updates spec.Watcher) AgentOption {
+	return func(a *Agent) {
+		a.firmwarePolicy = receiver
+		a.firmwarePolicyUpdates = updates
+	}
+}
+
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
@@ -89,8 +104,9 @@ func NewAgent(
 	criticalCh <-chan struct{},
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
+	opts ...AgentOption,
 ) *Agent {
-	return &Agent{
+	agent := &Agent{
 		name:                   name,
 		systemdClient:          systemdClient,
 		deviceWriter:           deviceWriter,
@@ -118,6 +134,10 @@ func NewAgent(
 		backoff:                backoff,
 		log:                    log,
 	}
+	for _, opt := range opts {
+		opt(agent)
+	}
+	return agent
 }
 
 // Run starts the device agent reconciliation loop.
@@ -158,7 +178,44 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 	return nil
 }
 
+func (a *Agent) syncFirmwarePolicy() {
+	if a.firmwarePolicy != nil {
+		if !a.firmwarePolicyChecked {
+			for _, kind := range []spec.Type{spec.Current, spec.Desired, spec.Rollback} {
+				device, err := a.specManager.Read(kind)
+				if err != nil && !stderrors.Is(err, stdos.ErrNotExist) {
+					// An unreadable target cannot establish that firmware is unused.
+					a.firmwarePolicy.RequirePolicy()
+				}
+				a.requireFirmwarePolicy(device)
+			}
+			a.firmwarePolicyChecked = true
+		}
+		// Observe published targets before the download/update policy queue.
+		// A maintenance window must not delay authorization revocations.
+		for a.firmwarePolicyUpdates != nil {
+			device, ok, err := a.firmwarePolicyUpdates.TryPop()
+			if err != nil {
+				a.firmwarePolicy.RequirePolicy()
+				break
+			}
+			if !ok {
+				break
+			}
+			a.requireFirmwarePolicy(device)
+		}
+	}
+}
+
+func (a *Agent) requireFirmwarePolicy(device *v1beta1.Device) {
+	if device != nil && ((device.Spec != nil && device.Spec.Firmware != nil) ||
+		(device.Status != nil && device.Status.Firmware != nil && device.Status.Firmware.Attempt != nil)) {
+		a.firmwarePolicy.RequirePolicy()
+	}
+}
+
 func (a *Agent) syncDeviceSpec(ctx context.Context) {
+	a.syncFirmwarePolicy()
 	startTime := time.Now()
 	a.log.Trace("Starting sync of device spec")
 	defer func() {

@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	core "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -62,4 +63,18 @@ func TestAgentStatusDeltaOutcomes(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestPrivateFirmwarePolicyContract(t *testing.T) {
+	spec, err := GetSpec()
+	require.NoError(t, err)
+	route := spec.Paths.Find("/devices/{name}/firmwarepolicy")
+	require.NotNil(t, route)
+	require.NotNil(t, route.Get)
+	require.NotNil(t, route.Put)
+	policy := spec.Components.Schemas["FirmwarePolicy"].Value
+	require.Error(t, policy.VisitJSON(map[string]any{"revision": float64(1), "digest": "bad", "document": "e30="}))
+	require.Error(t, policy.VisitJSON(map[string]any{"revision": float64(0), "digest": "sha256:" + strings.Repeat("a", 64), "document": "e30="}))
+	receipt := spec.Components.Schemas["FirmwarePolicyReceipt"].Value
+	require.Error(t, receipt.VisitJSON(map[string]any{"revision": float64(1), "digest": "sha256:" + strings.Repeat("a", 64), "approved": true}))
 }
