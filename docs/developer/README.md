@@ -253,4 +253,5 @@ To add custom sources, processors, destinations, or extensions, see [Extending t
 
 ## Architecture
 
+- [Shared CEL runtime](architecture/cel-runtime.md)
 - [Enrollment hook architecture](architecture/enrollment-hooks.md)
