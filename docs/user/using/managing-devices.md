@@ -2272,9 +2272,21 @@ Each schedule supports:
 
 | Parameter              | Description                                                                 |
 |------------------------|-----------------------------------------------------------------------------|
-| `at`                   | (Required) A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
+| `at`                   | (Required for a recurring schedule) A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. It must be configured together with `startGraceDuration`. |
 | `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device's local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `startGraceDuration`   | (Required) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+| `startGraceDuration`   | (Required for a recurring schedule) A duration string that extends the allowed start time window after a schedule trigger. It must be configured together with `at`. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+| `oneTimeWindows`       | (Optional) A non-empty list of date-specific windows. It can be used by itself or together with the recurring schedule. |
+
+A schedule must contain one of the following configurations:
+
+- A recurring schedule with both `at` and `startGraceDuration`.
+- One or more `oneTimeWindows`.
+- Both a recurring schedule and one or more `oneTimeWindows`.
+
+The recurring fields are a pair. A schedule that contains only one of `at` or
+`startGraceDuration`, or none of these scheduling fields, is invalid. The
+schedule-level `timeZone` applies to the recurring schedule and to every
+one-time window in that schedule.
 
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
@@ -2303,6 +2315,32 @@ updatePolicy:
     startGraceDuration: "2h"      # allow update until 7:00 AM
 ```
 
+The following example defines a one-time window without a recurring schedule:
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    timeZone: "Europe/Jerusalem"
+    oneTimeWindows:
+      - date: "2026-11-15"
+        at: "22:00"
+        startGraceDuration: "90m"
+```
+
+The following example combines a recurring schedule with a one-time window:
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    at: "0 4 * * 1"               # every Monday at 4:00 AM
+    timeZone: "UTC"
+    startGraceDuration: "1h"      # allow updates until 5:00 AM
+    oneTimeWindows:
+      - date: "2026-11-16"
+        at: "04:00"
+        startGraceDuration: "2h"  # allow the one-time update until 6:00 AM
+```
+
 > [!NOTE]
-> The `startGraceDuration` field is required and allows for potential delays in agent execution. Without a sufficient grace period, the update window may be missed.
+> For a recurring schedule, `startGraceDuration` is required together with `at` and allows for potential delays in agent execution. One-time windows define their own `startGraceDuration`. Without a sufficient grace period, the update window may be missed.
 > Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.

@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -65,7 +64,7 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.Contains(t, updated.UpdatedFields, domain.SpecTemplate)
 	})
 
-	t.Run("When a template only differs by JSON union metadata it should not report a template update", func(t *testing.T) {
+	t.Run("When a template is round-tripped through JSON it should not report a template update", func(t *testing.T) {
 		oldFleet := prepareTestFleetForEvents("f1")
 		oldFleet.Metadata.Generation = lo.ToPtr(int64(1))
 		oldFleet.Spec.Template.Spec.Os = nil
@@ -82,9 +81,8 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.NoError(t, json.Unmarshal(serializedFleet, newFleet))
 		newFleet.Metadata.Generation = lo.ToPtr(int64(2))
 
-		// The typed fields are equal, but JSON unmarshalling populates the generated
-		// union field, which makes reflect.DeepEqual report a false difference.
-		require.False(t, reflect.DeepEqual(oldFleet.Spec.Template, newFleet.Spec.Template))
+		// A JSON round-trip should preserve the template's semantic equality.
+		require.Equal(t, oldFleet.Spec.Template, newFleet.Spec.Template)
 
 		ev := &fakeEventsService{}
 		EmitFleetUpdatedEvent(context.Background(), ev, logrus.New(), domain.FleetKind, uuid.New(), "f1", oldFleet, newFleet, false, nil)

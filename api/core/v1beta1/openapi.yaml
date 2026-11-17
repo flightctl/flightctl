@@ -7314,33 +7314,52 @@ components:
           $ref: '#/components/schemas/UpdateSchedule'
     UpdateSchedule:
       type: object
-      description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
-      properties:
-        timeZone:
-          $ref: '#/components/schemas/TimeZone'
-        at:
-          $ref: '#/components/schemas/CronExpression'
-        startGraceDuration:
-          $ref: '#/components/schemas/Duration'
-        oneTimeWindows:
-          type: array
-          description: Date-specific windows in which the corresponding operation may start.
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/OneTimeWindow'
-      anyOf:
-        - required:
-            - at
-            - startGraceDuration
-        - allOf:
-            - required:
-                - oneTimeWindows
-            - not:
-                anyOf:
-                  - required:
-                      - at
-                  - required:
-                      - startGraceDuration
+      description: >-
+        Defines a schedule for an activity. A schedule may contain a complete
+        recurring definition (at and startGraceDuration), one or more
+        oneTimeWindows, or both. at and startGraceDuration must be provided
+        together. The schedule-level timeZone applies to the recurring
+        schedule and to all one-time windows in this object.
+      allOf:
+        - type: object
+          properties:
+            timeZone:
+              $ref: '#/components/schemas/TimeZone'
+            at:
+              $ref: '#/components/schemas/CronExpression'
+            startGraceDuration:
+              $ref: '#/components/schemas/Duration'
+            oneTimeWindows:
+              type: array
+              description: Date-specific windows in which the corresponding operation may start.
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/OneTimeWindow'
+        - not:
+            allOf:
+              - required:
+                  - at
+              - not:
+                  required:
+                    - startGraceDuration
+        - not:
+            allOf:
+              - required:
+                  - startGraceDuration
+              - not:
+                  required:
+                    - at
+        - not:
+            allOf:
+              - not:
+                  required:
+                    - at
+              - not:
+                  required:
+                    - startGraceDuration
+              - not:
+                  required:
+                    - oneTimeWindows
     OneTimeWindow:
       type: object
       required:
