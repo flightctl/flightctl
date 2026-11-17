@@ -259,6 +259,7 @@ func TestImplicitObjectSchemaClosure(t *testing.T) {
 		{"annotation only", `{"description":"any value"}`, false},
 		{"closed implicit object", `{"additionalProperties":false}`, true},
 		{"explicit scalar", `{"type":"string"}`, true},
+		{"string-only allOf", `{"allOf":[{"type":"string"}]}`, true},
 		{"literal object", `{"const":{"type":"object"}}`, true},
 		{"finite enumeration", `{"enum":[{"known":1},null]}`, true},
 	} {
@@ -275,6 +276,17 @@ func TestImplicitObjectSchemaClosure(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReferencedObjectSchemaClosure(t *testing.T) {
+	t.Run("When a local reference targets an open object schema it should reject", func(t *testing.T) {
+		c := fixture(t)
+		s := release(c)["schemas"].(map[string]any)["config"].(map[string]any)
+		raw := `{"type":"object","additionalProperties":false,"properties":{"nested":{"$ref":"#/examples/0"}},"examples":[{"type":"object","properties":{"known":{"type":"string"}}}]}`
+		s["bytes"], s["digest"] = raw, digest(raw)
+		_, err := updatercatalog.ParseAdministratorConfig(encode(t, c))
+		require.Error(t, err)
+	})
 }
 
 func TestBudgetEvidenceIdentity(t *testing.T) {

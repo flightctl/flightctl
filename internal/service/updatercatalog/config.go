@@ -13,9 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -324,6 +326,10 @@ func validateSchema(s SchemaDocument) error {
 }
 
 func validateClosedSchema(value any) error {
+	return validateClosedSchemaAt(value, value, make(map[string]bool))
+}
+
+func validateClosedSchemaAt(value, root any, visitedRefs map[string]bool) error {
 	switch v := value.(type) {
 	case bool:
 		if v {
@@ -349,6 +355,13 @@ func validateClosedSchema(value any) error {
 			}
 		}
 		if objectType {
+			excludesObjects, err := schemaDefinitelyExcludesObjects(v, root, make(map[string]bool))
+			if err != nil {
+				return err
+			}
+			objectType = !excludesObjects
+		}
+		if objectType {
 			if v["additionalProperties"] != false {
 				return errors.New("object schemas must forbid additional properties")
 			}
@@ -360,28 +373,183 @@ func validateClosedSchema(value any) error {
 				if !ok || !strings.HasPrefix(ref, "#") {
 					return errors.New("only local schema references are allowed")
 				}
+				if visitedRefs[ref] {
+					continue
+				}
+				visitedRefs[ref] = true
+				targets, err := resolveLocalSchemaRef(root, ref)
+				if err != nil {
+					return err
+				}
+				for _, target := range targets {
+					if err := validateClosedSchemaAt(target, root, visitedRefs); err != nil {
+						return err
+					}
+				}
 			case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies":
 				if entries, ok := child.(map[string]any); ok {
 					for _, entry := range entries {
-						if err := validateClosedSchema(entry); err != nil {
+						if err := validateClosedSchemaAt(entry, root, visitedRefs); err != nil {
 							return err
 						}
 					}
 				}
 			case "additionalProperties", "unevaluatedProperties", "propertyNames", "contains", "items", "additionalItems", "not", "if", "then", "else", "contentSchema", "unevaluatedItems", "allOf", "anyOf", "oneOf", "prefixItems":
-				if err := validateClosedSchema(child); err != nil {
+				if err := validateClosedSchemaAt(child, root, visitedRefs); err != nil {
 					return err
 				}
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if err := validateClosedSchema(child); err != nil {
+			if err := validateClosedSchemaAt(child, root, visitedRefs); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func schemaDefinitelyExcludesObjects(value, root any, visitedRefs map[string]bool) (bool, error) {
+	switch v := value.(type) {
+	case bool:
+		return !v, nil
+	case map[string]any:
+		if types, ok := v["type"].([]any); ok {
+			for _, typ := range types {
+				if typ == "object" {
+					return false, nil
+				}
+			}
+			return true, nil
+		}
+		if typ, ok := v["type"].(string); ok {
+			return typ != "object", nil
+		}
+		if _, ok := v["const"]; ok {
+			return true, nil
+		}
+		if _, ok := v["enum"]; ok {
+			return true, nil
+		}
+		for _, refKey := range []string{"$ref", "$dynamicRef", "$recursiveRef"} {
+			ref, exists := v[refKey]
+			if !exists {
+				continue
+			}
+			refString, ok := ref.(string)
+			if !ok || !strings.HasPrefix(refString, "#") {
+				return false, errors.New("only local schema references are allowed")
+			}
+			if visitedRefs[refString] {
+				continue
+			}
+			visitedRefs[refString] = true
+			targets, err := resolveLocalSchemaRef(root, refString)
+			if err != nil {
+				return false, err
+			}
+			allExcludeObjects := len(targets) > 0
+			for _, target := range targets {
+				excludesObjects, err := schemaDefinitelyExcludesObjects(target, root, visitedRefs)
+				if err != nil {
+					return false, err
+				}
+				allExcludeObjects = allExcludeObjects && excludesObjects
+			}
+			if allExcludeObjects {
+				return true, nil
+			}
+		}
+		if allOf, ok := v["allOf"].([]any); ok {
+			for _, child := range allOf {
+				excludesObjects, err := schemaDefinitelyExcludesObjects(child, root, visitedRefs)
+				if err != nil {
+					return false, err
+				}
+				if excludesObjects {
+					return true, nil
+				}
+			}
+		}
+		for _, key := range []string{"anyOf", "oneOf"} {
+			branches, ok := v[key].([]any)
+			if !ok || len(branches) == 0 {
+				continue
+			}
+			allExcludeObjects := true
+			for _, child := range branches {
+				excludesObjects, err := schemaDefinitelyExcludesObjects(child, root, visitedRefs)
+				if err != nil {
+					return false, err
+				}
+				allExcludeObjects = allExcludeObjects && excludesObjects
+			}
+			if allExcludeObjects {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func resolveLocalSchemaRef(root any, ref string) ([]any, error) {
+	fragment, err := url.PathUnescape(strings.TrimPrefix(ref, "#"))
+	if err != nil {
+		return nil, errors.New("invalid local schema reference")
+	}
+	if fragment == "" {
+		return []any{root}, nil
+	}
+	if strings.HasPrefix(fragment, "/") {
+		current := root
+		for _, rawToken := range strings.Split(strings.TrimPrefix(fragment, "/"), "/") {
+			token := strings.ReplaceAll(strings.ReplaceAll(rawToken, "~1", "/"), "~0", "~")
+			if strings.Contains(token, "~") {
+				return nil, errors.New("invalid local schema reference")
+			}
+			switch node := current.(type) {
+			case map[string]any:
+				var ok bool
+				current, ok = node[token]
+				if !ok {
+					return nil, errors.New("unresolved local schema reference")
+				}
+			case []any:
+				index, err := strconv.Atoi(token)
+				if err != nil || index < 0 || index >= len(node) || strconv.Itoa(index) != token {
+					return nil, errors.New("unresolved local schema reference")
+				}
+				current = node[index]
+			default:
+				return nil, errors.New("unresolved local schema reference")
+			}
+		}
+		return []any{current}, nil
+	}
+
+	var matches []any
+	var visit func(any)
+	visit = func(node any) {
+		switch current := node.(type) {
+		case map[string]any:
+			if current["$anchor"] == fragment || current["$dynamicAnchor"] == fragment {
+				matches = append(matches, current)
+			}
+			for _, child := range current {
+				visit(child)
+			}
+		case []any:
+			for _, child := range current {
+				visit(child)
+			}
+		}
+	}
+	visit(root)
+	if len(matches) == 0 {
+		return nil, errors.New("unresolved local schema reference")
+	}
+	return matches, nil
 }
 
 func validConfigPath(p string) bool {
