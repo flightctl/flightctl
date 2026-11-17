@@ -529,6 +529,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceAliasSortIndex(db); err != nil {
+		return err
+	}
+
 	if err := s.createDeviceLabelsIndex(db); err != nil {
 		return err
 	}
@@ -621,6 +625,17 @@ func (s *DeviceStore) createDeviceAliasIndexes(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// createDeviceAliasSortIndex supports listing devices sorted by alias. List
+// filters by org_id and orders by (alias, name) with NULL aliases last, which
+// matches the default ascending B-Tree order, so pages can be read in index
+// order instead of sorting the whole organization.
+func (s *DeviceStore) createDeviceAliasSortIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec("CREATE INDEX IF NOT EXISTS idx_device_org_alias_name ON devices USING BTREE (org_id, alias, name)").Error
 }
 
 func (s *DeviceStore) createDeviceLabelsIndex(db *gorm.DB) error {
@@ -1291,6 +1306,8 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 		listQueryOpts = append(listQueryOpts, store.WithSelectorResolver(r))
 	}
 
+	listParams.SortColumns = NormalizeSortColumns(listParams.SortColumns)
+
 	// Build base query with selectors
 	baseQuery, err := store.ListQuery(&model.Device{}, listQueryOpts...).Build(ctx, s.getDB(ctx), orgId, listParams.ListParams)
 	if err != nil {
@@ -1329,6 +1346,8 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 			switch col {
 			case store.SortByName:
 				continueValues[i] = lastItem.Name
+			case store.SortByAlias:
+				continueValues[i] = store.NullableSortValue(lastItem.Alias)
 			case store.SortByCreatedAt:
 				continueValues[i] = lastItem.CreatedAt.Format(time.RFC3339Nano)
 			default:
@@ -2335,6 +2354,17 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 	})
 
 	return affectedRows, deviceIDs, err
+}
+
+// NormalizeSortColumns makes a device sort usable for continue-token
+// pagination. Aliases are neither unique nor required, so an alias sort gets
+// name as a tiebreaker; the resulting (alias, name) pair is what the NULL-aware
+// continue predicate expects.
+func NormalizeSortColumns(columns []store.SortColumn) []store.SortColumn {
+	if len(columns) == 1 && columns[0] == store.SortByAlias {
+		return []store.SortColumn{store.SortByAlias, store.SortByName}
+	}
+	return columns
 }
 
 func getSortColumns(listParams store.ListParams) ([]store.SortColumn, store.SortOrder, string) {

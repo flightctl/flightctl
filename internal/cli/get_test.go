@@ -566,6 +566,41 @@ func TestGetOptionsValidation(t *testing.T) {
 			expectError:   true,
 			errorContains: "'--cve-id' can only be specified when listing devices",
 		},
+
+		// Device --sort-by validation tests
+		{
+			name:        "When listing devices sorted by alias it should accept the flag",
+			args:        []string{"devices"},
+			options:     &GetOptions{SortBy: "alias"},
+			expectError: false,
+		},
+		{
+			name:        "When listing devices sorted by name it should accept the flag",
+			args:        []string{"devices"},
+			options:     &GetOptions{SortBy: "name"},
+			expectError: false,
+		},
+		{
+			name:          "When listing devices with an unknown sort field it should fail",
+			args:          []string{"devices"},
+			options:       &GetOptions{SortBy: "owner"},
+			expectError:   true,
+			errorContains: "'--sort-by' value \"owner\" is not valid for devices; allowed values: alias, name",
+		},
+		{
+			name:          "When getting a specific device with a sort field it should fail",
+			args:          []string{"device", "test1"},
+			options:       &GetOptions{SortBy: "alias"},
+			expectError:   true,
+			errorContains: "cannot specify '--sort-by' when getting specific devices",
+		},
+		{
+			name:          "When listing fleets with a sort field it should fail",
+			args:          []string{"fleets"},
+			options:       &GetOptions{SortBy: "alias"},
+			expectError:   true,
+			errorContains: "'--sort-by' can only be specified when listing devices or getting vulnerabilities",
+		},
 	}
 
 	for _, tc := range tests {
@@ -599,6 +634,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				if tc.options.CveId != "" {
 					opts.CveId = tc.options.CveId
 				}
+				if tc.options.SortBy != "" {
+					opts.SortBy = tc.options.SortBy
+				}
 			}
 
 			err := opts.Validate(tc.args)
@@ -622,4 +660,27 @@ func TestGetOptionsValidation(t *testing.T) {
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestDeviceSortBy(t *testing.T) {
+	tests := []struct {
+		name     string
+		sortBy   string
+		expected api.ListDevicesParamsSortBy
+	}{
+		{name: "When no sort field is given it should request alias ordering", sortBy: "", expected: api.ListDevicesSortByAlias},
+		{name: "When name is given it should request name ordering", sortBy: "name", expected: api.ListDevicesSortByName},
+		{name: "When alias is given it should request alias ordering", sortBy: "alias", expected: api.ListDevicesSortByAlias},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := DefaultGetOptions()
+			opts.SortBy = tt.sortBy
+			got := opts.deviceSortBy()
+			if got == nil || *got != tt.expected {
+				t.Errorf("expected %q, got %v", tt.expected, got)
+			}
+		})
+	}
 }

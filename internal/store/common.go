@@ -254,6 +254,11 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 
 	columns, order, _ := getSortColumns(listParams)
 	orderExprs := lo.Map(columns, func(col SortColumn, _ int) string {
+		if col == SortByAlias {
+			// Pin NULL placement for both directions; nullableAliasPredicate
+			// relies on NULL aliases always being on the last pages.
+			return fmt.Sprintf("%s %s NULLS LAST", col, order)
+		}
 		return fmt.Sprintf("%s %s", col, order)
 	})
 
@@ -282,6 +287,9 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams 
 	}
 
 	columns, _, op := getSortColumns(listParams)
+	if predicate, args, ok := nullableAliasPredicate(columns, cont.Names, op); ok {
+		return query.Where(predicate, args...)
+	}
 	if len(columns) == 1 {
 		return query.Where(
 			fmt.Sprintf("%s %s ?", columns[0], op),
@@ -308,6 +316,10 @@ func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListPar
 	if len(columns) != len(nextValues) {
 		return 0
 	}
+	if predicate, args, ok := nullableAliasPredicate(columns, nextValues, op); ok {
+		query.Where(predicate, args...).Count(&count)
+		return count
+	}
 
 	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
 		return string(c)
@@ -321,6 +333,40 @@ func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListPar
 
 	query.Count(&count)
 	return count
+}
+
+// nullSortValue marks a NULL sort value in a continue token. PostgreSQL text
+// cannot contain NUL, so it never collides with a stored value, and it keeps a
+// NULL alias distinct from an empty one.
+const nullSortValue = "\x00"
+
+// NullableSortValue encodes a nullable column value for a continue token.
+func NullableSortValue(value *string) string {
+	if value == nil {
+		return nullSortValue
+	}
+	return *value
+}
+
+// nullableAliasPredicate builds the continue predicate for (alias, tiebreaker)
+// ordering, where alias is sorted NULLS LAST in either direction. A plain tuple
+// comparison cannot be used: comparing a NULL alias yields UNKNOWN, which drops
+// unaliased rows from later pages.
+//
+// The rows still to come after a non-NULL alias are the tuples on the far side
+// of the cursor plus every NULL alias, since those are always last. After a
+// NULL alias, only NULL aliases remain, ordered by the tiebreaker.
+func nullableAliasPredicate(columns []SortColumn, values []string, op string) (string, []any, bool) {
+	if len(columns) != 2 || len(values) != 2 || columns[0] != SortByAlias {
+		return "", nil, false
+	}
+
+	if values[0] == nullSortValue {
+		return fmt.Sprintf("%s IS NULL AND %s %s ?", columns[0], columns[1], op), []any{values[1]}, true
+	}
+
+	predicate := fmt.Sprintf("((%s, %s) %s (?, ?) OR %s IS NULL)", columns[0], columns[1], op, columns[0])
+	return predicate, []any{values[0], values[1]}, true
 }
 
 func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (StatusCountList, error) {
