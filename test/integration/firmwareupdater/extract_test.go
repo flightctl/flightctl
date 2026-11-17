@@ -3,6 +3,7 @@ package firmwareupdater_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,25 +21,54 @@ import (
 )
 
 // extractEnv extracts updater payloads with the real podman image mount of a
-// fetch environment.
+// fetch environment. Its handles are rooted at the spec directory, which holds
+// both the data directory and the image storage, so that the trusted path to
+// the data directory starts at a directory the test owns: in a rootless user
+// namespace the host root directory belongs to an unmapped user.
 type extractEnv struct {
 	*fetchEnv
+	root      string
 	rw        fileio.ReadWriter
 	retention *firmware.Retention
 	extractor *firmware.Extractor
 }
 
 func newExtractEnv(e *fetchEnv) *extractEnv {
-	x := &extractEnv{fetchEnv: e, rw: fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())}
+	root := filepath.Dir(e.dataDir)
+	x := &extractEnv{
+		fetchEnv: e,
+		root:     root,
+		rw:       fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root))),
+	}
 	x.restart()
 	return x
+}
+
+// rootedMounter reports image mount points relative to the root of the
+// extraction handles.
+type rootedMounter struct {
+	firmware.ImageMounter
+	root string
+}
+
+func (m rootedMounter) Mount(ctx context.Context, image string) (string, error) {
+	point, err := m.ImageMounter.Mount(ctx, image)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(m.root, point)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("image mount point %s is outside %s", point, m.root)
+	}
+	return "/" + rel, nil
 }
 
 // restart replaces the retention and extractor as a new agent process would.
 func (x *extractEnv) restart() {
 	podman := client.NewPodman(x.logger, x.recorder, x.rw, poll.Config{BaseDelay: time.Second, Factor: 1, MaxSteps: 1})
-	x.retention = firmware.NewRetention(x.dataDir, x.rw, x.logger)
-	x.extractor = firmware.NewExtractor(x.dataDir, podman, x.receiver, x.rw, x.retention, x.logger)
+	dataDir := "/" + filepath.Base(x.dataDir)
+	x.retention = firmware.NewRetention(dataDir, x.rw, x.logger)
+	x.extractor = firmware.NewExtractor(dataDir, rootedMounter{ImageMounter: podman, root: x.root}, x.receiver, x.rw, x.retention, x.logger)
 }
 
 func (x *extractEnv) versionDir(pkg *firmware.VerifiedPackage, rel ...string) string {
