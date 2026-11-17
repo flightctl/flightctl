@@ -405,7 +405,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		return t.setErrorStatus(ctx, renderErr)
 	}
 	if renderErr == nil {
-		if err := t.checkConfigResourcesSupport(ctx, device, rendered.ConfigResources); err != nil {
+		if err := checkConfigResourcesSupport(device, rendered.ConfigResources); err != nil {
 			if isPermanentRenderError(err) {
 				t.markPermanentRenderFailure(ctx, specHash)
 			}
@@ -521,14 +521,14 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 	return result, nil
 }
 
-func validateConfigResourcesSupport(support *bool, candidate, previous []domain.ConfigResource) error {
-	if !lo.FromPtr(support) && (len(candidate) > 0 || len(previous) > 0) {
+func validateConfigResourcesSupport(support *bool, candidate []domain.ConfigResource) error {
+	if !lo.FromPtr(support) && len(candidate) > 0 {
 		return errUnsupportedConfigResources
 	}
 	return nil
 }
 
-func (t *deviceRenderState) checkConfigResourcesSupport(ctx context.Context, device *domain.Device, resources []byte) error {
+func checkConfigResourcesSupport(device *domain.Device, resources []byte) error {
 	var support *bool
 	if device.Status != nil {
 		support = device.Status.SystemInfo.ConfigResourcesSupported
@@ -542,17 +542,7 @@ func (t *deviceRenderState) checkConfigResourcesSupport(ctx context.Context, dev
 			return fmt.Errorf("decoding rendered configuration resources: %w", err)
 		}
 	}
-	if err := validateConfigResourcesSupport(support, candidate, nil); err != nil {
-		return err
-	}
-	if device.Version() == "" {
-		return nil
-	}
-	previous, status := t.deviceSvc.GetRenderedDevice(ctx, t.orgId, *device.Metadata.Name, domain.GetRenderedDeviceParams{})
-	if status.Code != http.StatusOK {
-		return fmt.Errorf("getting previously rendered configuration resources: %s", status.Message)
-	}
-	return validateConfigResourcesSupport(support, candidate, lo.FromPtr(previous.Spec.ConfigResources))
+	return validateConfigResourcesSupport(support, candidate)
 }
 
 func (t *deviceRenderState) markPermanentRenderFailure(ctx context.Context, specHash string) {
@@ -579,7 +569,7 @@ func (t *deviceRenderState) setErrorStatus(ctx context.Context, renderErr error)
 		Message: renderErr.Error(),
 	}
 	if errors.Is(renderErr, errUnsupportedConfigResources) {
-		condition.Reason = "UnsupportedConfigResources"
+		condition.Reason = domain.DeviceConditionUnsupportedConfigResourcesReason
 	}
 
 	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})

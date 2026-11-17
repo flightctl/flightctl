@@ -5,7 +5,8 @@ import (
 )
 
 const (
-	DeviceConditionBootstrapReason = "Bootstrapping"
+	DeviceConditionBootstrapReason                  = "Bootstrapping"
+	DeviceConditionUnsupportedConfigResourcesReason = "UnsupportedConfigResources"
 )
 
 // Adapted from apimachinery

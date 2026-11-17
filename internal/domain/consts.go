@@ -286,7 +286,10 @@ const (
 
 // ========== Condition Reasons ==========
 
-const DeviceConditionBootstrapReason = v1beta1.DeviceConditionBootstrapReason
+const (
+	DeviceConditionBootstrapReason                  = v1beta1.DeviceConditionBootstrapReason
+	DeviceConditionUnsupportedConfigResourcesReason = v1beta1.DeviceConditionUnsupportedConfigResourcesReason
+)
 
 // ========== Template Functions ==========
 
