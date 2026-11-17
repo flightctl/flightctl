@@ -336,76 +336,91 @@ func validateClosedSchemaAt(value, root any, visitedRefs map[string]bool) error 
 			return errors.New("unrestricted schemas must not admit open objects")
 		}
 	case map[string]any:
-		typ, _ := v["type"].(string)
-		_, typePresent := v["type"]
-		// Without a type, a schema admits objects too. Finite literals and
-		// references to locally validated schemas do not introduce open keys.
-		_, hasConst := v["const"]
-		_, hasEnum := v["enum"]
-		_, hasRef := v["$ref"]
-		objectType := !typePresent && !hasConst && !hasEnum && !hasRef
-		if typ == "object" {
-			objectType = true
-		}
-		if types, ok := v["type"].([]any); ok {
-			for _, typ := range types {
-				if typ == "object" {
-					objectType = true
-				}
-			}
-		}
-		if objectType {
-			excludesObjects, err := schemaDefinitelyExcludesObjects(v, root, make(map[string]bool))
-			if err != nil {
-				return err
-			}
-			objectType = !excludesObjects
-		}
-		if objectType {
-			if v["additionalProperties"] != false {
-				return errors.New("object schemas must forbid additional properties")
-			}
-		}
-		for key, child := range v {
-			switch key {
-			case "$ref", "$dynamicRef", "$recursiveRef":
-				ref, ok := child.(string)
-				if !ok || !strings.HasPrefix(ref, "#") {
-					return errors.New("only local schema references are allowed")
-				}
-				if visitedRefs[ref] {
-					continue
-				}
-				visitedRefs[ref] = true
-				targets, err := resolveLocalSchemaRef(root, ref)
-				if err != nil {
-					return err
-				}
-				for _, target := range targets {
-					if err := validateClosedSchemaAt(target, root, visitedRefs); err != nil {
-						return err
-					}
-				}
-			case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies":
-				if entries, ok := child.(map[string]any); ok {
-					for _, entry := range entries {
-						if err := validateClosedSchemaAt(entry, root, visitedRefs); err != nil {
-							return err
-						}
-					}
-				}
-			case "additionalProperties", "unevaluatedProperties", "propertyNames", "contains", "items", "additionalItems", "not", "if", "then", "else", "contentSchema", "unevaluatedItems", "allOf", "anyOf", "oneOf", "prefixItems":
-				if err := validateClosedSchemaAt(child, root, visitedRefs); err != nil {
-					return err
-				}
-			}
-		}
+		return validateClosedSchemaObject(v, root, visitedRefs)
 	case []any:
 		for _, child := range v {
 			if err := validateClosedSchemaAt(child, root, visitedRefs); err != nil {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func validateClosedSchemaObject(value map[string]any, root any, visitedRefs map[string]bool) error {
+	objectType, err := schemaAdmitsUnclosedObject(value, root)
+	if err != nil {
+		return err
+	}
+	if objectType && value["additionalProperties"] != false {
+		return errors.New("object schemas must forbid additional properties")
+	}
+	for key, child := range value {
+		if err := validateSchemaKeyword(key, child, root, visitedRefs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func schemaAdmitsUnclosedObject(value map[string]any, root any) (bool, error) {
+	typ, _ := value["type"].(string)
+	_, typePresent := value["type"]
+	// Without a type, a schema admits objects too. Finite literals and
+	// references to locally validated schemas do not introduce open keys.
+	_, hasConst := value["const"]
+	_, hasEnum := value["enum"]
+	_, hasRef := value["$ref"]
+	objectType := !typePresent && !hasConst && !hasEnum && !hasRef
+	if typ == "object" {
+		objectType = true
+	}
+	if types, ok := value["type"].([]any); ok {
+		for _, typ := range types {
+			if typ == "object" {
+				objectType = true
+			}
+		}
+	}
+	if !objectType {
+		return false, nil
+	}
+	excludesObjects, err := schemaDefinitelyExcludesObjects(value, root, make(map[string]bool))
+	return !excludesObjects, err
+}
+
+func validateSchemaKeyword(key string, child, root any, visitedRefs map[string]bool) error {
+	switch key {
+	case "$ref", "$dynamicRef", "$recursiveRef":
+		ref, ok := child.(string)
+		if !ok || !strings.HasPrefix(ref, "#") {
+			return errors.New("only local schema references are allowed")
+		}
+		if visitedRefs[ref] {
+			return nil
+		}
+		visitedRefs[ref] = true
+		targets, err := resolveLocalSchemaRef(root, ref)
+		if err != nil {
+			return err
+		}
+		for _, target := range targets {
+			if err := validateClosedSchemaAt(target, root, visitedRefs); err != nil {
+				return err
+			}
+		}
+	case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies":
+		entries, ok := child.(map[string]any)
+		if !ok {
+			return nil
+		}
+		for _, entry := range entries {
+			if err := validateClosedSchemaAt(entry, root, visitedRefs); err != nil {
+				return err
+			}
+		}
+	case "additionalProperties", "unevaluatedProperties", "propertyNames", "contains", "items", "additionalItems", "not", "if", "then", "else", "contentSchema", "unevaluatedItems", "allOf", "anyOf", "oneOf", "prefixItems":
+		return validateClosedSchemaAt(child, root, visitedRefs)
 	}
 	return nil
 }
