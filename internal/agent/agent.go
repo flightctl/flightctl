@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/firmware"
 	firmwarepolicy "github.com/flightctl/flightctl/internal/agent/device/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
@@ -485,6 +486,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		a.config.ImagePruning,
 		a.config.DataDir,
+		imagepruning.WithRetainedReferences(firmware.NewRetention(a.config.DataDir, rootReadWriter, a.log)),
 	)
 
 	firmwarePolicy, err := firmwarepolicy.New(deviceName, a.config.DataDir, rootReadWriter, bootstrap.ManagementClient(), a.log)
