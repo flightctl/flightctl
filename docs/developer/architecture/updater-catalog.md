@@ -170,11 +170,35 @@ operations invokes an updater or grants reboot permission.
 
 ## Agent policy retention
 
-The agent polls policy independently of rendered specifications, using its
-reloadable management client. Network I/O places a complete view into a bounded
+An agent without firmware work or retained policy does not issue policy requests.
+The sequential engine checks retained current, desired, and rollback specifications
+at startup and observes published targets before download and update scheduling.
+Firmware intent or a retained attempt starts delivery. Unreadable retained targets
+also start delivery because they cannot establish that firmware is unused.
+Once started, delivery continues even if a target is removed, invalid, or blocked.
+Retained policy, including unreadable policy history, resumes delivery after restart.
+Stopping delivery on previously active devices requires a future attempt-finalization
+contract; target removal alone does not establish that an attempt cannot resume.
+
+The agent polls policy independently of rendered specifications, using the same
+reloadable management client. File-backed and TPM-backed HTTP clients enable HTTP/2
+so concurrent policy and rendered-spec requests can share a connection when HTTP/2
+is negotiated. Network I/O places a complete view into a bounded
 queue. The sequential device engine accepts queued policy before desired-spec
 processing, so an invalid, unchanged or unavailable target cannot skip receipt.
 Existing bootstrap and enrollment gates remain in place.
+
+Policy receipt is independent of the download schedule: authorization metadata,
+including revocations, must reach a device while artifact downloads are blocked.
+This path never downloads updater executables or firmware artifacts. Policy size
+limits still apply; a changed revision transfers the complete policy document.
+
+HTTP long polling remains the delivery mechanism and does not depend on AgentLink.
+The receiver's `Receive` operation queues a policy and returns a revision/digest
+receipt only after `Sync` validates and durably retains it. A future AgentLink
+transport can reuse this acceptance path and reconcile from retained revision/digest
+after reconnecting. It must acknowledge only a successful receipt and replace the
+HTTP polling owner rather than start a competing delivery loop.
 
 Accepted policy is separate from target and attempt data at
 `<DataDir>/firmware/policy.json` (normally

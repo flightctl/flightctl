@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +30,9 @@ func TestAgentAcceptsPolicyWithInvalidDesiredState(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	management := client.NewMockManagement(ctrl)
 	specs := spec.NewMockManager(ctrl)
+	updates := spec.NewMockWatcher(ctrl)
+	updates.EXPECT().TryPop().Return(nil, false, nil).AnyTimes()
+	specs.EXPECT().Read(gomock.Any()).Return(nil, os.ErrNotExist).AnyTimes()
 	statuses := status.NewMockManager(ctrl)
 	cfg, err := firmwarecatalog.New()
 	require.NoError(t, err)
@@ -56,8 +62,75 @@ func TestAgentAcceptsPolicyWithInvalidDesiredState(t *testing.T) {
 	}).AnyTimes()
 	statuses.EXPECT().Sync(gomock.Any()).Return(nil).AnyTimes()
 	agent := &Agent{specManager: specs, statusManager: statuses, statusUpdateInterval: util.Duration(time.Second), log: log.NewPrefixLogger("test")}
-	WithFirmwarePolicyReceiver(receiver)(agent)
+	WithFirmwarePolicyReceiver(receiver, updates)(agent)
+	receiver.RequirePolicy()
 	require.NoError(t, agent.Run(ctx))
 	require.True(t, receiver.IsApproved(binding.Name, binding.Version, binding.DescriptorDigest))
 	<-done
+}
+
+func TestAgentStartsPolicyDeliveryForFirmwareWork(t *testing.T) {
+	target := &api.Device{Spec: &api.DeviceSpec{Firmware: &api.FirmwareSpec{}}}
+	attempt := &api.Device{Status: &api.DeviceStatus{Firmware: &api.FirmwareStatus{Attempt: &api.FirmwareAttemptStatus{}}}}
+	for _, tc := range []struct {
+		name     string
+		kind     spec.Type
+		retained *api.Device
+		readErr  error
+		incoming *api.Device
+		active   bool
+	}{
+		{name: "no firmware work"},
+		{name: "support reporting only", incoming: &api.Device{Status: &api.DeviceStatus{Firmware: &api.FirmwareStatus{}}}},
+		{name: "current firmware", kind: spec.Current, retained: target, active: true},
+		{name: "desired firmware", kind: spec.Desired, retained: target, active: true},
+		{name: "rollback firmware", kind: spec.Rollback, retained: target, active: true},
+		{name: "retained attempt", kind: spec.Current, retained: attempt, active: true},
+		{name: "unreadable retained target", kind: spec.Current, readErr: os.ErrPermission, active: true},
+		{name: "new firmware behind a maintenance window", incoming: target, active: true},
+	} {
+		t.Run("When there is "+tc.name+" it should select policy delivery safely", func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			management := client.NewMockManagement(ctrl)
+			var calls atomic.Int64
+			management.EXPECT().GetFirmwarePolicy(gomock.Any(), "device", gomock.Any()).DoAndReturn(func(context.Context, string, policy.Receipt, ...generatedclient.RequestEditorFn) (*policy.View, int, error) {
+				calls.Add(1)
+				return nil, 204, nil
+			}).AnyTimes()
+			rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			m, err := receiver.New("device", t.TempDir(), rw, management, log.NewPrefixLogger("activation"), receiver.WithPollConfig(poll.Config{BaseDelay: time.Millisecond, Factor: 1, MaxDelay: time.Millisecond}))
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { m.Run(ctx); close(done) }()
+			defer func() { cancel(); <-done }()
+			specs := spec.NewMockManager(ctrl)
+			for _, kind := range []spec.Type{spec.Current, spec.Desired, spec.Rollback} {
+				if kind == tc.kind {
+					specs.EXPECT().Read(kind).Return(tc.retained, tc.readErr)
+				} else {
+					specs.EXPECT().Read(kind).Return(nil, fmt.Errorf("read target: %w", os.ErrNotExist))
+				}
+			}
+			// The desired-state policy queue remains blocked throughout the test.
+			specs.EXPECT().GetDesired(gomock.Any()).Return(nil, true, nil).AnyTimes()
+			updates := spec.NewMockWatcher(ctrl)
+			if tc.incoming != nil {
+				updates.EXPECT().TryPop().Return(tc.incoming, true, nil)
+			}
+			updates.EXPECT().TryPop().Return(nil, false, nil).AnyTimes()
+			agent := &Agent{specManager: specs, log: log.NewPrefixLogger("activation")}
+			WithFirmwarePolicyReceiver(m, updates)(agent)
+			agent.syncDeviceSpec(ctx)
+			if tc.active {
+				require.Eventually(t, func() bool { return calls.Load() > 0 }, time.Second, time.Millisecond)
+				before := calls.Load()
+				// A missing subsequent target must not stop revocation delivery.
+				agent.syncDeviceSpec(ctx)
+				require.Eventually(t, func() bool { return calls.Load() > before }, time.Second, time.Millisecond)
+			} else {
+				require.Never(t, func() bool { return calls.Load() > 0 }, 30*time.Millisecond, time.Millisecond)
+			}
+		})
+	}
 }

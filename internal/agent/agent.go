@@ -520,7 +520,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		criticalCh,
 		backoff,
 		a.log,
-		device.WithFirmwarePolicyReceiver(firmwarePolicy),
+		device.WithFirmwarePolicyReceiver(firmwarePolicy, specManager.Watch()),
 	)
 
 	// Populate collectors registered during startup before asynchronous work begins.
@@ -547,7 +547,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	appConsoleWatcher := specManager.Watch()
 	startAsync(consoleManager.Run)
 	startAsync(func(ctx context.Context) { applicationsManager.RunConsole(ctx, appConsoleWatcher) })
-	// Policy polling must progress independently of the rendered-target long poll.
+	// Once firmware is used, policy polling progresses independently of target delivery.
 	startAsync(firmwarePolicy.Run)
 	startAsync(specManager.Publisher().Run)
 	startAsync(certManager.Run)

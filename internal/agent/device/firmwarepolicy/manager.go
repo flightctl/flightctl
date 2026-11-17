@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -48,6 +48,8 @@ type Manager struct {
 	poll       poll.Config
 	pending    chan pending
 	state      atomic.Pointer[retained]
+	required   chan struct{}
+	require    sync.Once
 }
 
 func New(name, dataDir string, rw fileio.ReadWriter, management client.Management, logger *log.PrefixLogger, opts ...Option) (*Manager, error) {
@@ -65,9 +67,14 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	if o.poll.MaxDelay <= 0 {
 		return nil, errors.New("firmware policy retry delay must be bounded")
 	}
-	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, pending: make(chan pending, 1)}
+	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, pending: make(chan pending, 1), required: make(chan struct{})}
 	state := &retained{}
 	data, err := rw.ReadFileLimited(m.path, policy.MaxWireBytes)
+	if !os.IsNotExist(err) {
+		// Retained history may still authorize a recoverable attempt, even if
+		// the current desired target has been removed or cannot be decoded.
+		m.RequirePolicy()
+	}
 	if err != nil && !os.IsNotExist(err) {
 		state.err = fmt.Errorf("%w: read retained firmware policy: %w", ErrUnavailable, err)
 		state.historyUnavailable = true
@@ -85,6 +92,13 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	}
 	m.state.Store(state)
 	return m, nil
+}
+
+// RequirePolicy starts policy delivery once firmware work has been observed.
+// It is intentionally irreversible: removing a target does not prove that a
+// retained attempt can no longer execute and no longer needs revocations.
+func (m *Manager) RequirePolicy() {
+	m.require.Do(func() { close(m.required) })
 }
 
 func clone(view policy.View) policy.View {
@@ -144,6 +158,27 @@ func (m *Manager) Sync(ctx context.Context) error {
 		return nil
 	}
 }
+
+// Receive queues a complete policy from a delivery transport and waits for the
+// sequential owner to validate and durably retain it through Sync. Only a
+// successful receipt may be acknowledged to the service.
+func (m *Manager) Receive(ctx context.Context, view policy.View) (policy.Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return policy.Receipt{}, err
+	}
+	request := pending{view: clone(view), result: make(chan result, 1)}
+	select {
+	case m.pending <- request:
+	case <-ctx.Done():
+		return policy.Receipt{}, ctx.Err()
+	}
+	select {
+	case outcome := <-request.result:
+		return outcome.receipt, outcome.err
+	case <-ctx.Done():
+		return policy.Receipt{}, ctx.Err()
+	}
+}
 func (m *Manager) accept(view policy.View) (policy.Receipt, error) {
 	previous := m.state.Load()
 	if previous.historyUnavailable {
@@ -177,77 +212,4 @@ func (m *Manager) accept(view policy.View) (policy.Receipt, error) {
 		m.state.Store(next)
 	}
 	return m.receipt(), nil
-}
-
-// Run performs network I/O only; queued views become authoritative through Sync.
-func (m *Manager) Run(ctx context.Context) {
-	var unacknowledged *policy.Receipt
-	if current := m.receipt(); current.Revision > 0 {
-		unacknowledged = &current
-	}
-	failures := 0
-	for ctx.Err() == nil {
-		failed := false
-		if unacknowledged != nil {
-			callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			status, err := m.client.AcknowledgeFirmwarePolicy(callCtx, m.name, *unacknowledged)
-			cancel()
-			if err == nil && (status == http.StatusNoContent || status == http.StatusConflict) {
-				unacknowledged = nil
-			} else {
-				failed = true
-				if ctx.Err() == nil {
-					m.log.Warn("firmware policy acknowledgement unavailable; retained view preserved")
-				}
-			}
-		}
-		callCtx, cancel := context.WithTimeout(ctx, 4*time.Minute)
-		view, status, err := m.client.GetFirmwarePolicy(callCtx, m.name, m.receipt())
-		cancel()
-		if err != nil || (status != http.StatusOK && status != http.StatusNoContent) {
-			failed = true
-			if ctx.Err() == nil {
-				m.log.Warn("firmware policy refresh unavailable; retained view preserved")
-			}
-		} else if status == http.StatusOK {
-			if view == nil {
-				failed = true
-			} else {
-				request := pending{view: clone(*view), result: make(chan result, 1)}
-				select {
-				case m.pending <- request:
-				case <-ctx.Done():
-					return
-				}
-				select {
-				case outcome := <-request.result:
-					if outcome.err != nil {
-						failed = true
-						m.log.WithError(outcome.err).Warn("firmware policy was not accepted")
-					} else {
-						receipt := outcome.receipt
-						unacknowledged = &receipt
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-		delay := m.poll.BaseDelay
-		if failed {
-			if failures < 20 {
-				failures++
-			}
-			delay = poll.CalculateBackoffDelay(&m.poll, failures)
-		} else {
-			failures = 0
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
 }

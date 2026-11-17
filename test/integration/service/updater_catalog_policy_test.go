@@ -273,6 +273,7 @@ var _ = Describe("Private updater policy delivery", func() {
 		Expect(rw.WriteFile(control, []byte("unchanged target"), 0600)).To(Succeed())
 		manager, err := receiver.New(name, dir, rw, client, prefixlog.NewPrefixLogger("receipt-integration"), receiver.WithPollConfig(poll.Config{BaseDelay: 10 * time.Millisecond, Factor: 1, MaxDelay: 20 * time.Millisecond}))
 		Expect(err).NotTo(HaveOccurred())
+		manager.RequirePolicy()
 		ctx, cancel := context.WithCancel(suite.Ctx)
 		done := make(chan struct{})
 		go func() { manager.Run(ctx); close(done) }()

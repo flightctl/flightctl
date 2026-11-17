@@ -63,6 +63,7 @@ func manager(t *testing.T, dir string, rw fileio.ReadWriter, n *network) *receiv
 	t.Helper()
 	m, err := receiver.New("device", dir, rw, n.client, log.NewPrefixLogger("policy-test"), receiver.WithPollConfig(poll.Config{BaseDelay: 5 * time.Millisecond, Factor: 1, MaxDelay: 10 * time.Millisecond}))
 	require.NoError(t, err)
+	m.RequirePolicy()
 	return m
 }
 func run(t *testing.T, m *receiver.Manager) context.Context {
@@ -197,7 +198,8 @@ func TestPolicyCorruptState(t *testing.T) {
 			rw := fileio.NewMockReadWriter(ctrl)
 			rw.EXPECT().ReadFileLimited("/data/firmware/policy.json", int64(policy.MaxWireBytes)).Return(tc.data, tc.err)
 			n := newNetwork(t)
-			m := manager(t, "/data", rw, n)
+			m, err := receiver.New("device", "/data", rw, n.client, log.NewPrefixLogger("corrupt-history"))
+			require.NoError(t, err)
 			_, currentErr := m.Current()
 			require.ErrorContains(t, currentErr, tc.context)
 			require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
@@ -283,4 +285,81 @@ func TestPolicyOfflineRetention(t *testing.T) {
 	persisted, err := rw.ReadFileLimited(filepath.Join(dir, "firmware/policy.json"), policy.MaxWireBytes)
 	require.NoError(t, err)
 	require.Equal(t, data, persisted)
+}
+
+func TestPolicyDeliveryActivation(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		t.Run(map[bool]string{false: "When firmware is unused it should wait for activation", true: "When policy is retained it should resume delivery without a target"}[retained], func(t *testing.T) {
+			one, _, _ := views(t)
+			rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			dir := t.TempDir()
+			if retained {
+				data, err := json.Marshal(one)
+				require.NoError(t, err)
+				require.NoError(t, rw.WriteFileDurable(filepath.Join(dir, "firmware/policy.json"), data, 0700, 0600))
+			}
+			ctrl := gomock.NewController(t)
+			management := client.NewMockManagement(ctrl)
+			called := make(chan struct{}, 1)
+			management.EXPECT().GetFirmwarePolicy(gomock.Any(), "device", gomock.Any()).DoAndReturn(func(ctx context.Context, _ string, _ policy.Receipt, _ ...generatedclient.RequestEditorFn) (*policy.View, int, error) {
+				called <- struct{}{}
+				<-ctx.Done()
+				return nil, 0, ctx.Err()
+			}).Times(1)
+			management.EXPECT().AcknowledgeFirmwarePolicy(gomock.Any(), "device", gomock.Any()).Return(204, nil).AnyTimes()
+			m, err := receiver.New("device", dir, rw, management, log.NewPrefixLogger("activation"))
+			require.NoError(t, err)
+			run(t, m)
+			if !retained {
+				require.Never(t, func() bool { return len(called) > 0 }, 30*time.Millisecond, time.Millisecond)
+				m.RequirePolicy()
+				m.RequirePolicy()
+			}
+			select {
+			case <-called:
+			case <-time.After(time.Second):
+				t.Fatal("required policy delivery did not start")
+			}
+		})
+	}
+}
+
+func TestPolicyReceiveWithoutHTTP(t *testing.T) {
+	one, _, _ := views(t)
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	dir := t.TempDir()
+	ctrl := gomock.NewController(t)
+	// Receive must not issue HTTP calls or depend on the poller's lifecycle.
+	m, err := receiver.New("device", dir, rw, client.NewMockManagement(ctrl), log.NewPrefixLogger("receive"))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	received := make(chan policy.Receipt, 1)
+	failures := make(chan error, 1)
+	go func() {
+		receipt, err := m.Receive(ctx, one)
+		if err != nil {
+			failures <- err
+			return
+		}
+		received <- receipt
+	}()
+	require.Never(t, func() bool { return len(received) > 0 }, 30*time.Millisecond, time.Millisecond)
+	accept(t, ctx, m, one.Revision)
+	select {
+	case receipt := <-received:
+		require.Equal(t, policy.Receipt{Revision: one.Revision, Digest: one.Digest}, receipt)
+	case err := <-failures:
+		t.Fatal(err)
+	case <-ctx.Done():
+		t.Fatal("durably accepted policy did not return a receipt")
+	}
+	data, err := rw.ReadFileLimited(filepath.Join(dir, "firmware/policy.json"), policy.MaxWireBytes)
+	require.NoError(t, err)
+	persisted, err := policy.ParseView(data)
+	require.NoError(t, err)
+	require.Equal(t, one, persisted)
+	cancel()
+	_, err = m.Receive(ctx, one)
+	require.ErrorIs(t, err, context.Canceled)
 }

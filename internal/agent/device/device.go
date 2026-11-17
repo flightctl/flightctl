@@ -2,7 +2,9 @@ package device
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
+	stdos "os"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -33,6 +35,8 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	firmwarePolicy         *firmwarepolicy.Manager
+	firmwarePolicyUpdates  spec.Watcher
+	firmwarePolicyChecked  bool
 	name                   string
 	systemdClient          *client.Systemd
 	deviceWriter           fileio.Writer
@@ -65,8 +69,11 @@ type Agent struct {
 
 type AgentOption func(*Agent)
 
-func WithFirmwarePolicyReceiver(receiver *firmwarepolicy.Manager) AgentOption {
-	return func(a *Agent) { a.firmwarePolicy = receiver }
+func WithFirmwarePolicyReceiver(receiver *firmwarepolicy.Manager, updates spec.Watcher) AgentOption {
+	return func(a *Agent) {
+		a.firmwarePolicy = receiver
+		a.firmwarePolicyUpdates = updates
+	}
 }
 
 // NewAgent creates a new device agent.
@@ -173,9 +180,40 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 
 func (a *Agent) syncFirmwarePolicy(ctx context.Context) {
 	if a.firmwarePolicy != nil {
+		if !a.firmwarePolicyChecked {
+			for _, kind := range []spec.Type{spec.Current, spec.Desired, spec.Rollback} {
+				device, err := a.specManager.Read(kind)
+				if err != nil && !stderrors.Is(err, stdos.ErrNotExist) {
+					// An unreadable target cannot establish that firmware is unused.
+					a.firmwarePolicy.RequirePolicy()
+				}
+				a.requireFirmwarePolicy(device)
+			}
+			a.firmwarePolicyChecked = true
+		}
+		// Observe published targets before the download/update policy queue.
+		// A maintenance window must not delay authorization revocations.
+		for a.firmwarePolicyUpdates != nil {
+			device, ok, err := a.firmwarePolicyUpdates.TryPop()
+			if err != nil {
+				a.firmwarePolicy.RequirePolicy()
+				break
+			}
+			if !ok {
+				break
+			}
+			a.requireFirmwarePolicy(device)
+		}
 		if err := a.firmwarePolicy.Sync(ctx); err != nil {
 			a.log.WithError(err).Warn("firmware policy receipt unavailable")
 		}
+	}
+}
+
+func (a *Agent) requireFirmwarePolicy(device *v1beta1.Device) {
+	if device != nil && ((device.Spec != nil && device.Spec.Firmware != nil) ||
+		(device.Status != nil && device.Status.Firmware != nil && device.Status.Firmware.Attempt != nil)) {
+		a.firmwarePolicy.RequirePolicy()
 	}
 }
 

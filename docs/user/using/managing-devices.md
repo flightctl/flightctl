@@ -2268,6 +2268,10 @@ Each device can define two independent schedules in the `updatePolicy` section o
 * **`downloadSchedule`**: Defines when the device is allowed to download update artifacts such as OS image layers.
 * **`updateSchedule`**: Defines when the device is allowed to apply updates.
 
+Firmware updater authorization metadata can be refreshed outside download windows
+so that devices can receive updater revocations. This does not download updater
+programs or firmware artifacts.
+
 Each schedule supports:
 
 | Parameter              | Description                                                                 |
