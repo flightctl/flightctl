@@ -28,18 +28,39 @@ func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, 
 	}
 }
 
+// DefaultTLSHandshakeTimeout bounds the TLS handshake in ConnContext to
+// prevent a stalled client from blocking the accept loop indefinitely.
+const DefaultTLSHandshakeTimeout = 30 * time.Second
+
 func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
 	server := NewHTTPServer(router, log, address, cfg)
-	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
-		tc := c.(*tls.Conn)
-		// We need to ensure TLS handshake is complete before
-		// we try to get anything useful from the ConnectionState
-		// tls delays handshake until the first Read of Write
-		err := tc.HandshakeContext(ctx)
+	server.ConnContext = TLSClientCertConnContext(log, DefaultTLSHandshakeTimeout)
+	return server
+}
+
+// TLSClientCertConnContext returns a ConnContext function that extracts the peer
+// TLS certificate from a completed handshake and stores it in the request context.
+// Use this when creating an http.Server that requires mTLS client certificate access.
+// The handshakeTimeout parameter bounds how long the TLS handshake may take;
+// a stalled client is closed so the accept loop can continue serving connections.
+func TLSClientCertConnContext(log logrus.FieldLogger, handshakeTimeout time.Duration) func(context.Context, net.Conn) context.Context {
+	return func(ctx context.Context, c net.Conn) context.Context {
+		tc, ok := c.(*tls.Conn)
+		if !ok {
+			return ctx
+		}
+		if handshakeTimeout <= 0 {
+			handshakeTimeout = DefaultTLSHandshakeTimeout
+		}
+
+		handshakeCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+		defer cancel()
+
+		err := tc.HandshakeContext(handshakeCtx)
 		if err != nil {
 			remoteAddr := tc.RemoteAddr().String()
 			log.Errorf("TLS handshake error from %s: %v", remoteAddr, err)
-			log.Errorf("TLS ConnectionState: %#v", tc.ConnectionState())
+			_ = tc.Close()
 			return ctx
 		}
 
@@ -51,7 +72,6 @@ func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, ad
 		peerCertificate := cs.PeerCertificates[0]
 		return context.WithValue(ctx, consts.TLSPeerCertificateCtxKey, peerCertificate)
 	}
-	return server
 }
 
 // NewTLSListener returns a new TLS listener. If the address is empty, it will
