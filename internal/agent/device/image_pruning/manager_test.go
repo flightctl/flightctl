@@ -1279,6 +1279,15 @@ func TestManager_retainedUpdaterImages(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, got.Images, retainedRef)
 	})
+	t.Run("When the retained references cannot be read while recording it should keep the recorded references", func(t *testing.T) {
+		m, dir := newManager(t, &fakeRetainedReferences{err: errors.New("registry unreadable")})
+		require.NoError(t, m.RecordReferences(context.Background(), &v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil))
+		data, err := m.readWriter.ReadFile(filepath.Join(dir, ReferencesFileName))
+		require.NoError(t, err)
+		var recorded ImageArtifactReferences
+		require.NoError(t, json.Unmarshal(data, &recorded))
+		require.Contains(t, recorded.References, retainedRef)
+	})
 	t.Run("When references are recorded it should record retained updater images", func(t *testing.T) {
 		m, dir := newManager(t, &fakeRetainedReferences{refs: []string{updater}})
 		require.NoError(t, m.readWriter.RemoveFile(filepath.Join(dir, ReferencesFileName)))

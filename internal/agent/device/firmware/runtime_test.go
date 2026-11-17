@@ -132,6 +132,27 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	return buf.Bytes()
 }
 
+// pieWithDynamic returns a static position-independent amd64 executable whose
+// dynamic segment is the second program header and ends the file.
+func pieWithDynamic(t *testing.T) []byte {
+	s := amd64Static()
+	s.typ = elf.ET_DYN
+	s.dynamic = true
+	return buildELF(t, s)
+}
+
+// withDynamicFileSize rewrites the file size of the dynamic program header of
+// a pieWithDynamic image.
+func withDynamicFileSize(t *testing.T, data []byte, size uint64) []byte {
+	t.Helper()
+	const ehsize, phentsize, fileszOffset = 64, 56, 32
+	out := append([]byte(nil), data...)
+	at := ehsize + phentsize + fileszOffset
+	require.Equal(t, uint32(elf.PT_DYNAMIC), binary.LittleEndian.Uint32(out[ehsize+phentsize:]))
+	binary.LittleEndian.PutUint64(out[at:], size)
+	return out
+}
+
 func TestCheckNativeExecutable(t *testing.T) {
 	valid := buildELF(t, amd64Static())
 	testCases := []struct {
@@ -198,6 +219,32 @@ func TestCheckNativeExecutable(t *testing.T) {
 			goarch:   "amd64",
 			wantErr:  true,
 			contains: "loadable",
+		},
+		{
+			name:   "When a 32-bit ARM executable is static and position independent it should accept it",
+			data:   buildELF(t, elfSpec{class: elf.ELFCLASS32, machine: elf.EM_ARM, order: binary.LittleEndian, typ: elf.ET_DYN, dynamic: true}),
+			goarch: "arm",
+		},
+		{
+			name:     "When a 32-bit ARM executable needs shared libraries it should reject it",
+			data:     buildELF(t, elfSpec{class: elf.ELFCLASS32, machine: elf.EM_ARM, order: binary.LittleEndian, typ: elf.ET_DYN, needed: true}),
+			goarch:   "arm",
+			wantErr:  true,
+			contains: "shared libraries",
+		},
+		{
+			name:     "When the dynamic segment is cut short it should reject it",
+			data:     pieWithDynamic(t)[:len(pieWithDynamic(t))-4],
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "unreadable dynamic segment",
+		},
+		{
+			name:     "When the dynamic segment claims more bytes than the bound it should reject it without reading it",
+			data:     withDynamicFileSize(t, pieWithDynamic(t), 2<<20),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "too large",
 		},
 		{name: "When the ELF file is truncated it should reject it", data: valid[:40], goarch: "amd64", wantErr: true, contains: "ELF"},
 		{name: "When the file is a script it should reject it", data: []byte("#!/bin/sh\necho hi\n"), goarch: "amd64", wantErr: true, contains: "ELF"},
