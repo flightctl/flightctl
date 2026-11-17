@@ -30,7 +30,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
-	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -658,13 +657,8 @@ func NewHTTPClientForServer(config *Config, serverURL string, versionOpts ...ver
 		ForceAttemptHTTP2: true,
 	}
 
-	// Configure HTTP/2
-	t2, err := http2.ConfigureTransports(transport)
-	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientForServer: configuring HTTP/2 transport: %w", err)
-	}
-	if t2 != nil {
-		t2.ReadIdleTimeout = http2ReadIdleTimeout
+	transport.HTTP2 = &http.HTTP2Config{
+		SendPingTimeout: http2ReadIdleTimeout,
 	}
 	httpClient := &http.Client{
 		Transport: transport,
