@@ -186,15 +186,9 @@ func (r *reader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, erro
 		return nil, fmt.Errorf("open root: %w", err)
 	}
 	components := strings.Split(relPath, "/")
-	for _, component := range components[:len(components)-1] {
-		next, err := unix.Openat(dir, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		// The parent descriptor is no longer needed after opening the child;
-		// a close failure cannot affect the already-open child.
-		_ = unix.Close(dir)
-		if err != nil {
-			return nil, fmt.Errorf("open directory %q without following links: %w", component, err)
-		}
-		dir = next
+	dir, err = openComponentsNoFollow(dir, components[:len(components)-1])
+	if err != nil {
+		return nil, err
 	}
 	// The descriptor is read-only; closing it after traversal cannot lose data.
 	defer func() { _ = unix.Close(dir) }()
@@ -247,4 +241,21 @@ func (r *reader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, erro
 		return nil, fmt.Errorf("%q exceeds read limit", relPath)
 	}
 	return data, nil
+}
+
+// openComponentsNoFollow opens each directory component beneath dir without
+// following symbolic links. It takes ownership of dir and returns the handle
+// of the last component.
+func openComponentsNoFollow(dir int, components []string) (int, error) {
+	for _, component := range components {
+		next, err := unix.Openat(dir, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		// The parent descriptor is no longer needed after opening the child;
+		// a close failure cannot affect the already-open child.
+		_ = unix.Close(dir)
+		if err != nil {
+			return -1, fmt.Errorf("open directory %q without following links: %w", component, err)
+		}
+		dir = next
+	}
+	return dir, nil
 }
