@@ -34,6 +34,7 @@ import (
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
+	updatercatalogstore "github.com/flightctl/flightctl/internal/store/updatercatalog"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -108,6 +109,14 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := devicestore.NewDeviceStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
+	catalogStore, err := updatercatalogstore.NewStore(tx)
+	if err != nil {
+		return err
+	}
+	if err := catalogStore.InitialMigration(ctx); err != nil {
+		return err
+	}
+
 	if err := enrollmentrequeststore.NewEnrollmentRequestStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}

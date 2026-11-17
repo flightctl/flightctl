@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	catalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -44,6 +45,9 @@ type DeviceServiceHandler struct {
 	agentEndpoint     string
 	log               logrus.FieldLogger
 	callEventCallback store.EventCallbackCaller
+	policyCatalog     *catalogservice.Service
+	policyHub         *rendered.FirmwarePolicyHub
+	policyWait        time.Duration
 	descriptors       common.ApprovedDescriptorProvider
 	getRepository     common.RepositoryGetter
 }

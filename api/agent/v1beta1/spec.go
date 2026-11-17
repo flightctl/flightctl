@@ -11,9 +11,7 @@ import (
 //go:embed openapi.yaml
 var specYAML []byte
 
-// spec is the agent v1beta1 OpenAPI document. It declares no schemas of its
-// own: every type it exchanges comes from core v1beta1 through external
-// references, which resolve to the document embedded in that package.
+// Core resource references resolve to the embedded core specification.
 var spec = openapi.NewDocument(specYAML, map[string][]byte{
 	"../../core/v1beta1/openapi.yaml": corev1beta1.SpecYAML(),
 })
