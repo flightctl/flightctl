@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -73,8 +74,14 @@ func (p *PublishedPayload) Pin(attemptID string, role PinRole) Pin {
 	}
 }
 
-// VerifyResult reports the outcome of verifying a retained payload.
-type VerifyResult struct{}
+// VerifyResult reports the host observation made after a retained payload
+// verified. Evidence persistence never changes the verification verdict; a
+// failure to persist is reported here.
+type VerifyResult struct {
+	Observation       HostObservation
+	EvidencePersisted bool
+	EvidenceErr       error
+}
 
 type registryDocument struct {
 	APIVersion string `json:"apiVersion"`
@@ -92,6 +99,7 @@ type Retention struct {
 	mu       sync.Mutex
 	ceilings policy.ExtractionLimits
 	leases   map[string]struct{}
+	now      func() time.Time
 
 	treesPerPass int
 	listingCap   int
@@ -121,6 +129,7 @@ func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, o
 		log:          log,
 		ceilings:     DefaultExtractionCeilings(),
 		leases:       map[string]struct{}{},
+		now:          time.Now,
 		treesPerPass: CleanupTreesPerPass,
 		listingCap:   MaxCacheListingEntries,
 		passWork:     CleanupPassMaxWork,
@@ -134,10 +143,11 @@ func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, o
 type cacheDirs struct {
 	firmware fileio.Anchor
 	updaters fileio.Anchor
+	evidence fileio.Anchor
 }
 
 func (c *cacheDirs) Close() {
-	for _, a := range []fileio.Anchor{c.updaters, c.firmware} {
+	for _, a := range []fileio.Anchor{c.evidence, c.updaters, c.firmware} {
 		if a != nil {
 			_ = a.Close()
 		}
@@ -168,6 +178,23 @@ func (r *Retention) openCache(create bool) (*cacheDirs, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// openEvidence opens the trusted evidence directory beside the updater
+// cache. Without create, an absent directory leaves the handle nil.
+func (c *cacheDirs) openEvidence(create bool) error {
+	if c.evidence != nil || c.firmware == nil {
+		return nil
+	}
+	dir, err := c.firmware.OpenDir(evidenceDirName, fileio.DirOptions{Create: create, Perm: publishedDirMode, Trusted: true})
+	if err != nil {
+		if !create && errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	c.evidence = dir
+	return nil
 }
 
 func validatePin(p Pin) error {
@@ -410,10 +437,57 @@ func (r *Retention) VerifyPublished(ctx context.Context, pin Pin) (VerifyResult,
 	if c.updaters == nil {
 		return VerifyResult{}, unavailable(pin.Reference, false, ErrRetainedPayloadMissing)
 	}
-	if _, err := verifyPublishedTree(ctx, c.updaters, pin.PayloadDir, pin.ManifestDigest, capLimits(pin.Limits, r.ceilings)); err != nil {
+	m, err := verifyPublishedTree(ctx, c.updaters, pin.PayloadDir, pin.ManifestDigest, capLimits(pin.Limits, r.ceilings))
+	if err != nil {
 		return VerifyResult{}, retainedFailure(ctx, pin.Reference, err)
 	}
-	return VerifyResult{}, nil
+	id := evidenceIdentity{packageDigest: pin.PackageDigest, manifestDigest: pin.ManifestDigest, descriptorDigest: pin.DescriptorDigest, payloadDir: pin.PayloadDir, entrypoint: m.Entrypoint}
+	obs, err := r.observeAndRecord(c, id, evidenceEventVerify, false)
+	return VerifyResult{Observation: obs, EvidencePersisted: err == nil, EvidenceErr: err}, nil
+}
+
+// observeAndRecord observes the host for the published version of id and
+// persists the observation in its evidence record.
+func (r *Retention) observeAndRecord(c *cacheDirs, id evidenceIdentity, event string, fresh bool) (HostObservation, error) {
+	final, err := c.updaters.OpenDir(id.payloadDir, fileio.DirOptions{ReadOnly: true})
+	if err != nil {
+		return HostObservation{}, fmt.Errorf("%w: %w", ErrEvidenceNotPersisted, err)
+	}
+	defer final.Close()
+	obs := observeHost(r.rw, final, id.entrypoint, event, r.now())
+	if err := c.openEvidence(true); err != nil {
+		return obs, fmt.Errorf("%w: %w", ErrEvidenceNotPersisted, err)
+	}
+	return recordEvidence(c.evidence, id, obs, fresh)
+}
+
+// Evidence returns a copy of the host evidence record of a package.
+func (r *Retention) Evidence(packageDigest string) (*HostEvidence, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, err := r.openCache(false)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	if err := c.openEvidence(false); err != nil {
+		return nil, err
+	}
+	if c.evidence == nil {
+		return nil, fmt.Errorf("evidence of %s: %w", packageDigest, fs.ErrNotExist)
+	}
+	data, err := c.evidence.ReadFile(evidenceFileName(strings.TrimPrefix(packageDigest, "sha256:")), MaxEvidenceBytes)
+	if err != nil {
+		return nil, fmt.Errorf("evidence of %s: %w", packageDigest, err)
+	}
+	e, reason := decodeEvidence(data)
+	if e == nil {
+		return nil, fmt.Errorf("evidence of %s: %s", packageDigest, reason)
+	}
+	if e.PackageDigest != packageDigest {
+		return nil, fmt.Errorf("evidence of %s: record identity differs", packageDigest)
+	}
+	return e, nil
 }
 
 // retainedFailure maps a retained-payload verification failure.
@@ -617,6 +691,55 @@ func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
 			continue
 		}
 		r.log.Infof("Removed unreferenced updater cache entry %s", name)
+		removed = append(removed, name)
+	}
+	if ctx.Err() == nil && work < r.passWork {
+		orphans, err := r.removeEvidenceOrphans(ctx, c, retained, work)
+		removed = append(removed, orphans...)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return removed, errors.Join(errs...)
+}
+
+// removeEvidenceOrphans removes evidence records of versions that are absent,
+// unpinned and unleased, within the remaining pass work.
+func (r *Retention) removeEvidenceOrphans(ctx context.Context, c *cacheDirs, retained map[string]bool, work int) ([]string, error) {
+	if err := c.openEvidence(false); err != nil || c.evidence == nil {
+		return nil, err
+	}
+	var orphans []string
+	listErr := c.evidence.Walk(ctx, ".", fileio.WalkBounds{MaxEntries: r.listingCap, MaxDepth: 1, MaxNameBytes: maxEntryName}, func(name string, e fileio.EntryInfo) error {
+		work += 2
+		if work > r.passWork {
+			return errPassWork
+		}
+		hex, ok := strings.CutSuffix(name, ".json")
+		if ok && e.IsRegular() && fileDigestPattern.MatchString(hex) && !retained[hex] {
+			if _, err := c.updaters.Lstat(hex); errors.Is(err, fs.ErrNotExist) {
+				orphans = append(orphans, name)
+			}
+		}
+		if e.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	var errs []error
+	if listErr != nil {
+		errs = append(errs, fmt.Errorf("list evidence: %w", listErr))
+	}
+	var removed []string
+	for _, name := range orphans {
+		if work++; work > r.passWork {
+			errs = append(errs, errPassWork)
+			break
+		}
+		if _, err := c.evidence.RemoveTree(ctx, name, cleanupBounds()); err != nil {
+			errs = append(errs, fmt.Errorf("remove evidence %s: %w", name, err))
+			continue
+		}
 		removed = append(removed, name)
 	}
 	return removed, errors.Join(errs...)
