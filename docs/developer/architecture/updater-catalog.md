@@ -63,6 +63,28 @@ Execution limits require positive integer bounds for request, result, stderr,
 checkpoint, scratch, memory, processes, invocation time, cycles, reboots, and
 attempts. Reported exceeded-budget keys come from the immutable approved key set.
 
+A release can also declare an optional, closed `extraction` object. Its field
+names are budget keys for extracting the payload on the device:
+
+```yaml
+extraction:
+  maxExtractedManifestBytes: 65536
+  maxExtractedFiles: 64
+  maxExtractedFileBytes: 67108864
+  maxExtractedTotalBytes: 134217728
+  extractionScratchBytes: 134283264
+  maxExtractionSeconds: 300
+```
+
+All six values must be positive integers. `maxExtractedFileBytes` cannot exceed
+`maxExtractedTotalBytes`, `extractionScratchBytes` must hold
+`maxExtractedTotalBytes` plus `maxExtractedManifestBytes`, and
+`maxExtractionSeconds` is at most 86400. Every extraction key must be listed in
+`budgetKeySet`, and extraction keys are valid budget keys only when the object
+is present. Releases without the object stay valid, but the agent extracts only
+releases that declare it. `extractionScratchBytes` is the free space required
+before extraction starts; it is not a reservation.
+
 ## Revision and history rules
 
 Accepted input has its own canonical digest, separate from the materialized
@@ -560,8 +582,162 @@ policy no longer admits is refused even when a record exists. A new agent
 process reuses valid records after a restart.
 
 Images that fail checks after the pull are kept as evidence and never recorded
-as verified. Verified updater images are not yet protected from image pruning.
-If pruning removes one, the next fetch pulls and verifies it again.
+as verified. Image pruning protects verified updater images only while a
+retention pin references them (see "Agent updater payload extraction and
+retention"). If pruning removes an unpinned one, the next fetch pulls and
+verifies it again.
+
+## Agent updater payload extraction and retention
+
+The agent extractor publishes the payload of a verified package into a managed
+cache so that later lifecycle code can run it natively. Extraction never runs
+updater code, image entrypoints or hooks, never creates a container and never
+pulls by tag. Nothing in the agent calls the extractor yet; it is a library for
+the firmware lifecycle.
+
+### Trusted cache and threat model
+
+The cache lives at `<DataDir>/firmware/updaters/`, with host evidence in
+`<DataDir>/firmware/evidence/` and the retention registry in
+`<DataDir>/firmware/retained.json`. Every path component from `/` down to these
+directories must be a real directory, owned by root (or the agent's effective
+user), without group or other write access; the packaged
+`/var/lib/flightctl` mode `0755` owned by root satisfies this. Every write,
+rename, removal and extended-attribute read happens relative to directory
+handles opened without following symbolic links, so a symlinked or replaced
+path component, including one planted by another privileged process, is
+refused rather than followed. A cache directory is revalidated before a result
+counts as usable. This does not protect against a malicious root process with
+arbitrary system-call, ptrace or mount authority, a compromised kernel or
+storage faults.
+
+### Budgets and order of checks
+
+Before anything is mounted, the extractor checks that the package reference is
+pinned to its digest, takes the extraction budget from the authenticated
+release descriptor (a release without the object is refused), compares it
+with the agent ceilings (1 MiB manifest, 4096 files, 1 GiB per file, 2 GiB in
+total, 3 GiB scratch, 1800 seconds and a path depth of 16 components), checks
+the manifest file count, sizes and depth against the budget, and checks the
+current approval of the release. A budget above a ceiling is rejected, not
+clamped. It then checks the retention registry and the free space of the
+cache.
+
+### Extraction and publication
+
+A fresh extraction mounts the digest-pinned image and reads it through a
+read-only directory handle. The image must hold exactly `updater/manifest.json`
+and `updater/payload/` with the files the manifest lists and their parent
+directories; links, special files, extra or missing entries, set-ID or sticky
+modes and file capabilities are refused. The manifest read from the image must
+match the verified manifest exactly. Each file is copied in bounded chunks into
+an exclusive `.staging-*` directory with its size and SHA-256 checked; files get
+mode `0400`, executables `0500` and directories `0700`. Executables must be
+static ELF binaries for the device architecture. Native overlay mounts are
+read-only and fuse-overlayfs mounts are writable; the agent records which one it
+saw as an observation only, and integrity comes from hashing the bytes copied.
+
+After staging, the extractor closes the source and unmounts the image under its
+own two-minute timeout, which still runs when the caller cancels or the
+extraction deadline has expired. Only after a successful unmount does it rename
+the staging directory to `<package-digest-hex>` without replacing anything, then
+sync and revalidate the cache. A result is usable only after its host evidence
+is durable:
+
+| Outcome | Meaning |
+|---------|---------|
+| Not visible | No version directory was made visible. The call removes its own staging directory under a separate two-minute timeout. |
+| Visible but not usable | A complete version directory is visible but its sync, revalidation or evidence write failed. It is kept, must not be used or pinned, and the next call verifies and reuses it. |
+| Usable | The version directory is durable, revalidated and recorded. |
+
+When the version name already exists, the extractor keeps its own staging and
+verifies the existing directory. A valid one is used instead of the staging. An
+invalid pinned one, or one that cannot be verified, is left untouched and the
+call fails. An invalid unpinned one is renamed to `.quarantine-*` once and the
+publication is retried once with the same staging; if the name is taken again
+by anything but a valid copy, the call fails as contended. A valid copy is never
+deleted, and nothing is mounted or copied again.
+
+An unmount failure never publishes anything. The error names the image
+reference and the mount point, and a warning is logged with both. Podman keeps
+the leaked mount until an operator runs `podman image unmount <reference>` or
+the host reboots; the agent does not unmount blindly on later calls. The
+unmount timeout relies on the executor killing the podman process group; a
+descendant that leaves the group while holding the output pipes can delay the
+return.
+
+### Retention, verification and cleanup
+
+The retention registry pins published payloads per attempt and role (active or
+recovery). Pins survive restarts, refuse a missing version directory or a
+conflicting identity, and an unreadable or malformed registry fails closed for
+every operation. A usable payload is leased in memory until it is pinned or its
+lease is released, so cleanup cannot remove it in between; leases end with the
+agent process.
+
+A pinned payload is only verified and reused. Verification checks the exact
+entries, modes, owner, single links, sizes and digests within the pinned limits
+capped by the ceilings. A missing pinned payload reports
+`ErrRetainedPayloadMissing` and a changed one `ErrRetainedPayloadChanged`, both
+without mounting, extracting again or repairing anything, also after a restart;
+a verification deadline is retryable. An unpinned verified copy is reused, and
+an invalid unpinned copy is quarantined before a fresh extraction.
+
+Image pruning treats the image references of pinned payloads as required root
+podman references and records them with the other references; a registry read
+failure skips that pruning cycle. Cleanup removes only `.staging-*` and
+`.quarantine-*` directories, unpinned and unleased version directories and
+evidence records of removed versions. It removes at most four trees per pass;
+each removal is a bounded postorder walk that never follows links or crosses
+devices, holds at most 16 directory handles and stops with a reported reason
+when it reaches its limits on removed entries, total work, detached deep
+directories or retries. Listing is capped at 8192 entries per directory and a
+pass has a separate work cap; the next pass continues where it stopped.
+
+### Host SELinux evidence
+
+For each publication and reuse, and when a pinned payload is verified, the
+agent records what the host reports: the SELinux mode from
+`/sys/fs/selinux/enforce` (absent means disabled), the boot ID, and the
+`security.selinux` label of the version directory and of its entrypoint, each
+present, absent, unsupported or unknown. The record
+`<DataDir>/firmware/evidence/<package-digest-hex>.json` has the closed format
+`updater-host-evidence/v1`, is at most 16 KiB and keeps the first observation
+after publication, the latest one, a counter and a flag for any mode or label
+change. Extraction is allowed in every SELinux mode. The evidence is an
+observation only: it neither admits nor denies execution, is not a
+qualification, and a mode or label change never invalidates retained bytes or
+forces extraction again. No SELinux type, policy or label is added.
+
+### Reserved configuration path
+
+The configuration controller rejects device configuration that writes any file
+at or beneath `<DataDir>/firmware`, using the configured data directory. The
+whole configuration is refused before any file is removed or written, and the
+error names the path. Paths are compared after lexical cleaning with component
+boundaries, so `<DataDir>/firmware-x` stays allowed; relative paths and
+symbolic links that alias the data directory are not resolved. The controller
+also never deletes an obsolete file inside that directory. This guard adds to,
+and does not replace, the handle-based confinement and retained verification.
+
+### Failure reasons
+
+| Condition | Reason | Retryable |
+|-----------|--------|-----------|
+| No extraction budget, a changed binding or a revoked release | `UpdaterUnavailable` | no |
+| A budget above an agent ceiling, a path deeper than 16 components, or a non-native executable | `FirmwareNotSupported` | no |
+| File count, file size, total size, manifest size or extraction time above the admitted budget | `ResourceLimitExceeded`, with `exceededBudget` naming the budget key | no |
+| Free space below `extractionScratchBytes`, or the disk filling up while copying | `InsufficientSpace` | no |
+| A structure, link, mode or digest violation in the image | `UpdaterUnavailable` | no |
+| A missing or changed pinned payload | `UpdaterUnavailable` | no |
+| An unmount failure, an evidence write failure, a failed quarantine, a contended publication or a verification deadline | `UpdaterUnavailable` | yes |
+
+A caller cancellation carries no firmware reason. When cleanup also fails after
+a failure, the cleanup error is joined without changing the reason,
+retryability or exceeded budget of the first failure. Every deadline is
+enforced between bounded operations: a single read, write, sync, directory
+read, unlink or rename that blocks in the kernel cannot be interrupted, so the
+agent claims no hard wall-clock bound.
 
 ## Helm installation and recovery
 
