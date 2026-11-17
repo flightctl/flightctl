@@ -53,7 +53,7 @@ func setHostFile(t *testing.T, f *payloadFixture, rel, content string) {
 	t.Helper()
 	p := filepath.Join(f.root, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
 }
 
 func setMode(t *testing.T, f *payloadFixture, mode string) {
