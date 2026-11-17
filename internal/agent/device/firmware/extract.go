@@ -186,7 +186,7 @@ func (x *extraction) run() (*PublishedPayload, error) {
 func (x *extraction) payloadFrom(m *Manifest) *PublishedPayload {
 	files := make([]PublishedFile, 0, len(m.Files))
 	for _, f := range m.Files {
-		files = append(files, PublishedFile{Path: f.Path, SHA256: f.SHA256, Size: f.Size, Executable: f.Executable})
+		files = append(files, PublishedFile(f))
 	}
 	return &PublishedPayload{ManifestDigest: x.pkg.ManifestDigest, Dir: x.final, Entrypoint: m.Entrypoint, Files: files, Limits: x.limits, Reused: true}
 }
