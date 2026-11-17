@@ -464,7 +464,7 @@ func TestSyncRejectsReservedFirmwarePaths(t *testing.T) {
 			require := require.New(t)
 			controller, root, _ := newGuardController(t, dataDir)
 			require.NoError(os.MkdirAll(filepath.Join(root, "etc", "app"), 0o755))
-			require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o644))
+			require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o600))
 			current := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/etc/app/old.conf")}
 			desired := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/etc/app/a.conf", path, "/etc/app/b.conf")}
 			err := controller.Sync(context.Background(), current, desired)
@@ -512,9 +512,9 @@ func TestSyncDoesNotRemoveReservedFirmwarePaths(t *testing.T) {
 	controller, root, logs := newGuardController(t, "/var/lib/flightctl")
 	reserved := filepath.Join(root, "var", "lib", "flightctl", "firmware", "updaters", "x")
 	require.NoError(os.MkdirAll(filepath.Dir(reserved), 0o755))
-	require.NoError(os.WriteFile(reserved, []byte("retained"), 0o644))
+	require.NoError(os.WriteFile(reserved, []byte("retained"), 0o600))
 	require.NoError(os.MkdirAll(filepath.Join(root, "etc", "app"), 0o755))
-	require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o644))
+	require.NoError(os.WriteFile(filepath.Join(root, "etc", "app", "old.conf"), []byte("old"), 0o600))
 	current := &v1beta1.DeviceSpec{Config: inlineProvider(t, "/var/lib/flightctl/firmware/updaters/x", "/etc/app/old.conf")}
 	require.NoError(controller.Sync(context.Background(), current, &v1beta1.DeviceSpec{}))
 	data, err := os.ReadFile(reserved)

@@ -135,7 +135,7 @@ func (f *payloadFixture) setManifest(data []byte) {
 	f.manifest, f.manifestBytes = m, data
 	require.NoError(f.t, os.MkdirAll(f.imageDir(""), 0o755))
 	_ = os.Remove(f.imageDir("manifest.json"))
-	require.NoError(f.t, os.WriteFile(f.imageDir("manifest.json"), data, 0o644))
+	require.NoError(f.t, os.WriteFile(f.imageDir("manifest.json"), data, 0o600))
 }
 
 func (f *payloadFixture) src() fileio.Anchor {
@@ -417,7 +417,7 @@ func TestStageTreeRejectsHostilePayloads(t *testing.T) {
 		{
 			name: "When the updater directory holds an unexpected entry it should reject the payload",
 			mutate: func(t *testing.T, f *payloadFixture) {
-				require.NoError(t, os.WriteFile(f.imageDir("README"), []byte("x"), 0o644))
+				require.NoError(t, os.WriteFile(f.imageDir("README"), []byte("x"), 0o600))
 			},
 			reason: firmware.ReasonUpdaterUnavailable,
 		},
