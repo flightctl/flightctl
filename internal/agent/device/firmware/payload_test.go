@@ -215,6 +215,7 @@ type hooks struct {
 	available  func() (uint64, bool)
 	xattr      func(rel, attr string) ([]byte, fileio.XattrState, error, bool)
 	replace    func(dir, name string) error
+	close      func(dir string)
 }
 
 type hooked struct {

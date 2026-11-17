@@ -32,7 +32,9 @@ const (
 	hostFileReadLimit = 4096
 	maxModeBytes      = 16
 
-	evidenceEventVerify = "verify"
+	evidenceEventPublish = "publish"
+	evidenceEventReuse   = "reuse"
+	evidenceEventVerify  = "verify"
 )
 
 // SELinuxMode is the SELinux mode observed on the host.

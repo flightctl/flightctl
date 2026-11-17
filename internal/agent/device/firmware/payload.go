@@ -114,8 +114,10 @@ type PublishedPayload struct {
 	// SourceMountReadOnly records whether the source mount reported itself
 	// read-only. It is an observation, not a guarantee.
 	SourceMountReadOnly bool
-	Reused              bool
-	Cleanup             CleanupReport
+	// Evidence is the host observation recorded for this result.
+	Evidence HostObservation
+	Reused   bool
+	Cleanup  CleanupReport
 }
 
 // StagedTree is a fully staged, synced and unpublished payload owned by the
@@ -210,7 +212,7 @@ func planPayload(release string, m *Manifest, manifestBytes []byte, limits polic
 	if len(m.Files) == 0 {
 		return nil, invalid("manifest lists no files")
 	}
-	if int64(len(manifestBytes)) > limits.MaxExtractedManifestBytes {
+	if manifestBytes != nil && int64(len(manifestBytes)) > limits.MaxExtractedManifestBytes {
 		return nil, budgetFailure(release, "stage", "maxExtractedManifestBytes", fmt.Errorf("manifest of %d bytes exceeds the admitted %d bytes", len(manifestBytes), limits.MaxExtractedManifestBytes))
 	}
 	if int64(len(m.Files)) > limits.MaxExtractedFiles {
@@ -261,6 +263,9 @@ func planPayload(release string, m *Manifest, manifestBytes []byte, limits polic
 	entry := slices.IndexFunc(m.Files, func(f ManifestFile) bool { return f.Path == m.Entrypoint })
 	if entry < 0 || !m.Files[entry].Executable {
 		return nil, invalid("manifest entrypoint %q is not a listed executable file", m.Entrypoint)
+	}
+	if manifestBytes == nil {
+		return plan, nil
 	}
 	parsed, err := ParseManifest(manifestBytes)
 	if err != nil || !reflect.DeepEqual(parsed, m) {
