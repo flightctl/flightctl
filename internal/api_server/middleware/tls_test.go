@@ -18,9 +18,8 @@ func TestTLSClientCertConnContextHandshakeTimeout(t *testing.T) {
 	defer clientConn.Close()
 
 	tlsServerConn := tls.Server(serverConn, &tls.Config{
-		Certificates:       nil,
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
+		Certificates: nil,
+		MinVersion:   tls.VersionTLS12,
 	})
 
 	log := logrus.New()
