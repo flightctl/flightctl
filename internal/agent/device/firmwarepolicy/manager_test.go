@@ -84,9 +84,6 @@ func run(t *testing.T, m *receiver.Manager) context.Context {
 func accept(t *testing.T, ctx context.Context, m *receiver.Manager, revision int64) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		if m.Sync(ctx) != nil {
-			return false
-		}
 		v, err := m.Current()
 		return err == nil && v != nil && v.Revision == revision
 	}, time.Second, 5*time.Millisecond)
@@ -104,13 +101,12 @@ func TestPolicyReceiptRetention(t *testing.T) {
 			for _, name := range []string{"current.json", "desired.json", "rollback.json", "firmware/attempt-fixture.json"} {
 				require.NoError(t, rw.WriteFile(filepath.Join(dir, name), []byte("pinned control"), 0600))
 			}
+			require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 			if revokedFirst {
 				n.views <- two
 			} else {
 				n.views <- one
 			}
-			require.Never(t, func() bool { return len(n.acks) > 0 }, 30*time.Millisecond, 5*time.Millisecond)
-			require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 			if !revokedFirst {
 				accept(t, ctx, m, 1)
 				require.True(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
@@ -137,8 +133,8 @@ func TestPolicyReceiptRetention(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, two, *got)
 			require.False(t, restart.IsApproved(b.Name, b.Version, b.DescriptorDigest))
-			n.views <- one
-			require.Eventually(t, func() bool { return m.Sync(ctx) != nil }, time.Second, 5*time.Millisecond)
+			_, err = m.Receive(ctx, one)
+			require.Error(t, err)
 			got, err = m.Current()
 			require.NoError(t, err)
 			require.Equal(t, two, *got)
@@ -164,8 +160,8 @@ func TestPolicyDurabilityFailure(t *testing.T) {
 	m := manager(t, "/data", rw, n)
 	ctx := run(t, m)
 	require.True(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
-	n.views <- two
-	require.Eventually(t, func() bool { return m.Sync(ctx) != nil }, time.Second, 5*time.Millisecond)
+	_, err = m.Receive(ctx, two)
+	require.Error(t, err)
 	require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 	current, err := m.Current()
 	require.Error(t, err)
@@ -174,8 +170,8 @@ func TestPolicyDurabilityFailure(t *testing.T) {
 		ack := <-n.acks
 		require.NotEqual(t, int64(2), ack.Revision)
 	}
-	n.views <- one
-	require.Eventually(t, func() bool { return m.Sync(ctx) != nil }, time.Second, 5*time.Millisecond)
+	_, err = m.Receive(ctx, one)
+	require.Error(t, err)
 	require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 	n.views <- two
 	accept(t, ctx, m, 2)
@@ -204,8 +200,8 @@ func TestPolicyCorruptState(t *testing.T) {
 			require.ErrorContains(t, currentErr, tc.context)
 			require.False(t, m.IsApproved(b.Name, b.Version, b.DescriptorDigest))
 			ctx := run(t, m)
-			n.views <- one
-			require.Eventually(t, func() bool { return m.Sync(ctx) != nil }, time.Second, 5*time.Millisecond)
+			_, err = m.Receive(ctx, one)
+			require.Error(t, err)
 			require.Empty(t, n.acks)
 		})
 	}
@@ -334,26 +330,9 @@ func TestPolicyReceiveWithoutHTTP(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	received := make(chan policy.Receipt, 1)
-	failures := make(chan error, 1)
-	go func() {
-		receipt, err := m.Receive(ctx, one)
-		if err != nil {
-			failures <- err
-			return
-		}
-		received <- receipt
-	}()
-	require.Never(t, func() bool { return len(received) > 0 }, 30*time.Millisecond, time.Millisecond)
-	accept(t, ctx, m, one.Revision)
-	select {
-	case receipt := <-received:
-		require.Equal(t, policy.Receipt{Revision: one.Revision, Digest: one.Digest}, receipt)
-	case err := <-failures:
-		t.Fatal(err)
-	case <-ctx.Done():
-		t.Fatal("durably accepted policy did not return a receipt")
-	}
+	receipt, err := m.Receive(ctx, one)
+	require.NoError(t, err)
+	require.Equal(t, policy.Receipt{Revision: one.Revision, Digest: one.Digest}, receipt)
 	data, err := rw.ReadFileLimited(filepath.Join(dir, "firmware/policy.json"), policy.MaxWireBytes)
 	require.NoError(t, err)
 	persisted, err := policy.ParseView(data)
@@ -362,4 +341,45 @@ func TestPolicyReceiveWithoutHTTP(t *testing.T) {
 	cancel()
 	_, err = m.Receive(ctx, one)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestPolicyReceiveSerializesDurableAcceptance(t *testing.T) {
+	one, two, _ := views(t)
+	ctrl := gomock.NewController(t)
+	rw := fileio.NewMockReadWriter(ctrl)
+	rw.EXPECT().ReadFileLimited("/data/firmware/policy.json", int64(policy.MaxWireBytes)).Return(nil, os.ErrNotExist)
+	writing := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	first := rw.EXPECT().WriteFileDurable("/data/firmware/policy.json", gomock.Any(), os.FileMode(0700), os.FileMode(0600)).DoAndReturn(func(string, []byte, os.FileMode, os.FileMode, ...fileio.FileOption) error {
+		close(writing)
+		<-release
+		return nil
+	})
+	rw.EXPECT().WriteFileDurable("/data/firmware/policy.json", gomock.Any(), os.FileMode(0700), os.FileMode(0600)).Return(nil).After(first)
+	m, err := receiver.New("device", "/data", rw, client.NewMockManagement(ctrl), log.NewPrefixLogger("serialized"))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	go func() { _, err := m.Receive(ctx, one); firstDone <- err }()
+	select {
+	case <-writing:
+	case <-ctx.Done():
+		t.Fatal("first durable write did not start")
+	}
+	go func() { _, err := m.Receive(ctx, two); secondDone <- err }()
+	require.Never(t, func() bool { return len(secondDone) > 0 }, 30*time.Millisecond, time.Millisecond)
+	close(release)
+	require.NoError(t, <-firstDone)
+	require.NoError(t, <-secondDone)
+	current, err := m.Current()
+	require.NoError(t, err)
+	require.Equal(t, two, *current)
 }

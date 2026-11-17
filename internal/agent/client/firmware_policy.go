@@ -32,6 +32,8 @@ func (m *management) GetFirmwarePolicy(ctx context.Context, name string, known f
 	if err != nil {
 		return nil, 0, fmt.Errorf("get firmware policy: %w", err)
 	}
+	// Closing a read-only response is best-effort; status, read, and validation
+	// errors determine the result, and there is no buffered write to flush.
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, response.StatusCode, nil
@@ -64,6 +66,8 @@ func (m *management) AcknowledgeFirmwarePolicy(ctx context.Context, name string,
 	if response == nil {
 		return 0, errors.New("empty policy acknowledgement response")
 	}
+	// Closing a read-only response is best-effort; status, read, and validation
+	// errors determine the result, and there is no buffered write to flush.
 	defer func() { _ = response.Body.Close() }()
 	return response.StatusCode, nil
 }

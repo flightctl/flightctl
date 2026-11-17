@@ -154,6 +154,7 @@ var _ = Describe("Updater catalog periodic runtime", func() {
 			select {
 			case waitErr = <-done:
 			case <-time.After(15 * time.Second):
+				// Best-effort cleanup: the process may have exited since the timeout.
 				_ = command.Process.Kill()
 				waitErr = <-done
 				if waitErr == nil {

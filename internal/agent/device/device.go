@@ -178,7 +178,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 	return nil
 }
 
-func (a *Agent) syncFirmwarePolicy(ctx context.Context) {
+func (a *Agent) syncFirmwarePolicy() {
 	if a.firmwarePolicy != nil {
 		if !a.firmwarePolicyChecked {
 			for _, kind := range []spec.Type{spec.Current, spec.Desired, spec.Rollback} {
@@ -204,9 +204,6 @@ func (a *Agent) syncFirmwarePolicy(ctx context.Context) {
 			}
 			a.requireFirmwarePolicy(device)
 		}
-		if err := a.firmwarePolicy.Sync(ctx); err != nil {
-			a.log.WithError(err).Warn("firmware policy receipt unavailable")
-		}
 	}
 }
 
@@ -218,7 +215,7 @@ func (a *Agent) requireFirmwarePolicy(device *v1beta1.Device) {
 }
 
 func (a *Agent) syncDeviceSpec(ctx context.Context) {
-	a.syncFirmwarePolicy(ctx)
+	a.syncFirmwarePolicy()
 	startTime := time.Now()
 	a.log.Trace("Starting sync of device spec")
 	defer func() {

@@ -280,9 +280,6 @@ var _ = Describe("Private updater policy delivery", func() {
 		defer func() { cancel(); Eventually(done, time.Second).Should(BeClosed()) }()
 		accept := func(revision int64) {
 			Eventually(func() bool {
-				if manager.Sync(ctx) != nil {
-					return false
-				}
 				view, err := manager.Current()
 				return err == nil && view != nil && view.Revision == revision
 			}, 3*time.Second, 10*time.Millisecond).Should(BeTrue())

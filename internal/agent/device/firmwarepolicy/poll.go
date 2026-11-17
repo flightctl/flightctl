@@ -9,7 +9,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/poll"
 )
 
-// Run performs network I/O only; queued views become authoritative through Sync.
+// Run retrieves and durably accepts policy independently of device updates.
 func (m *Manager) Run(ctx context.Context) {
 	select {
 	case <-m.required:

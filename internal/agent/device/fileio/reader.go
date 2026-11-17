@@ -154,6 +154,8 @@ func (r *reader) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// This file is read-only: read errors are returned below, and closing it
+	// cannot lose buffered writes or change the bytes already read.
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {

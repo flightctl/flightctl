@@ -27,14 +27,6 @@ type retained struct {
 	err                error
 	historyUnavailable bool
 }
-type result struct {
-	receipt policy.Receipt
-	err     error
-}
-type pending struct {
-	view   policy.View
-	result chan result
-}
 type Option func(*options)
 type options struct{ poll poll.Config }
 
@@ -46,7 +38,7 @@ type Manager struct {
 	client     client.Management
 	log        *log.PrefixLogger
 	poll       poll.Config
-	pending    chan pending
+	acceptMu   sync.Mutex
 	state      atomic.Pointer[retained]
 	required   chan struct{}
 	require    sync.Once
@@ -67,7 +59,7 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	if o.poll.MaxDelay <= 0 {
 		return nil, errors.New("firmware policy retry delay must be bounded")
 	}
-	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, pending: make(chan pending, 1), required: make(chan struct{})}
+	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, required: make(chan struct{})}
 	state := &retained{}
 	data, err := rw.ReadFileLimited(m.path, policy.MaxWireBytes)
 	if !os.IsNotExist(err) {
@@ -144,41 +136,18 @@ func (m *Manager) receipt() policy.Receipt {
 	return policy.Receipt{Revision: s.view.Revision, Digest: s.view.Digest}
 }
 
-// Sync accepts at most one queued view under the agent's sequential update owner.
-func (m *Manager) Sync(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	select {
-	case request := <-m.pending:
-		receipt, err := m.accept(request.view)
-		request.result <- result{receipt: receipt, err: err}
-		return err
-	default:
-		return nil
-	}
-}
-
-// Receive queues a complete policy from a delivery transport and waits for the
-// sequential owner to validate and durably retain it through Sync. Only a
-// successful receipt may be acknowledged to the service.
+// Receive serializes policy acceptance independently of device reconciliation.
+// A successful receipt means the view was validated and durably retained; only
+// then may a delivery transport acknowledge it to the service.
 func (m *Manager) Receive(ctx context.Context, view policy.View) (policy.Receipt, error) {
+	m.acceptMu.Lock()
+	defer m.acceptMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return policy.Receipt{}, err
 	}
-	request := pending{view: clone(view), result: make(chan result, 1)}
-	select {
-	case m.pending <- request:
-	case <-ctx.Done():
-		return policy.Receipt{}, ctx.Err()
-	}
-	select {
-	case outcome := <-request.result:
-		return outcome.receipt, outcome.err
-	case <-ctx.Done():
-		return policy.Receipt{}, ctx.Err()
-	}
+	return m.accept(view)
 }
+
 func (m *Manager) accept(view policy.View) (policy.Receipt, error) {
 	previous := m.state.Load()
 	if previous.historyUnavailable {

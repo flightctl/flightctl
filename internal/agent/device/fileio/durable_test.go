@@ -52,7 +52,7 @@ func TestDurableRetrySyncsExistingAncestors(t *testing.T) {
 	require.Error(t, rw.WriteFileDurable(name, []byte("first"), 0700, 0600, WithUid(os.Getuid()+1)))
 	parent := filepath.Join(root, "state")
 	require.NoError(t, os.Chmod(parent, 0111))
-	defer func() { _ = os.Chmod(parent, 0700) }()
+	defer func() { require.NoError(t, os.Chmod(parent, 0700)) }()
 	// Leaf access still works, but the unsynced ancestor cannot be opened.
 	require.Error(t, rw.WriteFileDurable(name, []byte("retry"), 0700, 0600))
 	require.NoError(t, os.Chmod(parent, 0700))

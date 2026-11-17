@@ -183,9 +183,10 @@ contract; target removal alone does not establish that an attempt cannot resume.
 The agent polls policy independently of rendered specifications, using the same
 reloadable management client. File-backed and TPM-backed HTTP clients enable HTTP/2
 so concurrent policy and rendered-spec requests can share a connection when HTTP/2
-is negotiated. Network I/O places a complete view into a bounded
-queue. The sequential device engine accepts queued policy before desired-spec
-processing, so an invalid, unchanged or unavailable target cannot skip receipt.
+is negotiated. The delivery goroutine accepts policy through a policy-specific lock that serializes
+validation, durable retention, and publication independently of device reconciliation.
+Long-running downloads, installation, or activation do not delay revocation receipt
+or subsequent policy reads. An invalid, unchanged, or unavailable target cannot skip receipt.
 Existing bootstrap and enrollment gates remain in place.
 
 Policy receipt is independent of the download schedule: authorization metadata,
@@ -194,8 +195,8 @@ This path never downloads updater executables or firmware artifacts. Policy size
 limits still apply; a changed revision transfers the complete policy document.
 
 HTTP long polling remains the delivery mechanism and does not depend on AgentLink.
-The receiver's `Receive` operation queues a policy and returns a revision/digest
-receipt only after `Sync` validates and durably retains it. A future AgentLink
+The receiver's `Receive` operation returns a revision/digest receipt only after it
+validates and durably retains the policy under that lock. A future AgentLink
 transport can reuse this acceptance path and reconcile from retained revision/digest
 after reconnecting. It must acknowledge only a successful receipt and replace the
 HTTP polling owner rather than start a competing delivery loop.
