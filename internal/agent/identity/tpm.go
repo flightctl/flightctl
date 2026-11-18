@@ -23,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
-	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -445,9 +444,6 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			TLSClientConfig:   tlsConfig,
 			Proxy:             http.ProxyFromEnvironment,
 			ForceAttemptHTTP2: true,
-		}
-		if _, err := http2.ConfigureTransports(transport); err != nil {
-			return nil, fmt.Errorf("configure TPM management HTTP/2 transport: %w", err)
 		}
 		httpClient := &http.Client{Transport: transport}
 
