@@ -48,6 +48,73 @@ var _ = Describe("CSR transaction ownership", func() {
 		return provider.CreateOrUpdate(txCtx, suite.OrgID, request)
 	}
 
+	DescribeTable("When upsert creates a CSR it should preserve generic create semantics",
+		func(issued, enrollmentSigner, generatedName bool) {
+			request := newStoredCSR()
+			request.Spec.SignerName = suite.cfg.CA.DeviceEnrollmentSignerName
+			if issued {
+				seed, err := provider.Create(ctx, suite.OrgID, &request)
+				Expect(err).NotTo(HaveOccurred())
+				request = *issueCSRWithCertificate(suite, ctx, provider, seed)
+			}
+			if !enrollmentSigner {
+				request.Spec.SignerName = ""
+			}
+			request.Metadata.Labels = lo.ToPtr(map[string]string{"label": "value"})
+			request.Metadata.Annotations = lo.ToPtr(map[string]string{"annotation": "value"})
+			request.Metadata.Owner = lo.ToPtr("Device/owner")
+			request.Metadata.ResourceVersion = lo.ToPtr("37")
+			var expected *domain.CertificateSigningRequest
+			var expectedRecord model.CertificateSigningRequest
+			for _, upsert := range []bool{false, true} {
+				name := uuid.NewString()
+				if generatedName {
+					name = ""
+				}
+				request.Metadata.Name = &name
+				var created *domain.CertificateSigningRequest
+				var err error
+				if upsert {
+					var before *domain.CertificateSigningRequest
+					var creating bool
+					created, before, creating, err = provider.CreateOrUpdate(ctx, suite.OrgID, &request)
+					Expect(before).To(BeNil())
+					Expect(creating).To(BeTrue())
+				} else {
+					created, err = provider.Create(ctx, suite.OrgID, &request)
+				}
+				Expect(err).NotTo(HaveOccurred())
+				Expect(*created.Metadata.Name).NotTo(BeEmpty())
+				Expect(created.Metadata.CreationTimestamp.IsZero()).To(BeFalse())
+				Expect(created.Metadata.ResourceVersion).To(Equal(lo.ToPtr("1")))
+				var record model.CertificateSigningRequest
+				Expect(suite.DB.WithContext(ctx).Where("org_id = ? AND name = ?", suite.OrgID, *created.Metadata.Name).Take(&record).Error).To(Succeed())
+				Expect(record.Generation).To(Equal(lo.ToPtr(int64(1))))
+				Expect(record.ResourceVersion).To(Equal(lo.ToPtr(int64(1))))
+				Expect(record.PolicySetRevision).To(BeZero())
+				if issued && enrollmentSigner {
+					Expect(record.CertificateDigest).NotTo(BeNil())
+				} else {
+					Expect(record.CertificateDigest).To(BeNil())
+				}
+				if upsert {
+					Expect(created.Spec).To(Equal(expected.Spec))
+					Expect(created.Status).To(Equal(expected.Status))
+					Expect(created.Metadata.Labels).To(Equal(expected.Metadata.Labels))
+					Expect(created.Metadata.Annotations).To(Equal(expected.Metadata.Annotations))
+					Expect(created.Metadata.Owner).To(Equal(expected.Metadata.Owner))
+					Expect(record.CertificateDigest).To(Equal(expectedRecord.CertificateDigest))
+				} else {
+					expected, expectedRecord = created, record
+				}
+			}
+		},
+		Entry("default status and configured signer", false, true, false),
+		Entry("issued status and enrollment digest", true, true, false),
+		Entry("issued status without enrollment digest", true, false, false),
+		Entry("empty signer and generated-name hook", false, false, true),
+	)
+
 	for _, method := range []string{"Update", "CreateOrUpdate"} {
 		for _, create := range []bool{false, true} {
 			if method == "Update" && create {
@@ -152,6 +219,8 @@ var _ = Describe("CSR transaction ownership", func() {
 					}
 					if !retained {
 						policy.Spec = model.MakeJSONField(domain.EnrollmentApprovalPolicySpec{CertificateName: *request.Metadata.Name, MatchExpression: "true"})
+					} else {
+						policy.DeletedAt = gorm.DeletedAt{Time: time.Now(), Valid: true}
 					}
 					Expect(store.DB(txCtx, suite.DB).Create(policy).Error).To(Succeed())
 					updated, before, created, err := write(txCtx, method, &request)
@@ -167,7 +236,7 @@ var _ = Describe("CSR transaction ownership", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(outside).To(Equal(original))
 				var count int64
-				Expect(suite.DB.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Count(&count).Error).To(Succeed())
+				Expect(suite.DB.WithContext(ctx).Unscoped().Model(&model.EnrollmentApprovalPolicy{}).Count(&count).Error).To(Succeed())
 				Expect(count).To(BeZero())
 				queries := strings.Join(recorder.drain(), "\n")
 				Expect(queries).To(ContainSubstring("FOR UPDATE"))

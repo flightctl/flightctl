@@ -651,7 +651,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 			shouldIncludeTestOp: true,
 		},
 		{
-			name: "no changes - should return only resourceVersion test",
+			name: "When there are no changes it should return an empty patch",
 			originalResource: map[string]interface{}{
 				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
@@ -675,11 +675,11 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			expectError:         false,
-			expectedPatchOps:    1, // Only resourceVersion test when no changes
-			shouldIncludeTestOp: true,
+			expectedPatchOps:    0,
+			shouldIncludeTestOp: false,
 		},
 		{
-			name: "protected field change - should be filtered and return only resourceVersion test",
+			name: "When only protected fields change it should return an empty patch",
 			originalResource: map[string]interface{}{
 				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
@@ -697,8 +697,8 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			expectError:         false,
-			expectedPatchOps:    1, // Only resourceVersion test when only protected fields changed
-			shouldIncludeTestOp: true,
+			expectedPatchOps:    0,
+			shouldIncludeTestOp: false,
 		},
 		{
 			name: "user changed resourceVersion - should include test and fail",

@@ -103,6 +103,10 @@ func (handler *TransportHandler) ReplaceEnrollmentApprovalPolicy(w http.Response
 		handler.SetResponse(w, nil, status)
 		return
 	}
+	if policy.Metadata.ResourceVersion == nil || current.Metadata.ResourceVersion == nil || *policy.Metadata.ResourceVersion != *current.Metadata.ResourceVersion {
+		handler.SetResponse(w, nil, domain.NewFailureStatus(409, "ResourceVersionConflict", "current resourceVersion is required"))
+		return
+	}
 	if !reflect.DeepEqual(current.Spec.ApprovalLimit, policy.Spec.ApprovalLimit) && !handler.quotaAllowed(w, request) {
 		return
 	}
