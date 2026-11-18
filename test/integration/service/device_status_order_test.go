@@ -1,10 +1,12 @@
 package service_test
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	. "github.com/onsi/ginkgo/v2"
@@ -27,6 +29,7 @@ var _ = Describe("Device status ordering", func() {
 	})
 
 	It("rejects older status PUT and PATCH without changing a terminal result or its events", func() {
+		agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, "true")
 		created, result := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
 			Metadata: api.ObjectMeta{Name: lo.ToPtr(delayedStatusDeviceName)},
 			Spec:     &api.DeviceSpec{},
@@ -40,7 +43,7 @@ var _ = Describe("Device status ordering", func() {
 			Reason: string(domain.UpdateStateError), Message: "Update failed",
 			LastTransitionTime: time.Now().UTC(),
 		}}
-		accepted, result := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, delayedStatusDeviceName, api.Device{
+		accepted, result := suite.Device.ReplaceDeviceStatus(agentCtx, suite.OrgID, delayedStatusDeviceName, api.Device{
 			Metadata: api.ObjectMeta{Name: lo.ToPtr(delayedStatusDeviceName), ResourceVersion: created.Metadata.ResourceVersion},
 			Status:   &terminal,
 		}, false)
@@ -56,7 +59,7 @@ var _ = Describe("Device status ordering", func() {
 			Reason: string(domain.UpdateStatePreparing), Message: "Preparing",
 			LastTransitionTime: time.Now().UTC(),
 		}}
-		_, result = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, delayedStatusDeviceName, api.Device{
+		_, result = suite.Device.ReplaceDeviceStatus(agentCtx, suite.OrgID, delayedStatusDeviceName, api.Device{
 			Metadata: api.ObjectMeta{Name: lo.ToPtr(delayedStatusDeviceName), ResourceVersion: created.Metadata.ResourceVersion},
 			Status:   &stale,
 		}, false)

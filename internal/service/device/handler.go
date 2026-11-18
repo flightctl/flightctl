@@ -650,8 +650,11 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
-	if err := common.CheckResourceVersionConflict(&originalDevice.Metadata, &incomingDevice.Metadata); err != nil {
-		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	_, isAgent := ctx.Value(consts.AgentCtxKey).(string)
+	if isAgent {
+		if err := common.CheckResourceVersionConflict(&originalDevice.Metadata, &incomingDevice.Metadata); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
 	}
 
 	suppliedFirmware := incomingDevice.Status.Firmware
@@ -671,8 +674,10 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	// supplied one may not erase an outstanding attempt.
 	reported := deviceToStore.Status
 	mergeFirmware := func(current *domain.Device) (*domain.DeviceStatus, error) {
-		if err := common.CheckResourceVersionConflict(&current.Metadata, &incomingDevice.Metadata); err != nil {
-			return nil, err
+		if isAgent {
+			if err := common.CheckResourceVersionConflict(&current.Metadata, &incomingDevice.Metadata); err != nil {
+				return nil, err
+			}
 		}
 		status := *reported
 		stored := storedFirmwareStatus(current)

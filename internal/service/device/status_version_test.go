@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -18,18 +19,23 @@ var replaceVersionCases = []struct {
 	name       string
 	reportedRV *string
 	advanceRV  bool
+	nonAgent   bool
 	wantCode   int32
 }{
 	{name: "When the report has the current version it should be accepted", reportedRV: lo.ToPtr("3"), wantCode: http.StatusOK},
 	{name: "When the report has an older version it should be rejected", reportedRV: lo.ToPtr("2"), wantCode: http.StatusConflict},
 	{name: "When the stored version advances during the write it should be rejected", reportedRV: lo.ToPtr("3"), advanceRV: true, wantCode: http.StatusConflict},
 	{name: "When a legacy report has no version it should remain accepted", wantCode: http.StatusOK},
+	{name: "When a non-agent report carries an older version it should retain legacy behavior", reportedRV: lo.ToPtr("2"), nonAgent: true, wantCode: http.StatusOK},
 }
 
 func TestReplaceStatusVersionPrecondition(t *testing.T) {
 	for _, tc := range replaceVersionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
+			if !tc.nonAgent {
+				ctx = context.WithValue(ctx, consts.AgentCtxKey, "true")
+			}
 			orgID := uuid.New()
 			st, ev, svc := newTestHandler()
 			createStatusVersionDevice(t, st, orgID)
