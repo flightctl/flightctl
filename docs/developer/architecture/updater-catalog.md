@@ -677,9 +677,11 @@ return.
 ### Retention, verification and cleanup
 
 The retention registry pins published payloads per attempt and role (active or
-recovery). Pins survive restarts, refuse a missing version directory or a
-conflicting identity, and an unreadable or malformed registry fails closed for
-every operation. A usable payload is leased in memory until it is pinned or its
+recovery). Pins survive restarts and refuse a conflicting identity. Pinning
+reports a missing version directory as `ErrRetainedPayloadMissing`, any other
+entry at that name as `ErrRetainedPayloadChanged`, and keeps the cause of any
+other inspection failure; a refused pin records nothing. An unreadable or
+malformed registry fails closed for every operation. A usable payload is leased in memory until it is pinned or its
 lease is released, so cleanup cannot remove it in between; leases end with the
 agent process.
 
