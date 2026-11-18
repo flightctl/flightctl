@@ -314,6 +314,21 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 		"/kind",
 		"/apiVersion",
 	}
+	for _, op := range patch {
+		isProtected := false
+		for _, protected := range protectedPaths {
+			if strings.HasPrefix(op.Path, protected) {
+				isProtected = true
+				break
+			}
+		}
+		if !isProtected {
+			filteredOps = append(filteredOps, op)
+		}
+	}
+	if len(filteredOps) == 0 {
+		return []byte("[]"), nil
+	}
 
 	// 4. Add a test operation for resourceVersion FIRST to ensure conflict detection
 	// Only add the test if the patch doesn't contain a remove operation for resourceVersion
@@ -338,33 +353,10 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 						Path:      "/metadata/resourceVersion",
 						Value:     resourceVersion,
 					}
-					filteredOps = append(filteredOps, testOp)
+					filteredOps = append([]jsonpatchcreate.JsonPatchOperation{testOp}, filteredOps...)
 				}
 			}
 		}
-	}
-
-	// Filter out operations that modify protected fields
-	for _, op := range patch {
-		path := op.Path
-		isProtected := false
-
-		for _, protected := range protectedPaths {
-			// Check if the operation's path matches or is a sub-path of a protected one
-			if strings.HasPrefix(path, protected) {
-				isProtected = true
-				break
-			}
-		}
-
-		if !isProtected {
-			filteredOps = append(filteredOps, op)
-		}
-	}
-
-	// If no operations were generated, return an empty patch
-	if len(filteredOps) == 0 {
-		return []byte("[]"), nil
 	}
 
 	// 5. Marshal the final, filtered patch back to JSON

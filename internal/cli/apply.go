@@ -232,6 +232,7 @@ func applyFromReader(ctx context.Context, c *client.Client, ibClient *client.Ima
 		if err = resourceDecoder.Decode(&resource); err != nil {
 			break
 		}
+		normalizeIntegralJSONNumbers(resource)
 		resources = append(resources, resource)
 	}
 	if !errors.Is(err, io.EOF) {
@@ -399,7 +400,14 @@ func applyEnrollmentApprovalPolicy(ctx context.Context, apiClient *client.Client
 	if !ok {
 		return applyResult{err: fmt.Errorf("policy metadata is required")}
 	}
-	version, _ := metadata["resourceVersion"].(string)
+	version := ""
+	if supplied, exists := metadata["resourceVersion"]; exists {
+		var valid bool
+		version, valid = supplied.(string)
+		if !valid || version == "" {
+			return applyResult{err: fmt.Errorf("metadata.resourceVersion must be a non-empty string")}
+		}
+	}
 	delete(metadata, "resourceVersion")
 	createBody, err := json.Marshal(document)
 	if err != nil {

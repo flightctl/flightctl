@@ -1760,6 +1760,9 @@ func Save(cfg *Config, cfgFile string) error {
 }
 
 func Validate(cfg *Config) error {
+	if cfg.CA != nil && cfg.CA.DeviceEnrollmentSignerName == "" {
+		return fmt.Errorf("ca.deviceEnrollmentSignerName must be non-empty")
+	}
 	allowedGitOpsIgnoreResourceUpdates := map[string]struct{}{
 		"/metadata/resourceVersion": {},
 	}

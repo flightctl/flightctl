@@ -98,6 +98,9 @@ func TestApplyApprovalPolicyUsesResourceVersionAndOmitsStatus(t *testing.T) {
 			generated, err := apiclient.NewClientWithResponses(server.URL)
 			require.NoError(t, err)
 			body := []byte(`{"metadata":{"name":"west","resourceVersion":"` + suppliedVersion + `"},"status":{"enrollmentCount":5}}`)
+			if suppliedVersion == "" {
+				body = []byte(`{"metadata":{"name":"west"},"status":{"enrollmentCount":5}}`)
+			}
 			result := applyResourceByKind(t.Context(), client.NewTestClient(generated), nil, EnrollmentApprovalPolicyKind, "west", body)
 			require.NoError(t, result.err)
 			if suppliedVersion == "" {
