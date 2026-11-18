@@ -198,6 +198,7 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrDecommission:                        true,
 	flterrors.ErrResourceNotEmpty:                    true,
 	flterrors.ErrResourceInUse:                       true,
+	flterrors.ErrEnrollmentCredentialRetained:        true,
 }
 
 // StoreErrorToApiStatus maps a store error into the appropriate domain.Status.

@@ -491,7 +491,7 @@ var _ = Describe("Firmware admission at the write boundary", func() {
 				MultiErrorHandler:     apiserver.OapiMultiErrorHandler,
 				SilenceServersWarning: true,
 			})
-			handler := transportv1beta1.NewTransportHandler(nil, nil, deviceSvc, nil, nil, nil, nil, nil, fleetSvc, nil, nil, nil, nil,
+			handler := transportv1beta1.NewTransportHandler(nil, nil, deviceSvc, nil, nil, nil, nil, nil, nil, fleetSvc, nil, nil, nil, nil,
 				convertv1beta1.NewConverter(), nil, nil, nil, nil)
 			identity := ctx.Value(consts.MappedIdentityCtxKey)
 			router := chi.NewRouter()

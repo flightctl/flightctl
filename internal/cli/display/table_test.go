@@ -9,9 +9,31 @@ import (
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEnrollmentApprovalPolicyTableDispatch(t *testing.T) {
+	policy := api.EnrollmentApprovalPolicy{Metadata: api.ObjectMeta{Name: lo.ToPtr("west")}, Spec: api.EnrollmentApprovalPolicySpec{CertificateName: "credential"}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: 9}}
+	for _, wide := range []bool{false, true} {
+		for _, single := range []bool{false, true} {
+			var output bytes.Buffer
+			options := FormatOptions{Kind: api.EnrollmentApprovalPolicyKind, Writer: &output}
+			var response any = &apiclient.ListEnrollmentApprovalPoliciesResponse{JSON200: &api.EnrollmentApprovalPolicyList{Items: []api.EnrollmentApprovalPolicy{policy}}}
+			if single {
+				options.Name = "west"
+				response = &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: &policy}
+			}
+			require.NoError(t, (&TableFormatter{wide: wide}).Format(response, options))
+			require.Contains(t, output.String(), "west")
+			require.Contains(t, output.String(), "ENROLLMENTS")
+			require.Contains(t, output.String(), "9")
+		}
+	}
+	var output bytes.Buffer
+	require.NoError(t, (&TableFormatter{}).Format(&apiclient.ListEnrollmentApprovalPoliciesResponse{JSON200: &api.EnrollmentApprovalPolicyList{}}, FormatOptions{Kind: api.EnrollmentApprovalPolicyKind, Writer: &output}))
+}
 
 // lineContaining returns the first line of output that contains the given
 // substring, or "" if none does. Used to assert on a specific row of a

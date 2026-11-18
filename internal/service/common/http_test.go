@@ -97,11 +97,12 @@ func TestNilOutManagedObjectMetaProperties(t *testing.T) {
 func TestStoreErrorToApiStatus(t *testing.T) {
 	name := "foo"
 	tests := []struct {
-		name         string
-		err          error
-		created      bool
-		kind         string
-		expectedCode int32
+		name           string
+		err            error
+		created        bool
+		kind           string
+		expectedCode   int32
+		expectedReason string
 	}{
 		{
 			name:         "When err is nil and created is true it should return StatusCreated",
@@ -147,6 +148,12 @@ func TestStoreErrorToApiStatus(t *testing.T) {
 			expectedCode: 409,
 		},
 		{
+			name:           "When an enrollment credential is retained it should return the standard conflict response",
+			err:            flterrors.ErrEnrollmentCredentialRetained,
+			expectedCode:   409,
+			expectedReason: "Conflict",
+		},
+		{
 			name:         "When err is an unrecognized error it should return 500",
 			err:          errors.New("some unmapped database error"),
 			expectedCode: 500,
@@ -156,6 +163,9 @@ func TestStoreErrorToApiStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			status := StoreErrorToApiStatus(tt.err, tt.created, tt.kind, &name)
 			require.Equal(t, tt.expectedCode, status.Code)
+			if tt.expectedReason != "" {
+				require.Equal(t, tt.expectedReason, status.Reason)
+			}
 		})
 	}
 }

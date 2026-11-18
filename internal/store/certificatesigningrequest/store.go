@@ -133,6 +133,12 @@ func (s *CertificateSigningRequestStore) WithTransaction(ctx context.Context, fn
 func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
 	db := s.getDB(ctx)
 
+	if db.Migrator().HasColumn(&model.CertificateSigningRequest{}, "PolicySetRevision") {
+		if err := db.Unscoped().Model(&model.CertificateSigningRequest{}).Where("policy_set_revision IS NULL").UpdateColumn("policy_set_revision", 0).Error; err != nil {
+			return err
+		}
+	}
+
 	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
 	}
@@ -178,10 +184,47 @@ func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
+	if resource == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, nil, flterrors.ErrResourceNameIsNil
+	}
+	if !store.InTransaction(ctx) {
+		var updated, before *domain.CertificateSigningRequest
+		err := s.WithTransaction(ctx, func(txCtx context.Context) error {
+			var err error
+			updated, before, err = s.Update(txCtx, orgId, resource)
+			return err
+		})
+		return updated, before, err
+	}
+	if err := s.guardPolicyBinding(s.getDB(ctx), orgId, lo.FromPtr(resource.Metadata.Name), true); err != nil {
+		return nil, nil, err
+	}
 	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
 }
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if resource == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, nil, false, flterrors.ErrResourceNameIsNil
+	}
+	if !store.InTransaction(ctx) {
+		var updated, before *domain.CertificateSigningRequest
+		var created bool
+		err := s.WithTransaction(ctx, func(txCtx context.Context) error {
+			var err error
+			updated, before, created, err = s.CreateOrUpdate(txCtx, orgId, resource)
+			return err
+		})
+		return updated, before, created, err
+	}
+	if err := s.guardPolicyBinding(s.getDB(ctx), orgId, lo.FromPtr(resource.Metadata.Name), true); err != nil {
+		return nil, nil, false, err
+	}
 	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
@@ -194,7 +237,19 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	db := s.getDB(ctx)
+	var deleted bool
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		if err := s.guardPolicyBinding(tx, orgId, name, true); err != nil {
+			return err
+		}
+		var err error
+		deleted, err = s.deleteResourceWithDB(tx, orgId, name)
+		return err
+	})
+	return deleted, err
+}
+
+func (s *CertificateSigningRequestStore) deleteResourceWithDB(db *gorm.DB, orgId uuid.UUID, name string) (bool, error) {
 	result := db.Exec(`
 		DELETE FROM certificate_signing_requests
 		WHERE org_id = CAST(@org_id AS uuid)
@@ -231,6 +286,16 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 
 // Mutate applies an atomic create-or-update; apply decides which resource fields change.
 func (s *CertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	if !store.InTransaction(ctx) {
+		var updated, before *domain.CertificateSigningRequest
+		var created bool
+		err := s.WithTransaction(ctx, func(txCtx context.Context) error {
+			var err error
+			updated, before, created, err = s.Mutate(txCtx, orgId, name, previous, apply)
+			return err
+		})
+		return updated, before, created, err
+	}
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
 	}
@@ -255,6 +320,9 @@ func (s *CertificateSigningRequestStore) persistMutation(ctx context.Context, or
 	}
 	if before.Metadata.CreationTimestamp == nil {
 		return false, flterrors.ErrResourceVersionConflict
+	}
+	if err := s.guardPolicyBinding(s.getDB(ctx), orgId, name, !reflect.DeepEqual(before.Spec, mutation.Resource().Spec)); err != nil {
+		return false, err
 	}
 	record, err := certificateSigningRequestToModel(before, s.enrollmentSignerName)
 	if err != nil {
@@ -398,4 +466,26 @@ func revocationApplied(updated, before *domain.CertificateSigningRequest, err er
 		return false
 	}
 	return before == nil || before.Status == nil || !before.Status.HasRevocation()
+}
+
+func (s *CertificateSigningRequestStore) guardPolicyBinding(db *gorm.DB, orgID uuid.UUID, name string, replacing bool) error {
+	var credential model.CertificateSigningRequest
+	err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgID, name).Take(&credential).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	if !replacing {
+		return nil
+	}
+	var retained bool
+	if err := db.Raw("SELECT EXISTS (SELECT 1 FROM enrollment_approval_policies WHERE org_id = ? AND certificate_name = ?)", orgID, name).Scan(&retained).Error; err != nil {
+		return err
+	}
+	if retained {
+		return flterrors.ErrEnrollmentCredentialRetained
+	}
+	return nil
 }

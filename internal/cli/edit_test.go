@@ -13,10 +13,55 @@ import (
 	"strings"
 	"testing"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
+
+func TestEditApprovalPolicyPreservesApprovalLimit(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		for _, limits := range []struct {
+			name     string
+			original *int64
+			edited   *int64
+		}{
+			{"increase", lo.ToPtr(int64(9223372036854775806)), lo.ToPtr(int64(9223372036854775807))},
+			{"decrease", lo.ToPtr(int64(9223372036854775807)), lo.ToPtr(int64(9223372036854775806))},
+			{"unchanged", lo.ToPtr(int64(9223372036854775807)), lo.ToPtr(int64(9223372036854775807))},
+			{"add", nil, lo.ToPtr(int64(9223372036854775807))},
+			{"remove", lo.ToPtr(int64(9223372036854775807)), nil},
+		} {
+			t.Run(format+"/"+limits.name, func(t *testing.T) {
+				original := &api.EnrollmentApprovalPolicy{Kind: api.EnrollmentApprovalPolicyKind, ApiVersion: "flightctl.io/v1beta1", Metadata: api.ObjectMeta{Name: lo.ToPtr("west"), ResourceVersion: lo.ToPtr("1")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: limits.original}}
+				response := &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: original, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}
+				opts := DefaultEditOptions()
+				opts.Output = format
+				editedPolicy := *original
+				editedPolicy.Spec.ApprovalLimit = limits.edited
+				editedPolicy.Spec.Enabled = true
+				content, err := opts.resourceToFormat(&apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: &editedPolicy, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}, format)
+				require.NoError(t, err)
+				edited, err := opts.parseEditedContent(content)
+				require.NoError(t, err)
+				patch, err := opts.calculatePatch(response, edited)
+				require.NoError(t, err)
+				decoded, err := jsonpatch.DecodePatch(patch)
+				require.NoError(t, err)
+				originalJSON, err := json.Marshal(original)
+				require.NoError(t, err)
+				changed, err := decoded.Apply(originalJSON)
+				require.NoError(t, err)
+				var result api.EnrollmentApprovalPolicy
+				require.NoError(t, json.Unmarshal(changed, &result))
+				require.Equal(t, limits.edited, result.Spec.ApprovalLimit)
+				require.True(t, result.Spec.Enabled)
+			})
+		}
+	}
+}
 
 func TestEditOptions_Validate(t *testing.T) {
 	tests := []struct {
@@ -902,4 +947,15 @@ func TestEditCommand_CobraValidation(t *testing.T) {
 // stringPtr returns a pointer to the given string
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestEditJSONRejectsTrailingInput(t *testing.T) {
+	for _, content := range []string{`{"kind":"Device"} {}`, `{"kind":"Device"} garbage`} {
+		t.Run(content, func(t *testing.T) {
+			options := DefaultEditOptions()
+			options.Output = "json"
+			_, err := options.parseEditedContent([]byte(content))
+			require.ErrorContains(t, err, "exactly one JSON document")
+		})
+	}
 }
