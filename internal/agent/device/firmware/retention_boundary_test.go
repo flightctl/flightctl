@@ -551,3 +551,76 @@ func TestRetentionPinInspectionErrors(t *testing.T) {
 		})
 	}
 }
+
+// capabilityHooks reports the security.capability attribute of the retained
+// entry rel with state and err, leaving every other attribute untouched.
+func capabilityHooks(rel string, state fileio.XattrState, err error) *hooks {
+	return &hooks{xattr: func(r, attr string) ([]byte, fileio.XattrState, error, bool) {
+		if attr != "security.capability" || r != rel {
+			return nil, "", nil, false
+		}
+		if state == fileio.XattrPresent {
+			return []byte{0, 0, 0, 2}, state, nil, true
+		}
+		return nil, state, err, true
+	}}
+}
+
+func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
+	ioErr := fmt.Errorf("injected: %w", unix.EIO)
+	testCases := []struct {
+		name    string
+		hooks   *hooks
+		want    error
+		notWant []error
+		cause   error
+	}{
+		{name: "When the manifest carries file capabilities it should report the payload changed", hooks: capabilityHooks("manifest.json", fileio.XattrPresent, nil), want: firmware.ErrRetainedPayloadChanged},
+		{name: "When the executable carries file capabilities it should report the payload changed", hooks: capabilityHooks("payload/bin/updater", fileio.XattrPresent, nil), want: firmware.ErrRetainedPayloadChanged},
+		{name: "When a data file carries file capabilities it should report the payload changed", hooks: capabilityHooks("payload/share/doc.txt", fileio.XattrPresent, nil), want: firmware.ErrRetainedPayloadChanged},
+		{
+			name:    "When the capabilities of the manifest cannot be read it should report the verification incomplete with the cause",
+			hooks:   capabilityHooks("manifest.json", fileio.XattrUnknown, ioErr),
+			want:    firmware.ErrRetainedVerificationIncomplete,
+			notWant: []error{firmware.ErrRetainedPayloadChanged, firmware.ErrRetainedPayloadMissing},
+			cause:   unix.EIO,
+		},
+		{
+			name:    "When the capabilities of the executable cannot be read it should report the verification incomplete with the cause",
+			hooks:   capabilityHooks("payload/bin/updater", fileio.XattrUnknown, ioErr),
+			want:    firmware.ErrRetainedVerificationIncomplete,
+			notWant: []error{firmware.ErrRetainedPayloadChanged, firmware.ErrRetainedPayloadMissing},
+			cause:   unix.EIO,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			f := newPayloadFixture(t, defaultPayload(t))
+			pin := publishVersion(t, f, 'a')
+			_, err := evidenceRetention(f, tc.hooks).VerifyPublished(context.Background(), pin)
+			require.ErrorIs(err, tc.want)
+			for _, e := range tc.notWant {
+				require.NotErrorIs(err, e)
+			}
+			if tc.cause != nil {
+				require.ErrorIs(err, tc.cause)
+			}
+			requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+			_, statErr := os.Stat(f.cacheDir(pin.PayloadDir, "manifest.json"))
+			require.NoError(statErr, "verification never removes the retained payload")
+		})
+	}
+	t.Run("When the filesystem does not support capability attributes it should verify the payload", func(t *testing.T) {
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		unsupported := &hooks{xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
+			if attr != "security.capability" {
+				return nil, "", nil, false
+			}
+			return nil, fileio.XattrUnsupported, nil, true
+		}}
+		_, err := evidenceRetention(f, unsupported).VerifyPublished(context.Background(), pin)
+		require.NoError(t, err)
+	})
+}

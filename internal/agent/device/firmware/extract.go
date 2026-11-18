@@ -172,10 +172,12 @@ func (x *extraction) run() (*PublishedPayload, error) {
 			return x.reuse(m)
 		case x.ctx.Err() != nil:
 			return nil, retainedFailure(x.ctx, x.release, verr)
-		case !errors.Is(verr, ErrRetainedPayloadMissing):
+		case errors.Is(verr, ErrRetainedPayloadChanged):
 			if err := x.quarantine(); err != nil {
 				return nil, err
 			}
+		case !errors.Is(verr, ErrRetainedPayloadMissing):
+			return nil, retainedFailure(x.ctx, x.release, verr)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, unavailable(x.release, false, err)
@@ -374,7 +376,7 @@ func (x *extraction) classify(ctx context.Context) (winnerClass, *Manifest, erro
 	switch {
 	case err == nil:
 		return winnerValid, m, nil
-	case ctx.Err() != nil || errors.Is(err, ErrRetainedPayloadMissing):
+	case ctx.Err() != nil || errors.Is(err, ErrRetainedPayloadMissing) || errors.Is(err, ErrRetainedVerificationIncomplete):
 		return winnerUnknown, nil, err
 	case pinned:
 		return winnerInvalidPinned, nil, err
