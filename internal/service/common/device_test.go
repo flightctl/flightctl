@@ -893,14 +893,15 @@ func TestKeepDBDeviceStatusPreservesEnrollmentCredential(t *testing.T) {
 	}
 }
 
-func TestKeepDBDeviceStatusDoesNotInheritRollbackReboot(t *testing.T) {
+func TestKeepDBDeviceStatusRollbackSummaryInheritance(t *testing.T) {
 	tests := []struct {
 		name            string
 		reason          string
 		incomingSummary domain.DeviceSummaryStatusType
 		wantSummary     domain.DeviceSummaryStatusType
 	}{
-		{name: "When rolling back it should not inherit stale reboot", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusUnknown, wantSummary: domain.DeviceSummaryStatusUnknown},
+		{name: "When rolling back with an explicit Online summary it should not inherit stale reboot", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusOnline, wantSummary: domain.DeviceSummaryStatusOnline},
+		{name: "When an older agent reports Unknown it should retain existing inheritance", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusUnknown, wantSummary: domain.DeviceSummaryStatusRebooting},
 		{name: "When rollback reboot is reported it should keep fresh reboot", reason: string(domain.UpdateStateRollingBack), incomingSummary: domain.DeviceSummaryStatusRebooting, wantSummary: domain.DeviceSummaryStatusRebooting},
 		{name: "When forward rebooting it should retain existing inheritance", reason: string(domain.UpdateStateRebooting), incomingSummary: domain.DeviceSummaryStatusUnknown, wantSummary: domain.DeviceSummaryStatusRebooting},
 	}
@@ -955,6 +956,7 @@ func TestRollbackRebootServerSummaries(t *testing.T) {
 func TestOrdinaryRollbackAfterStoredReboot(t *testing.T) {
 	incomingStatus := domain.NewDeviceStatus()
 	incomingStatus.LastSeen = lo.ToPtr(time.Now())
+	incomingStatus.Summary.Status = domain.DeviceSummaryStatusOnline
 	incomingStatus.Conditions = []domain.Condition{{
 		Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: string(domain.UpdateStateRollingBack),
 	}}

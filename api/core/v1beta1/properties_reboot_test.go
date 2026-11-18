@@ -38,20 +38,20 @@ func TestDeviceIsRebooting(t *testing.T) {
 	require.False(t, (&Device{}).IsRebooting())
 }
 
-func TestDeviceIsConfirmedForwardReboot(t *testing.T) {
+func TestDeviceIsConfirmedUpdateReboot(t *testing.T) {
 	tests := []struct {
 		name    string
 		version string
 		reason  UpdateState
 		want    bool
 	}{
-		{name: "When stable 1.5 agent reports Rebooting it should confirm forward reboot", version: "v1.5.0", reason: UpdateStateRebooting, want: true},
-		{name: "When newer stable agent reports Rebooting it should confirm forward reboot", version: "v1.6.1", reason: UpdateStateRebooting, want: true},
+		{name: "When stable 1.5 agent reports Rebooting it should confirm update reboot", version: "v1.5.0", reason: UpdateStateRebooting, want: true},
+		{name: "When newer stable agent reports Rebooting it should confirm update reboot", version: "v1.6.1", reason: UpdateStateRebooting, want: true},
 		{name: "When older agent reports Rebooting it should leave direction unknown", version: "v1.4.9", reason: UpdateStateRebooting},
 		{name: "When prerelease agent reports Rebooting it should leave direction unknown", version: "v1.5.0-rc1", reason: UpdateStateRebooting},
 		{name: "When development agent reports Rebooting it should leave direction unknown", version: "v1.5.0-9-gabcdef123", reason: UpdateStateRebooting},
 		{name: "When unknown agent reports Rebooting it should leave direction unknown", version: "unknown-dirty", reason: UpdateStateRebooting},
-		{name: "When newer agent reports RollingBack it should not confirm forward reboot", version: "v1.5.0", reason: UpdateStateRollingBack},
+		{name: "When newer agent reports RollingBack it should not confirm update reboot", version: "v1.5.0", reason: UpdateStateRollingBack},
 	}
 
 	for _, tt := range tests {
@@ -60,12 +60,12 @@ func TestDeviceIsConfirmedForwardReboot(t *testing.T) {
 				SystemInfo: DeviceSystemInfo{AgentVersion: tt.version},
 				Conditions: []Condition{{Type: ConditionTypeDeviceUpdating, Status: ConditionStatusTrue, Reason: string(tt.reason)}},
 			}}
-			require.Equal(t, tt.want, device.IsConfirmedForwardReboot())
+			require.Equal(t, tt.want, device.IsConfirmedUpdateReboot())
 			require.True(t, device.IsUpdating())
 		})
 	}
 
 	var nilDevice *Device
-	require.False(t, nilDevice.IsConfirmedForwardReboot())
-	require.False(t, (&Device{}).IsConfirmedForwardReboot())
+	require.False(t, nilDevice.IsConfirmedUpdateReboot())
+	require.False(t, (&Device{}).IsConfirmedUpdateReboot())
 }

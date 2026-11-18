@@ -871,7 +871,7 @@ func TestOSRollback(t *testing.T) {
 				require.Zero(rebootReports)
 			}
 			if tc.initialForwardReboot {
-				require.Equal(v1beta1.DeviceSummaryStatusUnknown, reports[0].summary)
+				require.Equal(v1beta1.DeviceSummaryStatusOnline, reports[0].summary)
 			}
 			if tc.syncChangesCondition {
 				require.Equal(string(v1beta1.UpdateStateRollingBack), reports[len(reports)-1].reason)

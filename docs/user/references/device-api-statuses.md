@@ -101,7 +101,7 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 | `Updated` | The agent has successfully completed the update and the device is conforming to its device spec. Note that the device's update status may still be reported as `OutOfDate` if the device spec is not yet at the same version as the fleet's device template. |
 | `Error` | The agent failed to apply the desired spec and will not retry. The device's OS image and configuration have been rolled back to the pre-update version and have been activated. |
 
-On agents with a stable version of 1.5 or newer, `Rebooting` confirms a forward reboot. Older agents may also use that reason for rollback, so it does not confirm the direction. An unknown or development agent version is also ambiguous. These reports retain `Updating` with unavailable stage detail.
+On agents with a stable version of 1.5 or newer, `Rebooting` confirms an update reboot. Older agents may also use that reason for rollback, so it does not confirm the direction. An unknown or development agent version is also ambiguous. These reports retain `Updating` with unavailable stage detail.
 
 When rollback starts, any earlier forward-reboot summary is cleared. During a rollback OS reboot, the Updating reason remains `RollingBack` while `device.status.summary.status` is `Rebooting`. After the agent restarts, that reboot summary is cleared before it reports ordinary rollback work or the final outcome.
 

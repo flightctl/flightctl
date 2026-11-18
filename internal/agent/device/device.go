@@ -440,7 +440,8 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 func (a *Agent) reportRollingBack(ctx context.Context, current *v1beta1.Device) {
 	_, err := a.statusManager.Update(ctx, func(deviceStatus *v1beta1.DeviceStatus) error {
 		if deviceStatus.Summary.Status == v1beta1.DeviceSummaryStatusRebooting {
-			deviceStatus.Summary.Status = v1beta1.DeviceSummaryStatusUnknown
+			// Unknown inherits the stored reboot summary; Online lets the server recalculate it.
+			deviceStatus.Summary.Status = v1beta1.DeviceSummaryStatusOnline
 			deviceStatus.Summary.Info = nil
 		}
 		return nil

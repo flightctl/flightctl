@@ -47,8 +47,8 @@ func (d *Device) IsRebooting() bool {
 			(updatingCondition.Reason == string(UpdateStateRollingBack) && d.Status.Summary.Status == DeviceSummaryStatusRebooting))
 }
 
-// IsConfirmedForwardReboot reports Rebooting only for released agents with the directional reboot contract.
-func (d *Device) IsConfirmedForwardReboot() bool {
+// IsConfirmedUpdateReboot reports Rebooting only for released agents with the directional reboot contract.
+func (d *Device) IsConfirmedUpdateReboot() bool {
 	if d == nil || d.Status == nil || !d.IsRebooting() {
 		return false
 	}
