@@ -21,10 +21,11 @@ import (
 )
 
 // extractEnv extracts updater payloads with the real podman image mount of a
-// fetch environment. Its handles are rooted at the spec directory, which holds
-// both the data directory and the image storage, so that the trusted path to
-// the data directory starts at a directory the test owns: in a rootless user
-// namespace the host root directory belongs to an unmapped user.
+// fetch environment. Its handles are rooted at the suite work directory, which
+// holds every spec's data directory as well as the image storage, including
+// storage that podman places under the suite's home directories. The trusted
+// path to the data directory therefore starts at a directory the test owns: in
+// a rootless user namespace the host root directory belongs to an unmapped user.
 type extractEnv struct {
 	*fetchEnv
 	root      string
@@ -34,7 +35,7 @@ type extractEnv struct {
 }
 
 func newExtractEnv(e *fetchEnv) *extractEnv {
-	root := filepath.Dir(e.dataDir)
+	root := state.WorkDir
 	x := &extractEnv{
 		fetchEnv: e,
 		root:     root,
@@ -63,10 +64,19 @@ func (m rootedMounter) Mount(ctx context.Context, image string) (string, error) 
 	return "/" + rel, nil
 }
 
+// fixedMounter reports a fixed mount point without mounting anything.
+type fixedMounter struct{ point string }
+
+func (m fixedMounter) Mount(context.Context, string) (string, error) { return m.point, nil }
+func (fixedMounter) Unmount(context.Context, string) error           { return nil }
+
 // restart replaces the retention and extractor as a new agent process would.
 func (x *extractEnv) restart() {
 	podman := client.NewPodman(x.logger, x.recorder, x.rw, poll.Config{BaseDelay: time.Second, Factor: 1, MaxSteps: 1})
-	dataDir := "/" + filepath.Base(x.dataDir)
+	rel, err := filepath.Rel(x.root, x.dataDir)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(rel).NotTo(Or(Equal(".."), HavePrefix("../")), "the data directory must lie beneath the suite root")
+	dataDir := "/" + filepath.ToSlash(rel)
 	x.retention = firmware.NewRetention(dataDir, x.rw, x.logger)
 	x.extractor = firmware.NewExtractor(dataDir, rootedMounter{ImageMounter: podman, root: x.root}, x.receiver, x.rw, x.retention, x.logger)
 }
@@ -104,6 +114,24 @@ func treeOf(dir string) map[string]string {
 }
 
 var _ = Describe("Extracting verified updater payloads", func() {
+	It("When an image is mounted beside the data directory under the suite root it should resolve the mount point and refuse one outside that root", func(ctx SpecContext) {
+		x := newExtractEnv(newFetchEnv(state.DiscoveryHome, state.AuthFile))
+		mounts, err := os.MkdirTemp(state.DiscoveryHome, "mounts-")
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(os.RemoveAll, mounts)
+		merged := filepath.Join(mounts, "overlay", "merged")
+		Expect(os.MkdirAll(filepath.Join(merged, "updater"), 0o700)).To(Succeed())
+
+		point, err := rootedMounter{ImageMounter: fixedMounter{point: merged}, root: x.root}.Mount(ctx, "image")
+		Expect(err).NotTo(HaveOccurred())
+		src, err := x.rw.OpenAnchor(point, fileio.DirOptions{ReadOnly: true})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(src.Close()).To(Succeed())
+
+		_, err = rootedMounter{ImageMounter: fixedMounter{point: filepath.Dir(state.WorkDir)}, root: x.root}.Mount(ctx, "image")
+		Expect(err).To(MatchError(ContainSubstring("outside")))
+	})
+
 	It("When an approved signed release has an extraction budget it should publish only its listed files after unmounting the image", func(ctx SpecContext) {
 		requireNativeHost()
 		x := newExtractEnv(newFetchEnv(state.DiscoveryHome, state.AuthFile))
