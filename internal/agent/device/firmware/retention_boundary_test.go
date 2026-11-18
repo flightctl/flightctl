@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -622,5 +623,27 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		}}
 		_, err := evidenceRetention(f, unsupported).VerifyPublished(context.Background(), pin)
 		require.NoError(t, err)
+	})
+	t.Run("When the deadline expires during the capability scan it should stop reading and report the verification incomplete", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		reads := 0
+		expiring := &hooks{xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
+			if attr != "security.capability" {
+				return nil, "", nil, false
+			}
+			reads++
+			<-ctx.Done()
+			return nil, fileio.XattrAbsent, nil, true
+		}}
+		_, err := evidenceRetention(f, expiring).VerifyPublished(ctx, pin)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, context.DeadlineExceeded)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
+		require.Equal(1, reads, "the scan stops at the deadline")
 	})
 }
