@@ -11,6 +11,9 @@ type txContextKey struct{}
 // WithTransaction starts a DB transaction, stores it in ctx, and runs fn.
 // Store methods that use DB(ctx, ...) or RunInTransaction join this TX.
 func WithTransaction(ctx context.Context, db *gorm.DB, fn func(ctx context.Context) error) error {
+	if InTransaction(ctx) {
+		return fn(ctx)
+	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return fn(context.WithValue(ctx, txContextKey{}, tx))
 	})

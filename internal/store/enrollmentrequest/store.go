@@ -87,13 +87,13 @@ func NewEnrollmentRequestStore(db *gorm.DB, log logrus.FieldLogger) Store {
 }
 
 func (s *EnrollmentRequestStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
 }
 
 func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
 	db := s.getDB(ctx)
 
-	if err := db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
+	if err := db.AutoMigrate(&model.EnrollmentRequest{}, &model.EnrollmentAdmission{}); err != nil {
 		return err
 	}
 

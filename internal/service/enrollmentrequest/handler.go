@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -51,11 +52,12 @@ type ServiceHandler struct {
 	agentGate          *semaphore.Weighted
 	ehPolicySvc        enrollmenthookpolicy.Service
 	notifySecretsStore enrollmenthooknotifysecrets.Store
+	matcher            policyMatcher
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrService csrservice.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
-	return &ServiceHandler{
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrService csrservice.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store, options ...func(*ServiceHandler)) *ServiceHandler {
+	handler := &ServiceHandler{
 		store:              store,
 		deviceStore:        deviceStore,
 		csrService:         csrService,
@@ -69,6 +71,10 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 		ehPolicySvc:        ehPolicySvc,
 		notifySecretsStore: notifySecretsStore,
 	}
+	for _, option := range options {
+		option(handler)
+	}
+	return handler
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -372,15 +378,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 				Info:   lo.ToPtr(common.DeviceStatusInfoAwaitingReconnect),
 			}
 			// Add awaiting reconnection key to KV store
-			key := kvstore.AwaitingReconnectionKey{
-				OrgID:      orgId,
-				DeviceName: name,
-			}
-			keyStr := key.ComposeKey()
-			_, err := h.kvStore.SetNX(ctx, keyStr, []byte("true"))
-			if err != nil {
-				h.log.WithError(err).Errorf("Failed to add awaiting reconnection key for device %s in org %s", name, orgId)
-			}
+			h.trackAwaitingReconnection(ctx, orgId, name)
 		}
 	}
 	// fleetStore is nil: apiResource never has Metadata.Owner set above, so domain.Device.IsManaged()
@@ -410,9 +408,21 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		return err
 	}
 
-	h.reconcileDeviceEnrollmentCredentialRevocation(ctx, orgId, enrollmentRequest, name)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
+	if !store.InTransaction(ctx) {
+		h.reconcileDeviceEnrollmentCredentialRevocation(ctx, orgId, enrollmentRequest, name)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
+	}
 	return nil
+}
+
+func (h *ServiceHandler) trackAwaitingReconnection(ctx context.Context, orgID uuid.UUID, name string) {
+	if store.InTransaction(ctx) {
+		return
+	}
+	key := kvstore.AwaitingReconnectionKey{OrgID: orgID, DeviceName: name}
+	if _, err := h.kvStore.SetNX(ctx, key.ComposeKey(), []byte("true")); err != nil {
+		h.log.WithError(err).Errorf("Failed to add awaiting reconnection key for device %s in org %s", name, orgID)
+	}
 }
 
 // reconcileDeviceEnrollmentCredentialRevocation closes the race where the
@@ -561,6 +571,9 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		if err := common.CheckResourceVersionConflict(&current.Metadata, &er.Metadata); err != nil {
 			return err
 		}
+		if !enrollmentrequeststore.Pending(current) && !reflect.DeepEqual(current.Spec, er.Spec) {
+			return flterrors.ErrResourceVersionConflict
+		}
 		current.Spec = er.Spec
 		labels := lo.FromPtrOr(er.Metadata.Labels, map[string]string{})
 		if labels != nil {
@@ -594,9 +607,12 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
+	if !enrollmentrequeststore.Pending(currentObj) && !reflect.DeepEqual(currentObj.Spec, newObj.Spec) {
+		return nil, domain.StatusConflict("enrollment admission inputs are immutable after a decision")
+	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	newObj.Metadata.ResourceVersion = nil
+	newObj.Metadata.ResourceVersion = currentObj.Metadata.ResourceVersion
 
 	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
 	if err != nil {
@@ -611,7 +627,13 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 		}
 	}
 
-	result, oldER, err := h.store.Update(ctx, orgId, newObj)
+	result, oldER, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(mutation *enrollmentrequeststore.EnrollmentRequestMutation) error {
+		if err := mutation.RequireExisting(); err != nil {
+			return err
+		}
+		mutation.EnrollmentRequest = newObj
+		return nil
+	})
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
@@ -639,62 +661,10 @@ func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, orgId u
 }
 
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status) {
-	if errs := approval.Validate(); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	if _, ok := h.store.(enrollmentrequeststore.AdmissionStore); !ok {
+		return nil, domain.NewFailureStatus(503, "AdmissionUnavailable", "Enrollment admission persistence is unavailable")
 	}
-	enrollmentReq, err := h.store.Get(ctx, orgId, name)
-	if err != nil {
-		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
-	}
-
-	approvalStatusToReturn := enrollmentReq.Status.Approval
-
-	// if the enrollment request was already approved we should not try to approve it one more time
-	if approval.Approved {
-		if domain.IsStatusConditionTrue(enrollmentReq.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) {
-			return nil, domain.StatusBadRequest("Enrollment request is already approved")
-		}
-
-		identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-		if !ok {
-			status := domain.StatusInternalServerError("failed to retrieve user identity while approving enrollment request")
-			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
-			return nil, status
-		}
-
-		approvedBy := "unknown"
-		if identity != nil && len(identity.GetUsername()) > 0 {
-			approvedBy = identity.GetUsername()
-		}
-
-		approvalStatus := domain.EnrollmentRequestApprovalStatus{
-			Approved:      approval.Approved,
-			Labels:        approval.Labels,
-			ReplaceLabels: approval.ReplaceLabels,
-			ApprovedAt:    time.Now(),
-			ApprovedBy:    approvedBy,
-		}
-		approvalStatusToReturn = &approvalStatus
-
-		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
-		if err != nil {
-			status := domain.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
-			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
-			return nil, status
-		}
-
-		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
-		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			status := domain.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
-			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
-			return nil, status
-		}
-	}
-
-	// Update the enrollment request status using the specific approval callback
-	result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
-	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
-	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+	return h.approveAdmission(ctx, orgId, name, approval)
 }
 
 func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {

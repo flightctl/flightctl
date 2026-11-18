@@ -20,8 +20,17 @@ func (h *ServiceHandler) updateStatus(ctx context.Context, orgId uuid.UUID, reso
 		}
 		current := mutation.EnrollmentRequest
 		status := *resource.Status
-		status.EnrollmentCertificateName = current.Status.EnrollmentCertificateName
 		if current.Status != nil {
+			status.EnrollmentCertificateName = current.Status.EnrollmentCertificateName
+			if !enrollmentrequeststore.Pending(current) {
+				status.Certificate = current.Status.Certificate
+				status.Approval = current.Status.Approval
+				for _, conditionType := range []domain.ConditionType{domain.ConditionTypeEnrollmentRequestApproved, domain.ConditionTypeEnrollmentRequestDenied} {
+					if condition := domain.FindStatusCondition(current.Status.Conditions, conditionType); condition != nil {
+						domain.SetStatusCondition(&status.Conditions, *condition)
+					}
+				}
+			}
 			if denied := domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied); denied != nil &&
 				domain.FindStatusCondition(status.Conditions, domain.ConditionTypeEnrollmentRequestDenied) == nil {
 				domain.SetStatusCondition(&status.Conditions, *denied)

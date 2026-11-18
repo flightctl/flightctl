@@ -22,6 +22,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
+		useEnrollmentCredential(suite)
 	})
 
 	AfterEach(func() {

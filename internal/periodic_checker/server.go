@@ -22,6 +22,7 @@ import (
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
@@ -37,6 +38,7 @@ import (
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
@@ -205,6 +207,8 @@ func (s *Server) Run(ctx context.Context) error {
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
 		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc)
+	enrollmentHandler := enrollmentrequestservice.NewServiceHandler(enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log), deviceStore, nil, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, nil)
+	periodicTaskExecutors[PeriodicTaskTypeEnrollmentAdmission] = &EnrollmentAdmissionExecutor{recover: enrollmentHandler.RecoverAdmissions}
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

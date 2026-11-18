@@ -35,6 +35,7 @@ var _ = Describe("EnrollmentRequest EnrollmentHooks Integration", func() {
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
+		useEnrollmentCredential(suite)
 		ctx = approvalContext(suite)
 	})
 

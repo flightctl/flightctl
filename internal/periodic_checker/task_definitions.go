@@ -66,6 +66,7 @@ type PeriodicTaskMetadata struct {
 }
 
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
+	PeriodicTaskTypeEnrollmentAdmission:    {Interval: time.Minute, SystemWide: false},
 	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
 	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
 	PeriodicTaskTypeDeviceConnection:       {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},

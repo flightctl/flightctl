@@ -27,12 +27,24 @@ func (i *enrollmentIdentityWithCSRName) GetEnrollmentCSRName() *string {
 	return i.csrName
 }
 
+func useEnrollmentCredential(suite *ServiceTestSuite) {
+	credential, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, CreateTestCSR())
+	ExpectWithOffset(1, status.Code).To(BeEquivalentTo(http.StatusCreated))
+	ExpectWithOffset(1, credential.Status.Certificate).NotTo(BeNil())
+	suite.Ctx = util.WithOrganizationID(suite.Ctx, suite.OrgID)
+	suite.Ctx = context.WithValue(suite.Ctx, consts.IdentityCtxKey, &enrollmentIdentityWithCSRName{
+		BaseIdentity: authcommon.NewBaseIdentity("enrollment-agent", "enrollment-agent", nil),
+		csrName:      credential.Metadata.Name,
+	})
+}
+
 var _ = Describe("EnrollmentRequest Integration Tests", func() {
 	var suite *ServiceTestSuite
 
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
+		useEnrollmentCredential(suite)
 	})
 
 	AfterEach(func() {
@@ -342,6 +354,10 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 					Expect(updated).ToNot(BeNil())
 					Expect(updated.Metadata.CreationTimestamp).To(Equal(setupResult.Metadata.CreationTimestamp))
 					Expect(updated).To(expectedERStatusMatcher, "Status should match expected after update")
+					if approveFirst {
+						Expect(updated.Status.Certificate).To(Equal(setupResult.Status.Certificate))
+						Expect(updated.Status.Approval).To(Equal(setupResult.Status.Approval))
+					}
 				}
 
 				By("verifying persistence by reading back")
@@ -373,7 +389,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				BeEquivalentTo(http.StatusOK),
 			),
 
-			Entry("external request after approval should succeed",
+			Entry("external request after approval should preserve admission and update reported status",
 				true, // Approve first
 				true, // External request
 				func(er api.EnrollmentRequest) api.EnrollmentRequest {
@@ -385,14 +401,20 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 								Reason:  "PostApprovalUpdate",
 								Message: "Should be allowed after approval",
 							},
+							{
+								Type:    api.ConditionTypeEnrollmentRequestTPMVerified,
+								Status:  api.ConditionStatusFalse,
+								Reason:  "ReportUpdated",
+								Message: "Reported evidence changed",
+							},
 						},
 					}
 					return er
 				},
-				HaveField("Status.Conditions", ContainElement(And(
-					HaveField("Reason", "PostApprovalUpdate"),
-					HaveField("Message", "Should be allowed after approval"),
-				))),
+				HaveField("Status.Conditions", And(
+					ContainElement(And(HaveField("Reason", "ManuallyApproved"), HaveField("Message", "Approved by testuser"))),
+					ContainElement(And(HaveField("Reason", "ReportUpdated"), HaveField("Message", "Reported evidence changed"))),
+				)),
 				BeEquivalentTo(http.StatusOK),
 			),
 
@@ -505,17 +527,19 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				HaveField("Status.Approval.Labels", PointTo(HaveKeyWithValue("env", "integration"))),
 			))
 
-			By("trying to approve again and verifying it fails")
+			By("replaying approval and verifying the original committed result")
 			secondApproval := api.EnrollmentRequestApproval{
 				Approved: true,
 				Labels:   &map[string]string{"second": "attempt"},
 			}
-			_, st = suite.EnrollmentRequest.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, secondApproval)
-			Expect(st.Code).To(BeEquivalentTo(http.StatusBadRequest), "subsequent approvals should fail")
+			replayed, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, secondApproval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(replayed).To(Equal(approved.Status.Approval))
 
-			By("verifying state is unchanged after failed second approval")
+			By("verifying state is unchanged after replay")
 			afterSecond, st := suite.EnrollmentRequest.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(afterSecond.Status.Certificate).To(Equal(approved.Status.Certificate))
 			Expect(afterSecond).To(And(
 				HaveField("Status.Approval.Approved", BeTrue()),
 				HaveField("Status.Approval.Labels", PointTo(HaveKeyWithValue("env", "integration"))),
@@ -528,7 +552,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Labels:   &map[string]string{"denied": "later"},
 			}
 			_, st = suite.EnrollmentRequest.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, denial)
-			// This should either fail or be ignored, but approval state should remain true
+			Expect(st.Code).To(BeEquivalentTo(http.StatusConflict))
 
 			By("verifying denial attempt did not change approval state")
 			final, st := suite.EnrollmentRequest.GetEnrollmentRequest(ctx, suite.OrgID, erName)

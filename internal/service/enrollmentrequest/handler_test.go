@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"testing"
+	"time"
 
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -698,7 +699,7 @@ func TestGetEnrollmentRequestStatus(t *testing.T) {
 }
 
 func TestApproveEnrollmentRequest(t *testing.T) {
-	t.Run("When already approved it should return bad request and fire no event", func(t *testing.T) {
+	t.Run("When atomic admission is unavailable it should fail closed even for an approved request", func(t *testing.T) {
 		h, fakeStore, _, _, fakeEvents := newTestHandler(t)
 		er := domain.EnrollmentRequest{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
@@ -715,11 +716,11 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items["foo"] = &er
 
 		_, status := h.ApproveEnrollmentRequest(adminContext(), uuid.New(), "foo", domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Equal(t, int32(503), status.Code)
 		require.Empty(t, fakeEvents.createdEvents)
 	})
 
-	t.Run("When approving without a mapped identity it should fail and emit an approval-failed event", func(t *testing.T) {
+	t.Run("When atomic admission is unavailable it should not emit an approval event", func(t *testing.T) {
 		h, fakeStore, _, _, fakeEvents := newTestHandler(t)
 		cn := "test-device-noidentity"
 		er := domain.EnrollmentRequest{
@@ -730,11 +731,11 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		_, status := h.ApproveEnrollmentRequest(context.Background(), uuid.New(), cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, int32(500), status.Code)
-		require.Len(t, fakeEvents.createdEvents, 1)
+		require.Equal(t, int32(503), status.Code)
+		require.Empty(t, fakeEvents.createdEvents)
 	})
 
-	t.Run("When approving a valid, non-TPM enrollment request it should sign it and create a device", func(t *testing.T) {
+	t.Run("When creating a non-TPM device it should report unsupported integrity", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, fakeEvents := newTestHandler(t)
 		cn := "test-device-approve"
 		er := domain.EnrollmentRequest{
@@ -745,16 +746,13 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		orgId := uuid.New()
-		result, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.NotNil(t, result)
-		require.True(t, result.Approved)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.NotNil(t, device)
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
-		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved))
 	})
 
 	t.Run("When an enrollment credential is referenced it should project the credential onto the device", func(t *testing.T) {
@@ -765,8 +763,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -785,8 +782,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		csrs.items["commissioning-credential"] = credential
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -809,8 +805,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeDevices.credentials[cn] = "commissioning-credential"
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -832,8 +827,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		csrs.statusAfterFirstGet = &failure
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		events := fakeEvents.createdWithReason(domain.EventReasonEnrollmentCredentialRevoked)
 		require.Len(t, events, 1)
@@ -864,8 +858,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -880,8 +873,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		csrs.items["commissioning-credential"] = &domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("commissioning-credential")}, Status: &domain.CertificateSigningRequestStatus{}}
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -899,8 +891,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		orgId := uuid.New()
-		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, statusSuccessCode, status.Code)
+		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
@@ -951,6 +942,30 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 
 	_, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), "missing", er)
 	require.Equal(t, statusNotFoundCode, status.Code)
+}
+
+func TestReplaceEnrollmentRequestStatusPreservesAdmission(t *testing.T) {
+	for _, actor := range []string{"administrator", "policy:policy"} {
+		t.Run("When a stale status follows "+actor+" admission it should preserve the committed decision", func(t *testing.T) {
+			handler, requests, _, _, _ := newTestHandler(t)
+			name := "admitted"
+			committed := &domain.EnrollmentRequestStatus{
+				EnrollmentCertificateName: lo.ToPtr("credential"),
+				Certificate:               lo.ToPtr("committed certificate"),
+				Approval:                  &domain.EnrollmentRequestApprovalStatus{Approved: true, ApprovedBy: actor},
+				Conditions: []domain.Condition{{
+					Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusTrue, LastTransitionTime: time.Now().UTC(),
+				}},
+			}
+			requests.items[name] = &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: &name}, Status: committed}
+			result, status := handler.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), name, domain.EnrollmentRequest{
+				Metadata: domain.ObjectMeta{Name: &name}, Status: &domain.EnrollmentRequestStatus{},
+			})
+			require.Equal(t, statusSuccessCode, status.Code)
+			require.Equal(t, committed, result.Status)
+			require.Equal(t, committed, requests.items[name].Status)
+		})
+	}
 }
 
 func TestDenyEnrollmentRequestsForRevokedCredential(t *testing.T) {

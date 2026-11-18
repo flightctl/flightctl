@@ -9,11 +9,13 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
 type EnrollmentRequest struct {
 	Resource
+	AdmissionID *uuid.UUID `gorm:"type:uuid"`
 
 	// The desired state of the enrollment request, stored as opaque JSON object.
 	Spec *JSONField[domain.EnrollmentRequestSpec] `gorm:"type:jsonb"`

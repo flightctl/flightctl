@@ -127,7 +127,7 @@ func (policies *PolicyStore) Mutate(ctx context.Context, orgID uuid.UUID, name, 
 				return err
 			}
 		}
-		return tx.Model(&credential).UpdateColumn("policy_set_revision", gorm.Expr("COALESCE(policy_set_revision, 0) + 1")).Error
+		return tx.Model(&credential).Where("org_id = ? AND name = ?", orgID, certificateName).UpdateColumn("policy_set_revision", gorm.Expr("COALESCE(policy_set_revision, 0) + 1")).Error
 	})
 	if err != nil {
 		return nil, previous, err
@@ -159,7 +159,7 @@ func persistPolicy(tx *gorm.DB, orgID uuid.UUID, existing *model.EnrollmentAppro
 			record.Generation = lo.ToPtr(lo.FromPtr(existing.Generation) + 1)
 		}
 		record.CreatedAt = existing.CreatedAt
-		updated := tx.Model(existing).Where("resource_version = ?", existing.ResourceVersion).Clauses(clause.Returning{}).Select("spec", "labels", "annotations", "resource_version", "generation", "updated_at").Updates(record)
+		updated := tx.Model(existing).Where("org_id = ? AND name = ? AND resource_version = ?", orgID, existing.Name, existing.ResourceVersion).Clauses(clause.Returning{}).Select("spec", "labels", "annotations", "resource_version", "generation", "updated_at").Updates(record)
 		if updated.Error != nil {
 			return nil, store.ErrorFromGormError(updated.Error)
 		}

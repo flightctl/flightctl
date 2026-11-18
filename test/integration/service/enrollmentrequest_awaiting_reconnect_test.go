@@ -20,6 +20,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
+		useEnrollmentCredential(suite)
 	})
 
 	AfterEach(func() {

@@ -158,9 +158,10 @@ func (s *Server) Run(ctx context.Context) error {
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
-	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(enrollmentrequestservice.NewServiceHandler(
-		enrollmentRequestStore, deviceStore, nil, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, notifySecretsStore,
-	))
+	enrollmentRequestHandler := enrollmentrequestservice.NewServiceHandler(
+		enrollmentRequestStore, deviceStore, csrSvc, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, notifySecretsStore,
+	)
+	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(enrollmentRequestHandler)
 
 	encryptionMigrator := tasks.NewEncryptionMigrator(
 		ctx,
@@ -189,25 +190,26 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, tasks.TaskConsumer{
-		FleetSvc:             fleetSvc,
-		TemplateversionSvc:   templateVersionSvc,
-		DeviceSvc:            deviceSvc,
-		DependencyrefSvc:     dependencyrefSvc,
-		RepositorySvc:        repositorySvc,
-		CatalogSvc:           catalogSvc,
-		EventSvc:             eventSvc,
-		EnrollmentRequestSvc: enrollmentRequestSvc,
-		CSRService:           csrSvc,
-		NotifySecretsStore:   notifySecretsStore,
-		K8sClient:            s.k8sClient,
-		KVStore:              kvStore,
-		Cfg:                  s.cfg,
-		WorkerMetrics:        s.workerMetrics,
-		EncryptionMigrator:   encryptionMigrator,
-		QueuePublisher:       publisher,
-		WorkerClient:         workerClient,
-		DeviceRenderer:       deviceRenderer,
-		LabelSyncMappingSvc:  labelSyncMappingSvc,
+		FleetSvc:              fleetSvc,
+		TemplateversionSvc:    templateVersionSvc,
+		DeviceSvc:             deviceSvc,
+		DependencyrefSvc:      dependencyrefSvc,
+		RepositorySvc:         repositorySvc,
+		CatalogSvc:            catalogSvc,
+		EventSvc:              eventSvc,
+		EnrollmentRequestSvc:  enrollmentRequestSvc,
+		EnrollmentReevaluator: enrollmentRequestHandler,
+		CSRService:            csrSvc,
+		NotifySecretsStore:    notifySecretsStore,
+		K8sClient:             s.k8sClient,
+		KVStore:               kvStore,
+		Cfg:                   s.cfg,
+		WorkerMetrics:         s.workerMetrics,
+		EncryptionMigrator:    encryptionMigrator,
+		QueuePublisher:        publisher,
+		WorkerClient:          workerClient,
+		DeviceRenderer:        deviceRenderer,
+		LabelSyncMappingSvc:   labelSyncMappingSvc,
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

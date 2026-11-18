@@ -35,6 +35,18 @@ func TestWithTransactionPutsTXInContext(t *testing.T) {
 	require.False(t, InTransaction(ctx))
 }
 
+func TestWithTransactionJoinsCaller(t *testing.T) {
+	db := openTestDB(t)
+	err := WithTransaction(context.Background(), db, func(ctx context.Context) error {
+		outer := DB(ctx, db)
+		return WithTransaction(ctx, db, func(inner context.Context) error {
+			require.Same(t, outer, DB(inner, db))
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
 func TestRunInTransactionJoinsCallerTX(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
