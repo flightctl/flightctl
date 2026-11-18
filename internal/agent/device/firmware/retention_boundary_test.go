@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -567,6 +566,23 @@ func capabilityHooks(rel string, state fileio.XattrState, err error) *hooks {
 	}}
 }
 
+// expiringContext reports an expired deadline once done is closed.
+type expiringContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *expiringContext) Done() <-chan struct{} { return c.done }
+
+func (c *expiringContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
 func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 	ioErr := fmt.Errorf("injected: %w", unix.EIO)
 	testCases := []struct {
@@ -628,15 +644,16 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		require := require.New(t)
 		f := newPayloadFixture(t, defaultPayload(t))
 		pin := publishVersion(t, f, 'a')
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
+		ctx := &expiringContext{Context: context.Background(), done: make(chan struct{})}
 		reads := 0
 		expiring := &hooks{xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
 			if attr != "security.capability" {
 				return nil, "", nil, false
 			}
 			reads++
-			<-ctx.Done()
+			if reads == 1 {
+				close(ctx.done)
+			}
 			return nil, fileio.XattrAbsent, nil, true
 		}}
 		_, err := evidenceRetention(f, expiring).VerifyPublished(ctx, pin)
