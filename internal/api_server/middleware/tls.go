@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"net/http"
 	"time"
@@ -87,15 +88,27 @@ func NewTLSListener(address string, tlsConfig *tls.Config) (net.Listener, error)
 	return tls.NewListener(ln, tlsConfig), nil
 }
 
+// ValidateClientTlsCert returns an Unauthenticated error unless the gRPC peer
+// presented a client certificate chain that was verified during the TLS
+// handshake. On success the supplied context is returned unchanged.
 func ValidateClientTlsCert(ctx context.Context) (context.Context, error) {
+	if _, err := verifiedClientCert(ctx); err != nil {
+		return ctx, err
+	}
+	return ctx, nil
+}
+
+// verifiedClientCert returns the leaf of the first certificate chain verified
+// during the gRPC TLS handshake. Unverified peer certificates are never used.
+func verifiedClientCert(ctx context.Context) (*x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return ctx, status.Error(codes.Unauthenticated, "no peer found")
+		return nil, status.Error(codes.Unauthenticated, "no peer found")
 	}
 
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
-		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
+		return nil, status.Error(codes.Unauthenticated, "failed to verify client certificate")
 	}
-	return ctx, nil
+	return tlsInfo.State.VerifiedChains[0][0], nil
 }
