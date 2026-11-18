@@ -892,3 +892,44 @@ func TestValidatePeriodicLabelMappingScanTaskConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePeriodicPackageModeTemplateMigrationConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		pageSize      *int32
+		batchSize     *int
+		timeBudget    *util.Duration
+		wantErrorText string
+	}{
+		{name: "When migration settings are omitted it should pass"},
+		{name: "When page size is one it should pass", pageSize: lo.ToPtr(int32(1))},
+		{name: "When page size is the maximum it should pass", pageSize: lo.ToPtr(int32(1000))},
+		{name: "When batch size is one it should pass", batchSize: lo.ToPtr(1)},
+		{name: "When time budget is positive it should pass", timeBudget: lo.ToPtr(util.Duration(time.Second))},
+		{name: "When page size is zero it should fail", pageSize: lo.ToPtr(int32(0)), wantErrorText: "periodic.tasks.packageModeTemplateMigration.pageSize must be between 1 and 1000"},
+		{name: "When page size is negative it should fail", pageSize: lo.ToPtr(int32(-1)), wantErrorText: "periodic.tasks.packageModeTemplateMigration.pageSize must be between 1 and 1000"},
+		{name: "When page size exceeds the fleet list maximum it should fail", pageSize: lo.ToPtr(int32(1001)), wantErrorText: "periodic.tasks.packageModeTemplateMigration.pageSize must be between 1 and 1000"},
+		{name: "When batch size is zero it should fail", batchSize: lo.ToPtr(0), wantErrorText: "periodic.tasks.packageModeTemplateMigration.batchSize must be at least 1"},
+		{name: "When batch size is negative it should fail", batchSize: lo.ToPtr(-1), wantErrorText: "periodic.tasks.packageModeTemplateMigration.batchSize must be at least 1"},
+		{name: "When explicit time budget is zero it should fail", timeBudget: lo.ToPtr(util.Duration(0)), wantErrorText: "periodic.tasks.packageModeTemplateMigration.timeBudget must be greater than 0"},
+		{name: "When explicit time budget is negative it should fail", timeBudget: lo.ToPtr(util.Duration(-time.Second)), wantErrorText: "periodic.tasks.packageModeTemplateMigration.timeBudget must be greater than 0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Periodic: &periodicConfig{Tasks: periodicTasksConfig{
+				PackageModeTemplateMigration: periodicPackageModeTemplateMigrationTaskConfig{
+					PageSize:   tc.pageSize,
+					BatchSize:  tc.batchSize,
+					TimeBudget: tc.timeBudget,
+				},
+			}}}
+
+			err := Validate(cfg)
+			if tc.wantErrorText == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErrorText)
+		})
+	}
+}

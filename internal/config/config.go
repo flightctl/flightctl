@@ -834,6 +834,17 @@ type periodicTasksConfig struct {
 	// DeltaPrepareDeadline overrides the interval for the delta prepare deadline sweep.
 	DeltaPrepareDeadline periodicTaskConfig                 `json:"deltaPrepareDeadline,omitempty"`
 	LabelMappingScan     periodicLabelMappingScanTaskConfig `json:"labelMappingScan,omitempty"`
+	// PackageModeTemplateMigration bounds the one-shot migration that guards
+	// fleet template OS images.
+	PackageModeTemplateMigration periodicPackageModeTemplateMigrationTaskConfig `json:"packageModeTemplateMigration,omitempty"`
+}
+
+type periodicPackageModeTemplateMigrationTaskConfig struct {
+	Schedule   periodicTaskScheduleConfig `json:"schedule,omitempty"`
+	PageSize   *int32                     `json:"pageSize,omitempty"`
+	BatchSize  *int                       `json:"batchSize,omitempty"`
+	TimeBudget *util.Duration             `json:"timeBudget,omitempty"`
+	DryRun     bool                       `json:"dryRun,omitempty"`
 }
 
 type periodicConfig struct {
@@ -866,6 +877,22 @@ const DefaultDependencySyncTaskInterval = 3 * time.Minute
 
 // DefaultLabelMappingScanTaskInterval controls how often mapping scans run.
 const DefaultLabelMappingScanTaskInterval = 2 * time.Minute
+
+const (
+	// DefaultPackageModeTemplateMigrationInterval controls how often the
+	// one-shot fleet template migration polls. Once complete it costs one
+	// checkpoint read per poll.
+	DefaultPackageModeTemplateMigrationInterval = 2 * time.Minute
+	// DefaultPackageModeTemplateMigrationPageSize is the fleet page size.
+	DefaultPackageModeTemplateMigrationPageSize = 50
+	// DefaultPackageModeTemplateMigrationBatchSize bounds writes per poll, so
+	// the rollouts a migration triggers are spread over time.
+	DefaultPackageModeTemplateMigrationBatchSize = 10
+	// DefaultPackageModeTemplateMigrationTimeBudget bounds one poll.
+	DefaultPackageModeTemplateMigrationTimeBudget = 30 * time.Second
+	// MaxPackageModeTemplateMigrationPageSize matches the fleet-list API maximum.
+	MaxPackageModeTemplateMigrationPageSize = 1000
+)
 
 const (
 	// DefaultLabelMappingScanPageSize is the device page size used when unset.
@@ -1822,6 +1849,9 @@ func Validate(cfg *Config) error {
 	if err := validatePeriodicLabelMappingScanTask(cfg); err != nil {
 		return err
 	}
+	if err := validatePeriodicPackageModeTemplateMigration(cfg); err != nil {
+		return err
+	}
 
 	if err := validateDeltaGeneration(cfg); err != nil {
 		return err
@@ -1851,6 +1881,23 @@ func validateAuthProviders(auth *authConfig) error {
 		}
 	}
 
+	return nil
+}
+
+func validatePeriodicPackageModeTemplateMigration(cfg *Config) error {
+	if cfg.Periodic == nil {
+		return nil
+	}
+	settings := cfg.Periodic.Tasks.PackageModeTemplateMigration
+	if settings.PageSize != nil && (*settings.PageSize < 1 || *settings.PageSize > MaxPackageModeTemplateMigrationPageSize) {
+		return fmt.Errorf("periodic.tasks.packageModeTemplateMigration.pageSize must be between 1 and %d", MaxPackageModeTemplateMigrationPageSize)
+	}
+	if settings.BatchSize != nil && *settings.BatchSize < 1 {
+		return fmt.Errorf("periodic.tasks.packageModeTemplateMigration.batchSize must be at least 1")
+	}
+	if settings.TimeBudget != nil && time.Duration(*settings.TimeBudget) <= 0 {
+		return fmt.Errorf("periodic.tasks.packageModeTemplateMigration.timeBudget must be greater than 0")
+	}
 	return nil
 }
 
