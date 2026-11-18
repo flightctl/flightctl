@@ -12,8 +12,10 @@ import (
 	"testing"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/firmware"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // retentionOps runs every retention operation that reads the registry and
@@ -465,6 +467,87 @@ func TestRetentionCleanupBoundaries(t *testing.T) {
 			}
 			sort.Strings(names)
 			require.Equal(records, names)
+		})
+	}
+}
+
+func (a hooked) Lstat(rel string) (fileio.EntryInfo, error) {
+	if a.h.lstat != nil {
+		if e, err, ok := a.h.lstat(a.Path(), rel); ok {
+			return e, err
+		}
+	}
+	return a.Anchor.Lstat(rel)
+}
+
+func TestRetentionPinInspectionErrors(t *testing.T) {
+	otherPin := func(pin firmware.Pin) firmware.Pin {
+		digest, hex := digestFor('7')
+		pin.PackageDigest, pin.PayloadDir, pin.Reference = digest, hex, "quay.io/example/updater@"+digest
+		return pin
+	}
+	testCases := []struct {
+		name    string
+		prepare func(t *testing.T, f *payloadFixture, pin firmware.Pin) *hooks
+		want    error
+		notWant []error
+	}{
+		{
+			name: "When the version name is a regular file it should report the payload changed",
+			prepare: func(t *testing.T, f *payloadFixture, pin firmware.Pin) *hooks {
+				require.NoError(t, os.WriteFile(f.cacheDir(pin.PayloadDir), []byte("x"), 0o600))
+				return nil
+			},
+			want:    firmware.ErrRetainedPayloadChanged,
+			notWant: []error{firmware.ErrRetainedPayloadMissing},
+		},
+		{
+			name: "When the version name is a symlink it should report the payload changed without following it",
+			prepare: func(t *testing.T, f *payloadFixture, pin firmware.Pin) *hooks {
+				require.NoError(t, os.Symlink(f.cacheDir(), f.cacheDir(pin.PayloadDir)))
+				return nil
+			},
+			want:    firmware.ErrRetainedPayloadChanged,
+			notWant: []error{firmware.ErrRetainedPayloadMissing},
+		},
+		{
+			name: "When the version directory cannot be inspected it should keep the permission error",
+			prepare: func(t *testing.T, f *payloadFixture, pin firmware.Pin) *hooks {
+				skipAsRoot(t)
+				require.NoError(t, os.Chmod(f.cacheDir(), 0o400))
+				t.Cleanup(func() { _ = os.Chmod(f.cacheDir(), 0o700) })
+				return nil
+			},
+			want:    fs.ErrPermission,
+			notWant: []error{firmware.ErrRetainedPayloadMissing, firmware.ErrRetainedPayloadChanged},
+		},
+		{
+			name: "When inspecting the version directory fails with an I/O error it should keep that cause",
+			prepare: func(_ *testing.T, _ *payloadFixture, pin firmware.Pin) *hooks {
+				return &hooks{lstat: func(_, rel string) (fileio.EntryInfo, error, bool) {
+					if rel == pin.PayloadDir {
+						return fileio.EntryInfo{}, fmt.Errorf("injected: %w", unix.EIO), true
+					}
+					return fileio.EntryInfo{}, nil, false
+				}}
+			},
+			want:    unix.EIO,
+			notWant: []error{firmware.ErrRetainedPayloadMissing, firmware.ErrRetainedPayloadChanged},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			f := newPayloadFixture(t, defaultPayload(t))
+			pin := otherPin(publishVersion(t, f, 'a'))
+			h := tc.prepare(t, f, pin)
+			err := evidenceRetention(f, h).Pin(pin)
+			require.ErrorIs(err, tc.want)
+			for _, e := range tc.notWant {
+				require.NotErrorIs(err, e)
+			}
+			_, statErr := os.Stat(registryPath(f))
+			require.ErrorIs(statErr, fs.ErrNotExist, "a failed pin persists nothing")
 		})
 	}
 }
