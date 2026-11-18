@@ -222,7 +222,7 @@ func (f *Fleet) IsRolloutBatchCompleted(oldFleet *Fleet) (bool, *RolloutBatchCom
 
 func (c ConditionType) IsServiceConditionType() bool {
 	switch c {
-	case ConditionTypeDeviceLabelsSynced, ConditionTypeDeviceMultipleOwners, ConditionTypeDeviceSpecValid, ConditionTypeDeviceDeltaPreparing, ConditionTypeDeviceEnrollmentHooks, ConditionTypeDeviceEnrollmentCredentialRevoked:
+	case ConditionTypeDeviceLabelsSynced, ConditionTypeDeviceMultipleOwners, ConditionTypeDeviceSpecValid, ConditionTypeDeviceOneTimeWindowsCompatible, ConditionTypeDeviceDeltaPreparing, ConditionTypeDeviceEnrollmentHooks, ConditionTypeDeviceEnrollmentCredentialRevoked:
 		return true
 	default:
 		return false

@@ -280,6 +280,7 @@ const (
 
 	FleetValidReasonFirmwareRenderingUnsupported = v1beta1.FleetValidReasonFirmwareRenderingUnsupported
 	DeviceSpecValidReasonFirmwareUnsupported     = v1beta1.DeviceSpecValidReasonFirmwareUnsupported
+	OneTimeWindowsUnsupportedReason              = v1beta1.OneTimeWindowsUnsupportedReason
 )
 
 // ========== Device Text ==========

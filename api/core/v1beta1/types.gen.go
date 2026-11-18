@@ -114,6 +114,7 @@ const (
 	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
 	ConditionTypeDeviceLabelsSynced                   ConditionType = "LabelsSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
+	ConditionTypeDeviceOneTimeWindowsCompatible       ConditionType = "OneTimeWindowsCompatible"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
@@ -1890,6 +1891,9 @@ type DeviceSystemInfo struct {
 
 	// OciDeltaVersion Version reported by `oci-delta --version`, or from Go module build information when that flag is unsupported. Absent when oci-delta is not installed or its version cannot be determined.
 	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
+
+	// OneTimeWindowsEligible Whether this device can consume schedules containing one-time maintenance windows. Omitted when the agent does not report the capability.
+	OneTimeWindowsEligible *bool `json:"oneTimeWindowsEligible,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
@@ -4823,6 +4827,14 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 		delete(object, "ociDeltaVersion")
 	}
 
+	if raw, found := object["oneTimeWindowsEligible"]; found {
+		err = json.Unmarshal(raw, &a.OneTimeWindowsEligible)
+		if err != nil {
+			return fmt.Errorf("error reading 'oneTimeWindowsEligible': %w", err)
+		}
+		delete(object, "oneTimeWindowsEligible")
+	}
+
 	if raw, found := object["operatingSystem"]; found {
 		err = json.Unmarshal(raw, &a.OperatingSystem)
 		if err != nil {
@@ -4912,6 +4924,13 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 		object["ociDeltaVersion"], err = json.Marshal(a.OciDeltaVersion)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'ociDeltaVersion': %w", err)
+		}
+	}
+
+	if a.OneTimeWindowsEligible != nil {
+		object["oneTimeWindowsEligible"], err = json.Marshal(a.OneTimeWindowsEligible)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'oneTimeWindowsEligible': %w", err)
 		}
 	}
 

@@ -233,6 +233,9 @@ const (
 	// firmware attempt or source template firmware holds its spec and
 	// rendered output unchanged while rendering does not support firmware.
 	DeviceSpecValidReasonFirmwareUnsupported = "FirmwareUnsupported"
+
+	// OneTimeWindowsUnsupportedReason indicates that an agent cannot consume one-time maintenance windows.
+	OneTimeWindowsUnsupportedReason = "Unsupported"
 )
 
 const (
