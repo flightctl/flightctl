@@ -640,7 +640,8 @@ modes and file capabilities are refused. The manifest read from the image must
 match the verified manifest exactly. Each file is copied in bounded chunks into
 an exclusive `.staging-*` directory with its size and SHA-256 checked; files get
 mode `0400`, executables `0500` and directories `0700`. Executables must be
-static ELF binaries for the device architecture. Native overlay mounts are
+static ELF binaries for the device architecture with the System V or Linux OS
+ABI. Native overlay mounts are
 read-only and fuse-overlayfs mounts are writable; the agent records which one it
 saw as an observation only, and integrity comes from hashing the bytes copied.
 

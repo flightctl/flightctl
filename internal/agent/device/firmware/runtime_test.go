@@ -19,6 +19,7 @@ type elfSpec struct {
 	dynamic bool
 	needed  bool
 	noLoad  bool
+	osabi   elf.OSABI
 }
 
 func amd64Static() elfSpec {
@@ -69,7 +70,7 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	}
 
 	var buf bytes.Buffer
-	ident := [16]byte{0x7f, 'E', 'L', 'F', byte(s.class), 1, 1}
+	ident := [16]byte{0x7f, 'E', 'L', 'F', byte(s.class), 1, 1, byte(s.osabi)}
 	if s.order == binary.BigEndian {
 		ident[5] = 2
 	}
@@ -245,6 +246,25 @@ func TestCheckNativeExecutable(t *testing.T) {
 			goarch:   "amd64",
 			wantErr:  true,
 			contains: "too large",
+		},
+		{
+			name:   "When the executable declares the Linux OS ABI it should accept it",
+			data:   buildELF(t, func() elfSpec { s := amd64Static(); s.osabi = elf.ELFOSABI_LINUX; return s }()),
+			goarch: "amd64",
+		},
+		{
+			name:     "When the executable declares a foreign OS ABI it should reject it",
+			data:     buildELF(t, func() elfSpec { s := amd64Static(); s.osabi = elf.ELFOSABI_FREEBSD; return s }()),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "OS ABI",
+		},
+		{
+			name:     "When a 32-bit ARM executable declares a foreign OS ABI it should reject it",
+			data:     buildELF(t, elfSpec{class: elf.ELFCLASS32, machine: elf.EM_ARM, order: binary.LittleEndian, typ: elf.ET_EXEC, osabi: elf.ELFOSABI_NETBSD}),
+			goarch:   "arm",
+			wantErr:  true,
+			contains: "OS ABI",
 		},
 		{name: "When the ELF file is truncated it should reject it", data: valid[:40], goarch: "amd64", wantErr: true, contains: "ELF"},
 		{name: "When the file is a script it should reject it", data: []byte("#!/bin/sh\necho hi\n"), goarch: "amd64", wantErr: true, contains: "ELF"},
