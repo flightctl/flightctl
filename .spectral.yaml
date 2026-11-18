@@ -7,6 +7,8 @@ aliases:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+$" ))]'
   PathToResource:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
+  PathToEnrollmentApprovalPolicyCollection:
+    - '$.paths[?(@property == "/enrollmentapprovalpolicies")]'
   PathToLabelSyncMappingCollection:
     - '$.paths[?(@property == "/labelsyncmappings")]'
   PathToLabelSyncMappingResource:
@@ -381,6 +383,15 @@ rules:
       functionOptions:
         values: ["200", "400", "401", "403", "404", "409", "429", "503"]
 
+  responses-enrollmentapprovalpolicy-post-allowed:
+    description: Policy creation can return 404 for an unknown issuing credential.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyCollection.post.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["201", "400", "401", "403", "404", "409", "429", "503"]
+
   responses-labelsyncmapping-post-allowed:
     description: POST on LabelSyncMapping collections may also return 422 for expression validation failures.
     message: "Response {{property}} not allowed."
@@ -548,6 +559,14 @@ rules:
 
 # Paths here mirror the OpenAPI spec where /api/v1 is defined in server URL, not in paths.
 overrides:
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies"
+    rules:
+      responses-collection-post-allowed: off
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies~1%7Bname%7D~1status"
+    rules:
+      subresource-status-verbs-required: off
   # LabelSyncMapping expression validation returns 422; endpoint-specific rules preserve the shared allowlists.
   - files:
       - "**/api/core/v1beta1/openapi.yaml#/paths/~1labelsyncmappings"
