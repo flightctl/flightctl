@@ -3,7 +3,9 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/url"
@@ -318,22 +320,20 @@ type UpdaterAccessGrant struct {
 // denies all updater access instead of failing.
 func (f *FirmwareConfig) UnmarshalJSON(data []byte) error {
 	*f = FirmwareConfig{present: true}
-	value := bytes.TrimSpace(data)
-	if bytes.Equal(value, []byte("null")) {
+	var section struct {
+		UpdaterAccess UpdaterAccessPolicy `json:"updater-access"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&section); err != nil {
+		f.problem = fmt.Sprintf("firmware: %v", err)
 		return nil
 	}
-	var members map[string]json.RawMessage
-	if kind := jsonKind(value); kind != "object" || json.Unmarshal(value, &members) != nil {
-		f.problem = fmt.Sprintf("firmware must be an object, got %s", kind)
+	if err := ensureSingleJSONValue(dec); err != nil {
+		f.problem = fmt.Sprintf("firmware: %v", err)
 		return nil
 	}
-	for key, raw := range members {
-		if key != "updater-access" {
-			f.problem = fmt.Sprintf("firmware has unknown key %q", key)
-			return nil
-		}
-		f.UpdaterAccess.decode(raw)
-	}
+	f.UpdaterAccess = section.UpdaterAccess
 	return nil
 }
 
@@ -341,32 +341,24 @@ func (f *FirmwareConfig) UnmarshalJSON(data []byte) error {
 // value of the wrong shape, an unknown key or a mistyped entry is kept so that
 // loading reports a warning and denies all updater access instead of failing.
 func (p *UpdaterAccessPolicy) UnmarshalJSON(data []byte) error {
-	p.decode(data)
-	return nil
-}
-
-func (p *UpdaterAccessPolicy) decode(data []byte) {
 	*p = UpdaterAccessPolicy{}
-	value := bytes.TrimSpace(data)
-	if bytes.Equal(value, []byte("null")) {
-		return
-	}
-	if kind := jsonKind(value); kind != "object" {
-		p.problem = fmt.Sprintf("firmware.updater-access must be an object, got %s", kind)
-		return
-	}
 	var phases struct {
 		Prepare UpdaterAccessGrant `json:"prepare"`
 		Apply   UpdaterAccessGrant `json:"apply"`
 		Verify  UpdaterAccessGrant `json:"verify"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(value))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&phases); err != nil {
 		p.problem = fmt.Sprintf("firmware.updater-access: %v", err)
-		return
+		return nil
+	}
+	if err := ensureSingleJSONValue(dec); err != nil {
+		p.problem = fmt.Sprintf("firmware.updater-access: %v", err)
+		return nil
 	}
 	p.Prepare, p.Apply, p.Verify = phases.Prepare, phases.Apply, phases.Verify
+	return nil
 }
 
 func (p UpdaterAccessPolicy) phaseAccess() *firmwarepolicy.PhaseAccess {
@@ -384,24 +376,15 @@ func (p UpdaterAccessPolicy) phaseAccess() *firmwarepolicy.PhaseAccess {
 	return &firmwarepolicy.PhaseAccess{Prepare: grant(p.Prepare), Apply: grant(p.Apply), Verify: grant(p.Verify)}
 }
 
-func jsonKind(value []byte) string {
-	if len(value) == 0 {
-		return "no value"
+func ensureSingleJSONValue(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("has trailing content")
+		}
+		return fmt.Errorf("has invalid trailing content: %w", err)
 	}
-	switch value[0] {
-	case '{':
-		return "object"
-	case '[':
-		return "array"
-	case '"':
-		return "string"
-	case 't', 'f':
-		return "boolean"
-	case 'n':
-		return "null"
-	default:
-		return "number"
-	}
+	return nil
 }
 
 // checkFirmwareLayer reports an invalid firmware section of one configuration

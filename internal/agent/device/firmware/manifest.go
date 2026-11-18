@@ -9,10 +9,10 @@ import (
 	"path"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 const (
@@ -28,10 +28,64 @@ const (
 	maxManifestDepth = 16
 )
 
+const manifestSchemaURL = "https://flightctl.invalid/updater-manifest-v1.json"
+
+const manifestSchemaJSON = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "name",
+    "version",
+    "protocol",
+    "entrypoint",
+    "dependencies",
+    "schemas",
+    "files"
+  ],
+  "properties": {
+    "apiVersion": {"type": "string"},
+    "name": {"type": "string"},
+    "version": {"type": "string"},
+    "protocol": {"type": "integer"},
+    "entrypoint": {"type": "string"},
+    "dependencies": {"type": "array"},
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "observation", "request", "result", "checkpoint"],
+      "properties": {
+        "config": {"type": "string"},
+        "observation": {"type": "string"},
+        "request": {"type": "string"},
+        "result": {"type": "string"},
+        "checkpoint": {"type": "string"}
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size", "executable"],
+        "properties": {
+          "path": {"type": "string"},
+          "sha256": {"type": "string"},
+          "size": {"type": "integer"},
+          "executable": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}`
+
 var (
 	schemaDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	fileDigestPattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	integerToken        = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+	manifestSchema      = mustCompileManifestSchema()
 )
 
 // Manifest is the closed updater-manifest/v1 document. Entrypoint and file
@@ -65,53 +119,82 @@ type ManifestFile struct {
 	Executable bool   `json:"executable"`
 }
 
-// ParseManifest strictly decodes and structurally validates manifest bytes
-// against the closed updater-manifest/v1 contract.
+// ParseManifest strictly decodes and validates manifest bytes against the
+// closed updater-manifest/v1 contract.
 func ParseManifest(data []byte) (*Manifest, error) {
 	doc, err := decodeManifestJSON(data)
 	if err != nil {
 		return nil, err
 	}
-	top := newClosedObject(doc, "manifest", "apiVersion", "name", "version", "protocol", "entrypoint", "dependencies", "schemas", "files")
-	m := &Manifest{
-		APIVersion:   top.str("apiVersion"),
-		Name:         top.str("name"),
-		Version:      top.str("version"),
-		Entrypoint:   top.str("entrypoint"),
-		Dependencies: []policy.RuntimeDependency{},
+	if err := manifestSchema.Validate(doc); err != nil {
+		return nil, fmt.Errorf("validate updater manifest schema: %w", err)
 	}
-	protocol := top.integer("protocol")
-	dependencies := top.array("dependencies")
-	if top.err != nil {
-		return nil, top.err
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("decode updater manifest: %w", err)
 	}
+	if m.Dependencies == nil {
+		m.Dependencies = []policy.RuntimeDependency{}
+	}
+	if err := m.validate(); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (m *Manifest) validate() error {
 	if m.APIVersion != ManifestAPIVersion {
-		return nil, fmt.Errorf("unsupported updater manifest version %q", m.APIVersion)
+		return fmt.Errorf("unsupported updater manifest version %q", m.APIVersion)
 	}
-	if protocol != SupportedProtocol {
-		return nil, fmt.Errorf("unsupported updater protocol %d", protocol)
+	if m.Protocol != SupportedProtocol {
+		return fmt.Errorf("unsupported updater protocol %d", m.Protocol)
 	}
-	m.Protocol = SupportedProtocol
-	if len(dependencies) != 0 {
-		return nil, errors.New("updater manifest declares runtime dependencies; only dependency-free updaters are supported")
+	if len(m.Dependencies) != 0 {
+		return errors.New("updater manifest declares runtime dependencies; only dependency-free updaters are supported")
 	}
 	if !validPayloadPath(m.Entrypoint) {
-		return nil, fmt.Errorf("manifest entrypoint %q must be a clean path strictly beneath payload/", m.Entrypoint)
+		return fmt.Errorf("manifest entrypoint %q must be a clean path strictly beneath payload/", m.Entrypoint)
 	}
-	if m.Schemas, err = parseManifestSchemas(top.values["schemas"]); err != nil {
-		return nil, err
+	for _, s := range []struct{ name, digest string }{
+		{"config", m.Schemas.Config},
+		{"observation", m.Schemas.Observation},
+		{"request", m.Schemas.Request},
+		{"result", m.Schemas.Result},
+		{"checkpoint", m.Schemas.Checkpoint},
+	} {
+		if !schemaDigestPattern.MatchString(s.digest) {
+			return fmt.Errorf("manifest.schemas.%s must be a sha256:<lowercase hex> digest", s.name)
+		}
 	}
-	if m.Files, err = parseManifestFiles(top.values["files"]); err != nil {
-		return nil, err
+	paths := make(map[string]bool, len(m.Files))
+	for i, f := range m.Files {
+		where := fmt.Sprintf("manifest.files[%d]", i)
+		if !validPayloadPath(f.Path) {
+			return fmt.Errorf("%s.path %q must be a clean path strictly beneath payload/", where, f.Path)
+		}
+		if !fileDigestPattern.MatchString(f.SHA256) {
+			return fmt.Errorf("%s.sha256 must be 64 lowercase hex digits", where)
+		}
+		if paths[f.Path] {
+			return fmt.Errorf("%s.path %q is listed more than once", where, f.Path)
+		}
+		paths[f.Path] = true
+	}
+	for _, f := range m.Files {
+		for i := 0; i < len(f.Path); i++ {
+			if f.Path[i] == '/' && paths[f.Path[:i]] {
+				return fmt.Errorf("manifest file %q is also the parent directory of %q", f.Path[:i], f.Path)
+			}
+		}
 	}
 	i := slices.IndexFunc(m.Files, func(f ManifestFile) bool { return f.Path == m.Entrypoint })
 	if i < 0 {
-		return nil, fmt.Errorf("manifest entrypoint %q is not a listed file", m.Entrypoint)
+		return fmt.Errorf("manifest entrypoint %q is not a listed file", m.Entrypoint)
 	}
 	if !m.Files[i].Executable {
-		return nil, fmt.Errorf("manifest entrypoint %q is not marked executable", m.Entrypoint)
+		return fmt.Errorf("manifest entrypoint %q is not marked executable", m.Entrypoint)
 	}
-	return m, nil
+	return nil
 }
 
 // VerifyManifestBinding reports whether m declares exactly the identities d approves.
@@ -137,67 +220,6 @@ func VerifyManifestBinding(m *Manifest, d *policy.ReleaseDescriptor) error {
 		}
 	}
 	return nil
-}
-
-func parseManifestSchemas(v any) (ManifestSchemas, error) {
-	o := newClosedObject(v, "manifest.schemas", "config", "observation", "request", "result", "checkpoint")
-	s := ManifestSchemas{
-		Config:      o.str("config"),
-		Observation: o.str("observation"),
-		Request:     o.str("request"),
-		Result:      o.str("result"),
-		Checkpoint:  o.str("checkpoint"),
-	}
-	if o.err != nil {
-		return ManifestSchemas{}, o.err
-	}
-	for _, d := range []struct{ name, digest string }{
-		{"config", s.Config}, {"observation", s.Observation}, {"request", s.Request}, {"result", s.Result}, {"checkpoint", s.Checkpoint},
-	} {
-		if !schemaDigestPattern.MatchString(d.digest) {
-			return ManifestSchemas{}, fmt.Errorf("manifest.schemas.%s must be a sha256:<lowercase hex> digest", d.name)
-		}
-	}
-	return s, nil
-}
-
-func parseManifestFiles(v any) ([]ManifestFile, error) {
-	list, ok := v.([]any)
-	if !ok {
-		return nil, errors.New("manifest.files must be an array")
-	}
-	if len(list) == 0 {
-		return nil, errors.New("manifest.files must list at least one file")
-	}
-	files := make([]ManifestFile, 0, len(list))
-	paths := make(map[string]bool, len(list))
-	for i, item := range list {
-		where := fmt.Sprintf("manifest.files[%d]", i)
-		o := newClosedObject(item, where, "path", "sha256", "size", "executable")
-		f := ManifestFile{Path: o.str("path"), SHA256: o.str("sha256"), Size: o.integer("size"), Executable: o.boolean("executable")}
-		if o.err != nil {
-			return nil, o.err
-		}
-		if !validPayloadPath(f.Path) {
-			return nil, fmt.Errorf("%s.path %q must be a clean path strictly beneath payload/", where, f.Path)
-		}
-		if !fileDigestPattern.MatchString(f.SHA256) {
-			return nil, fmt.Errorf("%s.sha256 must be 64 lowercase hex digits", where)
-		}
-		if paths[f.Path] {
-			return nil, fmt.Errorf("%s.path %q is listed more than once", where, f.Path)
-		}
-		paths[f.Path] = true
-		files = append(files, f)
-	}
-	for _, f := range files {
-		for i := 0; i < len(f.Path); i++ {
-			if f.Path[i] == '/' && paths[f.Path[:i]] {
-				return nil, fmt.Errorf("manifest file %q is also the parent directory of %q", f.Path[:i], f.Path)
-			}
-		}
-	}
-	return files, nil
 }
 
 // validPayloadPath reports whether p is a clean relative path strictly beneath
@@ -236,6 +258,9 @@ func decodeValue(dec *json.Decoder, depth int) (any, error) {
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
+	}
+	if number, ok := tok.(json.Number); ok && !integerToken.MatchString(string(number)) {
+		return nil, fmt.Errorf("number %s must be a non-negative integer in canonical decimal form", number)
 	}
 	delim, ok := tok.(json.Delim)
 	if !ok {
@@ -282,83 +307,17 @@ func decodeValue(dec *json.Decoder, depth int) (any, error) {
 	}
 }
 
-// closedObject reads typed members of a JSON object whose key set is exact.
-// The first violation is kept in err and later reads return zero values.
-type closedObject struct {
-	where  string
-	values map[string]any
-	err    error
-}
-
-func newClosedObject(v any, where string, keys ...string) *closedObject {
-	o := &closedObject{where: where}
-	obj, ok := v.(map[string]any)
-	if !ok {
-		o.err = fmt.Errorf("%s must be an object", where)
-		return o
+func mustCompileManifestSchema() *jsonschema.Schema {
+	compiler := jsonschema.NewCompiler()
+	compiler.LoadURL = func(string) (io.ReadCloser, error) {
+		return nil, errors.New("external schema references are not allowed")
 	}
-	for k := range obj {
-		if !slices.Contains(keys, k) {
-			o.err = fmt.Errorf("%s has unknown key %q", where, k)
-			return o
-		}
+	if err := compiler.AddResource(manifestSchemaURL, strings.NewReader(manifestSchemaJSON)); err != nil {
+		panic(err)
 	}
-	for _, k := range keys {
-		if _, ok := obj[k]; !ok {
-			o.err = fmt.Errorf("%s is missing %q", where, k)
-			return o
-		}
-	}
-	o.values = obj
-	return o
-}
-
-func (o *closedObject) str(key string) string {
-	if o.err != nil {
-		return ""
-	}
-	s, ok := o.values[key].(string)
-	if !ok {
-		o.err = fmt.Errorf("%s.%s must be a string", o.where, key)
-	}
-	return s
-}
-
-func (o *closedObject) integer(key string) int64 {
-	if o.err != nil {
-		return 0
-	}
-	n, ok := o.values[key].(json.Number)
-	if !ok || !integerToken.MatchString(string(n)) {
-		o.err = fmt.Errorf("%s.%s must be a non-negative integer", o.where, key)
-		return 0
-	}
-	v, err := strconv.ParseInt(string(n), 10, 64)
+	schema, err := compiler.Compile(manifestSchemaURL)
 	if err != nil {
-		o.err = fmt.Errorf("%s.%s exceeds the integer range", o.where, key)
-		return 0
+		panic(err)
 	}
-	return v
-}
-
-func (o *closedObject) boolean(key string) bool {
-	if o.err != nil {
-		return false
-	}
-	b, ok := o.values[key].(bool)
-	if !ok {
-		o.err = fmt.Errorf("%s.%s must be a boolean", o.where, key)
-	}
-	return b
-}
-
-func (o *closedObject) array(key string) []any {
-	if o.err != nil {
-		return nil
-	}
-	a, ok := o.values[key].([]any)
-	if !ok {
-		o.err = fmt.Errorf("%s.%s must be an array", o.where, key)
-	}
-	return a
+	return schema
 }

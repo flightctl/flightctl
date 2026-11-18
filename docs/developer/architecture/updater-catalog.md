@@ -228,9 +228,8 @@ post-arm hold integration and qualification.
 ## Agent updater code fetch and verification
 
 The agent package `internal/agent/device/firmware` contains a fetcher that
-obtains and authenticates the code of one approved updater release. Nothing
-calls it yet: firmware preparation will invoke it for the selected release.
-Firmware holds, unmanaged devices and support reporting are unchanged.
+obtains and authenticates the code of one approved updater release. Firmware
+holds, unmanaged devices and support reporting are unchanged.
 
 The fetcher never executes image content. It runs only `podman pull`,
 `podman image inspect`, `podman image exists`, `podman image mount` and
