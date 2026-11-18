@@ -667,18 +667,18 @@ func (u UpdateSchedule) Validate() []error {
 		}
 	}
 
-	hasAt := u.At != nil
-	hasGraceDuration := u.StartGraceDuration != nil
+	hasAt := u.At != ""
+	hasGraceDuration := u.StartGraceDuration != ""
 	if hasAt != hasGraceDuration {
 		allErrs = append(allErrs, errors.New("at and startGraceDuration must be provided together"))
 	} else if hasAt {
 		// allow only the standard 5 input cron syntax e.g. "* * * * *"
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		schedule, err := parser.Parse(lo.FromPtr(u.At))
+		schedule, err := parser.Parse(u.At)
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
 		}
-		if err := validateGraceDuration(schedule, lo.FromPtr(u.StartGraceDuration)); err != nil {
+		if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
 			allErrs = append(allErrs, err)
 		}
 	}

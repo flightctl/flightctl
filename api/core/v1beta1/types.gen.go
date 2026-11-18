@@ -3228,10 +3228,10 @@ type OciRepoSpecType string
 
 // OneTimeWindow defines model for OneTimeWindow.
 type OneTimeWindow struct {
-	// At Local time at which the one-time window opens on the specified date.
+	// At Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
 	At string `json:"at"`
 
-	// Date Exact calendar date on which the one-time window opens.
+	// Date Exact calendar date on which the one-time window opens, for example 2026-11-15.
 	Date string `json:"date"`
 
 	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
@@ -3892,17 +3892,14 @@ type TokenResponseTokenType string
 
 // UpdateSchedule defines model for UpdateSchedule.
 type UpdateSchedule struct {
-	// At Cron expression format for scheduling times.
-	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
-	// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
-	// Example: `* 0-8,16-23 * * *`.
-	At *CronExpression `json:"at,omitempty"`
+	// At Cron expression format for the recurring schedule. See CronExpression for the supported syntax.
+	At CronExpression `json:"at,omitempty"`
 
 	// OneTimeWindows Date-specific windows in which the corresponding operation may start.
 	OneTimeWindows *[]OneTimeWindow `json:"oneTimeWindows,omitempty"`
 
-	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
+	// StartGraceDuration The maximum duration allowed for the recurring action to complete.
+	StartGraceDuration Duration `json:"startGraceDuration,omitempty"`
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`

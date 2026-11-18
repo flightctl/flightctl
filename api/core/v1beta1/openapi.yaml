@@ -7326,9 +7326,15 @@ components:
             timeZone:
               $ref: '#/components/schemas/TimeZone'
             at:
-              $ref: '#/components/schemas/CronExpression'
+              allOf:
+                - $ref: '#/components/schemas/CronExpression'
+              description: Cron expression format for the recurring schedule. See CronExpression for the supported syntax.
+              x-go-type-skip-optional-pointer: true
             startGraceDuration:
-              $ref: '#/components/schemas/Duration'
+              allOf:
+                - $ref: '#/components/schemas/Duration'
+              description: The maximum duration allowed for the recurring action to complete.
+              x-go-type-skip-optional-pointer: true
             oneTimeWindows:
               type: array
               description: Date-specific windows in which the corresponding operation may start.
@@ -7336,30 +7342,14 @@ components:
               items:
                 $ref: '#/components/schemas/OneTimeWindow'
         - not:
-            allOf:
-              - required:
-                  - at
+            anyOf:
+              - oneOf:
+                  - required: [at]
+                  - required: [startGraceDuration]
               - not:
-                  required:
-                    - startGraceDuration
-        - not:
-            allOf:
-              - required:
-                  - startGraceDuration
-              - not:
-                  required:
-                    - at
-        - not:
-            allOf:
-              - not:
-                  required:
-                    - at
-              - not:
-                  required:
-                    - startGraceDuration
-              - not:
-                  required:
-                    - oneTimeWindows
+                  anyOf:
+                    - required: [at, startGraceDuration]
+                    - required: [oneTimeWindows]
     OneTimeWindow:
       type: object
       required:
@@ -7370,11 +7360,13 @@ components:
         date:
           type: string
           pattern: '^\d{4}-\d{2}-\d{2}$'
-          description: Exact calendar date on which the one-time window opens.
+          description: Exact calendar date on which the one-time window opens, for example 2026-11-15.
+          example: "2026-11-15"
         at:
           type: string
           pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
-          description: Local time at which the one-time window opens on the specified date.
+          description: Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
+          example: "22:00"
         startGraceDuration:
           $ref: '#/components/schemas/Duration'
     TimeZone:

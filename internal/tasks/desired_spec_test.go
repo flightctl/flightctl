@@ -43,8 +43,8 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	resources := []domain.ResourceMonitor{resource}
 	updatePolicy := &domain.DeviceUpdatePolicySpec{
 		DownloadSchedule: &domain.UpdateSchedule{
-			At:                 lo.ToPtr(v1beta1.CronExpression("0 2 * * *")),
-			StartGraceDuration: lo.ToPtr(v1beta1.Duration("10m")),
+			At:                 v1beta1.CronExpression("0 2 * * *"),
+			StartGraceDuration: v1beta1.Duration("10m"),
 		},
 	}
 

@@ -70,8 +70,8 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		oldFleet.Spec.Template.Spec.Os = nil
 		oldFleet.Spec.Template.Spec.UpdatePolicy = &domain.DeviceUpdatePolicySpec{
 			UpdateSchedule: &domain.UpdateSchedule{
-				At:                 lo.ToPtr("0 4 * * 1"),
-				StartGraceDuration: lo.ToPtr("1h"),
+				At:                 "0 4 * * 1",
+				StartGraceDuration: "1h",
 			},
 		}
 

@@ -120,9 +120,9 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:                 lo.ToPtr(tt.schedule),
+				At:                 tt.schedule,
 				TimeZone:           lo.ToPtr("America/New_York"),
-				StartGraceDuration: lo.ToPtr(Duration("30s")),
+				StartGraceDuration: Duration("30s"),
 			}
 
 			errs := schedule.Validate()
@@ -158,29 +158,29 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 		{
 			name: "When recurring fields are provided it should pass",
 			schedule: UpdateSchedule{
-				At:                 lo.ToPtr(CronExpression("0 4 * * 1")),
-				StartGraceDuration: lo.ToPtr(Duration("1h")),
+				At:                 CronExpression("0 4 * * 1"),
+				StartGraceDuration: Duration("1h"),
 			},
 		},
 		{
 			name: "When recurring and one-time fields are provided it should pass",
 			schedule: UpdateSchedule{
-				At:                 lo.ToPtr(CronExpression("0 4 * * 1")),
-				StartGraceDuration: lo.ToPtr(Duration("1h")),
+				At:                 CronExpression("0 4 * * 1"),
+				StartGraceDuration: Duration("1h"),
 				OneTimeWindows:     validOneTimeWindows,
 			},
 		},
 		{
 			name: "When only at is provided it should fail",
 			schedule: UpdateSchedule{
-				At: lo.ToPtr(CronExpression("0 4 * * 1")),
+				At: CronExpression("0 4 * * 1"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When only start grace duration is provided it should fail",
 			schedule: UpdateSchedule{
-				StartGraceDuration: lo.ToPtr(Duration("1h")),
+				StartGraceDuration: Duration("1h"),
 			},
 			wantErr: true,
 		},
@@ -281,9 +281,9 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:                 lo.ToPtr(CronExpression("* * * * *")),
+				At:                 CronExpression("* * * * *"),
 				TimeZone:           lo.ToPtr(tt.timeZone),
-				StartGraceDuration: lo.ToPtr(Duration("30s")),
+				StartGraceDuration: Duration("30s"),
 			}
 
 			errs := schedule.Validate()
@@ -375,7 +375,7 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 		{
 			name:           "valid cron expression, invalid duration",
 			cronExpression: "0 * * * *", // every hr
-			duration:       "",
+			duration:       "invalid",
 			errMsg:         "invalid duration",
 		},
 		// basic case that is handled more in depth in the TestValidateGraceDuration cases
@@ -390,8 +390,8 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			schedule := UpdateSchedule{
-				At:                 lo.ToPtr(tt.cronExpression),
-				StartGraceDuration: lo.ToPtr(tt.duration),
+				At:                 tt.cronExpression,
+				StartGraceDuration: tt.duration,
 			}
 
 			errs := schedule.Validate()

@@ -109,8 +109,8 @@ func newSchedule(policyType Type) *schedule {
 }
 
 func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSchedule) error {
-	hasAt := updateSchedule.At != nil
-	hasGraceDuration := updateSchedule.StartGraceDuration != nil
+	hasAt := updateSchedule.At != ""
+	hasGraceDuration := updateSchedule.StartGraceDuration != ""
 	if hasAt != hasGraceDuration {
 		return fmt.Errorf("at and start grace duration must be provided together")
 	}
@@ -132,7 +132,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	if hasAt {
 		// parse cron expression
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		cronExpr, err := parser.Parse(lo.FromPtr(updateSchedule.At))
+		cronExpr, err := parser.Parse(updateSchedule.At)
 		if err != nil {
 			return fmt.Errorf("invalid cron expression: %w", err)
 		}
@@ -140,7 +140,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 		log.Debugf("Parsed cron expression: %s", s.cron)
 
 		// parse grace duration
-		duration, err := time.ParseDuration(lo.FromPtr(updateSchedule.StartGraceDuration))
+		duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
 		if err != nil {
 			return fmt.Errorf("invalid start grace duration: %w", err)
 		}
