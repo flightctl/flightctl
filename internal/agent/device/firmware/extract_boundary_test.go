@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/firmware"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -323,4 +324,74 @@ func TestExtractPublicationFailures(t *testing.T) {
 			tc.check(t, x)
 		})
 	}
+}
+
+func TestExtractRetainedCapabilityMetadata(t *testing.T) {
+	ioErr := fmt.Errorf("injected: %w", unix.EIO)
+	publishOnce := func(t *testing.T) *extractHarness {
+		t.Helper()
+		x := newExtractHarness(t, defaultPayload(t))
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(t, err)
+		x.resetCounts()
+		return x
+	}
+	t.Run("When an unpinned copy has unreadable capability metadata it should fail without reusing, quarantining or extracting it", func(t *testing.T) {
+		require := require.New(t)
+		x := publishOnce(t)
+		x.hooks.xattr = capabilityHooks("manifest.json", fileio.XattrUnknown, ioErr).xattr
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, unix.EIO)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		x.requireCounts(t, 0, 0, 0, 0)
+		require.Zero(x.renames)
+		require.Equal([]string{x.finalName()}, x.entries())
+	})
+	t.Run("When an unpinned copy carries file capabilities it should quarantine it and publish a fresh copy", func(t *testing.T) {
+		require := require.New(t)
+		x := publishOnce(t)
+		x.hooks.xattr = capabilityHooks("payload/bin/updater", fileio.XattrPresent, nil).xattr
+		payload, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(err)
+		require.False(payload.Reused)
+		require.Len(payload.Cleanup.Pending, 1)
+		require.True(strings.HasPrefix(payload.Cleanup.Pending[0], ".quarantine-"))
+		x.requireCounts(t, 1, 1, len(x.files), 1)
+	})
+	t.Run("When a pinned copy carries file capabilities on its manifest it should refuse it before mounting and keep it", func(t *testing.T) {
+		require := require.New(t)
+		x := newExtractHarness(t, defaultPayload(t))
+		payload, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(err)
+		x.pin(t, payload)
+		x.resetCounts()
+		x.hooks.xattr = capabilityHooks("manifest.json", fileio.XattrPresent, nil).xattr
+		_, err = x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		x.requireCounts(t, 0, 0, 0, 0)
+		require.Zero(x.renames)
+		require.Equal([]string{x.finalName()}, x.entries())
+	})
+	t.Run("When a winner's capability metadata cannot be read it should leave the winner and discard its own staging", func(t *testing.T) {
+		require := require.New(t)
+		x := newExtractHarness(t, defaultPayload(t))
+		onPublishRename(x, func(n int) error {
+			if n == 1 {
+				other := newExtractHarness(t, x.files)
+				_, err := other.extractor().Extract(context.Background(), other.pkg)
+				require.NoError(err)
+				require.NoError(os.Rename(other.cacheDir(other.finalName()), x.cacheDir(x.finalName())))
+				x.hooks.xattr = capabilityHooks("manifest.json", fileio.XattrUnknown, ioErr).xattr
+			}
+			return nil
+		})
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		requirePublishError(t, err, firmware.PublishNotVisible, "classify")
+		require.NotContains(x.events.events, "Rename final->quarantine")
+		require.Contains(x.events.events, "RemoveTree staging")
+		require.Equal([]string{x.finalName()}, x.entries())
+	})
 }
