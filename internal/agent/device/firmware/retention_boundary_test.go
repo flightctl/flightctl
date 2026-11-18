@@ -471,6 +471,36 @@ func TestRetentionCleanupBoundaries(t *testing.T) {
 	}
 }
 
+func (a hooked) Hash(ctx context.Context, rel string, b fileio.CopyBounds) (fileio.FileDigest, error) {
+	if a.h.hash != nil {
+		if d, err, ok := a.h.hash(a.Path(), rel); ok {
+			return d, err
+		}
+	}
+	return a.Anchor.Hash(ctx, rel, b)
+}
+
+// lateCapabilityFailure fails the first hash of the retained file rel the way
+// fileio reports file capabilities that cannot be read while hashing, after
+// the explicit capability check has passed. It counts every hash of rel.
+type lateCapabilityFailure struct {
+	rel    string
+	hashes int
+}
+
+func (l *lateCapabilityFailure) hook(dir, rel string) (fileio.FileDigest, error, bool) {
+	if rel != l.rel {
+		return fileio.FileDigest{}, nil, false
+	}
+	l.hashes++
+	if l.hashes > 1 {
+		return fileio.FileDigest{}, nil, false
+	}
+	display := dir + "/" + rel
+	cause := fmt.Errorf("read attribute security.capability of %w: %w", deviceerrors.WithElement(display), unix.EIO)
+	return fileio.FileDigest{}, fmt.Errorf("%w %w: %w", deviceerrors.ErrFileCapabilityUnknown, deviceerrors.WithElement(display), cause), true
+}
+
 func (a hooked) Lstat(rel string) (fileio.EntryInfo, error) {
 	if a.h.lstat != nil {
 		if e, err, ok := a.h.lstat(a.Path(), rel); ok {
@@ -662,5 +692,20 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
 		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
 		require.Equal(1, reads, "the scan stops at the deadline")
+	})
+	t.Run("When a capability read while hashing a retained file fails it should report the verification incomplete with the cause", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		late := &lateCapabilityFailure{rel: "payload/bin/updater"}
+		_, err := evidenceRetention(f, &hooks{hash: late.hook}).VerifyPublished(context.Background(), pin)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, deviceerrors.ErrFileCapabilityUnknown)
+		require.ErrorIs(err, unix.EIO)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		require.Equal(1, late.hashes, "the failing read was exercised once")
+		_, statErr := os.Stat(f.cacheDir(pin.PayloadDir, "manifest.json"))
+		require.NoError(statErr, "verification never removes the retained payload")
 	})
 }

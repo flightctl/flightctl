@@ -119,6 +119,10 @@ var (
 	ErrReadOnlyAnchor     = errors.New("directory handle is read-only")
 	ErrAnchorMoved        = errors.New("directory handle no longer matches its path")
 	ErrRemoveChurn        = errors.New("directory kept changing during removal")
+	// ErrFileCapabilityUnknown reports that the file capabilities of an entry
+	// could not be read, so the entry is neither known to carry them nor known
+	// to be free of them.
+	ErrFileCapabilityUnknown = errors.New("file capabilities cannot be read")
 
 	// images
 	ErrImageNotFound     = errors.New("image not found")
