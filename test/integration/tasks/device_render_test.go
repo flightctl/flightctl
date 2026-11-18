@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -1347,6 +1348,127 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("1"),
 				"redundant FleetRolloutDeviceSelected must not bump renderedVersion when already caught up")
+		})
+	})
+
+	Context("one-time window compatibility", func() {
+		It("When a fleet has mixed capabilities it should render supported devices, preserve partial blocking, and bypass the gate for recurring schedules", func() {
+			oneTimeSchedule := func() *api.UpdateSchedule {
+				return &api.UpdateSchedule{
+					OneTimeWindows: lo.ToPtr([]api.OneTimeWindow{{
+						Date:               "2030-01-02",
+						At:                 "03:04",
+						StartGraceDuration: "1h",
+					}}),
+				}
+			}
+			recurringSchedule := func() *api.UpdateSchedule {
+				return &api.UpdateSchedule{At: lo.ToPtr(api.CronExpression("0 4 * * 1"))}
+			}
+			oneTimePolicy := func() *api.DeviceUpdatePolicySpec {
+				return &api.DeviceUpdatePolicySpec{UpdateSchedule: oneTimeSchedule()}
+			}
+			recurringPolicy := func() *api.DeviceUpdatePolicySpec {
+				return &api.DeviceUpdatePolicySpec{UpdateSchedule: recurringSchedule()}
+			}
+
+			mixedFleetName := fleetName + "-compatibility-" + uuid.New().String()[:8]
+			supportedName := deviceName + "-supported-" + uuid.New().String()[:8]
+			blockedName := deviceName + "-blocked-" + uuid.New().String()[:8]
+			fleet := &api.Fleet{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(mixedFleetName)},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": mixedFleetName}},
+					Template: struct {
+						Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+						Spec     api.DeviceSpec  `json:"spec"`
+					}{Spec: api.DeviceSpec{UpdatePolicy: oneTimePolicy()}},
+				},
+			}
+			_, err := fleetStore.Create(ctx, orgId, fleet)
+			Expect(err).ToNot(HaveOccurred())
+			_, _, err = fleetStore.UpdateAnnotations(ctx, orgId, mixedFleetName, map[string]string{
+				api.FleetAnnotationTemplateVersion: "v1",
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			createDevice := func(name string, eligible *bool) {
+				status := api.NewDeviceStatus()
+				status.SystemInfo.OneTimeWindowsEligible = eligible
+				device := &api.Device{
+					Metadata: api.ObjectMeta{
+						Name:        lo.ToPtr(name),
+						Owner:       lo.ToPtr("Fleet/" + mixedFleetName),
+						Annotations: &map[string]string{api.DeviceAnnotationTemplateVersion: "v1"},
+					},
+					Spec:   &api.DeviceSpec{UpdatePolicy: oneTimePolicy()},
+					Status: &status,
+				}
+				_, createErr := deviceStore.Create(ctx, orgId, device, nil)
+				Expect(createErr).ToNot(HaveOccurred())
+			}
+			createDevice(supportedName, lo.ToPtr(true))
+			createDevice(blockedName, nil)
+
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			for _, name := range []string{supportedName, blockedName} {
+				err = logic.RenderDevice(ctx, orgId, api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name},
+				})
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			renderedSupported, err := deviceStore.GetRendered(ctx, orgId, supportedName, nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(renderedSupported.Spec).ToNot(BeNil())
+			Expect(renderedSupported.Spec.UpdatePolicy).ToNot(BeNil())
+			Expect(renderedSupported.Spec.UpdatePolicy.UpdateSchedule.OneTimeWindows).ToNot(BeNil())
+
+			_, err = deviceStore.GetRendered(ctx, orgId, blockedName, nil, "")
+			Expect(err).To(MatchError(flterrors.ErrNoRenderedVersion))
+
+			blockedDevice, err := deviceStore.Get(ctx, orgId, blockedName)
+			Expect(err).ToNot(HaveOccurred())
+			compatibility := api.FindStatusCondition(blockedDevice.Status.Conditions, api.ConditionTypeDeviceOneTimeWindowsCompatible)
+			Expect(compatibility).ToNot(BeNil())
+			Expect(compatibility.Status).To(Equal(api.ConditionStatusFalse))
+			Expect(compatibility.Reason).To(Equal(api.OneTimeWindowsUnsupportedReason))
+			Expect(compatibility.Message).To(Equal("Agent does not support one-time maintenance windows"))
+			Expect(api.FindStatusCondition(blockedDevice.Status.Conditions, api.ConditionTypeDeviceSpecValid)).To(BeNil())
+
+			blockedDevices, err := deviceStore.ListDevicesByServiceCondition(ctx, orgId, string(api.ConditionTypeDeviceOneTimeWindowsCompatible), string(api.ConditionStatusFalse), store.ListParams{Limit: 100})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(blockedDevices.Items).To(HaveLen(1))
+			Expect(*blockedDevices.Items[0].Metadata.Name).To(Equal(blockedName))
+			summary, err := deviceStore.Summary(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(summary.Total).To(Equal(int64(2)), "the fleet population remains aggregated while one device is blocked")
+
+			for _, name := range []string{supportedName, blockedName} {
+				_, _, _, err = deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+					if err := m.RequireExisting(); err != nil {
+						return err
+					}
+					m.Device.Spec.UpdatePolicy = recurringPolicy()
+					return nil
+				})
+				Expect(err).ToNot(HaveOccurred())
+				err = logic.RenderDevice(ctx, orgId, api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name},
+				})
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			_, err = deviceStore.GetRendered(ctx, orgId, blockedName, nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			blockedDevice, err = deviceStore.Get(ctx, orgId, blockedName)
+			Expect(err).ToNot(HaveOccurred())
+			compatibility = api.FindStatusCondition(blockedDevice.Status.Conditions, api.ConditionTypeDeviceOneTimeWindowsCompatible)
+			Expect(compatibility).ToNot(BeNil())
+			Expect(compatibility.Status).To(Equal(api.ConditionStatusTrue))
+			Expect(compatibility.Reason).To(Equal("NotRequired"))
 		})
 	})
 
