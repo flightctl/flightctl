@@ -641,9 +641,9 @@ match the verified manifest exactly. Each file is copied in bounded chunks into
 an exclusive `.staging-*` directory with its size and SHA-256 checked; files get
 mode `0400`, executables `0500` and directories `0700`. Executables must be
 static ELF binaries for the device architecture with the System V or Linux OS
-ABI. Native overlay mounts are
-read-only and fuse-overlayfs mounts are writable; the agent records which one it
-saw as an observation only, and integrity comes from hashing the bytes copied.
+ABI. Native overlay mounts are read-only and fuse-overlayfs mounts are writable;
+the agent records which one it saw as an observation only, and integrity comes
+from hashing the bytes copied.
 
 After staging, the extractor closes the source and unmounts the image under its
 own two-minute timeout, which still runs when the caller cancels or the
@@ -681,9 +681,9 @@ recovery). Pins survive restarts and refuse a conflicting identity. Pinning
 reports a missing version directory as `ErrRetainedPayloadMissing`, any other
 entry at that name as `ErrRetainedPayloadChanged`, and keeps the cause of any
 other inspection failure; a refused pin records nothing. An unreadable or
-malformed registry fails closed for every operation. A usable payload is leased in memory until it is pinned or its
-lease is released, so cleanup cannot remove it in between; leases end with the
-agent process.
+malformed registry fails closed for every operation. A usable payload is leased
+in memory until it is pinned or its lease is released, so cleanup cannot remove
+it in between; leases end with the agent process.
 
 A pinned payload is only verified and reused. Verification checks the exact
 entries, modes, owner, single links, sizes and digests within the pinned limits
