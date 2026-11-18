@@ -650,6 +650,9 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
+	if err := common.CheckResourceVersionConflict(&originalDevice.Metadata, &incomingDevice.Metadata); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
 
 	suppliedFirmware := incomingDevice.Status.Firmware
 	if status := h.validateChangedFirmwareStatus(ctx, storedFirmwareStatus(originalDevice), suppliedFirmware); status.Code != http.StatusOK {
@@ -668,6 +671,9 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	// supplied one may not erase an outstanding attempt.
 	reported := deviceToStore.Status
 	mergeFirmware := func(current *domain.Device) (*domain.DeviceStatus, error) {
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &incomingDevice.Metadata); err != nil {
+			return nil, err
+		}
 		status := *reported
 		stored := storedFirmwareStatus(current)
 		if suppliedFirmware == nil {
@@ -681,7 +687,9 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	}
 
 	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice, devicestore.WithStatusMerge(mergeFirmware))
-	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
+		h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	}
 	var rejection firmwareStatusRejection
 	if errors.As(err, &rejection) {
 		return nil, domain.StatusBadRequest(rejection.Error())
@@ -713,6 +721,9 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
+	if err := checkDeviceStatusPatchVersion(currentObj, patch); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
 
 	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback
 	// reapplies the patch against the CAS-fresh current on every attempt.
@@ -739,6 +750,9 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		if err := rejectDecommissionedDevice(m.Device); err != nil {
 			return err
 		}
+		if err := checkDeviceStatusPatchVersion(m.Device, patch); err != nil {
+			return err
+		}
 		patched, err := applyDeviceStatusPatch(ctx, m.Device, patch, name, refreshLastSeen)
 		if err != nil {
 			callbackStatus = domain.StatusBadRequest(err.Error())
@@ -752,11 +766,25 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 		return nil
 	}, devicestore.WithTimestamp())
-	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
+		h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	}
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
 	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
+func checkDeviceStatusPatchVersion(current *domain.Device, patch domain.PatchRequest) error {
+	for _, operation := range patch {
+		if operation.Op == domain.PatchOpTest && operation.Path == "/metadata/resourceVersion" {
+			version, ok := operation.Value.(string)
+			if !ok || current.Metadata.ResourceVersion == nil || version != *current.Metadata.ResourceVersion {
+				return flterrors.ErrResourceVersionConflict
+			}
+		}
+	}
+	return nil
 }
 
 func (h *DeviceServiceHandler) validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string, refreshLastSeen bool) domain.Status {
