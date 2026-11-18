@@ -115,7 +115,7 @@ History protects the previous complete observed set and the current update. Repl
 
 The agent continuously reports device health, application state, and resource conditions to the management service. Built-in collectors capture system info (hostname, OS, hardware, network) while user-defined custom collectors enable site-specific data. This powers fleet-wide visibility, rollout decisions, and alerting.
 
-When available, the agent includes the device resource version in a status report. If another write has changed the device, the service rejects the older report and the agent refreshes before sending its current status. Older agents and agents that cannot yet read the version continue reporting without this ordering check, so their delayed reports can temporarily show an earlier status.
+The current agent includes the device resource version in a status report. If another write has changed the device, the service rejects the older report and the agent refreshes before sending its current status. During the enrollment-hooks gate, the rendered device can return a conflict before a version is available; the agent can still report status without the ordering check then. Other version-lookup failures defer the report for retry. Older agents also report without the check, so their delayed reports can temporarily show an earlier status.
 
 OS image digests come from bootc. Application workload digests come from the owning Podman user store or the configured CRI runtime, including nested workload images. Image-backed volumes use the application's Podman user store. Applications without an explicit `runAs` use the agent-process user context.
 
