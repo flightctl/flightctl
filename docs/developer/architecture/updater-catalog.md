@@ -687,11 +687,15 @@ agent process.
 
 A pinned payload is only verified and reused. Verification checks the exact
 entries, modes, owner, single links, sizes and digests within the pinned limits
-capped by the ceilings. A missing pinned payload reports
+capped by the ceilings, and that no retained regular file, including the
+manifest, carries file capabilities. A missing pinned payload reports
 `ErrRetainedPayloadMissing` and a changed one `ErrRetainedPayloadChanged`, both
-without mounting, extracting again or repairing anything, also after a restart;
-a verification deadline is retryable. An unpinned verified copy is reused, and
-an invalid unpinned copy is quarantined before a fresh extraction.
+without mounting, extracting again or repairing anything, also after a restart.
+Capability metadata that cannot be read, or an expired verification deadline,
+reports `ErrRetainedVerificationIncomplete`; only the deadline is retryable. An
+unpinned verified copy is reused, an unpinned copy proven changed is
+quarantined before a fresh extraction, and an unpinned copy that cannot be
+verified is left in place and the call fails.
 
 Image pruning treats the image references of pinned payloads as required root
 podman references and records them with the other references; a registry read
@@ -739,7 +743,7 @@ and does not replace, the handle-based confinement and retained verification.
 | File count, file size, total size, manifest size or extraction time above the admitted budget | `ResourceLimitExceeded`, with `exceededBudget` naming the budget key | no |
 | Free space below `extractionScratchBytes`, or the disk filling up while copying | `InsufficientSpace` | no |
 | A structure, link, mode or digest violation in the image | `UpdaterUnavailable` | no |
-| A missing or changed pinned payload | `UpdaterUnavailable` | no |
+| A missing, changed or unverifiable retained payload | `UpdaterUnavailable` | no |
 | An unmount failure, an evidence write failure, a failed quarantine, a contended publication or a verification deadline | `UpdaterUnavailable` | yes |
 
 A caller cancellation carries no firmware reason. When cleanup also fails after
