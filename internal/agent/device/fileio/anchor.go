@@ -554,7 +554,7 @@ func checkCopySource(src Anchor, rel string) (EntryInfo, error) {
 	case XattrPresent:
 		return EntryInfo{}, fmt.Errorf("%w %w", errors.ErrFileCapability, errors.WithElement(display))
 	case XattrUnknown:
-		return EntryInfo{}, fmt.Errorf("read capabilities of %w: %w", errors.WithElement(display), err)
+		return EntryInfo{}, fmt.Errorf("%w %w: %w", errors.ErrFileCapabilityUnknown, errors.WithElement(display), err)
 	}
 	return e, nil
 }

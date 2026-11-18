@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -646,13 +647,18 @@ func verifyPublishedCapabilities(ctx context.Context, final fileio.Anchor, plan 
 	return nil
 }
 
-// verifyPublishedDigests hashes every listed file within its listed size.
+// verifyPublishedDigests hashes every listed file within its listed size. A
+// file whose capabilities cannot be read while hashing leaves the payload
+// unverified rather than proven changed.
 func verifyPublishedDigests(ctx context.Context, final fileio.Anchor, m *Manifest) error {
 	for _, f := range m.Files {
 		d, err := final.Hash(ctx, f.Path, fileio.CopyBounds{MaxBytes: f.Size})
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if errors.Is(err, deviceerrors.ErrFileCapabilityUnknown) {
+				return fmt.Errorf("%w: file %q: %w", ErrRetainedVerificationIncomplete, f.Path, err)
 			}
 			return retainedChanged("file %q: %v", f.Path, err)
 		}

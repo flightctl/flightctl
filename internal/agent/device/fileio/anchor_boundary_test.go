@@ -600,8 +600,11 @@ func TestAnchorCopyFailures(t *testing.T) {
 		}))
 		_, err := dst.CopyFrom(context.Background(), src, "file", "copy", 0o400, bounds)
 		require.ErrorIs(err, unix.EIO)
+		require.ErrorIs(err, errors.ErrFileCapabilityUnknown)
+		require.NotErrorIs(err, errors.ErrFileCapability)
 		_, err = src.Hash(context.Background(), "file", bounds)
 		require.ErrorIs(err, unix.EIO)
+		require.ErrorIs(err, errors.ErrFileCapabilityUnknown)
 		requireNoCopy(t, root)
 	})
 	t.Run("When the source is replaced between inspection and opening it should refuse it", func(t *testing.T) {
@@ -1344,39 +1347,71 @@ func TestRemoveTreeLastError(t *testing.T) {
 }
 
 func TestAnchorHashChecksFileCapabilities(t *testing.T) {
+	capabilityRead := func(results ...error) func(fd int, attr string, dest []byte) (int, error) {
+		calls := 0
+		return func(fd int, attr string, dest []byte) (int, error) {
+			if attr != capabilityXattr {
+				return unix.Fgetxattr(fd, attr, dest)
+			}
+			res := results[min(calls, len(results)-1)]
+			calls++
+			if res == nil {
+				return copy(dest, []byte{0, 0, 0, 2}), nil
+			}
+			return 0, res
+		}
+	}
 	testCases := []struct {
-		name  string
-		xattr func(fd int, attr string, dest []byte) (int, error)
-		want  error
+		name    string
+		xattr   func(fd int, attr string, dest []byte) (int, error)
+		scan    bool
+		want    []error
+		notWant []error
 	}{
 		{
-			name: "When the hashed file carries file capabilities it should refuse it",
-			xattr: func(fd int, attr string, dest []byte) (int, error) {
-				if attr == capabilityXattr {
-					return copy(dest, []byte{0, 0, 0, 2}), nil
-				}
-				return unix.Fgetxattr(fd, attr, dest)
-			},
-			want: errors.ErrFileCapability,
+			name:    "When the hashed file carries file capabilities it should refuse it",
+			xattr:   capabilityRead(nil),
+			want:    []error{errors.ErrFileCapability},
+			notWant: []error{errors.ErrFileCapabilityUnknown},
 		},
 		{
-			name: "When the capabilities of the hashed file cannot be read it should refuse it",
-			xattr: func(fd int, attr string, dest []byte) (int, error) {
-				if attr == capabilityXattr {
-					return 0, unix.EIO
-				}
-				return unix.Fgetxattr(fd, attr, dest)
-			},
-			want: unix.EIO,
+			name:    "When the capabilities of the hashed file cannot be read it should refuse it as unknown with the cause",
+			xattr:   capabilityRead(unix.EIO),
+			want:    []error{errors.ErrFileCapabilityUnknown, unix.EIO},
+			notWant: []error{errors.ErrFileCapability},
+		},
+		{
+			name:    "When reading the capabilities of the hashed file is denied it should refuse it as unknown with the cause",
+			xattr:   capabilityRead(unix.EACCES),
+			want:    []error{errors.ErrFileCapabilityUnknown, unix.EACCES},
+			notWant: []error{errors.ErrFileCapability},
+		},
+		{
+			name:    "When an earlier capability read succeeded but the read while hashing fails it should refuse it as unknown with the cause",
+			xattr:   capabilityRead(unix.ENODATA, unix.EIO),
+			scan:    true,
+			want:    []error{errors.ErrFileCapabilityUnknown, unix.EIO},
+			notWant: []error{errors.ErrFileCapability},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			rw, root := anchorFixture(t)
-			require.NoError(t, os.WriteFile(filepath.Join(root, "data", "f"), []byte("payload"), 0o600))
+			require.NoError(os.WriteFile(filepath.Join(root, "data", "f"), []byte("payload"), 0o600))
 			data := openWithSys(t, rw, "/data", sysWith(func(s *sysOps) { s.fgetxattr = tc.xattr }))
+			if tc.scan {
+				_, state, err := data.GetXattr("f", capabilityXattr, capabilityXattrLimit)
+				require.NoError(err)
+				require.Equal(XattrAbsent, state)
+			}
 			_, err := data.Hash(context.Background(), "f", CopyBounds{MaxBytes: 64})
-			require.ErrorIs(t, err, tc.want)
+			for _, e := range tc.want {
+				require.ErrorIs(err, e)
+			}
+			for _, e := range tc.notWant {
+				require.NotErrorIs(err, e)
+			}
 		})
 	}
 }

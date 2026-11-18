@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -394,4 +396,119 @@ func TestExtractRetainedCapabilityMetadata(t *testing.T) {
 		require.Contains(x.events.events, "RemoveTree staging")
 		require.Equal([]string{x.finalName()}, x.entries())
 	})
+	t.Run("When a late capability read of an unpinned copy fails it should fail without quarantining, mounting or extracting it", func(t *testing.T) {
+		require := require.New(t)
+		x := publishOnce(t)
+		before := cacheTree(t, filepath.Dir(x.cacheDir()))
+		late := &lateCapabilityFailure{rel: "payload/bin/updater"}
+		x.hooks.hash = late.hook
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, unix.EIO)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		require.Equal(1, late.hashes, "the failing read was exercised once")
+		x.requireCounts(t, 0, 0, 0, 0)
+		require.Zero(x.renames)
+		require.Equal(before, cacheTree(t, filepath.Dir(x.cacheDir())), "the retained copy, registry and evidence are unchanged")
+	})
+	t.Run("When a late capability read of a pinned copy fails it should refuse it as unverified before mounting and keep it", func(t *testing.T) {
+		require := require.New(t)
+		x := newExtractHarness(t, defaultPayload(t))
+		payload, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(err)
+		x.pin(t, payload)
+		x.resetCounts()
+		before := cacheTree(t, filepath.Dir(x.cacheDir()))
+		late := &lateCapabilityFailure{rel: "payload/bin/updater"}
+		x.hooks.hash = late.hook
+		_, err = x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, unix.EIO)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		require.Equal(1, late.hashes, "the failing read was exercised once")
+		x.requireCounts(t, 0, 0, 0, 0)
+		require.Zero(x.renames)
+		require.Equal(before, cacheTree(t, filepath.Dir(x.cacheDir())), "the pinned copy, registry and evidence are unchanged")
+	})
+	t.Run("When a late capability read of a contended winner fails it should leave the winner and add no mount, copy, publication or quarantine", func(t *testing.T) {
+		require := require.New(t)
+		x := newExtractHarness(t, defaultPayload(t))
+		late := &lateCapabilityFailure{rel: "payload/bin/updater"}
+		var winner map[string]string
+		mounts, copies, seen := -1, -1, -1
+		onPublishRename(x, func(n int) error {
+			if n == 1 {
+				other := newExtractHarness(t, x.files)
+				_, err := other.extractor().Extract(context.Background(), other.pkg)
+				require.NoError(err)
+				require.NoError(os.Rename(other.cacheDir(other.finalName()), x.cacheDir(x.finalName())))
+				winner = cacheTree(t, x.cacheDir(x.finalName()))
+				mounts, copies, seen = x.mounter.mounts, x.copies, len(x.events.events)
+				x.hooks.hash = late.hook
+			}
+			return nil
+		})
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, unix.EIO)
+		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
+		requirePublishError(t, err, firmware.PublishNotVisible, "classify")
+		require.Equal(1, late.hashes, "the failing read was exercised once")
+		require.Equal(mounts, x.mounter.mounts, "no additional mount")
+		require.Equal(copies, x.copies, "no additional copy")
+		after := x.events.events[seen:]
+		publications := 0
+		for _, e := range after {
+			if e == "Rename staging->final" {
+				publications++
+			}
+		}
+		require.Equal(1, publications, "only the contended publication attempt")
+		require.NotContains(after, "Rename final->quarantine")
+		require.Contains(after, "RemoveTree staging")
+		require.Equal(winner, cacheTree(t, x.cacheDir(x.finalName())), "the winner is unchanged")
+		require.Equal([]string{x.finalName()}, x.entries())
+	})
+	t.Run("When the capabilities of an image file cannot be read it should fail the copy without publishing", func(t *testing.T) {
+		require := require.New(t)
+		x := newExtractHarness(t, defaultPayload(t))
+		x.hooks.xattr = capabilityHooks("updater/payload/bin/updater", fileio.XattrUnknown, ioErr).xattr
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.ErrorIs(err, unix.EIO)
+		require.ErrorIs(err, deviceerrors.ErrFileCapabilityUnknown)
+		require.NotErrorIs(err, deviceerrors.ErrFileCapability)
+		requirePublishError(t, err, firmware.PublishNotVisible, "copy")
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		require.NotContains(x.events.events, "Rename staging->final")
+		require.Empty(x.entries())
+	})
+}
+
+// cacheTree describes every entry under dir by mode, size, inode and, for
+// regular files, content digest.
+func cacheTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	tree := map[string]string{}
+	require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		desc := fmt.Sprintf("%s %d ino=%d", info.Mode(), info.Size(), info.Sys().(*syscall.Stat_t).Ino)
+		if info.Mode().IsRegular() {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			desc += " " + sha256Hex(data)
+		}
+		tree[strings.TrimPrefix(p, dir)] = desc
+		return nil
+	}))
+	return tree
 }
