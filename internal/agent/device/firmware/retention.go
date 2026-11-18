@@ -300,8 +300,13 @@ func (r *Retention) Pin(p Pin) error {
 		return err
 	}
 	e, err := c.updaters.Lstat(p.PayloadDir)
-	if err != nil || !e.IsDir() {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("pin %s: %w", p.PackageDigest, ErrRetainedPayloadMissing)
+	case err != nil:
+		return fmt.Errorf("pin %s: %w", p.PackageDigest, err)
+	case !e.IsDir():
+		return fmt.Errorf("pin %s: %w", p.PackageDigest, retainedChanged("version directory has type %s", e.Type))
 	}
 	for _, q := range pins {
 		if q.AttemptID == p.AttemptID && q.Role == p.Role {
