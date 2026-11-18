@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -349,6 +350,7 @@ func TestSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
+			expectRenderedResourceVersion(mockManagementClient, deviceName)
 			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockRouterService := console.NewMockRouterServiceClient(ctrl)
@@ -510,6 +512,7 @@ func TestRollbackDevice(t *testing.T) {
 			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
+			expectRenderedResourceVersion(mockManagementClient, deviceName)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -734,6 +737,7 @@ func TestOSRollback(t *testing.T) {
 
 			mockSpecManager := spec.NewMockManager(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
+			expectRenderedResourceVersion(mockManagementClient, deviceName)
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
 			mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -956,6 +960,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 
 		mockSpecManager := spec.NewMockManager(ctrl)
 		mockManagementClient := client.NewMockManagement(ctrl)
+		expectRenderedResourceVersion(mockManagementClient, deviceName)
 		mockResourceManager := resource.NewMockManager(ctrl)
 		mockHookManager := hook.NewMockManager(ctrl)
 		mockAppManager := applications.NewMockManager(ctrl)
@@ -1137,4 +1142,10 @@ func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desire
 		return errors.New("desired version mismatch")
 	}
 	return nil
+}
+
+func expectRenderedResourceVersion(management *client.MockManagement, name string) {
+	management.EXPECT().GetRenderedDevice(gomock.Any(), name, nil).Return(&v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{ResourceVersion: lo.ToPtr("1")},
+	}, http.StatusOK, nil).AnyTimes()
 }
