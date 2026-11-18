@@ -218,6 +218,9 @@ const (
 	EnrollmentHooksReasonSucceeded      = "Succeeded"
 	EnrollmentHooksReasonContinued      = "Continued"
 	EnrollmentHooksReasonManualOverride = "ManualOverride"
+
+	// OneTimeWindowsUnsupportedReason indicates that an agent cannot consume one-time maintenance windows.
+	OneTimeWindowsUnsupportedReason = "Unsupported"
 )
 
 const (

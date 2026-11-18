@@ -143,6 +143,34 @@ var _ = Describe("Device capability reporting", func() {
 		})
 	})
 
+	Context("one-time window capability reporting", func() {
+		It("When a device reports one-time window eligibility it should persist true", func() {
+			reportStatus("one-time-window-eligible-reporter", func(status *api.DeviceStatus) {
+				status.SystemInfo.OneTimeWindowsEligible = lo.ToPtr(true)
+			})
+
+			eligible := getSystemInfo("one-time-window-eligible-reporter").OneTimeWindowsEligible
+			Expect(eligible).ToNot(BeNil())
+			Expect(lo.FromPtr(eligible)).To(BeTrue())
+		})
+
+		It("When a device reports one-time window ineligibility it should preserve false", func() {
+			reportStatus("one-time-window-ineligible-reporter", func(status *api.DeviceStatus) {
+				status.SystemInfo.OneTimeWindowsEligible = lo.ToPtr(false)
+			})
+
+			eligible := getSystemInfo("one-time-window-ineligible-reporter").OneTimeWindowsEligible
+			Expect(eligible).ToNot(BeNil(), "false must remain distinguishable from an omitted capability")
+			Expect(lo.FromPtr(eligible)).To(BeFalse())
+		})
+
+		It("When an older agent does not report one-time window eligibility it should leave the field absent", func() {
+			reportStatus("one-time-window-silent-reporter", func(status *api.DeviceStatus) {})
+
+			Expect(getSystemInfo("one-time-window-silent-reporter").OneTimeWindowsEligible).To(BeNil())
+		})
+	})
+
 	Context("OS mode resolution", func() {
 		seedOsModes := func() {
 			GinkgoHelper()
