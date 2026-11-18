@@ -37,23 +37,17 @@ data:
         httpMaxUrlLength: {{ default 2000 .Values.api.httpMaxUrlLength }}
         httpMaxRequestSize: {{ default 53137200 .Values.api.httpMaxRequestSize }}
         renderedWaitTimeout: {{ .Values.api.renderedSpecPollTimeout | default "2m" | quote }}
-        {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+        {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") (not .Values.global.apiUrl) }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.api }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.agent }}/
-        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
         {{- else }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
+        baseUrl: {{ include "flightctl.getApiUrl" . }}/
         {{- end }}
+        baseAgentEndpointUrl: {{ include "flightctl.getAgentApiUrl" . }}/
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         altNames:
-          - api.{{ include "flightctl.getBaseDomain" . }}
-          - agent-api.{{ include "flightctl.getBaseDomain" . }}
-          - flightctl-api
-          - flightctl-api.{{ .Release.Namespace }}
-          - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
+          {{- range (include "flightctl.getApiServerDNSSans" . | fromJson).sans }}
+          - {{ . }}
+          {{- end }}
         {{ if and .Values.api.rateLimit (not (empty .Values.api.rateLimit)) }}
         rateLimit:
             enabled: {{ .Values.api.rateLimit.enabled }}

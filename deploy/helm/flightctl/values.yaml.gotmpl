@@ -32,6 +32,14 @@ global:
   baseDomain: ""
   # -- Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
   baseDomainTlsSecretName: ""
+  # -- Base URL of the UI, overriding the one constructed from baseDomain.
+  uiUrl: ""
+  # -- Base URL of the API, overriding the one constructed from baseDomain.
+  apiUrl: ""
+  # -- External URL of the agent API without a path, overriding the one constructed from baseDomain.
+  agentApiUrl: ""
+  # -- Base URL of the CLI artifacts, overriding the one constructed from baseDomain.
+  cliArtifactsUrl: ""
   # -- Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component
   # that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the
   # chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName

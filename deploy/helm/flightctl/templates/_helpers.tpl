@@ -184,7 +184,9 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
   {{- $scheme := (include "flightctl.getHttpScheme" .) }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" . )}}
-  {{- if eq $enableMulticlusterExtensions "true" }}
+  {{- if .Values.global.uiUrl }}
+    {{- .Values.global.uiUrl }}
+  {{- else if eq $enableMulticlusterExtensions "true" }}
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
@@ -223,12 +225,40 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 
 {{- define "flightctl.getApiUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+  {{- if .Values.global.apiUrl }}
+    {{- .Values.global.apiUrl }}
+  {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
     {{- printf "https://%s:%v" $baseDomain .Values.dev.nodePorts.api }}
   {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
   {{- else }}
     {{- printf "https://api.%s" $baseDomain }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getAgentApiUrl" }}
+  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+  {{- if .Values.global.agentApiUrl }}
+    {{- .Values.global.agentApiUrl }}
+  {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+    {{- printf "https://agent-api.%s:%v" $baseDomain .Values.dev.nodePorts.agent }}
+  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
+    {{- printf "https://agent-api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
+  {{- else }}
+    {{- printf "https://agent-api.%s" $baseDomain }}
+  {{- end }}
+{{- end }}
+
+{{- /*
+Get the hostname the CLI derives for a service from the API URL.
+Usage: {{- include "flightctl.getApiDerivedHost" (dict "url" .Values.global.apiUrl "service" "remote-access") }}
+*/}}
+{{- define "flightctl.getApiDerivedHost" }}
+  {{- $url := urlParse .url }}
+  {{- if has (regexFind ":[0-9]+$" $url.host) (list "" ":443" ":80") }}
+    {{- regexReplaceAll "^api\\." $url.hostname (printf "%s." .service) }}
+  {{- else }}
+    {{- $url.hostname }}
   {{- end }}
 {{- end }}
 
@@ -274,7 +304,9 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
-  {{- if eq $exposeMethod "nodePort" }}
+  {{- if .Values.global.cliArtifactsUrl }}
+    {{- .Values.global.cliArtifactsUrl }}
+  {{- else if eq $exposeMethod "nodePort" }}
     {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
@@ -758,10 +790,16 @@ Usage: {{- $result := include "flightctl.getApiServerDNSSans" . | fromJson }}{{ 
   {{- $sans := list }}
   {{- $sans = append $sans (printf "api.%s" $baseDomain) }}
   {{- $sans = append $sans (printf "agent-api.%s" $baseDomain) }}
+  {{- with .Values.global.apiUrl }}
+    {{- $sans = append $sans (urlParse .).hostname }}
+  {{- end }}
+  {{- with .Values.global.agentApiUrl }}
+    {{- $sans = append $sans (urlParse .).hostname }}
+  {{- end }}
   {{- $sans = append $sans "flightctl-api" }}
   {{- $sans = append $sans (printf "flightctl-api.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-api.%s.svc.cluster.local" .Release.Namespace) }}
-  {{- dict "sans" $sans | toJson -}}
+  {{- dict "sans" (uniq $sans) | toJson -}}
 {{- end }}
 
 {{- /*
@@ -800,10 +838,13 @@ Usage: {{- $result := include "flightctl.getUiDNSSans" . | fromJson }}{{ $uiDNSS
   {{- $sans := list }}
   {{- $baseDomain := include "flightctl.getBaseDomain" . }}
   {{- $sans = append $sans (printf "ui.%s" $baseDomain) }}
+  {{- with .Values.global.uiUrl }}
+    {{- $sans = append $sans (urlParse .).hostname }}
+  {{- end }}
   {{- $sans = append $sans "flightctl-ui" }}
   {{- $sans = append $sans (printf "flightctl-ui.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-ui.%s.svc.cluster.local" .Release.Namespace) }}
-  {{- dict "sans" $sans | toJson -}}
+  {{- dict "sans" (uniq $sans) | toJson -}}
 {{- end }}
 
 {{- /*
@@ -814,10 +855,13 @@ Usage: {{- $result := include "flightctl.getCliArtifactsDNSSans" . | fromJson }}
   {{- $sans := list }}
   {{- $baseDomain := include "flightctl.getBaseDomain" . }}
   {{- $sans = append $sans (printf "cli-artifacts.%s" $baseDomain) }}
+  {{- with .Values.global.cliArtifactsUrl }}
+    {{- $sans = append $sans (urlParse .).hostname }}
+  {{- end }}
   {{- $sans = append $sans "flightctl-cli-artifacts" }}
   {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s.svc.cluster.local" .Release.Namespace) }}
-  {{- dict "sans" $sans | toJson -}}
+  {{- dict "sans" (uniq $sans) | toJson -}}
 {{- end }}
 
 {{- /*
@@ -828,10 +872,13 @@ Usage: {{- $result := include "flightctl.getImagebuilderApiDNSSans" . | fromJson
   {{- $sans := list }}
   {{- $baseDomain := include "flightctl.getBaseDomain" . }}
   {{- $sans = append $sans (printf "imagebuilder-api.%s" $baseDomain) }}
+  {{- with .Values.global.apiUrl }}
+    {{- $sans = append $sans (include "flightctl.getApiDerivedHost" (dict "url" . "service" "imagebuilder-api")) }}
+  {{- end }}
   {{- $sans = append $sans "flightctl-imagebuilder-api" }}
   {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s.svc.cluster.local" .Release.Namespace) }}
-  {{- dict "sans" $sans | toJson -}}
+  {{- dict "sans" (uniq $sans) | toJson -}}
 {{- end }}
 
 {{- /*
@@ -843,13 +890,19 @@ Usage: {{- $result := include "flightctl.getRemoteAccessDNSSans" . | fromJson }}
   {{- $baseDomain := include "flightctl.getBaseDomain" . }}
   {{- $sans = append $sans (printf "remote-access.%s" $baseDomain) }}
   {{- $sans = append $sans (printf "agent-remote-access.%s" $baseDomain) }}
+  {{- with .Values.global.apiUrl }}
+    {{- $sans = append $sans (include "flightctl.getApiDerivedHost" (dict "url" . "service" "remote-access")) }}
+  {{- end }}
+  {{- with .Values.global.agentApiUrl }}
+    {{- $sans = append $sans (regexReplaceAll "^agent-api\\." (urlParse .).hostname "agent-remote-access.") }}
+  {{- end }}
   {{- $sans = append $sans "flightctl-remote-access" }}
   {{- $sans = append $sans "flightctl-remote-access-agent" }}
   {{- $sans = append $sans (printf "flightctl-remote-access.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-remote-access-agent.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-remote-access.%s.svc.cluster.local" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-remote-access-agent.%s.svc.cluster.local" .Release.Namespace) }}
-  {{- dict "sans" $sans | toJson -}}
+  {{- dict "sans" (uniq $sans) | toJson -}}
 {{- end }}
 
 {{- /*
