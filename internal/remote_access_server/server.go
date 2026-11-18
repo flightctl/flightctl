@@ -222,7 +222,7 @@ func (s *Server) Run(ctx context.Context) error {
 		WriteTimeout:      time.Duration(svcCfg.HttpWriteTimeout),
 		IdleTimeout:       time.Duration(svcCfg.HttpIdleTimeout),
 		MaxHeaderBytes:    svcCfg.HttpMaxHeaderBytes,
-		ConnContext:       fcmiddleware.TLSClientCertConnContext(s.log),
+		ConnContext:       fcmiddleware.TLSClientCertConnContext(s.log, fcmiddleware.DefaultTLSHandshakeTimeout),
 	}
 	httpSrv := &http.Server{
 		Addr:              svcCfg.Address,
