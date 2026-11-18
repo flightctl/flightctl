@@ -1342,3 +1342,41 @@ func TestRemoveTreeLastError(t *testing.T) {
 		require.NotContains(res.LastErr, "\n")
 	})
 }
+
+func TestAnchorHashChecksFileCapabilities(t *testing.T) {
+	testCases := []struct {
+		name  string
+		xattr func(fd int, attr string, dest []byte) (int, error)
+		want  error
+	}{
+		{
+			name: "When the hashed file carries file capabilities it should refuse it",
+			xattr: func(fd int, attr string, dest []byte) (int, error) {
+				if attr == capabilityXattr {
+					return copy(dest, []byte{0, 0, 0, 2}), nil
+				}
+				return unix.Fgetxattr(fd, attr, dest)
+			},
+			want: errors.ErrFileCapability,
+		},
+		{
+			name: "When the capabilities of the hashed file cannot be read it should refuse it",
+			xattr: func(fd int, attr string, dest []byte) (int, error) {
+				if attr == capabilityXattr {
+					return 0, unix.EIO
+				}
+				return unix.Fgetxattr(fd, attr, dest)
+			},
+			want: unix.EIO,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw, root := anchorFixture(t)
+			require.NoError(t, os.WriteFile(filepath.Join(root, "data", "f"), []byte("payload"), 0o600))
+			data := openWithSys(t, rw, "/data", sysWith(func(s *sysOps) { s.fgetxattr = tc.xattr }))
+			_, err := data.Hash(context.Background(), "f", CopyBounds{MaxBytes: 64})
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}

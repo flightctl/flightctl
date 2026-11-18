@@ -36,6 +36,11 @@ const (
 	maxAttemptIDBytes  = 256
 	firmwareDirName    = "firmware"
 	updatersDirName    = "updaters"
+
+	// capabilityXattr names file capabilities; capabilityXattrLimit bounds
+	// the read of one value.
+	capabilityXattr      = "security.capability"
+	capabilityXattrLimit = 64
 )
 
 // PinRole says why an attempt retains an updater payload.
@@ -425,9 +430,10 @@ func capLimits(limits, ceilings policy.ExtractionLimits) policy.ExtractionLimits
 
 // VerifyPublished verifies the retained payload of pin within the pinned
 // limits capped by the ceilings. A missing payload reports
-// ErrRetainedPayloadMissing, any difference ErrRetainedPayloadChanged and an
-// expired deadline ErrRetainedVerificationIncomplete; nothing is repaired or
-// extracted again.
+// ErrRetainedPayloadMissing, any difference, including file capabilities on a
+// retained file, ErrRetainedPayloadChanged, and an expired deadline or
+// unreadable capability metadata ErrRetainedVerificationIncomplete; nothing is
+// repaired or extracted again.
 func (r *Retention) VerifyPublished(ctx context.Context, pin Pin) (VerifyResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -549,6 +555,9 @@ func verifyPublishedTree(ctx context.Context, updaters fileio.Anchor, dir, manif
 	if err := verifyPublishedEntries(ctx, final, plan, owner); err != nil {
 		return nil, err
 	}
+	if err := verifyPublishedCapabilities(ctx, final, plan); err != nil {
+		return nil, err
+	}
 	if err := verifyPublishedDigests(ctx, final, m); err != nil {
 		return nil, err
 	}
@@ -607,6 +616,32 @@ func checkPublishedEntry(rel string, e fileio.EntryInfo, want expectedEntry, own
 	}
 	if !e.IsRegular() || e.Perm != mode || e.Nlink != 1 || e.Size != want.size {
 		return retainedChanged("file %q has type %s, mode %s, %d links and %d bytes", rel, e.Type, e.Perm, e.Nlink, e.Size)
+	}
+	return nil
+}
+
+// verifyPublishedCapabilities requires every retained regular file, including
+// the manifest, to carry no file capabilities. Metadata that cannot be read
+// leaves the payload unverified rather than proven changed.
+func verifyPublishedCapabilities(ctx context.Context, final fileio.Anchor, plan *payloadPlan) error {
+	files := make([]string, 0, len(plan.expected))
+	for rel, want := range plan.expected {
+		if !want.dir {
+			files = append(files, rel)
+		}
+	}
+	sort.Strings(files)
+	for _, rel := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, state, err := final.GetXattr(rel, capabilityXattr, capabilityXattrLimit)
+		switch state {
+		case fileio.XattrPresent:
+			return retainedChanged("file %q carries file capabilities", rel)
+		case fileio.XattrUnknown:
+			return fmt.Errorf("%w: capabilities of %q: %w", ErrRetainedVerificationIncomplete, rel, err)
+		}
 	}
 	return nil
 }
