@@ -217,6 +217,7 @@ type hooks struct {
 	replace    func(dir, name string) error
 	close      func(dir string)
 	lstat      func(dir, rel string) (fileio.EntryInfo, error, bool)
+	hash       func(dir, rel string) (fileio.FileDigest, error, bool)
 }
 
 type hooked struct {
