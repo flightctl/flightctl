@@ -30,9 +30,10 @@ var nativeTargets = map[string]nativeTarget{
 	"s390x":   {elf.ELFCLASS64, elf.EM_S390, binary.BigEndian},
 }
 
-// CheckNativeExecutable verifies that r holds an ELF executable for goarch
-// that runs without a program interpreter or shared libraries. Static and
-// static position-independent executables are accepted.
+// CheckNativeExecutable verifies that r holds a Linux (System V or Linux OS
+// ABI) ELF executable for goarch that runs without a program interpreter or
+// shared libraries. Static and static position-independent executables are
+// accepted.
 func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	target, ok := nativeTargets[goarch]
 	if !ok {
@@ -45,6 +46,9 @@ func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	defer f.Close()
 	if f.Class != target.class || f.Machine != target.machine || f.ByteOrder != target.order {
 		return fmt.Errorf("%w: built for architecture %s/%s, device needs %s/%s", errNotNativeExecutable, f.Machine, f.Class, target.machine, target.class)
+	}
+	if f.OSABI != elf.ELFOSABI_NONE && f.OSABI != elf.ELFOSABI_LINUX {
+		return fmt.Errorf("%w: built for OS ABI %s, device needs %s or %s", errNotNativeExecutable, f.OSABI, elf.ELFOSABI_NONE, elf.ELFOSABI_LINUX)
 	}
 	if f.Type != elf.ET_EXEC && f.Type != elf.ET_DYN {
 		return fmt.Errorf("%w: ELF type %s is not an executable", errNotNativeExecutable, f.Type)
