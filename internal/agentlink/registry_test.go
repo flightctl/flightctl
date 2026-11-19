@@ -52,11 +52,31 @@ func (f *fakeKV) DeleteIfMatch(_ context.Context, key string, expected []byte) (
 	return true, nil
 }
 
+func (f *fakeKV) SetNX(_ context.Context, key string, value []byte) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, exists := f.values[key]; exists {
+		return false, nil
+	}
+	f.values[key] = append([]byte(nil), value...)
+	return true, nil
+}
+
+func (f *fakeKV) SetExpire(_ context.Context, _ string, _ time.Duration) error {
+	return nil
+}
+
 func (f *fakeKV) has(key string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	_, ok := f.values[key]
 	return ok
+}
+
+func (f *fakeKV) deleteKey(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.values, key)
 }
 
 func newTestRegistry(t *testing.T, kv kvstore.KVStore, replica string) *Registry {
@@ -209,6 +229,115 @@ func TestRefreshIntervalIsComfortablyBelowTheTTL(t *testing.T) {
 	require := require.New(t)
 	// A single missed or slow refresh must not expire a healthy link.
 	require.Less(DispatchRefreshInterval*2, DispatchTTL)
+}
+
+func TestKeepAliveRecoversAfterExpiry(t *testing.T) {
+	// Regression: when the registration expired (e.g. Redis down > TTL),
+	// KeepAlive exited and left the device unreachable. The fix re-registers
+	// with SetNX when the key is absent.
+	require := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	kv := newFakeKV()
+	r := newTestRegistry(t, kv, "replica-a")
+
+	lease, err := r.Register(ctx, testOrg, testDevice, "link-1")
+	require.NoError(err)
+	lease.refreshInterval = 5 * time.Millisecond
+
+	// Simulate expiry: delete the key so Refresh returns false.
+	key := (&kvstore.AgentLinkDispatchKey{OrgID: testOrg, DeviceName: testDevice}).ComposeKey()
+	kv.deleteKey(key)
+
+	// KeepAlive should re-register rather than exiting.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		lease.KeepAlive(ctx)
+	}()
+
+	// Give KeepAlive at least one tick to recover.
+	time.Sleep(30 * time.Millisecond)
+
+	// The registration should have been restored.
+	got, err := r.Resolve(ctx, testOrg, testDevice)
+	require.NoError(err)
+	require.NotNil(got, "recovery must restore the registration")
+	require.Equal("link-1", got.LinkID)
+
+	// Clean up.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("KeepAlive did not stop after context cancel")
+	}
+}
+
+func TestRecoveryDoesNotOverwriteNewerRegistration(t *testing.T) {
+	// Regression: tryRecover uses SetNX so it cannot overwrite a newer
+	// link's registration that arrived between the Get and the SetNX.
+	require := require.New(t)
+	ctx := context.Background()
+
+	kv := newFakeKV()
+	r := newTestRegistry(t, kv, "replica-a")
+
+	// First link registers, then its registration expires.
+	lease, err := r.Register(ctx, testOrg, testDevice, "link-1")
+	require.NoError(err)
+	key := (&kvstore.AgentLinkDispatchKey{OrgID: testOrg, DeviceName: testDevice}).ComposeKey()
+	kv.deleteKey(key)
+
+	// A newer link registers while the old one's key is absent.
+	r2 := newTestRegistry(t, kv, "replica-b")
+	_, err = r2.Register(ctx, testOrg, testDevice, "link-2")
+	require.NoError(err)
+
+	// The old link's tryRecover must NOT overwrite link-2.
+	recovered := lease.tryRecover(ctx)
+	require.False(recovered, "recovery must fail when a newer link registered")
+
+	got, err := r.Resolve(ctx, testOrg, testDevice)
+	require.NoError(err)
+	require.Equal("link-2", got.LinkID, "newer registration must be preserved")
+}
+
+func TestSupersededLinkDoesNotRecoverAfterObservingSupersession(t *testing.T) {
+	// A link that sees a different registration (superseded, not expired)
+	// must exit KeepAlive rather than attempting recovery.
+	require := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	kv := newFakeKV()
+	r := newTestRegistry(t, kv, "replica-a")
+
+	lease, err := r.Register(ctx, testOrg, testDevice, "link-1")
+	require.NoError(err)
+	lease.refreshInterval = 5 * time.Millisecond
+
+	// Supersede with a new registration.
+	_, err = r.Register(ctx, testOrg, testDevice, "link-2")
+	require.NoError(err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		lease.KeepAlive(ctx)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("KeepAlive did not stop after supersession")
+	}
+
+	// Registration must still be link-2, not resurrected link-1.
+	got, err := r.Resolve(ctx, testOrg, testDevice)
+	require.NoError(err)
+	require.Equal("link-2", got.LinkID)
 }
 
 func TestDispatchKeyShape(t *testing.T) {

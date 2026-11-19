@@ -612,3 +612,147 @@ func TestWrongRoleViolationDoesNotCancelActiveWork(t *testing.T) {
 	require.Equal("r1", env.ID)
 	require.Equal(protocol.ReasonCancelled, env.Status.Reason)
 }
+
+func TestTerminalResultOnFullQueueFailsLinkRatherThanLosing(t *testing.T) {
+	// Regression: sendResult silently dropped a terminal result when the
+	// writer queue was full, leaving the peer waiting on an open connection.
+	// The fix fails the link, which unblocks the peer.
+	require := require.New(t)
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// A tiny writer queue that is easy to fill.
+	e := &Endpoint{
+		log:        log,
+		role:       protocol.OriginService,
+		active:     map[requestKey]*requestState{},
+		originated: map[requestKey]*Originated{},
+		completed:  newRingSet(16),
+		writeCh:    make(chan outbound, 1), // capacity 1
+		pongCh:     make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.linkCtx, e.linkCancel = context.WithCancel(ctx)
+
+	// Need a real websocket.Conn for failLink's WriteControl. Use an
+	// in-memory pair.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Hold the connection open.
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	dialer := &websocket.Dialer{}
+	ws, _, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(err)
+	defer ws.Close()
+	e.ws = ws
+
+	// Fill the writer queue.
+	e.writeCh <- outbound{data: []byte("fill")}
+
+	// Now sendResult should fail the link because the queue is full.
+	key := requestKey{origin: protocol.OriginAgent, id: "full-q"}
+	e.sendResult(key, protocol.ReasonMethodNotSupported, "test")
+
+	// The closeOnce should have fired.
+	require.NotNil(e.closeErr, "failLink must have been called when terminal result cannot be enqueued")
+}
+
+func TestSendResultOnceUncommitsOnQueueFull(t *testing.T) {
+	// Regression: sendResultOnce committed resultSent before encoding, so
+	// an enqueue failure consumed the one-shot. The fix encodes first and
+	// uncommits on enqueue failure, letting finishRequest send the fallback.
+	require := require.New(t)
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	e := &Endpoint{
+		log:     log,
+		role:    protocol.OriginService,
+		writeCh: make(chan outbound, 1), // capacity 1
+		pongCh:  make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.linkCtx, e.linkCancel = context.WithCancel(ctx)
+
+	// Fill the queue.
+	e.writeCh <- outbound{data: []byte("fill")}
+
+	st := &requestState{}
+	key := requestKey{origin: protocol.OriginAgent, id: "uncommit-test"}
+
+	// First attempt: enqueue fails because queue is full.
+	err := e.sendResultOnce(key, st, protocol.ReasonOK, "")
+	require.Error(err)
+
+	// resultSent must be uncommitted so finishRequest can retry.
+	require.False(st.resultSent.Load(), "resultSent must be uncommitted after enqueue failure")
+
+	// Drain the queue and retry — now it should succeed.
+	<-e.writeCh
+	err = e.sendResultOnce(key, st, protocol.ReasonRetrievalFailed, "fallback")
+	require.NoError(err)
+	require.True(st.resultSent.Load())
+}
+
+func TestShutdownDrainingDropsLateRequests(t *testing.T) {
+	// Regression: the reader could enqueue refusals after the final writer
+	// barrier, causing them to be lost before the Close frame. The fix
+	// sets draining before the barrier so the reader silently drops.
+	require := require.New(t)
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	e := &Endpoint{
+		log:        log,
+		role:       protocol.OriginService,
+		active:     map[requestKey]*requestState{},
+		originated: map[requestKey]*Originated{},
+		completed:  newRingSet(16),
+		writeCh:    make(chan outbound, protocol.WriterQueueCapacity),
+		pongCh:     make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.linkCtx, e.linkCancel = context.WithCancel(ctx)
+
+	// Set refusing + draining, simulating post-finishShutdown state.
+	e.mu.Lock()
+	e.refusing = true
+	e.draining = true
+	e.mu.Unlock()
+
+	// A request arriving now must be silently dropped (no enqueue).
+	env := &protocol.Envelope{
+		Kind:   protocol.KindRequest,
+		Origin: protocol.OriginAgent,
+		ID:     "late-request",
+		Method: "test.late",
+	}
+	lv := e.dispatchRequest(env)
+	require.Nil(lv, "late request during draining must not cause a link violation")
+
+	// Nothing should have been enqueued — channel should be empty.
+	select {
+	case msg := <-e.writeCh:
+		t.Fatalf("expected empty writer queue during draining, got message with %d bytes", len(msg.data))
+	default:
+		// Correct: no message enqueued.
+	}
+}
