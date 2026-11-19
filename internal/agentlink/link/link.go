@@ -182,9 +182,11 @@ type Endpoint struct {
 // Serve always closes ws before returning.
 func Serve(ctx context.Context, ws *websocket.Conn, cfg Config) error {
 	if cfg.Log == nil {
+		_ = ws.Close()
 		return errors.New("link: a logger is required")
 	}
 	if cfg.Role != protocol.OriginService && cfg.Role != protocol.OriginAgent {
+		_ = ws.Close()
 		return fmt.Errorf("link: invalid role %q", cfg.Role)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -481,4 +482,133 @@ func TestRingSetIgnoresRepeatedAdds(t *testing.T) {
 	s.add(k)
 
 	require.Equal(1, s.len())
+}
+
+func TestConcurrentResultAndCancelDoesNotPanic(t *testing.T) {
+	// Regression: offer (reader) and Cancel (caller) raced on the finished
+	// flag and channel close, causing a panic from a send on a closed
+	// channel. The fix serializes the finished check and the channel send
+	// under o.mu.
+	require := require.New(t)
+
+	// Direct unit test of the offer/fail race.
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+	e := &Endpoint{
+		log:        log,
+		role:       protocol.OriginService,
+		originated: map[requestKey]*Originated{},
+		completed:  newRingSet(16),
+		writeCh:    make(chan outbound, protocol.WriterQueueCapacity),
+		pongCh:     make(chan struct{}, 1),
+	}
+
+	for i := 0; i < 100; i++ {
+		key := requestKey{origin: protocol.OriginService, id: fmt.Sprintf("race-%d", i)}
+		o := &Originated{key: key, e: e, ch: make(chan Event, OriginatedQueueCapacity)}
+		e.mu.Lock()
+		e.originated[key] = o
+		e.mu.Unlock()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			// Simulate a peer result arriving on the reader.
+			o.offer(&protocol.Envelope{
+				Kind:   protocol.KindResult,
+				Origin: protocol.OriginService,
+				ID:     key.id,
+				Status: &protocol.Status{Reason: protocol.ReasonOK},
+			})
+		}()
+		// Concurrent cancel from the caller.
+		o.fail(protocol.ReasonCancelled, "cancelled")
+
+		<-done
+
+		// Exactly one terminal event, channel closed.
+		var got []Event
+		for ev := range o.ch {
+			got = append(got, ev)
+		}
+		require.LessOrEqual(len(got), 1, "at most one terminal event for race iteration %d", i)
+	}
+}
+
+func TestFailAllActiveClosesAdmissionBeforeSnapshot(t *testing.T) {
+	// Regression: failAllActive did not set refusing before collecting the
+	// snapshot, so a concurrent Originate could register a request that
+	// cleanup would never see, leaving its Events channel open forever.
+	require := require.New(t)
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e := &Endpoint{
+		log:        log,
+		role:       protocol.OriginService,
+		originated: map[requestKey]*Originated{},
+		active:     map[requestKey]*requestState{},
+		completed:  newRingSet(16),
+		writeCh:    make(chan outbound, protocol.WriterQueueCapacity),
+		pongCh:     make(chan struct{}, 1),
+	}
+	e.linkCtx, e.linkCancel = context.WithCancel(ctx)
+
+	// failAllActive now sets refusing before snapshotting.
+	e.failAllActive()
+
+	e.mu.Lock()
+	refusing := e.refusing
+	e.mu.Unlock()
+
+	require.True(refusing, "refusing must be set after failAllActive")
+
+	// Originate checks refusing under e.mu and rejects.
+	_, origErr := e.Originate("post-teardown", "test.method", nil, nil)
+	require.Error(origErr, "Originate after failAllActive must fail")
+}
+
+func TestWrongRoleViolationDoesNotCancelActiveWork(t *testing.T) {
+	// Regression: handleRequestViolation did not check SenderMayUse, so a
+	// wrong-role message with a decode fault could cancel active work
+	// through the error path.
+	require := require.New(t)
+
+	started := make(chan struct{})
+	h := newHarness(t, map[string]Handler{
+		"test.block": func(ctx context.Context, req *Request, out Responder) {
+			close(started)
+			<-ctx.Done()
+			_ = out.Result(protocol.ReasonCancelled, "cancelled")
+		},
+	})
+
+	// Start a request so the endpoint has active work.
+	h.send(t, `{"v":1,"kind":"request","origin":"agent","id":"r1","method":"test.block","params":{}}`)
+	select {
+	case <-started:
+	case <-time.After(testTimeout):
+		t.Fatal("handler did not start")
+	}
+
+	// The peer is the agent. For kind=request, SenderMayUse requires
+	// sender == origin. A request with origin "service" from the agent
+	// violates that (agent != service), so SenderMayUse returns false.
+	// The "extra" member makes the decoder return a RequestViolation.
+	h.send(t, `{"v":1,"kind":"request","origin":"service","id":"r1","method":"x","params":{},"extra":1}`)
+
+	// The wrong-role violation must be dropped. The active request r1
+	// (origin=agent) must continue running, so no result arrives yet.
+	h.expectNoMessage(t)
+
+	// Verify the link is still alive by cancelling the real request.
+	h.send(t, `{"v":1,"kind":"cancel","origin":"agent","id":"r1"}`)
+	env := h.recv(t)
+	require.Equal(protocol.KindResult, env.Kind)
+	require.Equal("r1", env.ID)
+	require.Equal(protocol.ReasonCancelled, env.Status.Reason)
 }

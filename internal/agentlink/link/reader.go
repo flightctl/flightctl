@@ -88,6 +88,15 @@ func (e *Endpoint) classifyReadError(err error) error {
 func (e *Endpoint) handleRequestViolation(rv *protocol.RequestViolation) {
 	e.log.Debugf("Agent link: request-scoped protocol violation for %s/%s: %v", rv.Origin, rv.ID, rv.Err)
 
+	// Enforce sender roles on the error path, not only the happy path.
+	// Without this a wrong-role message with a decode fault would bypass
+	// dispatch's SenderMayUse check and could cancel active work.
+	if !protocol.SenderMayUse(e.peerRole(), rv.Kind, rv.Origin) {
+		e.counters.DroppedRoleViolation.Add(1)
+		e.log.Debugf("Agent link: dropping violation for %s/%s from the wrong sender role", rv.Origin, rv.ID)
+		return
+	}
+
 	key := requestKey{origin: rv.Origin, id: rv.ID}
 
 	e.mu.Lock()

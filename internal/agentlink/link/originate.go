@@ -96,6 +96,9 @@ func (o *Originated) Cancel(reason, message string) error {
 
 // offer hands one responder message to this request's queue. It is called
 // from the reader and never waits.
+//
+// All channel sends are serialized under o.mu with the finished check, so a
+// concurrent Cancel cannot close the channel between the check and the send.
 func (o *Originated) offer(env *protocol.Envelope) {
 	o.mu.Lock()
 	if o.finished {
@@ -105,14 +108,15 @@ func (o *Originated) offer(env *protocol.Envelope) {
 		o.e.counters.DroppedUnknownPair.Add(1)
 		return
 	}
-	o.mu.Unlock()
 
 	if env.Kind == protocol.KindResult {
 		// In-order handoff: the result is enqueued behind this request's
 		// pending data, never dispatched around it, and the reserved
 		// terminal slot means it always fits.
-		o.deliver(Event{Kind: protocol.KindResult, Status: env.Status})
-		o.finish()
+		o.finished = true
+		o.sendLocked(Event{Kind: protocol.KindResult, Status: env.Status})
+		o.mu.Unlock()
+		o.retire()
 		return
 	}
 
@@ -122,8 +126,15 @@ func (o *Originated) offer(env *protocol.Envelope) {
 		// fails exactly one request, visibly: data is never silently
 		// dropped and a request is never quietly shortened into a success.
 		// The connection is not closed.
+		o.finished = true
+		o.sendLocked(Event{Kind: protocol.KindResult, Status: &protocol.Status{
+			Reason:  protocol.ReasonRetrievalFailed,
+			Message: "consumer did not keep up",
+		}})
+		o.mu.Unlock()
+		o.retire()
+
 		o.e.log.Warnf("Agent link: queue overrun on %s, failing that request", o.key)
-		o.fail(protocol.ReasonRetrievalFailed, "consumer did not keep up")
 		// The cancel is enqueued to the writer rather than sent from the
 		// reader.
 		if err := o.e.cancelOnLink(o.key, protocol.ReasonRetrievalFailed, "queue overrun"); err != nil {
@@ -132,10 +143,14 @@ func (o *Originated) offer(env *protocol.Envelope) {
 		return
 	}
 
-	o.deliver(Event{Kind: protocol.KindData, Payload: env.Payload})
+	o.sendLocked(Event{Kind: protocol.KindData, Payload: env.Payload})
+	o.mu.Unlock()
 }
 
-func (o *Originated) deliver(ev Event) {
+// sendLocked sends one event to this request's channel. The caller must hold
+// o.mu, which serializes all sends with the finished check and the channel
+// close, preventing a send on a closed channel.
+func (o *Originated) sendLocked(ev Event) {
 	select {
 	case o.ch <- ev:
 	default:
@@ -144,27 +159,25 @@ func (o *Originated) deliver(ev Event) {
 }
 
 // fail fixes this request's outcome locally without waiting for the peer.
+//
+// The finished flag and the channel send are both under o.mu so a concurrent
+// offer cannot send to a channel this method is about to close.
 func (o *Originated) fail(reason, message string) {
 	o.mu.Lock()
 	if o.finished {
 		o.mu.Unlock()
 		return
 	}
+	o.finished = true
+	o.sendLocked(Event{Kind: protocol.KindResult, Status: &protocol.Status{Reason: reason, Message: message}})
 	o.mu.Unlock()
-
-	o.deliver(Event{Kind: protocol.KindResult, Status: &protocol.Status{Reason: reason, Message: message}})
-	o.finish()
+	o.retire()
 }
 
-func (o *Originated) finish() {
-	o.mu.Lock()
-	if o.finished {
-		o.mu.Unlock()
-		return
-	}
-	o.finished = true
-	o.mu.Unlock()
-
+// retire closes the event channel and retires the request from the endpoint.
+// The finished flag has already been set under o.mu, so no further send can
+// reach the channel.
+func (o *Originated) retire() {
 	close(o.ch)
 
 	o.e.mu.Lock()

@@ -133,6 +133,9 @@ func (e *Endpoint) waitForWriterDrain() {
 // polite 1000 and a 1006 differ in diagnostics and nothing else.
 func (e *Endpoint) failAllActive() {
 	e.mu.Lock()
+	// Close admission before taking the snapshot so a concurrent Originate
+	// cannot register a request that this cleanup will never see.
+	e.refusing = true
 	running := make([]*requestState, 0, len(e.active))
 	for _, st := range e.active {
 		running = append(running, st)
