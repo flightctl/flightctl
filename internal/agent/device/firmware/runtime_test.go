@@ -20,6 +20,13 @@ type elfSpec struct {
 	needed  bool
 	noLoad  bool
 	osabi   elf.OSABI
+	// entry, loadFlags, loadVaddr and loadMemsz override the defaults, under
+	// which the single load segment is readable and executable and contains
+	// the entry point.
+	entry     uint64
+	loadFlags elf.ProgFlag
+	loadVaddr uint64
+	loadMemsz uint64
 }
 
 func amd64Static() elfSpec {
@@ -79,12 +86,19 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	w(uint16(s.typ))
 	w(uint16(s.machine))
 	w(uint32(1))
+	entry, base := uint64(0x401000), uint64(0x400000)
+	if !is64 {
+		entry, base = 0x8048000, 0x8048000
+	}
+	if s.entry != 0 {
+		entry = s.entry
+	}
 	if is64 {
-		w(uint64(0x401000))
+		w(entry)
 		w(uint64(ehsize))
 		w(uint64(0))
 	} else {
-		w(uint32(0x8048000))
+		w(uint32(entry))
 		w(uint32(ehsize))
 		w(uint32(0))
 	}
@@ -103,26 +117,36 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	off := dataOff
 	for _, p := range progs {
 		offset, size := uint64(off), uint64(len(p.data))
+		flags, vaddr, memsz := elf.PF_R|elf.PF_X, base+offset, size
 		if p.typ == elf.PT_LOAD {
-			offset, size = 0, uint64(total)
+			offset, size, vaddr, memsz = 0, uint64(total), base, max(uint64(total), 0x2000)
+			if s.loadFlags != 0 {
+				flags = s.loadFlags
+			}
+			if s.loadVaddr != 0 {
+				vaddr = s.loadVaddr
+			}
+			if s.loadMemsz != 0 {
+				memsz = s.loadMemsz
+			}
 		}
 		if is64 {
 			w(uint32(p.typ))
-			w(uint32(elf.PF_R | elf.PF_X))
+			w(uint32(flags))
 			w(offset)
-			w(uint64(0x400000) + offset)
-			w(uint64(0x400000) + offset)
+			w(vaddr)
+			w(vaddr)
 			w(size)
-			w(size)
+			w(memsz)
 			w(uint64(0x1000))
 		} else {
 			w(uint32(p.typ))
 			w(uint32(offset))
-			w(uint32(0x8048000) + uint32(offset))
-			w(uint32(0x8048000) + uint32(offset))
+			w(uint32(vaddr))
+			w(uint32(vaddr))
 			w(uint32(size))
-			w(uint32(size))
-			w(uint32(elf.PF_R | elf.PF_X))
+			w(uint32(memsz))
+			w(uint32(flags))
 			w(uint32(0x1000))
 		}
 		off += len(p.data)
@@ -265,6 +289,43 @@ func TestCheckNativeExecutable(t *testing.T) {
 			goarch:   "arm",
 			wantErr:  true,
 			contains: "OS ABI",
+		},
+		{
+			name:     "When the entry point lies in a load segment that is not executable it should reject it",
+			data:     buildELF(t, func() elfSpec { s := amd64Static(); s.loadFlags = elf.PF_R; return s }()),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "entry point",
+		},
+		{
+			name:     "When the entry point lies outside every load segment it should reject it",
+			data:     buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x900000; return s }()),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "entry point",
+		},
+		{
+			name:     "When the entry point is just past the end of the executable load segment it should reject it",
+			data:     buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x400000 + 0x2000; return s }()),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "entry point",
+		},
+		{
+			name:   "When the entry point is the last byte of the executable load segment it should accept it",
+			data:   buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x400000 + 0x2000 - 1; return s }()),
+			goarch: "amd64",
+		},
+		{
+			name: "When an executable load segment wraps around the address space it should reject an entry point below its start",
+			data: buildELF(t, func() elfSpec {
+				s := amd64Static()
+				s.loadVaddr, s.loadMemsz, s.entry = 0xFFFFFFFFFFFFF000, 0x2000, 0x10
+				return s
+			}()),
+			goarch:   "amd64",
+			wantErr:  true,
+			contains: "entry point",
 		},
 		{name: "When the ELF file is truncated it should reject it", data: valid[:40], goarch: "amd64", wantErr: true, contains: "ELF"},
 		{name: "When the file is a script it should reject it", data: []byte("#!/bin/sh\necho hi\n"), goarch: "amd64", wantErr: true, contains: "ELF"},
