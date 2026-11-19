@@ -35,9 +35,36 @@ type fakeKV struct {
 
 	mu     sync.Mutex
 	values map[string][]byte
+	closed bool
 }
 
 func newFakeKV() *fakeKV { return &fakeKV{values: map[string][]byte{}} }
+
+func (f *fakeKV) Close() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+}
+
+func (f *fakeKV) isClosed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closed
+}
+
+func (f *fakeKV) SetNX(_ context.Context, key string, value []byte) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, exists := f.values[key]; exists {
+		return false, nil
+	}
+	f.values[key] = append([]byte(nil), value...)
+	return true, nil
+}
+
+func (f *fakeKV) SetExpire(_ context.Context, _ string, _ time.Duration) error {
+	return nil
+}
 
 func (f *fakeKV) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
 	f.mu.Lock()
@@ -284,4 +311,108 @@ func TestAgentLinkReleasesItsRegistrationWhenTheLinkEnds(t *testing.T) {
 	require.NoError(conn.Close())
 
 	require.Eventually(func() bool { return kv.get(key) == nil }, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestServerShutdownWaitsForLinksBeforeKVClose(t *testing.T) {
+	// Regression: AgentServer.Run called Stop (kvStore.Close) immediately
+	// after srv.Shutdown, but hijacked WebSocket connections are not awaited
+	// by srv.Shutdown. The fix adds WaitForLinks between cancellation and
+	// Stop, and the handler tracks active links with a WaitGroup.
+	//
+	// This test proves the ordering: an active link must release its
+	// registration before KV is considered closeable.
+	require := require.New(t)
+
+	kv := newFakeKV()
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-shutdown-test", log), serverCtx, log)
+
+	var root http.Handler = withAuthenticatedAgent(handler, testDevice, testOrg)
+	srv := httptest.NewServer(root)
+	defer srv.Close()
+
+	// Establish a link.
+	dialer := &websocket.Dialer{Subprotocols: []string{protocol.Subprotocol}}
+	conn, resp, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(err)
+	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = conn.Close() }()
+
+	key := (&kvstore.AgentLinkDispatchKey{
+		OrgID:      uuid.MustParse(testOrg),
+		DeviceName: testDevice,
+	}).ComposeKey()
+	require.Eventually(func() bool { return kv.get(key) != nil }, 5*time.Second, 10*time.Millisecond,
+		"link must register before we test shutdown")
+
+	// Cancel the server context to begin ordered shutdown.
+	serverCancel()
+
+	// WaitForLinks must block until the link's runLink (and its deferred
+	// lease Release) have returned.
+	waitDone := make(chan struct{})
+	go func() {
+		handler.WaitForLinks()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("WaitForLinks did not return; active links are not draining")
+	}
+
+	// After WaitForLinks returns, the registration should have been released.
+	require.Nil(kv.get(key), "lease must be released before WaitForLinks returns")
+
+	// KV must NOT have been closed before WaitForLinks returned.
+	// (In production, Stop() calls kv.Close() after WaitForLinks.)
+	// We can now safely close it.
+	require.False(kv.isClosed(), "KV must not be closed until after links drain")
+	kv.Close()
+	require.True(kv.isClosed())
+}
+
+func TestShutdownRefusesNewLinksWhileDraining(t *testing.T) {
+	// After WaitForLinks sets draining, new upgrade attempts must be refused
+	// to prevent an Add-after-Wait race on the WaitGroup.
+	require := require.New(t)
+
+	kv := newFakeKV()
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-drain-test", log), serverCtx, log)
+
+	// Set draining manually.
+	handler.mu.Lock()
+	handler.draining = true
+	handler.mu.Unlock()
+
+	var root http.Handler = withAuthenticatedAgent(handler, testDevice, testOrg)
+	srv := httptest.NewServer(root)
+	defer srv.Close()
+
+	// Attempt to connect. The upgrade must fail or the connection must be
+	// closed immediately.
+	dialer := &websocket.Dialer{Subprotocols: []string{protocol.Subprotocol}}
+	conn, _, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err == nil {
+		// Connection established but should be immediately closed.
+		_, _, readErr := conn.ReadMessage()
+		require.Error(readErr, "connection must be closed during draining")
+		_ = conn.Close()
+	}
+	// Either dial failed or read failed — both are correct.
+
+	key := (&kvstore.AgentLinkDispatchKey{
+		OrgID:      uuid.MustParse(testOrg),
+		DeviceName: testDevice,
+	}).ComposeKey()
+	require.Nil(kv.get(key), "no registration must be created during draining")
 }

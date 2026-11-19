@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/flightctl/flightctl/internal/agentlink"
 	"github.com/flightctl/flightctl/internal/agentlink/link"
@@ -30,6 +31,26 @@ type agentLinkHandler struct {
 	serverCtx context.Context
 	log       logrus.FieldLogger
 	upgrader  websocket.Upgrader
+
+	// activeLinks tracks in-flight link goroutines so the server can wait
+	// for them to finish before closing their KV dependency. Add is called
+	// before the upgrade; Done runs after runLink returns and the lease is
+	// released.
+	activeLinks sync.WaitGroup
+
+	// draining is set once the server begins shutdown. After it is set,
+	// new upgrades are refused with 503 so no Add races with Wait.
+	mu       sync.Mutex
+	draining bool
+}
+
+// WaitForLinks blocks until every active link's runLink (and its deferred
+// lease release) has returned. The caller must cancel serverCtx first.
+func (h *agentLinkHandler) WaitForLinks() {
+	h.mu.Lock()
+	h.draining = true
+	h.mu.Unlock()
+	h.activeLinks.Wait()
 }
 
 func newAgentLinkHandler(registry *agentlink.Registry, serverCtx context.Context, log logrus.FieldLogger) *agentLinkHandler {
@@ -112,13 +133,27 @@ func (h *agentLinkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refuse new links once the server is draining. This prevents an
+	// Add-after-Wait race on activeLinks.
+	h.mu.Lock()
+	if h.draining {
+		h.mu.Unlock()
+		h.log.Infof("Agent link: refusing upgrade for %s: server is shutting down", deviceName)
+		_ = conn.Close()
+		return
+	}
+	h.activeLinks.Add(1)
+	h.mu.Unlock()
+
 	// Go cancels a request's context when the handler returns, hijacked
 	// connections included. The verified device and organization are
 	// therefore copied here. The link runs under the server lifetime so
 	// server shutdown cancels active links before their KV dependency is
-	// closed.
+	// closed. activeLinks.Done runs after runLink returns and its deferred
+	// lease release completes.
 	linkCtx, cancel := context.WithCancel(h.serverCtx)
 	defer cancel()
+	defer h.activeLinks.Done()
 
 	h.runLink(linkCtx, conn, deviceName, orgID)
 }

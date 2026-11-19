@@ -77,6 +77,7 @@ type AgentServer struct {
 	identityMapper           *service.IdentityMapper
 	agentAuthMiddleware      *fcmiddleware.AgentAuthMiddleware
 	enrollmentAuthMiddleware *fcmiddleware.EnrollmentAuthMiddleware
+	linkHandler              *agentLinkHandler
 }
 
 // New returns a new instance of a flightctl server.
@@ -251,6 +252,14 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+
+		// Wait for active WebSocket links to finish their ordered shutdown
+		// and release their registrations before closing their KV dependency.
+		// ctx cancellation (propagated through serverCtx) has already begun
+		// each link's shutdown; this wait ensures they complete.
+		if s.linkHandler != nil {
+			s.linkHandler.WaitForLinks()
+		}
 		s.Stop()
 	}()
 
@@ -453,7 +462,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	// IdleTimeout do not sever it: the library clears the server's deadlines
 	// on the hijacked connection.
 	linkRegistry := agentlink.NewRegistry(s.kvStore, util.GetHostname(), s.log)
-	router.Get(AgentLinkPath, newAgentLinkHandler(linkRegistry, ctx, s.log).ServeHTTP)
+	s.linkHandler = newAgentLinkHandler(linkRegistry, ctx, s.log)
+	router.Get(AgentLinkPath, s.linkHandler.ServeHTTP)
 
 	if err := s.enrollmentAuthMiddleware.Start(ctx); err != nil {
 		return nil, err

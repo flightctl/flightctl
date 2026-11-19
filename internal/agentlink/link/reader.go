@@ -257,9 +257,18 @@ func (e *Endpoint) startWorker(key requestKey, env *protocol.Envelope, handler H
 // finishRequest retires a request. One result each: if the handler returned
 // without fixing an outcome, the endpoint fixes it rather than leaving the
 // originator waiting.
+//
+// When the fallback result cannot be delivered either (writer queue full),
+// the link is failed so the peer does not wait indefinitely on an open
+// connection.
 func (e *Endpoint) finishRequest(key requestKey, st *requestState) {
 	if !st.resultSent.Load() {
-		e.sendResultOnce(key, st, protocol.ReasonRetrievalFailed, "handler returned without a result")
+		if err := e.sendResultOnce(key, st, protocol.ReasonRetrievalFailed, "handler returned without a result"); err != nil {
+			e.log.Debugf("Agent link: fallback result for %s failed: %v", key, err)
+			if errors.Is(err, errWriteQueueFull) {
+				e.failLink(websocket.CloseInternalServerErr, "cannot deliver terminal result")
+			}
+		}
 	}
 	e.mu.Lock()
 	delete(e.active, key)

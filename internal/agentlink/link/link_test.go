@@ -710,6 +710,71 @@ func TestSendResultOnceUncommitsOnQueueFull(t *testing.T) {
 	require.True(st.resultSent.Load())
 }
 
+func TestHandlerFallbackOnPersistentFullQueueFailsLink(t *testing.T) {
+	// Regression: when a handler's Result() fails because the writer queue
+	// is full, sendResultOnce uncommits resultSent. finishRequest then
+	// retries with the RetrievalFailed fallback. If the queue is STILL
+	// full, finishRequest must fail the link rather than silently retiring
+	// the request and leaving the peer waiting on an open connection.
+	require := require.New(t)
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// Need a real websocket.Conn for failLink's WriteControl.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	dialer := &websocket.Dialer{}
+	ws, _, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(err)
+	defer ws.Close()
+
+	e := &Endpoint{
+		ws:         ws,
+		log:        log,
+		role:       protocol.OriginService,
+		active:     map[requestKey]*requestState{},
+		originated: map[requestKey]*Originated{},
+		completed:  newRingSet(16),
+		writeCh:    make(chan outbound, 1), // tiny queue
+		pongCh:     make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.linkCtx, e.linkCancel = context.WithCancel(ctx)
+
+	// Fill the single-slot queue so it stays full for both attempts.
+	e.writeCh <- outbound{data: []byte("fill")}
+
+	key := requestKey{origin: protocol.OriginAgent, id: "handler-fallback"}
+	st := &requestState{}
+
+	// Simulate handler calling Result — fails, uncommits.
+	err = e.sendResultOnce(key, st, protocol.ReasonOK, "")
+	require.Error(err)
+	require.False(st.resultSent.Load(), "resultSent must be uncommitted")
+
+	// Now finishRequest runs the fallback — queue still full.
+	e.finishRequest(key, st)
+
+	// The link must have been failed because the terminal result could not
+	// be delivered through either path.
+	require.NotNil(e.closeErr, "finishRequest must fail the link when the fallback also cannot be enqueued")
+}
+
 func TestShutdownDrainingDropsLateRequests(t *testing.T) {
 	// Regression: the reader could enqueue refusals after the final writer
 	// barrier, causing them to be lost before the Close frame. The fix
