@@ -35,9 +35,13 @@ type Manager struct {
 	log      *log.PrefixLogger
 
 	// handlers is the closed, compiled-in allowlist of methods the agent
-	// implements in the responder role. It is empty: the agent speaks the
-	// envelope but implements no method yet, so every well-formed request
-	// is answered with one MethodNotSupported and starts no work.
+	// implements in the responder role. A method absent from it is answered
+	// with exactly one MethodNotSupported result and starts no work.
+	//
+	// It is fixed for the life of the manager and shared unchanged by every
+	// link the manager opens: reconnect is recovery, not renegotiation, so
+	// what the agent implements never depends on which connection a request
+	// arrived on.
 	handlers map[string]link.Handler
 
 	// The three seams below are indirected so tests can drive the manager
@@ -48,13 +52,13 @@ type Manager struct {
 }
 
 // NewManager returns a link manager for the given management service
-// configuration.
-func NewManager(identityProvider identity.Provider, config *baseclient.Config, logger *log.PrefixLogger) *Manager {
+// configuration, serving the given methods in the responder role.
+func NewManager(identityProvider identity.Provider, config *baseclient.Config, logger *log.PrefixLogger, handlers map[string]link.Handler) *Manager {
 	m := &Manager{
 		identity:   identityProvider,
 		config:     config,
 		log:        logger,
-		handlers:   nil,
+		handlers:   handlers,
 		dial:       dialLink,
 		backoffFor: backoff,
 	}
@@ -167,7 +171,9 @@ func backoff(attempt int) time.Duration {
 	if window > protocol.ReconnectBackoffCap {
 		window = protocol.ReconnectBackoffCap
 	}
-	return time.Duration(rand.Int64N(int64(window)))
+	// The jitter spreads a fleet's redials; it is not a secret and nothing
+	// authenticates on it, so the cheap generator is the right one.
+	return time.Duration(rand.Int64N(int64(window))) //nolint:gosec // schedule jitter, not a security decision
 }
 
 // dialError describes a dial that failed after TLS succeeded.
