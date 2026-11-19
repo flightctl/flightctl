@@ -104,7 +104,7 @@ func (f *Fetcher) cachedPackage(ctx context.Context, revision int64, descriptorD
 		f.log.Infof("Updater %s image %s is no longer present; fetching it again", release, reference)
 		return nil, false
 	}
-	return &VerifiedPackage{
+	pkg := &VerifiedPackage{
 		Name:                  record.Name,
 		Version:               record.Version,
 		DescriptorDigest:      record.DescriptorDigest,
@@ -115,6 +115,7 @@ func (f *Fetcher) cachedPackage(ctx context.Context, revision int64, descriptorD
 		PolicyRevision:        revision,
 		Manifest:              record.Manifest,
 		Cached:                true,
-		extraction:            bindExtraction(descriptorDigest, d),
-	}, true
+	}
+	pkg.extraction = bindExtraction(pkg, d)
+	return pkg, true
 }
