@@ -7547,6 +7547,12 @@ components:
             Whether this device can consume OCI deltas. True when the oci-delta
             binary is present. False when it is not. Omitted when an older
             agent does not report the field.
+        oneTimeWindowsEligible:
+          type: boolean
+          description: >-
+            Whether this device can consume schedules containing one-time
+            maintenance windows. Omitted when the agent does not report the
+            capability.
         customInfo:
           $ref: "#/components/schemas/CustomDeviceInfo"
         gpus:
@@ -9264,6 +9270,7 @@ components:
       - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
+      - 'OneTimeWindowsCompatible' # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'LabelsSynced'          # Device (service condition)
       - 'DeviceDecommissioning' # Device
@@ -9286,6 +9293,7 @@ components:
       - FleetRolloutInProgress
       - DeviceUpdating
       - DeviceSpecValid
+      - DeviceOneTimeWindowsCompatible
       - DeviceMultipleOwners
       - DeviceLabelsSynced
       - DeviceDecommissioning

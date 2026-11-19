@@ -846,6 +846,143 @@ func TestRenderDevice_PermanentError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnknownConfigName)
 }
 
+func TestRenderDevice_OneTimeWindowsCompatibility(t *testing.T) {
+	oneTimeSchedule := func() *api.UpdateSchedule {
+		return &api.UpdateSchedule{
+			OneTimeWindows: lo.ToPtr([]api.OneTimeWindow{{
+				Date:               "2030-01-02",
+				At:                 "03:04",
+				StartGraceDuration: "1h",
+			}}),
+		}
+	}
+	recurringSchedule := func() *api.UpdateSchedule {
+		return &api.UpdateSchedule{At: lo.ToPtr(api.CronExpression("0 4 * * 1"))}
+	}
+
+	tests := []struct {
+		name                  string
+		updatePolicy          *domain.DeviceUpdatePolicySpec
+		status                *domain.DeviceStatus
+		wantRender            bool
+		wantCompatibilityCond *domain.Condition
+	}{
+		{
+			name:         "When download schedule has one-time windows and capability is true it should render",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{DownloadSchedule: oneTimeSchedule()},
+			status: &domain.DeviceStatus{SystemInfo: domain.DeviceSystemInfo{
+				OneTimeWindowsEligible: lo.ToPtr(true),
+			}},
+			wantRender: true,
+		},
+		{
+			name:         "When update schedule has one-time windows and capability is false it should block",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{UpdateSchedule: oneTimeSchedule()},
+			status: &domain.DeviceStatus{SystemInfo: domain.DeviceSystemInfo{
+				OneTimeWindowsEligible: lo.ToPtr(false),
+			}},
+			wantCompatibilityCond: &domain.Condition{
+				Type:    domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status:  domain.ConditionStatusFalse,
+				Reason:  domain.OneTimeWindowsUnsupportedReason,
+				Message: oneTimeWindowsCompatibilityMessage,
+			},
+		},
+		{
+			name:         "When one-time windows are in both schedules and capability is missing it should block",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{DownloadSchedule: oneTimeSchedule(), UpdateSchedule: oneTimeSchedule()},
+			status:       &domain.DeviceStatus{},
+			wantCompatibilityCond: &domain.Condition{
+				Type:    domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status:  domain.ConditionStatusFalse,
+				Reason:  domain.OneTimeWindowsUnsupportedReason,
+				Message: oneTimeWindowsCompatibilityMessage,
+			},
+		},
+		{
+			name:         "When one-time windows are present and status is missing it should block",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{UpdateSchedule: oneTimeSchedule()},
+			wantCompatibilityCond: &domain.Condition{
+				Type:    domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status:  domain.ConditionStatusFalse,
+				Reason:  domain.OneTimeWindowsUnsupportedReason,
+				Message: oneTimeWindowsCompatibilityMessage,
+			},
+		},
+		{
+			name:         "When schedule is recurring-only and capability is missing it should render",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{UpdateSchedule: recurringSchedule()},
+			wantRender:   true,
+		},
+		{
+			name:         "When a supported device recovers from a compatibility block it should render and reconcile the condition",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{UpdateSchedule: oneTimeSchedule()},
+			status: &domain.DeviceStatus{
+				SystemInfo: domain.DeviceSystemInfo{OneTimeWindowsEligible: lo.ToPtr(true)},
+				Conditions: []domain.Condition{{
+					Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+					Status: domain.ConditionStatusFalse,
+				}},
+			},
+			wantRender: true,
+			wantCompatibilityCond: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusTrue,
+				Reason: oneTimeWindowsSupportedReason,
+			},
+		},
+		{
+			name:         "When a recurring-only device recovers from a compatibility block it should render and reconcile the condition",
+			updatePolicy: &domain.DeviceUpdatePolicySpec{UpdateSchedule: recurringSchedule()},
+			status: &domain.DeviceStatus{Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusFalse,
+			}}},
+			wantRender: true,
+			wantCompatibilityCond: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusTrue,
+				Reason: oneTimeWindowsNotRequiredReason,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const deviceName = "one-time-window-device"
+			orgID := uuid.New()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &domain.DeviceSpec{UpdatePolicy: tt.updatePolicy},
+				Status:   tt.status,
+			}
+			deviceSvc := deviceservice.NewMockService(ctrl)
+			deviceSvc.EXPECT().GetDevice(gomock.Any(), orgID, deviceName).Return(device, statusOK)
+
+			if tt.wantCompatibilityCond != nil {
+				deviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgID, deviceName, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+						require.Equal(t, []domain.Condition{*tt.wantCompatibilityCond}, conditions)
+						return statusOK
+					})
+				deviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgID, deviceName).Return(nil)
+			}
+
+			if tt.wantRender {
+				deviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgID, deviceName).Return(statusOK)
+				deviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+			}
+
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+			logic := NewDeviceRenderLogic(logrus.New(), deviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+			require.NoError(t, logic.RenderDevice(context.Background(), orgID, event))
+		})
+	}
+}
+
 func TestRenderDevice_RetryableError(t *testing.T) {
 	const (
 		deviceName = "test-device"
