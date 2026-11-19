@@ -3778,3 +3778,248 @@ func TestApplicationStatusTypeConstants(t *testing.T) {
 	require.Equal(t, ApplicationStatusType("Stopped"), ApplicationStatusStopped)
 	require.Equal(t, ApplicationStatusType("Stopping"), ApplicationStatusStopping)
 }
+
+func TestDeviceSpecValidate_OsImageConditionalTemplate(t *testing.T) {
+	deepBody := strings.Repeat(`{{ if .metadata.name }}`, 11) + "quay.io/org/os:v2" + strings.Repeat(`{{ end }}`, 11)
+
+	tests := []struct {
+		name          string
+		image         string
+		fleetTemplate bool
+		wantErr       bool
+		errorStrings  []string
+	}{
+		{
+			name:          "When a wholly conditional image uses the helper guard it should pass as a fleet template",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When a wholly conditional image uses a hand-written label guard it should pass as a fleet template",
+			image:         `{{ if eq (getOrDefault .metadata.labels "feature.flightctl.io/os.mode" "image") "image" }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When a wholly conditional image uses an arbitrary supported guard it should pass as a fleet template",
+			image:         `{{ if .metadata.labels.tier }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body is a parameterized tag it should pass as a fleet template",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.labels.version }}{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the wrapper uses trim markers it should pass as a fleet template",
+			image:         `{{- if deviceHasImageMode -}}quay.io/org/os:v2{{- end -}}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the wrapper has no inner spaces it should pass as a fleet template",
+			image:         `{{if deviceHasImageMode}}quay.io/org/os:v2{{end}}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body is not a valid OCI reference it should fail",
+			image:         `{{ if deviceHasImageMode }}not a ref{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the guarded body is empty it should fail",
+			image:         `{{ if deviceHasImageMode }}{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the wrapper is unterminated it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:v2`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"invalid parameter syntax"},
+		},
+		{
+			name:          "When there are two sibling conditionals it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ end }}{{ if deviceHasImageMode }}quay.io/org/b:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the conditionals are nested it should fail",
+			image:         `{{ if deviceHasImageMode }}{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the wrapper has an else branch it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ else }}quay.io/org/b:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the wrapper has an else if branch it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/a:v1{{ else if deviceHasImageMode }}quay.io/org/b:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When a literal precedes the wrapper it should fail",
+			image:         `quay.io/org/os:{{ if deviceHasImageMode }}v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When a literal follows the wrapper it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}-suffix`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the guard calls an undefined function it should fail",
+			image:         `{{ if bogusFunc }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"invalid parameter syntax"},
+		},
+		{
+			name:          "When the guard references an unsupported field it should fail",
+			image:         `{{ if .metadata.annotations.foo }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"unsupported field"},
+		},
+		{
+			name:          "When the body references an unsupported field it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:{{ .metadata.annotations.foo }}{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"unsupported field"},
+		},
+		{
+			name:          "When the wrapper is a range it should fail as an unsupported element",
+			image:         `{{ range .metadata.labels }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"unsupported elements"},
+		},
+		{
+			name:          "When the template exceeds the nesting depth limit it should fail",
+			image:         deepBody,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"nesting depth"},
+		},
+		{
+			name:          "When a wholly conditional image is used outside a fleet template it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: false,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When an unguarded literal image is validated as a fleet template it should pass",
+			image:         "quay.io/org/os:v2",
+			fleetTemplate: true,
+		},
+		{
+			name:          "When an unguarded parameterized tag is validated as a fleet template it should pass",
+			image:         `quay.io/org/os:{{ .metadata.labels.version }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When an unguarded literal image is validated outside a fleet template it should pass",
+			image:         "quay.io/org/os:v2",
+			fleetTemplate: false,
+		},
+		{
+			name:          "When an unguarded parameterized tag is validated outside a fleet template it should fail",
+			image:         `quay.io/org/os:{{ .metadata.labels.version }}`,
+			fleetTemplate: false,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When an invalid literal image is validated as a fleet template it should fail",
+			image:         "invalid image!!!",
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"spec.os.image"},
+		},
+		{
+			name:          "When the guard is empty it should fail",
+			image:         `{{if }}quay.io/org/os:v2{{end}}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"invalid parameter syntax"},
+		},
+		{
+			name:          "When the guard combines supported functions it should pass as a fleet template",
+			image:         `{{ if and deviceHasImageMode .metadata.labels.tier }}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body is a digest reference it should pass as a fleet template",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/os@sha256:` + strings.Repeat("a", 64) + `{{ end }}`,
+			fleetTemplate: true,
+		},
+		{
+			name:          "When the guarded body exceeds the maximum reference length it should fail",
+			image:         `{{ if deviceHasImageMode }}quay.io/org/` + strings.Repeat("a", 3000) + `:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"Too long"},
+		},
+		{
+			name:          "When the guard makes the value exceed the maximum reference length it should fail",
+			image:         `{{ if or ` + strings.Repeat("deviceHasImageMode ", 200) + `}}quay.io/org/os:v2{{ end }}`,
+			fleetTemplate: true,
+			wantErr:       true,
+			errorStrings:  []string{"Too long"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			spec := DeviceSpec{Os: &DeviceOsSpec{Image: tt.image}}
+			errs := spec.Validate(tt.fleetTemplate)
+			if tt.wantErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				for _, errStr := range tt.errorStrings {
+					found := false
+					for _, err := range errs {
+						if strings.Contains(err.Error(), errStr) {
+							found = true
+							break
+						}
+					}
+					require.True(found, "expected error containing %q, got: %v", errStr, errs)
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+func TestDeviceSpecValidate_ConditionalImageOnlyAppliesToOsImage(t *testing.T) {
+	const conditional = `{{ if deviceHasImageMode }}quay.io/org/app:v2{{ end }}`
+
+	require := require.New(t)
+	spec := DeviceSpec{
+		Applications: &[]ApplicationProviderSpec{
+			newTestApplication(require, "app", conditional, ""),
+		},
+	}
+
+	errs := spec.Validate(true)
+	require.NotEmpty(errs, "a wholly conditional reference must stay invalid for application images")
+}
