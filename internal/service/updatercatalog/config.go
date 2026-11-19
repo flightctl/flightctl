@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 )
@@ -188,6 +189,18 @@ func validateLimits(r *ReleaseBinding) error {
 	}
 	if len(r.BudgetKeySet) == 0 {
 		return errors.New("budget key evidence is required")
+	}
+	if r.Extraction != nil {
+		extraction := firmwarepolicy.ExtractionLimits(*r.Extraction)
+		if err := extraction.Validate(); err != nil {
+			return err
+		}
+		for k, v := range extraction.Values() {
+			if !slices.Contains(r.BudgetKeySet, k) {
+				return errors.New("every extraction budget must be listed in the budget key evidence")
+			}
+			limits[k] = v
+		}
 	}
 	slices.Sort(r.BudgetKeySet)
 	for i, k := range r.BudgetKeySet {

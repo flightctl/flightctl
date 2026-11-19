@@ -10,6 +10,7 @@
 package fileio
 
 import (
+	context "context"
 	fs "io/fs"
 	os "os"
 	reflect "reflect"
@@ -583,6 +584,21 @@ func (mr *MockReadWriterMockRecorder) MkdirTemp(prefix any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirTemp", reflect.TypeOf((*MockReadWriter)(nil).MkdirTemp), prefix)
 }
 
+// OpenAnchor mocks base method.
+func (m *MockReadWriter) OpenAnchor(path string, opts DirOptions) (Anchor, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenAnchor", path, opts)
+	ret0, _ := ret[0].(Anchor)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenAnchor indicates an expected call of OpenAnchor.
+func (mr *MockReadWriterMockRecorder) OpenAnchor(path, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenAnchor", reflect.TypeOf((*MockReadWriter)(nil).OpenAnchor), path, opts)
+}
+
 // OverwriteAndWipe mocks base method.
 func (m *MockReadWriter) OverwriteAndWipe(file string) error {
 	m.ctrl.T.Helper()
@@ -798,4 +814,370 @@ func (mr *MockReadWriterMockRecorder) WriteFileDurable(name, data, dirMode, file
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{name, data, dirMode, fileMode}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileDurable", reflect.TypeOf((*MockReadWriter)(nil).WriteFileDurable), varargs...)
+}
+
+// MockFile is a mock of File interface.
+type MockFile struct {
+	ctrl     *gomock.Controller
+	recorder *MockFileMockRecorder
+}
+
+// MockFileMockRecorder is the mock recorder for MockFile.
+type MockFileMockRecorder struct {
+	mock *MockFile
+}
+
+// NewMockFile creates a new mock instance.
+func NewMockFile(ctrl *gomock.Controller) *MockFile {
+	mock := &MockFile{ctrl: ctrl}
+	mock.recorder = &MockFileMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockFile) EXPECT() *MockFileMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockFile) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockFileMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockFile)(nil).Close))
+}
+
+// Info mocks base method.
+func (m *MockFile) Info() EntryInfo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Info")
+	ret0, _ := ret[0].(EntryInfo)
+	return ret0
+}
+
+// Info indicates an expected call of Info.
+func (mr *MockFileMockRecorder) Info() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Info", reflect.TypeOf((*MockFile)(nil).Info))
+}
+
+// ReadAt mocks base method.
+func (m *MockFile) ReadAt(p []byte, off int64) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadAt", p, off)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadAt indicates an expected call of ReadAt.
+func (mr *MockFileMockRecorder) ReadAt(p, off any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadAt", reflect.TypeOf((*MockFile)(nil).ReadAt), p, off)
+}
+
+// Size mocks base method.
+func (m *MockFile) Size() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Size")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// Size indicates an expected call of Size.
+func (mr *MockFileMockRecorder) Size() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockFile)(nil).Size))
+}
+
+// MockAnchor is a mock of Anchor interface.
+type MockAnchor struct {
+	ctrl     *gomock.Controller
+	recorder *MockAnchorMockRecorder
+}
+
+// MockAnchorMockRecorder is the mock recorder for MockAnchor.
+type MockAnchorMockRecorder struct {
+	mock *MockAnchor
+}
+
+// NewMockAnchor creates a new mock instance.
+func NewMockAnchor(ctrl *gomock.Controller) *MockAnchor {
+	mock := &MockAnchor{ctrl: ctrl}
+	mock.recorder = &MockAnchorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAnchor) EXPECT() *MockAnchorMockRecorder {
+	return m.recorder
+}
+
+// AvailableBytes mocks base method.
+func (m *MockAnchor) AvailableBytes() (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AvailableBytes")
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AvailableBytes indicates an expected call of AvailableBytes.
+func (mr *MockAnchorMockRecorder) AvailableBytes() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AvailableBytes", reflect.TypeOf((*MockAnchor)(nil).AvailableBytes))
+}
+
+// Close mocks base method.
+func (m *MockAnchor) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockAnchorMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockAnchor)(nil).Close))
+}
+
+// CopyFrom mocks base method.
+func (m *MockAnchor) CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CopyFrom", ctx, src, srcRel, name, perm, b)
+	ret0, _ := ret[0].(FileDigest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CopyFrom indicates an expected call of CopyFrom.
+func (mr *MockAnchorMockRecorder) CopyFrom(ctx, src, srcRel, name, perm, b any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyFrom", reflect.TypeOf((*MockAnchor)(nil).CopyFrom), ctx, src, srcRel, name, perm, b)
+}
+
+// GetXattr mocks base method.
+func (m *MockAnchor) GetXattr(rel, attr string, limit int) ([]byte, XattrState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetXattr", rel, attr, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(XattrState)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetXattr indicates an expected call of GetXattr.
+func (mr *MockAnchorMockRecorder) GetXattr(rel, attr, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetXattr", reflect.TypeOf((*MockAnchor)(nil).GetXattr), rel, attr, limit)
+}
+
+// Hash mocks base method.
+func (m *MockAnchor) Hash(ctx context.Context, rel string, b CopyBounds) (FileDigest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Hash", ctx, rel, b)
+	ret0, _ := ret[0].(FileDigest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Hash indicates an expected call of Hash.
+func (mr *MockAnchorMockRecorder) Hash(ctx, rel, b any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Hash", reflect.TypeOf((*MockAnchor)(nil).Hash), ctx, rel, b)
+}
+
+// Lstat mocks base method.
+func (m *MockAnchor) Lstat(rel string) (EntryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Lstat", rel)
+	ret0, _ := ret[0].(EntryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Lstat indicates an expected call of Lstat.
+func (mr *MockAnchorMockRecorder) Lstat(rel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Lstat", reflect.TypeOf((*MockAnchor)(nil).Lstat), rel)
+}
+
+// OpenDir mocks base method.
+func (m *MockAnchor) OpenDir(name string, opts DirOptions) (Anchor, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenDir", name, opts)
+	ret0, _ := ret[0].(Anchor)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenDir indicates an expected call of OpenDir.
+func (mr *MockAnchorMockRecorder) OpenDir(name, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenDir", reflect.TypeOf((*MockAnchor)(nil).OpenDir), name, opts)
+}
+
+// OpenFile mocks base method.
+func (m *MockAnchor) OpenFile(rel string) (File, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenFile", rel)
+	ret0, _ := ret[0].(File)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenFile indicates an expected call of OpenFile.
+func (mr *MockAnchorMockRecorder) OpenFile(rel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenFile", reflect.TypeOf((*MockAnchor)(nil).OpenFile), rel)
+}
+
+// Path mocks base method.
+func (m *MockAnchor) Path() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Path")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Path indicates an expected call of Path.
+func (mr *MockAnchorMockRecorder) Path() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Path", reflect.TypeOf((*MockAnchor)(nil).Path))
+}
+
+// ReadFile mocks base method.
+func (m *MockAnchor) ReadFile(rel string, limit int64) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFile", rel, limit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFile indicates an expected call of ReadFile.
+func (mr *MockAnchorMockRecorder) ReadFile(rel, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockAnchor)(nil).ReadFile), rel, limit)
+}
+
+// ReadOnlyMount mocks base method.
+func (m *MockAnchor) ReadOnlyMount() (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadOnlyMount")
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadOnlyMount indicates an expected call of ReadOnlyMount.
+func (mr *MockAnchorMockRecorder) ReadOnlyMount() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadOnlyMount", reflect.TypeOf((*MockAnchor)(nil).ReadOnlyMount))
+}
+
+// RemoveTree mocks base method.
+func (m *MockAnchor) RemoveTree(ctx context.Context, name string, b RemoveBounds) (RemoveResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveTree", ctx, name, b)
+	ret0, _ := ret[0].(RemoveResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveTree indicates an expected call of RemoveTree.
+func (mr *MockAnchorMockRecorder) RemoveTree(ctx, name, b any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveTree", reflect.TypeOf((*MockAnchor)(nil).RemoveTree), ctx, name, b)
+}
+
+// RenameNoReplace mocks base method.
+func (m *MockAnchor) RenameNoReplace(oldName string, newDir Anchor, newName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenameNoReplace", oldName, newDir, newName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RenameNoReplace indicates an expected call of RenameNoReplace.
+func (mr *MockAnchorMockRecorder) RenameNoReplace(oldName, newDir, newName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenameNoReplace", reflect.TypeOf((*MockAnchor)(nil).RenameNoReplace), oldName, newDir, newName)
+}
+
+// ReplaceFileDurable mocks base method.
+func (m *MockAnchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceFileDurable", name, data, perm)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplaceFileDurable indicates an expected call of ReplaceFileDurable.
+func (mr *MockAnchorMockRecorder) ReplaceFileDurable(name, data, perm any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFileDurable", reflect.TypeOf((*MockAnchor)(nil).ReplaceFileDurable), name, data, perm)
+}
+
+// Revalidate mocks base method.
+func (m *MockAnchor) Revalidate() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Revalidate")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Revalidate indicates an expected call of Revalidate.
+func (mr *MockAnchorMockRecorder) Revalidate() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Revalidate", reflect.TypeOf((*MockAnchor)(nil).Revalidate))
+}
+
+// Sync mocks base method.
+func (m *MockAnchor) Sync() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sync")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Sync indicates an expected call of Sync.
+func (mr *MockAnchorMockRecorder) Sync() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockAnchor)(nil).Sync))
+}
+
+// Walk mocks base method.
+func (m *MockAnchor) Walk(ctx context.Context, rel string, b WalkBounds, fn func(string, EntryInfo) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Walk", ctx, rel, b, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Walk indicates an expected call of Walk.
+func (mr *MockAnchorMockRecorder) Walk(ctx, rel, b, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Walk", reflect.TypeOf((*MockAnchor)(nil).Walk), ctx, rel, b, fn)
+}
+
+// WriteFileExclusive mocks base method.
+func (m *MockAnchor) WriteFileExclusive(name string, data []byte, perm fs.FileMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WriteFileExclusive", name, data, perm)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteFileExclusive indicates an expected call of WriteFileExclusive.
+func (mr *MockAnchorMockRecorder) WriteFileExclusive(name, data, perm any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileExclusive", reflect.TypeOf((*MockAnchor)(nil).WriteFileExclusive), name, data, perm)
 }

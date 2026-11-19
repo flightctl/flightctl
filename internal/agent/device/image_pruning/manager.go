@@ -65,6 +65,21 @@ type Manager interface {
 // and is aliased here for backward compatibility and clarity.
 type ImagePruningConfig = config.ImagePruning
 
+// RetainedReferenceProvider lists image references that must survive pruning
+// regardless of the device specs.
+type RetainedReferenceProvider interface {
+	RetainedImageReferences(ctx context.Context) ([]string, error)
+}
+
+// Option configures the pruning manager.
+type Option func(*manager)
+
+// WithRetainedReferences protects the images the provider reports from
+// pruning. Pruning skips a cycle when the provider fails.
+func WithRetainedReferences(p RetainedReferenceProvider) Option {
+	return func(m *manager) { m.retained = p }
+}
+
 // manager implements the Manager interface for image pruning operations.
 type manager struct {
 	podmanClientFactory client.PodmanFactory
@@ -78,6 +93,7 @@ type manager struct {
 	dataDir             string
 	prunePending        atomic.Bool
 	prunePendingSince   atomic.Pointer[time.Time] // when prune was first requested (for retry timeout); nil if not set
+	retained            RetainedReferenceProvider
 }
 
 // New creates a new pruning manager instance.
@@ -90,6 +106,7 @@ type manager struct {
 //   - log: Logger for structured logging
 //   - config: Pruning configuration (enabled flag, etc.)
 //   - dataDir: Directory where data files are stored
+//   - opts: Optional settings such as retained image references
 func New(
 	podmanClientFactory client.PodmanFactory,
 	rootPodmanClient *client.Podman,
@@ -100,6 +117,7 @@ func New(
 	log *log.PrefixLogger,
 	config ImagePruningConfig,
 	dataDir string,
+	opts ...Option,
 ) Manager {
 	ret := &manager{
 		podmanClientFactory: podmanClientFactory,
@@ -111,8 +129,31 @@ func New(
 		log:                 log,
 		dataDir:             dataDir,
 	}
+	for _, opt := range opts {
+		opt(ret)
+	}
 	ret.config.Store(&config)
 	return ret
+}
+
+// errRetainedReferences marks a failure to read the retained image references.
+var errRetainedReferences = errors.New("reading retained image references")
+
+// retainedRefs returns the retained image references as root podman
+// references.
+func (m *manager) retainedRefs(ctx context.Context) ([]ImageRef, error) {
+	if m.retained == nil {
+		return nil, nil
+	}
+	images, err := m.retained.RetainedImageReferences(ctx)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]ImageRef, 0, len(images))
+	for _, image := range images {
+		refs = append(refs, ImageRef{Image: image, Owner: v1beta1.CurrentProcessUsername, Type: RefTypePodman})
+	}
+	return refs, nil
 }
 
 // RequestPrune marks that prune should run in the next reconcile cycle and records the timestamp for retry timeout.
@@ -132,7 +173,8 @@ func (m *manager) resetPruneRequest() {
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
 // It preserves images required for current and desired operations.
 // Prune runs only when prune is marked pending (RequestPrune or ReloadConfig); on entry the pending flag
-// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures.
+// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures
+// and the retained image references could be read.
 func (m *manager) Prune(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -144,9 +186,9 @@ func (m *manager) Prune(ctx context.Context) error {
 	if since != nil && time.Since(*since) > PruneRetryTimeout {
 		m.resetPruneRequest()
 	}
-	var hasRemovalErrors bool
+	var hasRemovalErrors, retainedUnreadable bool
 	defer func() {
-		if !hasRemovalErrors {
+		if !hasRemovalErrors && !retainedUnreadable {
 			m.resetPruneRequest()
 		}
 	}()
@@ -163,6 +205,7 @@ func (m *manager) Prune(ctx context.Context) error {
 	eligible, err := m.determineEligibleImages(ctx)
 	if err != nil {
 		m.log.Warnf("Failed to determine eligible images: %v", err)
+		retainedUnreadable = errors.Is(err, errRetainedReferences)
 		// Don't block reconciliation on pruning errors
 		return nil
 	}
@@ -381,6 +424,12 @@ func (m *manager) recordImageArtifactReferences(ctx context.Context, current, de
 		}
 	}
 
+	if retained, err := m.retainedRefs(ctx); err != nil {
+		m.log.Warnf("Failed to read retained image references for recording: %v", err)
+	} else {
+		allRefs = append(allRefs, retained...)
+	}
+
 	allRefs = lo.Uniq(allRefs)
 
 	// Accumulate all references without categorization
@@ -517,6 +566,12 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 
 		currentRequiredRefs = append(currentRequiredRefs, specRefs...)
 	}
+
+	retained, err := m.retainedRefs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errRetainedReferences, err)
+	}
+	currentRequiredRefs = append(currentRequiredRefs, retained...)
 
 	// Build a set of current references keyed by (Image, Type, Owner)
 	currentRefSet := make(map[string]struct{})

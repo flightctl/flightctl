@@ -45,6 +45,9 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	if err != nil {
 		return fmt.Errorf("%w: %w", deviceerrors.ErrConvertDesiredConfigToFiles, err)
 	}
+	if err := c.rejectReservedPaths(desiredFiles); err != nil {
+		return err
+	}
 
 	currentFiles, err := ProviderSpecToFiles(current.Config)
 	if err != nil {
@@ -52,6 +55,40 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	}
 
 	return c.ensureConfigFiles(currentFiles, desiredFiles)
+}
+
+// reservedRoot returns the directory that holds agent-managed firmware state
+// beneath the configured data directory, or "" when no data directory is
+// configured.
+func (c *Controller) reservedRoot() string {
+	if c.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Clean(c.dataDir), "firmware")
+}
+
+// rejectReservedPaths fails when any desired file is at or beneath the
+// reserved firmware directory, so that a configuration writing there is
+// applied in full or not at all. The comparison is lexical: relative paths
+// and symbolic links that alias the data directory are not resolved.
+func (c *Controller) rejectReservedPaths(files []v1beta1.FileSpec) error {
+	root := c.reservedRoot()
+	if root == "" {
+		return nil
+	}
+	for _, file := range files {
+		if isReservedPath(root, file.Path) {
+			return fmt.Errorf("%w %w", deviceerrors.ErrReservedConfigPath, deviceerrors.WithElement(file.Path))
+		}
+	}
+	return nil
+}
+
+// isReservedPath reports whether the cleaned absolute path p is root or lies
+// beneath it, respecting path component boundaries.
+func isReservedPath(root, p string) bool {
+	clean := filepath.Clean(p)
+	return filepath.IsAbs(clean) && (clean == root || strings.HasPrefix(clean, root+"/"))
 }
 
 func computeRemoval(currentFileList, desiredFileList []v1beta1.FileSpec) []string {
@@ -114,7 +151,15 @@ func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1beta1.File
 // in the desiredFiles, then prunes any now-empty directories the agent created.
 // It reports whether the owned-directory set changed.
 func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec, owned map[string]bool) (bool, error) {
-	removeFiles := computeRemoval(currentFiles, desiredFiles)
+	root := c.reservedRoot()
+	removeFiles := make([]string, 0)
+	for _, file := range computeRemoval(currentFiles, desiredFiles) {
+		if root != "" && isReservedPath(root, file) {
+			c.log.Warnf("Not deleting %s: the path is reserved for agent-managed firmware state", file)
+			continue
+		}
+		removeFiles = append(removeFiles, file)
+	}
 	for _, file := range removeFiles {
 		if len(file) == 0 {
 			continue
