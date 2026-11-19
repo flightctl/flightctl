@@ -186,6 +186,47 @@ func TestExternalURLsCertManager(t *testing.T) {
 	}
 }
 
+// schemaFieldPath normalizes a Helm schema validation field reference from
+// either JSON-pointer format (/global/uiUrl) or dot notation (global.uiUrl)
+// into canonical dot notation.
+func schemaFieldPath(ref string) string {
+	return strings.TrimPrefix(strings.ReplaceAll(ref, "/", "."), ".")
+}
+
+func TestSchemaFieldPathNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"When given dot notation it should return it unchanged", "global.uiUrl", "global.uiUrl"},
+		{"When given a JSON-pointer it should convert to dot notation", "/global/uiUrl", "global.uiUrl"},
+		{"When given a deeper JSON-pointer it should convert each segment", "/a/b/c", "a.b.c"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, schemaFieldPath(tc.input))
+		})
+	}
+
+	// Verify that targeted normalization of a specific field reference
+	// works for both diagnostic formats and preserves other fields.
+	jsonPointerDiag := "- /global/uiUrl: Does not match pattern\n"
+	dotPathDiag := "- global.uiUrl: Does not match pattern\n"
+	for _, diag := range []string{jsonPointerDiag, dotPathDiag} {
+		normalized := strings.ReplaceAll(diag, "/global/uiUrl", "global.uiUrl")
+		require.Contains(t, normalized, "global.uiUrl",
+			"after normalization the expected dot-path field should appear")
+	}
+	// A different field (apiUrl) should not be affected by uiUrl
+	// normalization.
+	otherField := "- /global/apiUrl: Does not match pattern\n"
+	normalized := strings.ReplaceAll(otherField, "/global/uiUrl", "global.uiUrl")
+	require.NotContains(t, normalized, "global.uiUrl",
+		"normalizing uiUrl should not affect apiUrl references")
+	require.Contains(t, normalized, "/global/apiUrl",
+		"apiUrl reference should be preserved verbatim")
+}
+
 func TestExternalURLsInvalidValues(t *testing.T) {
 	for _, setting := range []string{
 		"global.uiUrl=edge.example.com",
@@ -198,14 +239,34 @@ func TestExternalURLsInvalidValues(t *testing.T) {
 		"global.agentApiUrl=https://edge.example.com:7443/",
 		"global.cliArtifactsUrl=https://edge.example.com/_/cli-artifacts#top",
 		"global.cliArtifactsUrl=https://edge.example.com/_/cli-artifacts/",
+		// IPv6 literal addresses are not supported.
+		"global.uiUrl=https://[::1]",
+		"global.apiUrl=https://[2001:db8::10]/_/flightctl",
+		"global.agentApiUrl=https://[2001:db8::10]:7443",
+		"global.cliArtifactsUrl=https://[::ffff:192.168.1.1]/_/cli",
 	} {
 		t.Run("When "+setting+" it should reject", func(t *testing.T) {
 			output, err := catalogChart(t, setting)
 			require.Error(t, err, output)
 			key, _, _ := strings.Cut(strings.TrimPrefix(setting, "global."), "=")
-			require.Contains(t, output, "/global/"+key)
+			// Normalize any JSON-pointer field paths in the Helm error
+			// output to dot notation so a single assertion works
+			// regardless of Helm version (3.17+ uses dot-path, older
+			// versions use JSON-pointer).
+			expected := schemaFieldPath("global." + key)
+			normalized := strings.ReplaceAll(output, "/global/"+key, expected)
+			require.Contains(t, normalized, expected,
+				"expected schema error to reference field %q", expected)
 		})
 	}
+}
+
+func TestExternalURLsBracketsInPath(t *testing.T) {
+	// The IPv6 authority exclusion must not reject brackets that appear
+	// in path segments.  The schema's path character class does not
+	// exclude them, so this should still be accepted.
+	output, err := catalogChart(t, "global.uiUrl=https://edge.example.com/path[1]")
+	require.NoError(t, err, output)
 }
 
 func externalURLChart(t *testing.T, args ...string) map[string]map[string]any {

@@ -67,23 +67,23 @@
         },
         "uiUrl": {
           "type": "string",
-          "description": "Base URL of the UI, overriding the one constructed from baseDomain.",
-          "pattern": "^$|^https?://[^/?#@\\s]+(/[^?#\\s]*[^/?#\\s])?$"
+          "description": "Base URL of the UI, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https?://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
         },
         "apiUrl": {
           "type": "string",
-          "description": "Base URL of the API, overriding the one constructed from baseDomain.",
-          "pattern": "^$|^https://[^/?#@\\s]+(/[^?#\\s]*[^/?#\\s])?$"
+          "description": "Base URL of the API, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
         },
         "agentApiUrl": {
           "type": "string",
-          "description": "External URL of the agent API without a path, overriding the one constructed from baseDomain.",
-          "pattern": "^$|^https://[^/?#@\\s]+$"
+          "description": "External URL of the agent API without a path, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https://[^/?#@\\s\\[\\]]+$"
         },
         "cliArtifactsUrl": {
           "type": "string",
-          "description": "Base URL of the CLI artifacts, overriding the one constructed from baseDomain.",
-          "pattern": "^$|^https?://[^/?#@\\s]+(/[^?#\\s]*[^/?#\\s])?$"
+          "description": "Base URL of the CLI artifacts, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https?://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
         },
         "routeExternalCertificate": {
           "type": "string",

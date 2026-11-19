@@ -339,8 +339,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
 | global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
-| global.agentApiUrl | string | `""` | External URL of the agent API without a path, overriding the one constructed from baseDomain. |
-| global.apiUrl | string | `""` | Base URL of the API, overriding the one constructed from baseDomain. |
+| global.agentApiUrl | string | `""` | External URL of the agent API without a path, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported. |
+| global.apiUrl | string | `""` | Base URL of the API, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported. |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |
 | global.auth.aap.authorizationUrl | string | `""` | OAuth2 authorization endpoint URL |
 | global.auth.aap.clientId | string | `""` | OAuth2 client ID |
@@ -380,7 +380,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTlsSecretName | string | `""` | Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
-| global.cliArtifactsUrl | string | `""` | Base URL of the CLI artifacts, overriding the one constructed from baseDomain. |
+| global.cliArtifactsUrl | string | `""` | Base URL of the CLI artifacts, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported. |
 | global.enableMulticlusterExtensions | string | `"auto"` | Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'. |
 | global.enableOpenShiftExtensions | string | `"auto"` | Enable OpenShift extensions - one of 'auto', 'true', 'false'. |
 | global.exposeServicesMethod | string | `"auto"` | How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none' |
@@ -399,7 +399,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate for synchronous builtin certificates, or configure it after the generated Secret exists for asynchronous certificates. - true: use externalCertificate; with cert-manager, configure it after the generated Secret exists. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |
-| global.uiUrl | string | `""` | Base URL of the UI, overriding the one constructed from baseDomain. |
+| global.uiUrl | string | `""` | Base URL of the UI, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
 | imageBuilderApi.enabled | bool | `true` | Enable imagebuilder API service |
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
