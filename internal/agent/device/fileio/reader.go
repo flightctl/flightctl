@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -187,12 +188,15 @@ func (r *reader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, erro
 	components := strings.Split(relPath, "/")
 	for _, component := range components[:len(components)-1] {
 		next, err := unix.Openat(dir, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		// The parent descriptor is no longer needed after opening the child;
+		// a close failure cannot affect the already-open child.
 		_ = unix.Close(dir)
 		if err != nil {
 			return nil, fmt.Errorf("open directory %q without following links: %w", component, err)
 		}
 		dir = next
 	}
+	// The descriptor is read-only; closing it after traversal cannot lose data.
 	defer func() { _ = unix.Close(dir) }()
 
 	name := components[len(components)-1]
@@ -203,11 +207,27 @@ func (r *reader) ReadFileInRoot(root, relPath string, limit int64) ([]byte, erro
 	if before.Mode&unix.S_IFMT != unix.S_IFREG {
 		return nil, fmt.Errorf("%q is not a regular file", relPath)
 	}
-	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	pathFd, err := unix.Openat(dir, name, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open %q without following links: %w", relPath, err)
 	}
+	var pinned unix.Stat_t
+	if err := unix.Fstat(pathFd, &pinned); err != nil {
+		_ = unix.Close(pathFd)
+		return nil, fmt.Errorf("stat %q: %w", relPath, err)
+	}
+	if pinned.Mode&unix.S_IFMT != unix.S_IFREG || pinned.Dev != before.Dev || pinned.Ino != before.Ino {
+		_ = unix.Close(pathFd)
+		return nil, fmt.Errorf("%q is not a regular file", relPath)
+	}
+	fd, err := unix.Open("/proc/self/fd/"+strconv.Itoa(pathFd), unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	// The pinned descriptor is no longer needed once the read descriptor is open.
+	_ = unix.Close(pathFd)
+	if err != nil {
+		return nil, fmt.Errorf("reopen %q: %w", relPath, err)
+	}
 	f := os.NewFile(uintptr(fd), relPath)
+	// The file is read-only and fully consumed before return; close cannot lose writes.
 	defer func() { _ = f.Close() }()
 	var opened unix.Stat_t
 	if err := unix.Fstat(fd, &opened); err != nil {

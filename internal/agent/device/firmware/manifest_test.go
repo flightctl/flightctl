@@ -209,6 +209,12 @@ func TestParseManifestRejectsContractViolations(t *testing.T) {
 		{"When a file path is a directory prefix of another it should reject", mutate(func(m map[string]any) {
 			m["files"] = append(files(m), map[string]any{"path": "payload/bin", "sha256": hex64, "size": json.Number("1"), "executable": false})
 		})},
+		{"When an unrelated path sorts between a prefix and descendant it should still reject the prefix conflict", mutate(func(m map[string]any) {
+			m["files"] = append(files(m),
+				map[string]any{"path": "payload/binx", "sha256": hex64, "size": json.Number("1"), "executable": false},
+				map[string]any{"path": "payload/bin", "sha256": hex64, "size": json.Number("1"), "executable": false},
+			)
+		})},
 		{"When the entrypoint is not listed it should reject", mutate(func(m map[string]any) { m["entrypoint"] = "payload/bin/other" })},
 		{"When the entrypoint is not executable it should reject", mutate(func(m map[string]any) { file(m, 0)["executable"] = false })},
 		{"When the entrypoint is not a payload path it should reject", mutate(func(m map[string]any) { m["entrypoint"] = "/updater/payload/bin/updater" })},
