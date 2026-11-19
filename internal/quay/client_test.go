@@ -53,6 +53,12 @@ type mockQuayServer struct {
 	maxInFlight int
 }
 
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -538,16 +544,23 @@ func TestFetchImageSecurity_ContextCancelledDuringBackoff(t *testing.T) {
 }
 
 func TestFetchImageSecurity_TimeoutRetriesThenFails(t *testing.T) {
-	mock := &mockQuayServer{httpStatus: http.StatusOK, delay: 200 * time.Millisecond, status: "scanned"}
-	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL, srv.Client())
-	c.httpClient.Timeout = 20 * time.Millisecond
+	attempts := 0
+	httpClient := &http.Client{
+		Timeout: 20 * time.Millisecond,
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}),
+	}
+	c, _ := newTestClient(t, "https://quay.example", httpClient)
 
-	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
+	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: "quay.example/org/repo:latest"}
 	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a persistent timeout fails after retries")
 	require.Nil(t, res.Report)
-	require.Equal(t, maxAttempts, mock.count(), "timeouts are retried up to maxAttempts")
+	require.Equal(t, maxAttempts, attempts, "timeouts are retried up to maxAttempts")
+	require.Equal(t, maxAttempts, res.Attempts, "the returned attempt count includes timeouts")
 	require.ErrorContains(t, err, "timed out", "the timeout is surfaced in the wrapped error")
 }
 
