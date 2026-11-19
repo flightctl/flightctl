@@ -1273,6 +1273,16 @@ func TestManager_retainedUpdaterImages(t *testing.T) {
 		_, err := m.determineEligibleImages(context.Background())
 		require.Error(t, err)
 	})
+	t.Run("When the retained references cannot be read it should keep the prune pending and retry once they can", func(t *testing.T) {
+		provider := &fakeRetainedReferences{err: errors.New("registry unreadable")}
+		m, _ := newManager(t, provider)
+		m.RequestPrune()
+		require.NoError(t, m.Prune(context.Background()))
+		require.True(t, m.PrunePending(), "a failed retained-reference read keeps the prune pending")
+		provider.err, provider.refs = nil, []string{updater}
+		require.NoError(t, m.Prune(context.Background()))
+		require.False(t, m.PrunePending(), "the retried prune completes once the references can be read")
+	})
 	t.Run("When no provider is configured it should behave as before", func(t *testing.T) {
 		m, _ := newManager(t, nil)
 		got, err := m.determineEligibleImages(context.Background())
