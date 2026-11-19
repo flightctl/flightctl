@@ -85,8 +85,13 @@ var (
 	schemaDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	fileDigestPattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	integerToken        = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
-	manifestSchema      = mustCompileManifestSchema()
+	manifestSchema      *jsonschema.Schema
+	manifestSchemaErr   error
 )
+
+func init() {
+	manifestSchema, manifestSchemaErr = compileManifestSchema()
+}
 
 // Manifest is the closed updater-manifest/v1 document. Entrypoint and file
 // paths are relative to /updater/ and lie strictly beneath payload/.
@@ -122,6 +127,9 @@ type ManifestFile struct {
 // ParseManifest strictly decodes and validates manifest bytes against the
 // closed updater-manifest/v1 contract.
 func ParseManifest(data []byte) (*Manifest, error) {
+	if manifestSchemaErr != nil {
+		return nil, fmt.Errorf("compile updater manifest schema: %w", manifestSchemaErr)
+	}
 	doc, err := decodeManifestJSON(data)
 	if err != nil {
 		return nil, err
@@ -166,7 +174,7 @@ func (m *Manifest) validate() error {
 			return fmt.Errorf("manifest.schemas.%s must be a sha256:<lowercase hex> digest", s.name)
 		}
 	}
-	paths := make(map[string]bool, len(m.Files))
+	paths := make([]string, len(m.Files))
 	for i, f := range m.Files {
 		where := fmt.Sprintf("manifest.files[%d]", i)
 		if !validPayloadPath(f.Path) {
@@ -175,16 +183,19 @@ func (m *Manifest) validate() error {
 		if !fileDigestPattern.MatchString(f.SHA256) {
 			return fmt.Errorf("%s.sha256 must be 64 lowercase hex digits", where)
 		}
-		if paths[f.Path] {
-			return fmt.Errorf("%s.path %q is listed more than once", where, f.Path)
+		paths[i] = f.Path
+	}
+	slices.Sort(paths)
+	for i := 1; i < len(paths); i++ {
+		if paths[i] == paths[i-1] {
+			return fmt.Errorf("manifest file path %q is listed more than once", paths[i])
 		}
-		paths[f.Path] = true
 	}
 	for _, f := range m.Files {
-		for i := 0; i < len(f.Path); i++ {
-			if f.Path[i] == '/' && paths[f.Path[:i]] {
-				return fmt.Errorf("manifest file %q is also the parent directory of %q", f.Path[:i], f.Path)
-			}
+		prefix := f.Path + "/"
+		index, _ := slices.BinarySearch(paths, prefix)
+		if index < len(paths) && strings.HasPrefix(paths[index], prefix) {
+			return fmt.Errorf("manifest file %q is also the parent directory of %q", f.Path, paths[index])
 		}
 	}
 	i := slices.IndexFunc(m.Files, func(f ManifestFile) bool { return f.Path == m.Entrypoint })
@@ -307,17 +318,17 @@ func decodeValue(dec *json.Decoder, depth int) (any, error) {
 	}
 }
 
-func mustCompileManifestSchema() *jsonschema.Schema {
+func compileManifestSchema() (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.LoadURL = func(string) (io.ReadCloser, error) {
 		return nil, errors.New("external schema references are not allowed")
 	}
 	if err := compiler.AddResource(manifestSchemaURL, strings.NewReader(manifestSchemaJSON)); err != nil {
-		panic(err)
+		return nil, err
 	}
 	schema, err := compiler.Compile(manifestSchemaURL)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return schema
+	return schema, nil
 }

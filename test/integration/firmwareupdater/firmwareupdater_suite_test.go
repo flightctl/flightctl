@@ -192,6 +192,8 @@ func removeTree(dir string) {
 	}
 	slices.SortFunc(mounts, func(a, b string) int { return len(b) - len(a) })
 	for _, m := range mounts {
+		// Detached unmount is best-effort cleanup; a vanished mount must not
+		// prevent the remaining mounts and directory from being removed.
 		_ = unix.Unmount(m, unix.MNT_DETACH)
 	}
 	Expect(os.RemoveAll(dir)).To(Succeed())
@@ -233,6 +235,7 @@ func preflightImageMount(ctx context.Context, work string) error {
 		return err
 	}
 	content, readErr := os.ReadFile(filepath.Join(mountPoint, "updater", "manifest.json"))
+	// Mount options are diagnostic; read and unmount errors below are authoritative.
 	options, _ := mountOptions(mountPoint)
 	if _, err := runPodman(ctx, env, "image", "unmount", "localhost/firmware-updater-preflight:1"); err != nil {
 		return err
@@ -475,6 +478,7 @@ func copyManifest(ctx context.Context, st suiteState, from, to, ref string) erro
 		if err != nil {
 			return nil, nil, err
 		}
+		// The body is fully read below, so a close error cannot alter its data.
 		defer resp.Body.Close()
 		data, err := io.ReadAll(resp.Body)
 		return resp, data, err
@@ -587,6 +591,7 @@ func (r *recordingExecuter) ExecuteWithContext(ctx context.Context, command stri
 	stdout, stderr, code := r.inner.ExecuteWithContextFromDir(ctx, "", command, args, r.env...)
 	if command == "podman" && subcommand(args) == "image mount" && code == 0 {
 		mountPoint := strings.TrimSpace(stdout)
+		// Mount options are diagnostic; the command exit status is authoritative.
 		options, _ := mountOptions(mountPoint)
 		r.mu.Lock()
 		r.mountPoints[mountPoint] = options

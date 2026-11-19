@@ -36,9 +36,9 @@ import (
 )
 
 const (
-	testDataDir    = "/var/lib/flightctl"
-	testMountPoint = "/var/lib/containers/storage/overlay/0123abcd/merged"
-	sentinelSecret = "sentinel-registry-secret-6f1c"
+	testDataDir       = "/var/lib/flightctl"
+	testMountPoint    = "/var/lib/containers/storage/overlay/0123abcd/merged"
+	sentinelAuthValue = "sentinel-registry-secret-6f1c"
 )
 
 var allowedSubcommands = []string{"pull", "image inspect", "image exists", "image mount", "image unmount"}
@@ -233,6 +233,7 @@ func (h *fetchHarness) setManifestBytes(data []byte) {
 	dir := filepath.Join(h.root, testMountPoint, "updater")
 	require.NoError(h.t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "manifest.json")
+	// A test may replace the manifest; WriteFile reports any replacement failure.
 	_ = os.Remove(path)
 	require.NoError(h.t, os.WriteFile(path, data, 0o600))
 	h.manifest = data
@@ -242,7 +243,7 @@ func (h *fetchHarness) writeAuthFile(path string) {
 	h.t.Helper()
 	full := filepath.Join(h.root, path)
 	require.NoError(h.t, os.MkdirAll(filepath.Dir(full), 0o700))
-	require.NoError(h.t, os.WriteFile(full, []byte(`{"auths":{"quay.io":{"auth":"`+sentinelSecret+`"}}}`), 0o600))
+	require.NoError(h.t, os.WriteFile(full, []byte(`{"auths":{"quay.io":{"auth":"`+sentinelAuthValue+`"}}}`), 0o600))
 }
 
 func (h *fetchHarness) fetcher(opts ...firmware.FetcherOption) *firmware.Fetcher {
@@ -668,7 +669,7 @@ func TestFetchReturnsThePackageWhenUnmountFails(t *testing.T) {
 }
 
 func TestFetchResolvesRegistryCredentialsWithoutReadingThem(t *testing.T) {
-	inlineAuth := `{"auths":{"quay.io":{"auth":"` + sentinelSecret + `-inline"}}}`
+	inlineAuth := `{"auths":{"quay.io":{"auth":"` + sentinelAuthValue + `-inline"}}}`
 	testCases := []struct {
 		name     string
 		setup    func(h *fetchHarness)
@@ -771,9 +772,9 @@ func TestFetchKeepsRegistryCredentialsOutOfRecordsLogsAndErrors(t *testing.T) {
 	require.NoError(err)
 	record, err := os.ReadFile(h.recordPath())
 	require.NoError(err)
-	require.NotContains(string(record), sentinelSecret)
-	require.NotContains(string(policyAtPull), sentinelSecret)
-	require.NotContains(fmt.Sprintf("%+v", *pkg), sentinelSecret)
+	require.NotContains(string(record), sentinelAuthValue)
+	require.NotContains(string(policyAtPull), sentinelAuthValue)
+	require.NotContains(fmt.Sprintf("%+v", *pkg), sentinelAuthValue)
 
 	h.podman.calls = nil
 	h.podman.pullExit = 125
@@ -781,9 +782,9 @@ func TestFetchKeepsRegistryCredentialsOutOfRecordsLogsAndErrors(t *testing.T) {
 	require.NoError(os.Remove(h.recordPath()))
 	_, err = h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
 	require.Error(err)
-	require.NotContains(err.Error(), sentinelSecret)
-	require.NotContains(errors.Unwrap(err).Error(), sentinelSecret)
-	require.NotContains(h.logs.String(), sentinelSecret)
+	require.NotContains(err.Error(), sentinelAuthValue)
+	require.NotContains(errors.Unwrap(err).Error(), sentinelAuthValue)
+	require.NotContains(h.logs.String(), sentinelAuthValue)
 	for _, call := range h.podman.calls {
 		if subcommand(call) != "pull" {
 			require.NotContains(call, "--authfile")
