@@ -707,6 +707,8 @@ func TestStatusReportsSelectedBuiltInSources(t *testing.T) {
 	require.NoError(manager.Status(context.Background(), deviceStatus))
 
 	require.Equal(runtime.GOARCH, deviceStatus.SystemInfo.AdditionalProperties[common.ArchitectureKey])
+	require.NotNil(deviceStatus.SystemInfo.OneTimeWindowsEligible)
+	require.True(*deviceStatus.SystemInfo.OneTimeWindowsEligible)
 	require.Contains(deviceStatus.SystemInfoStatus.Statuses.SystemInfo, common.ArchitectureKey)
 	require.Empty(deviceStatus.SystemInfoStatus.Statuses.CustomInfo)
 	require.Nil(deviceStatus.SystemInfoStatus.Statuses.SystemInfo[common.ArchitectureKey].Message)

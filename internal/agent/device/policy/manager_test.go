@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -582,4 +583,197 @@ func TestIsReadyAcrossTime(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOneTimeWindowReadiness(t *testing.T) {
+	utc := time.UTC
+	testCases := []struct {
+		name        string
+		currentTime time.Time
+		expected    bool
+	}{
+		{
+			name:        "When current time is before the window it should remain closed",
+			currentTime: time.Date(2026, 1, 1, 11, 59, 59, 0, utc),
+			expected:    false,
+		},
+		{
+			name:        "When current time equals the window start it should be open",
+			currentTime: time.Date(2026, 1, 1, 12, 0, 0, 0, utc),
+			expected:    true,
+		},
+		{
+			name:        "When current time equals the window end it should be open",
+			currentTime: time.Date(2026, 1, 1, 13, 0, 0, 0, utc),
+			expected:    true,
+		},
+		{
+			name:        "When current time is after the window it should remain closed",
+			currentTime: time.Date(2026, 1, 1, 13, 0, 1, 0, utc),
+			expected:    false,
+		},
+		{
+			name:        "When the same calendar time occurs in a later year it should remain closed",
+			currentTime: time.Date(2027, 1, 1, 12, 0, 0, 0, utc),
+			expected:    false,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			s := newSchedule(Update)
+			s.nowFn = func() time.Time { return tt.currentTime }
+
+			err := s.Parse(logger, &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr(v1beta1.TimeZone("UTC")),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "12:00",
+					StartGraceDuration: "1h",
+				}}),
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, s.IsReady(logger))
+		})
+	}
+}
+
+func TestScheduleReadinessAcrossWindowTypes(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	manager := NewManager(logger).(*manager)
+	now := time.Date(2026, 1, 1, 13, 30, 0, 0, time.UTC)
+
+	err := manager.Sync(context.Background(), &v1beta1.DeviceSpec{
+		UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
+			DownloadSchedule: &v1beta1.UpdateSchedule{
+				TimeZone:           lo.ToPtr(v1beta1.TimeZone("UTC")),
+				At:                 lo.ToPtr(v1beta1.CronExpression("0 12 * * *")),
+				StartGraceDuration: lo.ToPtr(v1beta1.Duration("5m")),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "13:00",
+					StartGraceDuration: "1h",
+				}}),
+			},
+			UpdateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone:           lo.ToPtr(v1beta1.TimeZone("UTC")),
+				At:                 lo.ToPtr(v1beta1.CronExpression("0 14 * * *")),
+				StartGraceDuration: lo.ToPtr(v1beta1.Duration("5m")),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "10:00",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+	})
+	require.NoError(t, err)
+	manager.download.nowFn = func() time.Time { return now }
+	manager.update.nowFn = func() time.Time { return now }
+
+	require.True(t, manager.IsReady(context.Background(), Download))
+	require.False(t, manager.IsReady(context.Background(), Update))
+}
+
+func TestScheduleTimeZoneHandling(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name        string
+		timeZone    *v1beta1.TimeZone
+		date        string
+		at          string
+		currentTime time.Time
+		expected    bool
+	}{
+		{
+			name:        "When one-time window crosses spring DST it should use the schedule time zone",
+			timeZone:    lo.ToPtr(v1beta1.TimeZone("America/New_York")),
+			date:        "2024-03-10",
+			at:          "01:30",
+			currentTime: time.Date(2024, 3, 10, 7, 0, 0, 0, time.UTC),
+			expected:    true,
+		},
+		{
+			name:        "When time zone is omitted it should use the device local time zone",
+			date:        "2026-01-01",
+			at:          "12:00",
+			currentTime: time.Date(2026, 1, 1, 12, 30, 0, 0, time.Local),
+			expected:    true,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			s := newSchedule(Update)
+			s.nowFn = func() time.Time { return tt.currentTime }
+			err := s.Parse(logger, &v1beta1.UpdateSchedule{
+				TimeZone: tt.timeZone,
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               tt.date,
+					At:                 tt.at,
+					StartGraceDuration: "30m",
+				}}),
+			})
+			if tt.timeZone == nil {
+				require.NoError(t, err)
+				require.Equal(t, time.Local, s.location)
+				require.Equal(t, tt.expected, s.IsReady(logger))
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, newYork, s.location)
+				require.Equal(t, tt.expected, s.IsReady(logger))
+			}
+		})
+	}
+}
+
+func TestMalformedScheduleFailsClosed(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	manager := NewManager(logger).(*manager)
+	valid := &v1beta1.DeviceSpec{
+		UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
+			UpdateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr(v1beta1.TimeZone("UTC")),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "12:00",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+	}
+
+	err := manager.Sync(context.Background(), valid)
+	require.NoError(t, err)
+	manager.update.nowFn = func() time.Time {
+		return time.Date(2026, 1, 1, 12, 30, 0, 0, time.UTC)
+	}
+	require.True(t, manager.IsReady(context.Background(), Update))
+
+	err = manager.Sync(context.Background(), &v1beta1.DeviceSpec{
+		UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
+			UpdateSchedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "not-a-date",
+					At:                 "12:00",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+	})
+	require.Error(t, err)
+	require.False(t, manager.IsReady(context.Background(), Update))
+}
+
+func TestAbsentScheduleIsReady(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	manager := NewManager(logger).(*manager)
+
+	require.NoError(t, manager.Sync(context.Background(), &v1beta1.DeviceSpec{}))
+	require.True(t, manager.IsReady(context.Background(), Download))
+	require.True(t, manager.IsReady(context.Background(), Update))
 }

@@ -490,12 +490,14 @@ func (m *manager) applyKVM(systemInfo *v1beta1.DeviceSystemInfo) {
 
 // defaultSystemInfo returns the default system info.
 func (m *manager) defaultSystemInfo() v1beta1.DeviceSystemInfo {
+	oneTimeWindowsEligible := true
 	return v1beta1.DeviceSystemInfo{
-		BootID:               m.bootID,
-		AgentVersion:         version.Get().String(),
-		OperatingSystem:      runtime.GOOS,
-		Architecture:         runtime.GOARCH,
-		AdditionalProperties: make(map[string]string),
+		BootID:                 m.bootID,
+		AgentVersion:           version.Get().String(),
+		OperatingSystem:        runtime.GOOS,
+		Architecture:           runtime.GOARCH,
+		OneTimeWindowsEligible: &oneTimeWindowsEligible,
+		AdditionalProperties:   make(map[string]string),
 	}
 }
 
