@@ -63,8 +63,10 @@ type Agent struct {
 	statusUpdateInterval util.Duration
 	statusUpdateJitter   util.Duration
 
-	backoff wait.Backoff
-	log     *log.PrefixLogger
+	backoff              wait.Backoff
+	log                  *log.PrefixLogger
+	readyToUpdateVersion string
+	policyBlockedVersion string
 }
 
 type AgentOption func(*Agent)
@@ -232,9 +234,11 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 	if requeue {
+		a.reportQueuedPreparing(ctx, desired)
 		a.log.Trace("Requeueing spec")
 		return
 	}
+	a.policyBlockedVersion = ""
 
 	a.log.Debugf("Reconciling spec version %s", desired.Version())
 
@@ -262,6 +266,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 
 	if syncErr := a.sync(ctx, current, desired); syncErr != nil {
+		if !errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) {
+			a.readyToUpdateVersion = ""
+		}
 		// if context is canceled return to exit the sync loop
 		if errors.Is(syncErr, context.Canceled) {
 			return
@@ -524,6 +531,28 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 	}
 }
 
+func (a *Agent) reportPreparing(ctx context.Context, desired *v1beta1.Device) bool {
+	a.readyToUpdateVersion = ""
+	if err := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStatePreparing),
+		Message: fmt.Sprintf("Device is preparing an update to renderedVersion: %s", desired.Version()),
+	}); err != nil {
+		a.log.Warnf("Failed setting status: %v", err)
+		return false
+	}
+	return true
+}
+
+func (a *Agent) reportQueuedPreparing(ctx context.Context, desired *v1beta1.Device) {
+	if desired != nil && a.policyBlockedVersion != desired.Version() {
+		if a.reportPreparing(ctx, desired) {
+			a.policyBlockedVersion = desired.Version()
+		}
+	}
+}
+
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
@@ -538,17 +567,9 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 			fmt.Errorf("%w: %w", errors.WithElement("Memory"), errors.ErrCriticalResourceAlert))
 	}
 
-	// Report preparation before the download-policy gate so a wait has a stage.
-	if a.specManager.IsUpgrading() {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
-			Type:    v1beta1.ConditionTypeDeviceUpdating,
-			Status:  v1beta1.ConditionStatusTrue,
-			Reason:  string(v1beta1.UpdateStatePreparing),
-			Message: fmt.Sprintf("Device is preparing an update to renderedVersion: %s", desired.Version()),
-		})
-		if updateErr != nil {
-			a.log.Warnf("Failed setting status: %v", updateErr)
-		}
+	// Keep readiness visible when only the update-policy gate is being retried.
+	if a.specManager.IsUpgrading() && a.readyToUpdateVersion != desired.Version() {
+		a.reportPreparing(ctx, desired)
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
@@ -607,12 +628,15 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
+		} else {
+			a.readyToUpdateVersion = desired.Version()
 		}
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.Version()); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentUpdatePolicy, err)
 	}
+	a.readyToUpdateVersion = ""
 
 	return nil
 }

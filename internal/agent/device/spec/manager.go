@@ -524,7 +524,29 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1beta1.Device, bool
 	error) {
 	desired, exists := s.queue.Next(ctx)
 	if !exists {
-		// no spec available, signal to requeue
+		// Surface a policy-blocked update without consuming or writing it.
+		if desired == nil {
+			return nil, true, nil
+		}
+		version, err := stringToInt64(desired.Version())
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid desired version: %w", err)
+		}
+		currentDesiredVersion, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid current desired version: %w", err)
+		}
+		if version < currentDesiredVersion {
+			// The queue is ordered oldest first, so discard this entry to reach newer versions.
+			s.queue.Remove(version)
+			if s.lastConsumedDevice != nil && s.lastConsumedDevice.Version() == desired.Version() {
+				s.lastConsumedDevice = nil
+			}
+			return nil, true, nil
+		}
+		if desired.Version() != s.cache.getRenderedVersion(Current) {
+			return desired, true, nil
+		}
 		return nil, true, nil
 	}
 
