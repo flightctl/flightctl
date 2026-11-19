@@ -191,7 +191,6 @@ func (caBackend *internalCA) IssueRequestedCertificateAsX509(ctx context.Context
 	template := &x509.Certificate{
 		Subject:               csr.Subject,
 		Signature:             csr.Signature,
-		SignatureAlgorithm:    csr.SignatureAlgorithm,
 		PublicKey:             csr.PublicKey,
 		PublicKeyAlgorithm:    csr.PublicKeyAlgorithm,
 		IPAddresses:           csr.IPAddresses,
@@ -204,6 +203,10 @@ func (caBackend *internalCA) IssueRequestedCertificateAsX509(ctx context.Context
 		ExtKeyUsage:           usage,
 		BasicConstraintsValid: true,
 		AuthorityKeyId:        caBackend.Config.Certs[0].SubjectKeyId,
+	}
+	// Preserve the CSR's signature algorithm when the issuer uses the same key type.
+	if csr.PublicKeyAlgorithm == caBackend.Config.Certs[0].PublicKeyAlgorithm {
+		template.SignatureAlgorithm = csr.SignatureAlgorithm
 	}
 
 	for _, opt := range opts {
