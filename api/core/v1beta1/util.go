@@ -368,9 +368,15 @@ func GetGoTemplateFuncMap() template.FuncMap {
 		// Placeholder so that a template naming this function can be parsed and
 		// validated before a device is in hand. ExecuteGoTemplateOnDevice()
 		// rebinds it to the device being rendered.
-		"deviceHasImageMode": func() bool { return true },
+		DeviceHasImageModeFunc: func() bool { return true },
 	}
 }
+
+// DeviceHasImageModeFunc is the template function name that reports whether a
+// device can apply an OS image target. It is exported so that a caller which
+// emits the function into a template uses the same name the function map
+// registers, instead of a copy that can drift from it.
+const DeviceHasImageModeFunc = "deviceHasImageMode"
 
 // deviceHasImageMode reports whether dev can apply an OS image target. Only an
 // explicit package OS mode makes it false, so a device that reports no mode
@@ -410,7 +416,7 @@ func ExecuteGoTemplateOnDevice(t *template.Template, dev *Device) (string, error
 		return "", err
 	}
 	bound.Funcs(template.FuncMap{
-		"deviceHasImageMode": func() bool { return deviceHasImageMode(dev) },
+		DeviceHasImageModeFunc: func() bool { return deviceHasImageMode(dev) },
 	})
 
 	buf := new(bytes.Buffer)

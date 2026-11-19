@@ -311,3 +311,5 @@ var (
 	GetGoTemplateFuncMap      = v1beta1.GetGoTemplateFuncMap
 	ExecuteGoTemplateOnDevice = v1beta1.ExecuteGoTemplateOnDevice
 )
+
+const DeviceHasImageModeFunc = v1beta1.DeviceHasImageModeFunc

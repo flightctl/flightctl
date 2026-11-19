@@ -100,3 +100,12 @@ func osImageEligibleForGuard(image string) bool {
 	}
 	return true
 }
+
+// guardedOsImage wraps a fleet template OS image so that it renders only for a
+// device that can apply an OS image, and renders empty otherwise.
+//
+// The original value is preserved byte for byte inside the guard, so an
+// existing substitution keeps working and nothing but the wrapper is added.
+func guardedOsImage(image string) string {
+	return "{{ if " + domain.DeviceHasImageModeFunc + " }}" + image + "{{ end }}"
+}

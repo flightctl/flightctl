@@ -22,7 +22,7 @@ const (
 	// checkpoint written under a different version is discarded, which is what
 	// stops a run completed by an earlier build from suppressing work that a
 	// later build would do.
-	packageModeTemplateMigrationVersion = 1
+	packageModeTemplateMigrationVersion = 2
 	// packageModeTemplateMigrationKey is the per-organization checkpoint key.
 	packageModeTemplateMigrationKey = "migration"
 	// maxPackageModeTemplateMigrationRetries bounds how many fleet names are
@@ -438,9 +438,8 @@ func (t *PackageModeFleetTemplateMigrationTask) queueRetryOrKeepPending(run *mig
 	return true
 }
 
-// applyToFleet classifies one fleet and acts on the classification. Rewriting
-// is not in place yet, so an eligible fleet is counted and left alone.
-func (t *PackageModeFleetTemplateMigrationTask) applyToFleet(_ context.Context, _ uuid.UUID, run *migrationRun, fleet *domain.Fleet) {
+// applyToFleet classifies one fleet and acts on the classification.
+func (t *PackageModeFleetTemplateMigrationTask) applyToFleet(ctx context.Context, orgID uuid.UUID, run *migrationRun, fleet *domain.Fleet) {
 	if fleet == nil || fleet.Metadata.Name == nil {
 		return
 	}
@@ -453,9 +452,53 @@ func (t *PackageModeFleetTemplateMigrationTask) applyToFleet(_ context.Context, 
 		t.rememberDeferred(run, *fleet.Metadata.Name, owner)
 	case dispositionTransform:
 		run.eligible++
+		t.guardFleetOsImage(ctx, orgID, run, fleet)
 	default:
 		run.skipped++
 	}
+}
+
+// guardFleetOsImage rewrites one fleet's OS image so that it is emitted only
+// for devices that can apply it.
+//
+// The fleet is written back exactly as it was read with one string changed, so
+// every other field, including a catalog item reference, round-trips untouched.
+// The resource version that was read goes back with it, which is what makes the
+// write conditional on nothing else having changed the fleet meanwhile.
+func (t *PackageModeFleetTemplateMigrationTask) guardFleetOsImage(ctx context.Context, orgID uuid.UUID, run *migrationRun, fleet *domain.Fleet) {
+	name := *fleet.Metadata.Name
+	current := fleet.Spec.Template.Spec.Os.Image
+	guarded := guardedOsImage(current)
+	if guarded == current {
+		// Nothing would change, so do not write: a write would produce a new
+		// template version and a rollout for no reason.
+		run.skipped++
+		return
+	}
+	if t.config.DryRun {
+		t.log.WithFields(logrus.Fields{"org_id": orgID.String(), "fleet": name}).
+			Info("Would guard fleet template OS image")
+		run.skipped++
+		return
+	}
+
+	updated := *fleet
+	osSpec := *fleet.Spec.Template.Spec.Os
+	osSpec.Image = guarded
+	updated.Spec.Template.Spec.Os = &osSpec
+
+	// Count the attempt, not the success, so a fleet that keeps conflicting
+	// cannot consume the whole poll.
+	run.writes++
+	if _, status := t.fleetSvc.ReplaceFleet(ctx, orgID, name, updated, false); status.Code >= http.StatusBadRequest {
+		run.failed = true
+		t.rememberRetry(run, name)
+		t.log.WithFields(logrus.Fields{
+			"org_id": orgID.String(), "fleet": name, "code": status.Code,
+		}).Info("Deferring fleet template guard to the next poll")
+		return
+	}
+	run.checkpoint.Transformed++
 }
 
 // rememberDeferred records a fleet the migration will not rewrite together with
@@ -521,6 +564,7 @@ func (t *PackageModeFleetTemplateMigrationTask) persist(ctx context.Context, org
 		"org_id":      orgID.String(),
 		"phase":       run.checkpoint.Phase,
 		"processed":   run.processed,
+		"eligible":    run.eligible,
 		"skipped":     run.skipped,
 		"deferred":    run.deferred,
 		"transformed": run.checkpoint.Transformed,
