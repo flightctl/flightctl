@@ -234,9 +234,17 @@ var _ = Describe("Mixed OS-mode fleet template migration", Ordered, Label("packa
 			"the stored template must still name the raw image, or the migration would have nothing to prove")
 
 		// Only the package-mode member's version is snapshotted: it is the one
-		// whose rendered spec the migration actually changes.
-		packageVersion, err = harness.GetCurrentDeviceRenderedVersion(packageDevice)
-		Expect(err).ToNot(HaveOccurred())
+		// whose rendered spec the migration actually changes. The device is
+		// OutOfDate at this point so we read the server-assigned desired
+		// rendered version from the annotation rather than waiting for
+		// UpToDate, which would time out.
+		{
+			device, err := harness.GetDevice(packageDevice)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device).ToNot(BeNil())
+			packageVersion, err = desiredRenderedVersion(device)
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	AfterEach(func() {
@@ -460,6 +468,28 @@ func renderedVersionOf(device *v1beta1.Device) int {
 		return -1
 	}
 	return version
+}
+
+// desiredRenderedVersion reads the server-assigned target rendered version from
+// the device's metadata annotation. This is the version the device is expected
+// to reach, available immediately after the server renders a new spec — the
+// caller does not need to wait for the device to become UpToDate.
+func desiredRenderedVersion(device *v1beta1.Device) (int, error) {
+	if device == nil || device.Metadata.Annotations == nil {
+		return -1, fmt.Errorf("device has no annotations")
+	}
+	raw, ok := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion]
+	if !ok || raw == "" {
+		return -1, fmt.Errorf("device has no %s annotation", v1beta1.DeviceAnnotationRenderedVersion)
+	}
+	version, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return -1, fmt.Errorf("invalid rendered version annotation %q: %w", raw, err)
+	}
+	if version <= 0 {
+		return -1, fmt.Errorf("non-positive rendered version %d", version)
+	}
+	return version, nil
 }
 
 // uniqueMigrationName returns a fleet name unique to this test process.
