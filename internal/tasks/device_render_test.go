@@ -143,6 +143,14 @@ func (s *testKVStore) StreamRead(_ context.Context, _ string, _ string, _ time.D
 }
 func (s *testKVStore) SetExpire(_ context.Context, _ string, _ time.Duration) error { return nil }
 
+func (s *testKVStore) ExpireIfMatch(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (s *testKVStore) DeleteIfMatch(_ context.Context, _ string, _ []byte) (bool, error) {
+	return false, nil
+}
+
 var _ kvstore.KVStore = (*testKVStore)(nil)
 
 type testHelmImageRenderer struct {

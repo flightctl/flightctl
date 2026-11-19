@@ -478,6 +478,34 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 	return grpc_v1.NewRouterServiceClient(conn), nil
 }
 
+// CreateTLSConfig returns the verification policy for a direct TLS dial,
+// carrying a certificate whose private key is the TPM signer.
+//
+// Go's TLS stack signs through the crypto.Signer directly, so this path needs
+// no custom handshake and reaches the same verification outcome as the
+// file-based one. In particular it does not use the dialer's
+// NetDialTLSContext hook, which would make the library ignore TLSClientConfig
+// and oblige the caller to reapply RootCAs, ServerName, MinVersion and the
+// client certificate itself.
+func (t *tpmProvider) CreateTLSConfig(config *base_client.Config) (*tls.Config, error) {
+	tlsCert, err := t.createCertificate()
+	if err != nil {
+		return nil, err
+	}
+
+	normalized, err := normalizeManagementConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("normalizing config: %w", err)
+	}
+
+	tlsConfig, err := baseTLSConfig(normalized)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig.Certificates = []tls.Certificate{*tlsCert}
+	return tlsConfig, nil
+}
+
 func (t *tpmProvider) CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
 	conn, err := t.dialManagementGRPC(config)
 	if err != nil {

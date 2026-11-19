@@ -11,6 +11,7 @@ package identity
 
 import (
 	context "context"
+	tls "crypto/tls"
 	io "io"
 	reflect "reflect"
 
@@ -126,6 +127,21 @@ func (m *MockProvider) CreateManagementClient(config *client0.Config, metricsCal
 func (mr *MockProviderMockRecorder) CreateManagementClient(config, metricsCallback any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateManagementClient", reflect.TypeOf((*MockProvider)(nil).CreateManagementClient), config, metricsCallback)
+}
+
+// CreateTLSConfig mocks base method.
+func (m *MockProvider) CreateTLSConfig(config *client0.Config) (*tls.Config, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateTLSConfig", config)
+	ret0, _ := ret[0].(*tls.Config)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateTLSConfig indicates an expected call of CreateTLSConfig.
+func (mr *MockProviderMockRecorder) CreateTLSConfig(config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTLSConfig", reflect.TypeOf((*MockProvider)(nil).CreateTLSConfig), config)
 }
 
 // GenerateCSR mocks base method.
