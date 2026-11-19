@@ -1,10 +1,64 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestResolveVariantGateway(t *testing.T) {
+	t.Setenv("MIRROR_MANIFEST", "")
+	manifest, err := loadBuildManifest()
+	require.NoError(t, err)
+
+	tests := []struct {
+		variant string
+		gateway string
+		os      string
+	}{
+		{
+			variant: "rhem-el9",
+			gateway: "registry.redhat.io/rhel9/nginx-124:1-1792441608",
+			os:      "rhel9",
+		},
+		{
+			variant: "rhem-el10",
+			gateway: "registry.redhat.io/rhel10/nginx-126:10.2-1792483994",
+			os:      "rhel10",
+		},
+		{
+			variant: "community-el9",
+			gateway: "registry.access.redhat.com/ubi9/nginx-124:",
+		},
+		{
+			variant: "community-el10",
+			gateway: "registry.access.redhat.com/ubi10/nginx-126:",
+		},
+	}
+	for _, test := range tests {
+		t.Run("When overriding "+test.variant+" service tags it should preserve its gateway pin", func(t *testing.T) {
+			pairs, _, err := resolveVariant(manifest, test.variant, "1.4.0", nil)
+			require.NoError(t, err)
+			var sources, gateways []string
+			for _, pair := range pairs {
+				sources = append(sources, pair.Source)
+				if strings.Contains(pair.Source, "/nginx-") {
+					gateways = append(gateways, pair.Source)
+				}
+			}
+			require.Len(t, gateways, 1)
+			if test.os == "" {
+				require.True(t, strings.HasPrefix(gateways[0], test.gateway))
+				return
+			}
+			require.Equal(t, test.gateway, gateways[0])
+			for _, service := range []string{"pam-issuer", "userinfo-proxy"} {
+				require.Contains(t, sources, "registry.redhat.io/rhem/flightctl-"+service+"-"+test.os+":1.4.0")
+			}
+		})
+	}
+}
 
 // TestValidateFlagsIncludeOptional pins the flag combinations around
 // --include-optional.

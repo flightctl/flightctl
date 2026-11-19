@@ -266,6 +266,10 @@ var embeddedBuildManifest = []byte(`
           "tag": "v2.15.0-1"
         },
         {
+          "ref": "registry.redhat.io/rhel10/nginx-126",
+          "tag": "10.2-1792483994"
+        },
+        {
           "ref": "registry.redhat.io/rhel10/postgresql-16",
           "tag": "10.2-1793579273"
         },
@@ -378,6 +382,10 @@ var embeddedBuildManifest = []byte(`
         {
           "ref": "registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9",
           "tag": "v2.15.0-1"
+        },
+        {
+          "ref": "registry.redhat.io/rhel9/nginx-124",
+          "tag": "1-1792441608"
         },
         {
           "ref": "registry.redhat.io/rhel9/postgresql-16",
