@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -511,4 +514,67 @@ func cacheTree(t *testing.T, dir string) map[string]string {
 		return nil
 	}))
 	return tree
+}
+
+// switchApproval is an approval checker that can be revoked concurrently and
+// counts its checks.
+type switchApproval struct {
+	approved atomic.Bool
+	checks   atomic.Int32
+}
+
+func (a *switchApproval) IsApproved(string, string, string) bool {
+	a.checks.Add(1)
+	return a.approved.Load()
+}
+
+// gatedMounter blocks the first Mount until release is closed.
+type gatedMounter struct {
+	firmware.ImageMounter
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (m *gatedMounter) Mount(ctx context.Context, image string) (string, error) {
+	m.once.Do(func() {
+		close(m.entered)
+		<-m.release
+	})
+	return m.ImageMounter.Mount(ctx, image)
+}
+
+func TestExtractChecksApprovalAfterWaitingForTheCache(t *testing.T) {
+	require := require.New(t)
+	x := newExtractHarness(t, defaultPayload(t))
+	approval := &switchApproval{}
+	approval.approved.Store(true)
+	gate := &gatedMounter{ImageMounter: x.mounter, entered: make(chan struct{}), release: make(chan struct{})}
+	extractor := firmware.NewExtractor(testDataDir, gate, approval, x.rw(), x.retention, x.logger, firmware.WithGOARCH(testArch))
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := extractor.Extract(context.Background(), x.pkg)
+		first <- err
+	}()
+	<-gate.entered
+	checked := approval.checks.Load()
+	second := make(chan error, 1)
+	var secondPayload *firmware.PublishedPayload
+	go func() {
+		p, err := extractor.Extract(context.Background(), x.pkg)
+		secondPayload = p
+		second <- err
+	}()
+	require.Eventually(func() bool { return approval.checks.Load() > checked }, 10*time.Second, time.Millisecond, "the second extraction checked approval before waiting")
+	approval.approved.Store(false)
+	close(gate.release)
+
+	require.NoError(<-first, "the extraction that held the cache completes")
+	err := <-second
+	require.Nil(secondPayload)
+	requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+	require.ErrorContains(err, "no longer approved")
+	require.Equal(1, x.mounter.mounts, "the revoked extraction never mounts")
+	require.Equal([]string{x.finalName()}, x.entries())
 }
