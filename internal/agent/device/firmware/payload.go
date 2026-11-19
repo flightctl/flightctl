@@ -116,6 +116,7 @@ type PublishedPayload struct {
 	SourceMountReadOnly bool
 	// Evidence is the host observation recorded for this result.
 	Evidence HostObservation
+	lease    *lease
 	Reused   bool
 	Cleanup  CleanupReport
 }
