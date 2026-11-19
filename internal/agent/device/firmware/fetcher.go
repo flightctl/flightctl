@@ -202,8 +202,8 @@ func (f *Fetcher) fetch(ctx context.Context, s *settings, revision int64, descri
 		ManifestDigest:        policy.Hash(data),
 		PolicyRevision:        revision,
 		Manifest:              *manifest,
-		extraction:            bindExtraction(descriptorDigest, d),
 	}
+	pkg.extraction = bindExtraction(pkg, d)
 	if err := f.writeRecord(pkg); err != nil {
 		return nil, unavailable(release, false, fmt.Errorf("record verified updater package: %w", err))
 	}

@@ -2,6 +2,7 @@ package firmware_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -57,12 +58,13 @@ func TestExtractRefusesBeforeMounting(t *testing.T) {
 		require.Empty(t, x.entries())
 	})
 	t.Run("When the verified manifest exceeds the release budget it should refuse before mounting", func(t *testing.T) {
-		x := newExtractHarness(t, defaultPayload(t))
-		pkg := *x.pkg
-		pkg.Manifest.Files = append([]firmware.ManifestFile(nil), x.pkg.Manifest.Files...)
-		pkg.Manifest.Files[1].Size = testExtraction().MaxExtractedFileBytes + 1
-		_, err := x.extractor().Extract(context.Background(), &pkg)
-		requireBudget(t, err, "maxExtractedFileBytes")
+		files := defaultPayload(t)
+		for i := len(files); i <= int(testExtraction().MaxExtractedFiles); i++ {
+			files = append(files, payloadFile{path: fmt.Sprintf("payload/share/extra-%02d.txt", i), data: []byte("x")})
+		}
+		x := newExtractHarness(t, files)
+		_, err := x.extractor().Extract(context.Background(), x.pkg)
+		requireBudget(t, err, "maxExtractedFiles")
 		x.requireCounts(t, 0, 0, 0, 0)
 		require.Empty(t, x.entries())
 	})
@@ -180,10 +182,17 @@ func TestExtractStagingFailures(t *testing.T) {
 		},
 		{
 			name: "When the verified manifest differs from what the mounted manifest describes it should fail without publishing",
-			prepare: func(_ *testing.T, x *extractHarness) *firmware.VerifiedPackage {
-				pkg := *x.pkg
-				pkg.Manifest.Version = "9.9.9"
-				return &pkg
+			prepare: func(t *testing.T, x *extractHarness) *firmware.VerifiedPackage {
+				mounted := x.imageFile("manifest.json")
+				data, err := os.ReadFile(mounted)
+				require.NoError(t, err)
+				var doc map[string]any
+				require.NoError(t, json.Unmarshal(data, &doc))
+				doc["version"] = "9.9.9"
+				data, err = json.Marshal(doc)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(mounted, data, 0o600))
+				return x.pkg
 			},
 		},
 	}
@@ -613,4 +622,39 @@ func TestExtractLeasesProtectEachResult(t *testing.T) {
 		require.NoError(err)
 		require.NotContains(removed, first.Dir)
 	})
+}
+
+func TestExtractRequiresTheAuthenticatedPackageIdentity(t *testing.T) {
+	other := "sha256:" + strings.Repeat("b", 64)
+	testCases := []struct {
+		name   string
+		mutate func(pkg *firmware.VerifiedPackage)
+	}{
+		{name: "When the package digest and reference name another image it should refuse it", mutate: func(pkg *firmware.VerifiedPackage) {
+			pkg.Reference = strings.TrimSuffix(pkg.Reference, pkg.PackageDigest) + other
+			pkg.PackageDigest = other
+		}},
+		{name: "When the manifest digest differs it should refuse it", mutate: func(pkg *firmware.VerifiedPackage) { pkg.ManifestDigest = other }},
+		{name: "When the publisher policy digest differs it should refuse it", mutate: func(pkg *firmware.VerifiedPackage) { pkg.PublisherPolicyDigest = other }},
+		{name: "When a listed file digest differs it should refuse it", mutate: func(pkg *firmware.VerifiedPackage) {
+			pkg.Manifest.Files = append([]firmware.ManifestFile(nil), pkg.Manifest.Files...)
+			pkg.Manifest.Files[1].SHA256 = strings.Repeat("c", 64)
+		}},
+		{name: "When a listed file is changed in place it should refuse it", mutate: func(pkg *firmware.VerifiedPackage) {
+			pkg.Manifest.Files[1].Size++
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			x := newExtractHarness(t, defaultPayload(t))
+			pkg := *x.pkg
+			tc.mutate(&pkg)
+			payload, err := x.extractor().Extract(context.Background(), &pkg)
+			require.Nil(payload)
+			requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+			x.requireCounts(t, 0, 0, 0, 0)
+			require.Empty(x.entries())
+		})
+	}
 }
