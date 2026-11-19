@@ -133,6 +133,14 @@ func (_d *TracedService) ReplaceFleetRepositoryRefsIfCurrent(ctx context.Context
 	return r1, s1
 }
 
+func (_d *TracedService) ReplaceFleetRequireExisting(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (fp1 *domain.Fleet, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceFleetRequireExisting")
+
+	fp1, s1 = _d.inner.ReplaceFleetRequireExisting(ctx, orgId, name, fleet)
+	endSpan(span, s1)
+	return fp1, s1
+}
+
 func (_d *TracedService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceFleetStatus")
 

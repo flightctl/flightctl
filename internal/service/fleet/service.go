@@ -13,6 +13,12 @@ type Service interface {
 	ListFleets(ctx context.Context, orgId uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status)
 	GetFleet(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetParams) (*domain.Fleet, domain.Status)
 	ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status)
+	// ReplaceFleetRequireExisting updates a fleet that must already exist. If
+	// the fleet was deleted between the caller's read and this write, it
+	// returns StatusResourceNotFound and leaves the store unchanged. It is
+	// used by background migration tasks that must never re-create a fleet
+	// that an operator intentionally removed.
+	ReplaceFleetRequireExisting(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status)
 	DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status
 	GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, domain.Status)
 	ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status)

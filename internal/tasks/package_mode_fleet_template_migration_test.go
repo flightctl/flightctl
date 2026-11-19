@@ -21,7 +21,7 @@ import (
 // allowWrites permits writes without asserting on them, for tests whose subject
 // is the walk rather than what it writes.
 func allowWrites(fleetSvc *fleetservice.MockService) {
-	fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&domain.Fleet{}, domain.StatusOK()).AnyTimes()
 }
 
@@ -86,19 +86,35 @@ func (f *fakeCheckpoints) GetDatabaseTime(context.Context) (time.Time, domain.St
 }
 
 func (f *fakeCheckpoints) stored(t *testing.T, orgID uuid.UUID) packageModeMigrationCheckpoint {
+	return f.storedMode(t, orgID, packageModeMigrationModeLive)
+}
+
+func (f *fakeCheckpoints) storedMode(t *testing.T, orgID uuid.UUID, mode string) packageModeMigrationCheckpoint {
 	t.Helper()
-	raw, ok := f.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID)]
-	require.True(t, ok, "expected a checkpoint to have been written")
+	key := packageModeTemplateMigrationConsumer + "/" + packageModeMigrationCheckpointKey(orgID, mode)
+	raw, ok := f.values[key]
+	require.True(t, ok, "expected a checkpoint to have been written for mode %s", mode)
 	var checkpoint packageModeMigrationCheckpoint
 	require.NoError(t, json.Unmarshal(raw, &checkpoint))
 	return checkpoint
 }
 
 func (f *fakeCheckpoints) seed(t *testing.T, orgID uuid.UUID, checkpoint packageModeMigrationCheckpoint) {
+	f.seedMode(t, orgID, packageModeMigrationModeLive, checkpoint)
+}
+
+func (f *fakeCheckpoints) seedMode(t *testing.T, orgID uuid.UUID, mode string, checkpoint packageModeMigrationCheckpoint) {
 	t.Helper()
 	encoded, err := json.Marshal(checkpoint)
 	require.NoError(t, err)
-	f.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID)] = encoded
+	key := packageModeTemplateMigrationConsumer + "/" + packageModeMigrationCheckpointKey(orgID, mode)
+	f.values[key] = encoded
+}
+
+// rawLiveBytes returns the raw checkpoint bytes at the live key, or nil if absent.
+func (f *fakeCheckpoints) rawLiveBytes(orgID uuid.UUID) []byte {
+	key := packageModeTemplateMigrationConsumer + "/" + packageModeMigrationCheckpointKey(orgID, packageModeMigrationModeLive)
+	return f.values[key]
 }
 
 var _ checkpointservice.Service = (*fakeCheckpoints)(nil)
@@ -303,7 +319,7 @@ func TestMigrationDoesNotCompleteWhenCancelled(t *testing.T) {
 	require.NoError(t, err)
 	task.Poll(ctx, orgID)
 
-	if stored, ok := checkpoints.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID)]; ok {
+	if stored, ok := checkpoints.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID, packageModeMigrationModeLive)]; ok {
 		var checkpoint packageModeMigrationCheckpoint
 		require.NoError(t, json.Unmarshal(stored, &checkpoint))
 		require.NotEqual(t, packageModeMigrationComplete, checkpoint.Phase)
@@ -371,7 +387,7 @@ func TestMigrationLeavesNoCheckpointWhenItCannotBeWritten(t *testing.T) {
 	require.NoError(t, err)
 	task.Poll(t.Context(), orgID)
 
-	_, ok := checkpoints.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID)]
+	_, ok := checkpoints.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID, packageModeMigrationModeLive)]
 	require.False(t, ok, "a checkpoint write that failed must not look like it succeeded")
 }
 
@@ -466,19 +482,23 @@ func TestMigrationProgressesAcrossPollsWhenListingConsumesTheBudget(t *testing.T
 	require.Equal(t, []string{"a"}, stored.Pending,
 		"the listed fleet must be saved as pending for the next poll")
 
-	// Poll 2 (ScanFirst=true): resumes pending "a" via GetFleet, processes
-	// it, advances cursor to "page2". Then lists page2.
+	// Poll 2 (ScanFirst=true): resumes pending "a" via GetFleet, guards it,
+	// advances cursor to "page2". Then lists page2, guards "b".
 	clock.current = newFakeClock().current.Add(5 * time.Minute)
 	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
 			f := fleetWithImage("a", "quay.io/org/os:v1")
 			return &f, domain.StatusOK()
 		}).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
 			require.Equal(t, "page2", lo.FromPtr(params.Continue))
 			return fleetList(nil, fleetWithImage("b", "quay.io/org/os:v2")), domain.StatusOK()
 		}).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "b", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 	task2, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
 	require.NoError(t, err)
 	task2.now = clock.Now
@@ -627,11 +647,14 @@ func TestMigrationScanReachedAfterExpensiveRetry(t *testing.T) {
 	require.Contains(t, stored.Retry, "a", "retry must remain durable after expensive failure")
 	require.NotEqual(t, packageModeMigrationComplete, stored.Phase)
 
-	// Poll 2: fair scheduling gives scan priority. Scan starts, reaches "b".
+	// Poll 2: fair scheduling gives scan priority. Scan starts, reaches "b",
+	// guards it.
 	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
 		Return(nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}).Times(1)
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		Return(fleetList(nil, fleetWithImage("b", "quay.io/org/os:v1")), domain.StatusOK()).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "b", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 
 	now = epoch.Add(5 * time.Minute) // reset clock for poll 2
 	require.NoError(t, task.poll(t.Context(), orgID))
@@ -691,12 +714,14 @@ func TestMigrationPendingPageDeletedFleet(t *testing.T) {
 	// "a" was deleted.
 	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
 		Return(nil, domain.StatusResourceNotFound("Fleet", "a")).Times(1)
-	// "b" is still present.
+	// "b" is still present and will be guarded.
 	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
 			f := fleetWithImage("b", "quay.io/org/os:v1")
 			return &f, domain.StatusOK()
 		}).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "b", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 	// After pending is drained, cursor advances to "page2" and listing starts.
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
@@ -715,36 +740,71 @@ func TestMigrationPendingPageDeletedFleet(t *testing.T) {
 }
 
 func TestMigrationLegacyCheckpointLoading(t *testing.T) {
-	// A v1 checkpoint written without Pending, NextCursor, or ScanFirst
-	// must load correctly with zero/nil defaults.
-	checkpoints := newFakeCheckpoints()
-	orgID := uuid.New()
+	t.Run("current epoch checkpoint without optional fields loads with defaults", func(t *testing.T) {
+		// A checkpoint at the current epoch written without Pending,
+		// NextCursor, or ScanFirst must load correctly with zero/nil defaults.
+		checkpoints := newFakeCheckpoints()
+		orgID := uuid.New()
 
-	// Manually write a JSON checkpoint without the new fields.
-	raw := []byte(`{"version":1,"phase":"running","cursor":"page2","retry":["x"]}`)
-	checkpoints.values[packageModeTemplateMigrationConsumer+"/"+packageModeMigrationCheckpointKey(orgID)] = raw
+		checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+			Version: packageModeTemplateMigrationVersion,
+			Phase:   packageModeMigrationRunning,
+			Cursor:  lo.ToPtr("page2"),
+			Retry:   []string{"x"},
+		})
 
-	ctrl := gomock.NewController(t)
-	fleetSvc := fleetservice.NewMockService(ctrl)
+		ctrl := gomock.NewController(t)
+		fleetSvc := fleetservice.NewMockService(ctrl)
+		allowWrites(fleetSvc)
 
-	// Expect retry "x" to be attempted (budget allows because clock is real).
-	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "x", gomock.Any()).
-		Return(nil, domain.StatusResourceNotFound("Fleet", "x")).Times(1)
-	// Expect listing from cursor "page2" (no pending to resume).
-	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
-			require.Equal(t, "page2", lo.FromPtr(params.Continue))
-			return fleetList(nil), domain.StatusOK()
-		}).Times(1)
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "x", gomock.Any()).
+			Return(nil, domain.StatusResourceNotFound("Fleet", "x")).Times(1)
+		fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+				require.Equal(t, "page2", lo.FromPtr(params.Continue))
+				return fleetList(nil), domain.StatusOK()
+			}).Times(1)
 
-	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
-	require.NoError(t, err)
-	task.Poll(t.Context(), orgID)
+		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+		require.NoError(t, err)
+		task.Poll(t.Context(), orgID)
 
-	stored := checkpoints.stored(t, orgID)
-	require.Equal(t, packageModeMigrationComplete, stored.Phase)
-	require.Empty(t, stored.Pending)
-	require.Empty(t, stored.Retry)
+		stored := checkpoints.stored(t, orgID)
+		require.Equal(t, packageModeMigrationComplete, stored.Phase)
+		require.Empty(t, stored.Pending)
+		require.Empty(t, stored.Retry)
+	})
+
+	t.Run("v1 scaffold checkpoint is discarded and run restarts", func(t *testing.T) {
+		// A v1 scaffold checkpoint must be discarded by the version gate.
+		// The run restarts from scratch.
+		checkpoints := newFakeCheckpoints()
+		orgID := uuid.New()
+
+		// Seed at the live key with literal v1 JSON.
+		liveKey := packageModeTemplateMigrationConsumer + "/" + packageModeMigrationCheckpointKey(orgID, packageModeMigrationModeLive)
+		checkpoints.values[liveKey] = []byte(`{"version":1,"phase":"complete"}`)
+
+		ctrl := gomock.NewController(t)
+		fleetSvc := fleetservice.NewMockService(ctrl)
+		allowWrites(fleetSvc)
+
+		// After restart, listing starts from nil (no cursor from the v1 checkpoint).
+		fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+				require.Nil(t, params.Continue, "restarted run must list from the beginning")
+				return fleetList(nil), domain.StatusOK()
+			}).Times(1)
+
+		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+		require.NoError(t, err)
+		task.Poll(t.Context(), orgID)
+
+		stored := checkpoints.stored(t, orgID)
+		require.Equal(t, packageModeMigrationComplete, stored.Phase)
+		require.Equal(t, packageModeTemplateMigrationVersion, stored.Version,
+			"restarted run must write the current epoch version")
+	})
 }
 
 func TestMigrationBoundedRetryAttempts(t *testing.T) {
@@ -1713,8 +1773,8 @@ func TestMigrationWritesGuardedImageAndPreservesEverythingElse(t *testing.T) {
 
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		Return(fleetList(nil, original), domain.StatusOK()).Times(1)
-	fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, "a", gomock.Any(), false).
-		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet, _ bool) (*domain.Fleet, domain.Status) {
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 			require.Equal(t, "{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}", fleet.Spec.Template.Spec.Os.Image)
 			require.Equal(t, "7", lo.FromPtr(fleet.Metadata.ResourceVersion),
 				"the resource version that was read must go back with the write")
@@ -1793,8 +1853,8 @@ func TestMigrationRetriesAConflictOnTheNextPollAfterABudgetStop(t *testing.T) {
 	gomock.InOrder(
 		fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 			Return(fleetList(lo.ToPtr("page2"), conflicted, fleetWithImage("b", "quay.io/org/os:v3")), domain.StatusOK()).Times(1),
-		fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, "a", gomock.Any(), false).
-			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet, _ bool) (*domain.Fleet, domain.Status) {
+		fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 				require.Equal(t, "1", lo.FromPtr(fleet.Metadata.ResourceVersion))
 				return nil, domain.Status{Code: 409, Message: "conflict"}
 			}).Times(1),
@@ -1810,24 +1870,52 @@ func TestMigrationRetriesAConflictOnTheNextPollAfterABudgetStop(t *testing.T) {
 	require.NotEqual(t, packageModeMigrationComplete, stored.Phase,
 		"a run with a conflict outstanding must not report itself finished")
 
-	// The next poll retries the conflicted fleet first, by name, with a value
-	// read fresh rather than the stale one from the previous listing.
+	// Poll 2: ScanFirst=true from poll 1's alternation. Scan runs first →
+	// resumes pending "b" via GetFleet, guards it. That write consumes the
+	// whole batch budget (BatchSize=1), so "a" stays in retry for poll 3.
+	refreshedB := fleetWithImage("b", "quay.io/org/os:v3")
+	refreshedB.Metadata.ResourceVersion = lo.ToPtr("5")
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
+		Return(&refreshedB, domain.StatusOK()).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "b", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+
+	task2, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+	require.NoError(t, err)
+	task2.Poll(t.Context(), orgID)
+
+	stored = checkpoints.stored(t, orgID)
+	require.Equal(t, []string{"a"}, stored.Retry,
+		"'a' must remain in retry since 'b' consumed the batch budget")
+	require.NotEqual(t, packageModeMigrationComplete, stored.Phase)
+
+	// Poll 3: ScanFirst=false → drainRetries runs first. GetFleet("a")
+	// with fresh RV=9, guards it. Use BatchSize=10 so "a" and the listing
+	// can both complete in one poll.
+	config3 := config
+	config3.BatchSize = 10
 	refreshed := fleetWithImage("a", "quay.io/org/os:v2")
 	refreshed.Metadata.ResourceVersion = lo.ToPtr("9")
-	gomock.InOrder(
-		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
-			Return(&refreshed, domain.StatusOK()).Times(1),
-		fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, "a", gomock.Any(), false).
-			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet, _ bool) (*domain.Fleet, domain.Status) {
-				require.Equal(t, "9", lo.FromPtr(fleet.Metadata.ResourceVersion),
-					"the retry must use the freshly read resource version")
-				require.Equal(t, "{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}", fleet.Spec.Template.Spec.Os.Image)
-				return &fleet, domain.StatusOK()
-			}).Times(1),
-	)
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+		Return(&refreshed, domain.StatusOK()).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
+			require.Equal(t, "9", lo.FromPtr(fleet.Metadata.ResourceVersion),
+				"the retry must use the freshly read resource version")
+			require.Equal(t, "{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}", fleet.Spec.Template.Spec.Os.Image)
+			return &fleet, domain.StatusOK()
+		}).Times(1)
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			require.Equal(t, "page2", lo.FromPtr(params.Continue))
+			return fleetList(nil), domain.StatusOK()
+		}).Times(1)
 
-	task.Poll(t.Context(), orgID)
+	task3, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config3, testLogger())
+	require.NoError(t, err)
+	task3.Poll(t.Context(), orgID)
 	require.Empty(t, checkpoints.stored(t, orgID).Retry)
+	require.Equal(t, packageModeMigrationComplete, checkpoints.stored(t, orgID).Phase)
 }
 
 func TestMigrationDoesNotLosePageRemainderAtTheBatchLimit(t *testing.T) {
@@ -1846,7 +1934,7 @@ func TestMigrationDoesNotLosePageRemainderAtTheBatchLimit(t *testing.T) {
 				fleetWithImage("a", "quay.io/org/os:v1"),
 				fleetWithImage("b", "quay.io/org/os:v2")), domain.StatusOK()
 		}).Times(1)
-	fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, "a", gomock.Any(), false).
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
 		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 
 	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
@@ -1877,7 +1965,7 @@ func TestMigrationRestartsAfterAScaffoldOnlyCompletion(t *testing.T) {
 
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		Return(fleetList(nil, fleetWithImage("a", "quay.io/org/os:v2")), domain.StatusOK()).Times(1)
-	fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, "a", gomock.Any(), false).
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
 		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
 
 	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
@@ -1905,7 +1993,8 @@ func TestMigrationDryRunWritesNothing(t *testing.T) {
 	require.NoError(t, err)
 	task.Poll(t.Context(), orgID)
 
-	require.Equal(t, 0, checkpoints.stored(t, orgID).Transformed)
+	dryCp := checkpoints.storedMode(t, orgID, packageModeMigrationModeDry)
+	require.Equal(t, 0, dryCp.Transformed)
 }
 
 // catalogRefApplication builds a container application that takes its image
@@ -1953,7 +2042,7 @@ func TestMigrationReplaysTheListingWhenTheRetryListIsFull(t *testing.T) {
 
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
 		Return(fleetList(lo.ToPtr("page2"), fleets...), domain.StatusOK()).Times(1)
-	fleetSvc.EXPECT().ReplaceFleet(gomock.Any(), orgID, gomock.Any(), gomock.Any(), false).
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, gomock.Any(), gomock.Any()).
 		Return(nil, domain.Status{Code: http.StatusConflict, Message: "conflict"}).Times(overflow)
 
 	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
@@ -1965,5 +2054,335 @@ func TestMigrationReplaysTheListingWhenTheRetryListIsFull(t *testing.T) {
 		"the retry list stays bounded")
 	require.Nil(t, stored.Cursor,
 		"a fleet that could not be named for retry is only found again by replaying the listing")
+	require.NotEqual(t, packageModeMigrationComplete, stored.Phase)
+}
+
+// ---------------------------------------------------------------------------
+// Dry/live checkpoint separation
+// ---------------------------------------------------------------------------
+
+func TestMigrationDryRunDoesNotBlockLiveRun(t *testing.T) {
+	// Dry and live use separate checkpoint keys. A completed dry-run must
+	// not prevent the subsequent live-run from writing eligible fleets.
+	// Both modes see the SAME eligible fleet inventory.
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	dryConfig := migrationTestConfig()
+	dryConfig.DryRun = true
+
+	// Dry: lists fleet "a" (eligible) but writes nothing (DryRun skips).
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil, fleetWithImage("a", "quay.io/org/os:v1")), domain.StatusOK()).Times(1)
+	dryTask, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, dryConfig, testLogger())
+	require.NoError(t, err)
+	dryTask.Poll(t.Context(), orgID)
+
+	dryCp := checkpoints.storedMode(t, orgID, packageModeMigrationModeDry)
+	require.Equal(t, packageModeMigrationComplete, dryCp.Phase)
+
+	// Live: sees same fleet "a", MUST write it exactly once.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil, fleetWithImage("a", "quay.io/org/os:v1")), domain.StatusOK()).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+
+	liveTask, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+	require.NoError(t, err)
+	liveTask.Poll(t.Context(), orgID)
+
+	liveCp := checkpoints.stored(t, orgID)
+	require.Equal(t, packageModeMigrationComplete, liveCp.Phase)
+	require.Equal(t, 1, liveCp.Transformed)
+}
+
+func TestMigrationLivePartialThenDryThenLiveResumes(t *testing.T) {
+	// A dry preview between two live polls must not clobber or read the
+	// live checkpoint. Live progress (Retry, Pending, Cursor) must survive.
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	budget := time.Second
+	config := PackageModeTemplateMigrationConfig{
+		PageSize: 10, BatchSize: 100, TimeBudget: budget,
+	}
+	clock := newFakeClock()
+
+	// Phase 1 (live): seed partial progress with retry and pending.
+	checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+		Version:    packageModeTemplateMigrationVersion,
+		Phase:      packageModeMigrationRunning,
+		Retry:      []string{"retry-a"},
+		Pending:    []string{"pending-b"},
+		NextCursor: lo.ToPtr("page2"),
+	})
+
+	// GetFleet for retry "retry-a" fails, budget stops immediately.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "retry-a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			clock.Advance(2 * budget)
+			return nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}
+		}).Times(1)
+
+	task1, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+	require.NoError(t, err)
+	task1.now = clock.Now
+	require.NoError(t, task1.poll(t.Context(), orgID))
+
+	// Capture live checkpoint bytes AFTER phase 1.
+	liveBytes := checkpoints.rawLiveBytes(orgID)
+	require.NotNil(t, liveBytes, "live checkpoint must exist after phase 1")
+	liveCp := checkpoints.stored(t, orgID)
+	require.Contains(t, liveCp.Retry, "retry-a")
+
+	// Phase 2 (dry): run a dry preview on the same org.
+	dryConfig := config
+	dryConfig.DryRun = true
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil, fleetWithImage("x", "quay.io/org/os:v1")), domain.StatusOK()).Times(1)
+
+	clock.current = newFakeClock().current.Add(10 * time.Minute)
+	dryTask, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, dryConfig, testLogger())
+	require.NoError(t, err)
+	dryTask.now = clock.Now
+	dryTask.Poll(t.Context(), orgID)
+
+	// Assert live bytes are UNCHANGED after dry run.
+	liveBytesAfterDry := checkpoints.rawLiveBytes(orgID)
+	require.Equal(t, liveBytes, liveBytesAfterDry,
+		"dry preview must not modify the live checkpoint")
+
+	// Phase 3 (live): resume from live checkpoint — retries and pending preserved.
+	clock.current = newFakeClock().current.Add(20 * time.Minute)
+
+	// retry-a gets a fresh resource version and succeeds.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "retry-a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			f := fleetWithImage("retry-a", "quay.io/org/os:v1")
+			f.Metadata.ResourceVersion = lo.ToPtr("rv-fresh")
+			return &f, domain.StatusOK()
+		}).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "retry-a", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+
+	// pending-b is resumed via GetFleet.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "pending-b", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			f := fleetWithImage("pending-b", "quay.io/org/os:v2")
+			f.Metadata.ResourceVersion = lo.ToPtr("rv-fresh-b")
+			return &f, domain.StatusOK()
+		}).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "pending-b", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+
+	// After pending drained, listing continues from page2.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			require.NotNil(t, params.Continue)
+			require.Equal(t, "page2", *params.Continue)
+			return fleetList(nil), domain.StatusOK()
+		}).Times(1)
+
+	task3, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+	require.NoError(t, err)
+	task3.now = clock.Now
+	require.NoError(t, task3.poll(t.Context(), orgID))
+
+	finalCp := checkpoints.stored(t, orgID)
+	require.Equal(t, packageModeMigrationComplete, finalCp.Phase,
+		"live must complete after processing all pending and retry work")
+	require.Empty(t, finalCp.Retry)
+	require.Empty(t, finalCp.Pending)
+}
+
+func TestMigrationLegacyV2CompletedCheckpointIsReplayedByLiveV3(t *testing.T) {
+	// An old v2 completed checkpoint (from before the epoch bump to v3)
+	// must not suppress v3 live work. The version gate discards it.
+	for _, tc := range []struct {
+		name        string
+		transformed int
+	}{
+		{"transformed zero", 0},
+		{"transformed nonzero", 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			fleetSvc := fleetservice.NewMockService(ctrl)
+			checkpoints := newFakeCheckpoints()
+			orgID := uuid.New()
+
+			// Seed literal old v2 JSON at the EXACT old consumer/key path.
+			oldKey := packageModeTemplateMigrationConsumer + "/" + orgID.String() + "/migration"
+			raw := fmt.Sprintf(`{"version":2,"phase":"complete","transformed":%d}`, tc.transformed)
+			checkpoints.values[oldKey] = []byte(raw)
+
+			// v3 live must start fresh: list fleets and write eligible ones.
+			fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+				Return(fleetList(nil,
+					fleetWithImage("a", "quay.io/org/os:v1"),
+					fleetWithImage("already-guarded", guardedOsImage("quay.io/org/os:v2")),
+				), domain.StatusOK()).Times(1)
+			fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+				Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+			// already-guarded must NOT be written — no mock means gomock fails if called.
+
+			task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+			require.NoError(t, err)
+			task.Poll(t.Context(), orgID)
+
+			stored := checkpoints.stored(t, orgID)
+			require.Equal(t, packageModeMigrationComplete, stored.Phase)
+			require.Equal(t, 1, stored.Transformed,
+				"v3 live must have written the eligible fleet, not fast-pathed")
+		})
+	}
+}
+
+func TestMigrationLegacyV2RunningCheckpointIsReplayedByLiveV3(t *testing.T) {
+	// An old v2 running checkpoint with cursor/retry must not be resumed
+	// by v3 live. The version gate discards it and listing starts fresh.
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	// Seed literal old v2 JSON at the old consumer/key path.
+	oldKey := packageModeTemplateMigrationConsumer + "/" + orgID.String() + "/migration"
+	checkpoints.values[oldKey] = []byte(`{"version":2,"phase":"running","cursor":"page2","retry":["x"]}`)
+
+	// v3 live must start from scratch (cursor=nil), not from old cursor.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			require.Nil(t, params.Continue, "v3 must list from the beginning, not old v2 cursor")
+			return fleetList(nil,
+				fleetWithImage("eligible", "quay.io/org/os:v1"),
+				fleetWithImage("already-guarded", guardedOsImage("quay.io/org/os:v2")),
+			), domain.StatusOK()
+		}).Times(1)
+	// eligible must be written.
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "eligible", gomock.Any()).
+		Return(&domain.Fleet{}, domain.StatusOK()).Times(1)
+	// already-guarded must NOT be written — no mock means gomock would fail if called.
+
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+	require.NoError(t, err)
+	task.Poll(t.Context(), orgID)
+
+	stored := checkpoints.stored(t, orgID)
+	require.Equal(t, packageModeMigrationComplete, stored.Phase)
+	require.Equal(t, 1, stored.Transformed,
+		"only the eligible fleet must be written; the already-guarded fleet must be skipped")
+}
+
+// ---------------------------------------------------------------------------
+// Update-only fleet write (deleted fleet must not be re-created)
+// ---------------------------------------------------------------------------
+
+func TestMigrationDeletedFleetBetweenReadAndWriteStaysAbsent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil, fleetWithImage("a", "quay.io/org/os:v1")), domain.StatusOK()).Times(1)
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		Return(nil, domain.StatusResourceNotFound("Fleet", "a")).Times(1)
+
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+	require.NoError(t, err)
+	task.Poll(t.Context(), orgID)
+
+	stored := checkpoints.stored(t, orgID)
+	require.Empty(t, stored.Retry,
+		"a fleet deleted between read and write must not be queued for retry")
+	require.Equal(t, packageModeMigrationComplete, stored.Phase)
+}
+
+// ---------------------------------------------------------------------------
+// Fairness: persistent 409 with BatchSize=1
+// ---------------------------------------------------------------------------
+
+func TestMigrationPersistent409FairnessWithBatchSizeOne(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+	log, capture := captureLogger()
+
+	config := PackageModeTemplateMigrationConfig{
+		PageSize:   10,
+		BatchSize:  1,
+		TimeBudget: time.Minute,
+	}
+
+	var aWriteCalls int
+	var writesThisPoll int
+	bWritten := false
+
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			if params.Continue != nil && *params.Continue == "page2" {
+				// After "b" is written, return it as already guarded so it
+				// is skipped on future polls rather than re-written.
+				img := "quay.io/org/os:v2"
+				if bWritten {
+					img = guardedOsImage(img)
+				}
+				return fleetList(nil, fleetWithImage("b", img)), domain.StatusOK()
+			}
+			return fleetList(lo.ToPtr("page2"),
+				fleetWithImage("a", "quay.io/org/os:v1"),
+			), domain.StatusOK()
+		}).AnyTimes()
+
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			f := fleetWithImage("a", "quay.io/org/os:v1")
+			return &f, domain.StatusOK()
+		}).AnyTimes()
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			img := "quay.io/org/os:v2"
+			if bWritten {
+				img = guardedOsImage(img)
+			}
+			f := fleetWithImage("b", img)
+			return &f, domain.StatusOK()
+		}).AnyTimes()
+
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.Fleet) (*domain.Fleet, domain.Status) {
+			aWriteCalls++
+			writesThisPoll++
+			return nil, domain.Status{Code: 409, Message: "conflict"}
+		}).AnyTimes()
+	// "b" is written exactly once — strict Times(1).
+	fleetSvc.EXPECT().ReplaceFleetRequireExisting(gomock.Any(), orgID, "b", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.Fleet) (*domain.Fleet, domain.Status) {
+			bWritten = true
+			writesThisPoll++
+			return &domain.Fleet{}, domain.StatusOK()
+		}).Times(1)
+
+	for poll := 0; poll < 8; poll++ {
+		writesThisPoll = 0
+		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, log)
+		require.NoError(t, err)
+		require.NoError(t, task.poll(t.Context(), orgID))
+		require.LessOrEqual(t, writesThisPoll, 1,
+			"poll %d: write attempts must not exceed BatchSize=1", poll)
+	}
+
+	stored := checkpoints.stored(t, orgID)
+	require.GreaterOrEqual(t, aWriteCalls, 2,
+		"permanently failing 'a' must be retried across polls")
+	require.Contains(t, stored.Retry, "a")
+	require.True(t, bWritten, "healthy 'b' must have been written exactly once")
+	require.GreaterOrEqual(t, capture.total(), 1)
 	require.NotEqual(t, packageModeMigrationComplete, stored.Phase)
 }

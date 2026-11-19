@@ -22,9 +22,13 @@ const (
 	// checkpoint written under a different version is discarded, which is what
 	// stops a run completed by an earlier build from suppressing work that a
 	// later build would do.
-	packageModeTemplateMigrationVersion = 2
-	// packageModeTemplateMigrationKey is the per-organization checkpoint key.
+	packageModeTemplateMigrationVersion = 3
+	// packageModeTemplateMigrationKey is the per-organization checkpoint key
+	// for live runs.
 	packageModeTemplateMigrationKey = "migration"
+	// packageModeTemplateMigrationKeyDry is the per-organization checkpoint
+	// key for dry-run previews, so a preview never overwrites live progress.
+	packageModeTemplateMigrationKeyDry = "migration-dry"
 	// maxPackageModeTemplateMigrationRetries bounds how many fleet names are
 	// carried in the checkpoint for retry, so one organization's checkpoint
 	// cannot grow without limit.
@@ -40,6 +44,12 @@ const (
 	packageModeMigrationPending  = "pending"
 	packageModeMigrationRunning  = "running"
 	packageModeMigrationComplete = "complete"
+)
+
+// Migration run modes.
+const (
+	packageModeMigrationModeDry  = "dry"
+	packageModeMigrationModeLive = "live"
 )
 
 // PackageModeTemplateMigrationConfig bounds the work performed by one poll.
@@ -106,6 +116,7 @@ type PackageModeFleetTemplateMigrationTask struct {
 	fleetSvc    fleetservice.Service
 	checkpoints checkpointservice.Service
 	config      PackageModeTemplateMigrationConfig
+	mode        string           // "dry" or "live"
 	now         func() time.Time // defaults to time.Now; test-injectable
 }
 
@@ -130,11 +141,16 @@ func NewPackageModeFleetTemplateMigrationTask(
 	if log == nil {
 		log = logrus.New()
 	}
+	mode := packageModeMigrationModeLive
+	if config.DryRun {
+		mode = packageModeMigrationModeDry
+	}
 	return &PackageModeFleetTemplateMigrationTask{
 		log:         log,
 		fleetSvc:    fleetSvc,
 		checkpoints: checkpoints,
 		config:      config,
+		mode:        mode,
 		now:         time.Now,
 	}, nil
 }
@@ -490,7 +506,16 @@ func (t *PackageModeFleetTemplateMigrationTask) guardFleetOsImage(ctx context.Co
 	// Count the attempt, not the success, so a fleet that keeps conflicting
 	// cannot consume the whole poll.
 	run.writes++
-	if _, status := t.fleetSvc.ReplaceFleet(ctx, orgID, name, updated, false); status.Code >= http.StatusBadRequest {
+	_, status := t.fleetSvc.ReplaceFleetRequireExisting(ctx, orgID, name, updated)
+	if status.Code == http.StatusNotFound {
+		// The fleet was deleted between our read and this write. Do not
+		// re-create it and do not retry: the fleet is gone.
+		t.log.WithFields(logrus.Fields{
+			"org_id": orgID.String(), "fleet": name,
+		}).Debug("Fleet deleted between read and write, skipping guard")
+		return
+	}
+	if status.Code >= http.StatusBadRequest {
 		run.failed = true
 		t.rememberRetry(run, name)
 		t.log.WithFields(logrus.Fields{
@@ -579,7 +604,7 @@ func (t *PackageModeFleetTemplateMigrationTask) loadCheckpoint(ctx context.Conte
 		Version: packageModeTemplateMigrationVersion,
 		Phase:   packageModeMigrationPending,
 	}
-	raw, status := t.checkpoints.GetCheckpoint(ctx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID))
+	raw, status := t.checkpoints.GetCheckpoint(ctx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID, t.mode))
 	if status.Code == http.StatusNotFound {
 		return fresh, nil
 	}
@@ -617,12 +642,16 @@ func (t *PackageModeFleetTemplateMigrationTask) persistCheckpoint(ctx context.Co
 	// pattern in internal/delta_worker/tasks/generate/handler.go.
 	writeCtx, writeCancel := context.WithTimeout(context.WithoutCancel(ctx), packageModeTemplateMigrationPersistTimeout)
 	defer writeCancel()
-	if status := t.checkpoints.SetCheckpoint(writeCtx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID), encoded); status.Code >= http.StatusBadRequest {
+	if status := t.checkpoints.SetCheckpoint(writeCtx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID, t.mode), encoded); status.Code >= http.StatusBadRequest {
 		return fmt.Errorf("writing migration checkpoint returned %d: %s", status.Code, status.Message)
 	}
 	return nil
 }
 
-func packageModeMigrationCheckpointKey(orgID uuid.UUID) string {
-	return fmt.Sprintf("%s/%s", orgID.String(), packageModeTemplateMigrationKey)
+func packageModeMigrationCheckpointKey(orgID uuid.UUID, mode string) string {
+	key := packageModeTemplateMigrationKey
+	if mode == packageModeMigrationModeDry {
+		key = packageModeTemplateMigrationKeyDry
+	}
+	return fmt.Sprintf("%s/%s", orgID.String(), key)
 }

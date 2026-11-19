@@ -209,6 +209,54 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
+func (h *ServiceHandler) ReplaceFleetRequireExisting(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
+	if errs := fleet.Validate(); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if name != *fleet.Metadata.Name {
+		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &fleet.Spec.Template.Spec); status != domain.StatusOK() {
+		return nil, status
+	}
+
+	var callbackStatus domain.Status
+	result, before, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Fleet
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
+			return err
+		}
+		if err := common.ValidateFirmwareReplacement(&fleet.Spec.Template.Spec, &current.Spec.Template.Spec, common.FleetFirmwarePatchPath); err != nil {
+			callbackStatus = domain.StatusBadRequest(err.Error())
+			return common.ApiStatusToErr(callbackStatus)
+		}
+		if _, admitted := h.admitFirmware(ctx, orgId, name, &current.Spec.Template.Spec, &fleet.Spec.Template.Spec, false); admitted.Code != http.StatusOK {
+			callbackStatus = admitted
+			return common.ApiStatusToErr(admitted)
+		}
+		current.Spec = fleet.Spec
+		if fleet.Metadata.Labels != nil {
+			current.Metadata.Labels = fleet.Metadata.Labels
+		}
+		if fleet.Metadata.Annotations != nil {
+			current.Metadata.Annotations = fleet.Metadata.Annotations
+		}
+		if fleet.Metadata.Owner != nil {
+			current.Metadata.Owner = fleet.Metadata.Owner
+		}
+		return pruneFleetLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, created, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
+	}
+	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
+}
+
 // fleetOwnershipConflict reports whether replacing/patching an owned fleet's spec or
 // labels would silently override changes made by its owning controller.
 func fleetOwnershipConflict(existing, incoming *domain.Fleet) bool {

@@ -206,6 +206,21 @@ func (mr *MockServiceMockRecorder) ReplaceFleetRepositoryRefsIfCurrent(ctx, orgI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetRepositoryRefsIfCurrent", reflect.TypeOf((*MockService)(nil).ReplaceFleetRepositoryRefsIfCurrent), ctx, orgId, name, generation, templateSpec)
 }
 
+// ReplaceFleetRequireExisting mocks base method.
+func (m *MockService) ReplaceFleetRequireExisting(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceFleetRequireExisting", ctx, orgId, name, fleet)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceFleetRequireExisting indicates an expected call of ReplaceFleetRequireExisting.
+func (mr *MockServiceMockRecorder) ReplaceFleetRequireExisting(ctx, orgId, name, fleet any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetRequireExisting", reflect.TypeOf((*MockService)(nil).ReplaceFleetRequireExisting), ctx, orgId, name, fleet)
+}
+
 // ReplaceFleetStatus mocks base method.
 func (m *MockService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
