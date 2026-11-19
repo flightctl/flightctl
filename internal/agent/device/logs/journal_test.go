@@ -588,6 +588,78 @@ func TestJournalSnapshotRejectsInvalidRequestWithoutTouchingTheDevice(t *testing
 	require.ErrorIs(err, errors.ErrLogInvalidParameters)
 }
 
+func TestJournalSnapshotPinsQueryBoundaryForTailRelative(t *testing.T) {
+	// Regression: without an upper time bound, entries appended between
+	// widening rounds can make the oldest rendered line appear unchanged,
+	// causing reachedStart to report false exhaustion. The fix pins the
+	// query at scan start when no explicit UntilTime is provided.
+	require := require.New(t)
+
+	fake := &fakeJournal{entries: singleLineEntries(5)}
+	j := newJournalUnderTest(t, fake)
+
+	_, err := j.Snapshot(context.Background(), JournalRequest{TailLines: 3})
+	require.NoError(err)
+	require.Len(fake.args, 1)
+
+	// An --until argument must be present even though the request did not
+	// specify UntilTime.
+	hasUntil := false
+	for _, arg := range fake.args[0] {
+		if arg == "--until" {
+			hasUntil = true
+			break
+		}
+	}
+	require.True(hasUntil, "--until must be added when no explicit UntilTime is set")
+}
+
+func TestReachedStartStableInputReportsExhaustion(t *testing.T) {
+	// With the until-time fix that pins the query boundary, the input to
+	// reachedStart is stable across widening rounds. This test verifies
+	// that reachedStart correctly detects genuine exhaustion on stable
+	// input, and correctly detects NON-exhaustion when the budget reaches
+	// further back.
+
+	testCases := []struct {
+		name     string
+		previous []string
+		current  []string
+		want     bool
+	}{
+		{
+			name:     "When the budget finds the same entries it should report exhausted",
+			previous: []string{"line-01", "line-02", "line-03"},
+			current:  []string{"line-01", "line-02", "line-03"},
+			want:     true,
+		},
+		{
+			name:     "When the budget reaches further back it should report not exhausted",
+			previous: []string{"line-05", "line-06"},
+			current:  []string{"line-03", "line-04", "line-05", "line-06"},
+			want:     false,
+		},
+		{
+			name:     "When both are empty it should report exhausted",
+			previous: nil,
+			current:  nil,
+			want:     true,
+		},
+		{
+			name:     "When the previous is empty but current has entries it should report not exhausted",
+			previous: nil,
+			current:  []string{"line-01"},
+			want:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.New(t).Equal(tc.want, reachedStart(tc.previous, tc.current))
+		})
+	}
+}
+
 func TestJournalSnapshotRejectsWindowOverflow(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)

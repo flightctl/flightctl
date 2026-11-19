@@ -185,6 +185,16 @@ func (j *Journal) Snapshot(ctx context.Context, req JournalRequest) (*Snapshot, 
 
 	filters := req.filterOptions(j.maxBufferBytes)
 
+	// Pin the query at the current time when no explicit upper bound is set.
+	// Without this, entries appended between widening rounds can make the
+	// oldest rendered line appear unchanged even though the budget has not
+	// reached the actual start of the journal, causing reachedStart to
+	// falsely report exhaustion and silently omit older entries.
+	if req.UntilTime == nil {
+		scanTime := time.Now()
+		filters = append(filters, client.WithLogUntilTimestamp(scanTime))
+	}
+
 	// The scan budget covers the whole assembly -- every widening round, not
 	// one invocation -- and ends at completion rather than at first output.
 	scanCtx, cancel := context.WithTimeout(ctx, j.scanBudget)
