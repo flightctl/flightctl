@@ -476,32 +476,32 @@ func TestMigrationProgressesAcrossPollsWhenListingConsumesTheBudget(t *testing.T
 }
 
 func TestMigrationStopsMidPageAfterBudgetAndDoesNotSkip(t *testing.T) {
-	// When the budget expires mid-page, work stops without advancing the
-	// cursor, so the remaining items are listed again next poll. The budget
-	// check is after processing, so the fleet that tripped the budget IS
-	// processed, but no further fleet starts.
+	// When the budget expires mid-page, the fleet that started before the
+	// deadline IS processed, but no further fleet starts. The remaining
+	// identities are saved as pending for the next poll.
 	ctrl := gomock.NewController(t)
 	fleetSvc := fleetservice.NewMockService(ctrl)
 	checkpoints := newFakeCheckpoints()
 	orgID := uuid.New()
+	log, capture := captureLogger()
 
 	config := migrationTestConfig()
 	config.TimeBudget = time.Minute
 
-	// Auto-advancing clock: each t.now() call advances by 25s.
+	// Deterministic clock: each t.now() call advances by 16s.
 	// Call sequence with 3-item page:
-	//   startedAt(25s), outer-budget(50s<60s OK), fleet-0-budget(75s>=60s exceeded).
-	// Fleet 0 IS processed (apply before check). Fleet 0 is not the last
-	// item (i=0, len=3), so the page is marked incomplete. Fleets 1 and 2
-	// are NOT processed.
+	//   startedAt(16s), pre-loop-budget(32s: 32-16=16s<60s OK),
+	//   post-list-budget(48s: 48-16=32s<60s OK),
+	//   pre-fleet-a(64s: 64-16=48s<60s OK → "a" processed),
+	//   pre-fleet-b(80s: 80-16=64s>=60s exceeded → "b","c" saved as pending).
 	var callCount int
 	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, log)
 	require.NoError(t, err)
 	task.now = func() time.Time {
 		callCount++
-		return epoch.Add(time.Duration(callCount) * 25 * time.Second)
+		return epoch.Add(time.Duration(callCount) * 16 * time.Second)
 	}
 
 	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
@@ -518,6 +518,16 @@ func TestMigrationStopsMidPageAfterBudgetAndDoesNotSkip(t *testing.T) {
 		"a poll stopped mid-page must not report completion")
 	require.Nil(t, stored.Cursor,
 		"cursor must not advance past an incomplete page")
+	require.NotEmpty(t, capture.perPoll,
+		"log capture must have recorded the poll-completed entry")
+	require.Equal(t, 1, capture.total(),
+		"exactly one fleet ('a') must have been processed before the budget stopped the page")
+	require.Equal(t, []string{"b", "c"}, stored.Pending,
+		"unprocessed fleets must be saved as pending for the next poll")
+	require.NotNil(t, stored.NextCursor,
+		"the continuation token must be saved for the pending page")
+	require.Equal(t, "page2", *stored.NextCursor,
+		"NextCursor must point to the page after the pending items")
 }
 
 func TestMigrationReportsBothPollAndCheckpointErrors(t *testing.T) {
@@ -916,8 +926,15 @@ func TestMigrationFairnessOnScanError(t *testing.T) {
 		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
 		require.NoError(t, err)
 		task.now = clock.Now
-		// Listing always errors; poll may return that error on scan-first polls.
-		_ = task.poll(t.Context(), orgID) //nolint:errcheck // listing error expected on scan-first polls
+		pollErr := task.poll(t.Context(), orgID)
+		// Every poll must surface the listing error — ignoring it hides
+		// broken scan phases.
+		require.Error(t, pollErr,
+			"poll %d must return the listing error", poll)
+		require.Contains(t, pollErr.Error(), "listing",
+			"poll %d error must originate from the listing failure", poll)
+		require.NotContains(t, pollErr.Error(), "checkpoint",
+			"poll %d must not report an additional checkpoint error", poll)
 	}
 
 	require.GreaterOrEqual(t, retryAttempts, 1,
@@ -1617,4 +1634,414 @@ func TestMigrationPinnedNoNewFleetAfterExpiredListing(t *testing.T) {
 		"phase must be running: no premature completion after the listing consumed the budget")
 	require.Equal(t, 0, capture.total(),
 		"processed must be 0: no fleet operation should start after the listing consumed the budget")
+}
+
+func TestMigrationLateListParentCancelReturnsCanceled(t *testing.T) {
+	// When a listing returns items AND the parent context is cancelled AND
+	// the budget has expired, the poll must persist the pending page durably
+	// AND return context.Canceled so callers can distinguish shutdowns from
+	// normal budget stops. A live parent with the same budget stop returns nil.
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	config := migrationTestConfig()
+	config.TimeBudget = time.Minute
+
+	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := epoch
+
+	parentCtx, parentCancel := context.WithCancel(t.Context())
+
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+	require.NoError(t, err)
+	task.now = func() time.Time { return now }
+
+	// The listing succeeds but the parent is cancelled during the call and
+	// the budget has expired by the time the result is inspected.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			parentCancel()
+			now = now.Add(2 * config.TimeBudget)
+			return fleetList(lo.ToPtr("page2"),
+				fleetWithImage("a", "quay.io/org/os:v1"),
+			), domain.StatusOK()
+		}).Times(1)
+
+	err = task.poll(parentCtx, orgID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled,
+		"cancellation must be surfaced when the parent is cancelled during a late listing")
+
+	stored := checkpoints.stored(t, orgID)
+	require.Equal(t, []string{"a"}, stored.Pending,
+		"the late page must be persisted as pending")
+	require.NotNil(t, stored.NextCursor)
+	require.Equal(t, "page2", *stored.NextCursor)
+
+	// A live parent with the same budget stop must return nil.
+	checkpoints2 := newFakeCheckpoints()
+	now = epoch
+
+	task2, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints2, config, testLogger())
+	require.NoError(t, err)
+	task2.now = func() time.Time { return now }
+
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			now = now.Add(2 * config.TimeBudget)
+			return fleetList(lo.ToPtr("page2"),
+				fleetWithImage("b", "quay.io/org/os:v1"),
+			), domain.StatusOK()
+		}).Times(1)
+
+	err = task2.poll(t.Context(), orgID)
+	require.NoError(t, err, "a live parent with budget stop must return nil")
+
+	stored2 := checkpoints2.stored(t, orgID)
+	require.Equal(t, []string{"b"}, stored2.Pending)
+
+	// Empty terminal page + parent cancel: no completion on cancellation.
+	checkpoints3 := newFakeCheckpoints()
+	now = epoch
+
+	parentCtx3, parentCancel3 := context.WithCancel(t.Context())
+
+	task3, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints3, config, testLogger())
+	require.NoError(t, err)
+	task3.now = func() time.Time { return now }
+
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			parentCancel3()
+			now = now.Add(2 * config.TimeBudget)
+			return fleetList(nil), domain.StatusOK() // empty page, no continuation
+		}).Times(1)
+
+	err = task3.poll(parentCtx3, orgID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled,
+		"cancellation must be surfaced even on an empty terminal page")
+
+	stored3 := checkpoints3.stored(t, orgID)
+	require.NotEqual(t, packageModeMigrationComplete, stored3.Phase,
+		"must not claim completion when the parent is cancelled")
+}
+
+func TestMigrationResumePendingRotatesUntouchedTailFirst(t *testing.T) {
+	t.Run("budget stop rotates tail and processes healthy entries", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		fleetSvc := fleetservice.NewMockService(ctrl)
+		checkpoints := newFakeCheckpoints()
+		orgID := uuid.New()
+		log, capture := captureLogger()
+
+		budget := time.Second
+		config := PackageModeTemplateMigrationConfig{
+			PageSize:   10,
+			BatchSize:  100,
+			TimeBudget: budget,
+		}
+		clock := newFakeClock()
+
+		retries := make([]string, maxPackageModeTemplateMigrationRetries)
+		for i := range retries {
+			retries[i] = fmt.Sprintf("r%d", i)
+		}
+		retrySet := make(map[string]bool, len(retries))
+		for _, r := range retries {
+			retrySet[r] = true
+		}
+		checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+			Version:    packageModeTemplateMigrationVersion,
+			Phase:      packageModeMigrationRunning,
+			Pending:    []string{"a", "b", "c"},
+			NextCursor: lo.ToPtr("page2"),
+			ScanFirst:  true,
+			Retry:      retries,
+		})
+
+		var getFleetACalls int
+		var getFleetBCalls int
+		var getFleetCCalls int
+		var pollStarts []time.Time
+
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				if len(pollStarts) > 0 {
+					require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+						"GetFleet('a') must not start after the poll deadline")
+				}
+				getFleetACalls++
+				clock.Advance(2 * budget)
+				return nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}
+			}).AnyTimes()
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				if len(pollStarts) > 0 {
+					require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+						"GetFleet('b') must not start after the poll deadline")
+				}
+				getFleetBCalls++
+				f := fleetWithImage("b", "")
+				return &f, domain.StatusOK()
+			}).Times(1)
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "c", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				if len(pollStarts) > 0 {
+					require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+						"GetFleet('c') must not start after the poll deadline")
+				}
+				getFleetCCalls++
+				f := fleetWithImage("c", "")
+				return &f, domain.StatusOK()
+			}).Times(1)
+		// Generic handler for the 256 seed retry names only.
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, name string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				require.True(t, retrySet[name],
+					"unexpected GetFleet name %q: only seed retry identities are allowed", name)
+				if len(pollStarts) > 0 {
+					require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+						"GetFleet('%s') must not start after the poll deadline", name)
+				}
+				return nil, domain.Status{Code: http.StatusInternalServerError, Message: "retry"}
+			}).AnyTimes()
+
+		for poll := 0; poll < 3; poll++ {
+			clock.current = newFakeClock().current.Add(time.Duration(poll) * 10 * time.Minute)
+			pollStarts = append(pollStarts, clock.Now())
+			task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, log)
+			require.NoError(t, err)
+			task.now = clock.Now
+			require.NoError(t, task.poll(t.Context(), orgID))
+
+			stored := checkpoints.stored(t, orgID)
+			require.Equal(t, maxPackageModeTemplateMigrationRetries, len(stored.Retry),
+				"poll %d: all 256 retry identities must be retained", poll)
+		}
+
+		stored := checkpoints.stored(t, orgID)
+		require.GreaterOrEqual(t, getFleetACalls, 2,
+			"permanently failing 'a' must be attempted at least twice across polls")
+		require.Contains(t, stored.Pending, "a",
+			"permanently failing 'a' must remain in Pending")
+		require.Equal(t, 1, getFleetBCalls, "healthy 'b' must be attempted exactly once")
+		require.Equal(t, 1, getFleetCCalls, "healthy 'c' must be attempted exactly once")
+		require.NotEmpty(t, capture.perPoll,
+			"log capture must have recorded poll-completed entries")
+		require.Equal(t, 2, capture.total(),
+			"exactly two healthy fleets ('b' and 'c') must have been processed")
+	})
+
+	t.Run("cancellation rotates tail with exact pending order", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		fleetSvc := fleetservice.NewMockService(ctrl)
+		checkpoints := newFakeCheckpoints()
+		orgID := uuid.New()
+
+		budget := time.Second
+		config := PackageModeTemplateMigrationConfig{
+			PageSize:   10,
+			BatchSize:  100,
+			TimeBudget: budget,
+		}
+
+		retries := make([]string, maxPackageModeTemplateMigrationRetries)
+		for i := range retries {
+			retries[i] = fmt.Sprintf("r%d", i)
+		}
+		checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+			Version:    packageModeTemplateMigrationVersion,
+			Phase:      packageModeMigrationRunning,
+			Pending:    []string{"a", "b", "c"},
+			NextCursor: lo.ToPtr("page2"),
+			ScanFirst:  true,
+			Retry:      retries,
+		})
+
+		cancelCtx, cancelFn := context.WithCancel(t.Context())
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				cancelFn()
+				return nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}
+			}).Times(1)
+		// No GetFleet for "b" or "c" — context is cancelled before they are reached.
+
+		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, testLogger())
+		require.NoError(t, err)
+		err = task.poll(cancelCtx, orgID)
+		require.ErrorIs(t, err, context.Canceled)
+
+		stored := checkpoints.stored(t, orgID)
+		require.Equal(t, []string{"b", "c", "a"}, stored.Pending,
+			"unattempted [b,c] must precede retained failure [a] on cancellation")
+		require.Equal(t, maxPackageModeTemplateMigrationRetries, len(stored.Retry),
+			"all 256 retry identities must be retained on cancellation")
+	})
+}
+
+func TestMigrationPendingGetRetryNotDoubleAttempted(t *testing.T) {
+	// When a pending GetFleet fails and the name is queued for retry,
+	// drainRetries must not attempt it again in the same poll. The
+	// per-poll attemptedRetries state must be shared.
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+
+	checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+		Version:    packageModeTemplateMigrationVersion,
+		Phase:      packageModeMigrationRunning,
+		Pending:    []string{"a"},
+		NextCursor: lo.ToPtr("page2"),
+		ScanFirst:  true,
+		Retry:      []string{"b"},
+	})
+
+	var getFleetACalls int
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			getFleetACalls++
+			return nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}
+		}).Times(1)
+
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			f := fleetWithImage("b", "")
+			return &f, domain.StatusOK()
+		}).Times(1)
+
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		Return(fleetList(nil), domain.StatusOK()).Times(1)
+
+	task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, migrationTestConfig(), testLogger())
+	require.NoError(t, err)
+	require.NoError(t, task.poll(t.Context(), orgID))
+
+	require.Equal(t, 1, getFleetACalls,
+		"pending 'a' must be attempted exactly once; drainRetries must skip it")
+
+	stored := checkpoints.stored(t, orgID)
+	require.Contains(t, stored.Retry, "a",
+		"failed 'a' must remain in retry for the next poll")
+	require.NotContains(t, stored.Retry, "b",
+		"healthy 'b' must have been processed and removed from retry")
+}
+
+func TestMigrationSharedAttemptsBothPhaseOrders(t *testing.T) {
+	// Two-poll fixture verifying shared per-poll attempt tracking in BOTH
+	// phase orders. Poll 1 (ScanFirst=true): listing produces pending [a,c]
+	// and consumes budget so retry [a,b] is untouched. Poll 2 (ScanFirst=false):
+	// drainRetries attempts "a" (fails) and "b" (succeeds); then resumePending
+	// must NOT re-attempt "a" but must process "c".
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	checkpoints := newFakeCheckpoints()
+	orgID := uuid.New()
+	log, capture := captureLogger()
+
+	budget := time.Second
+	config := PackageModeTemplateMigrationConfig{
+		PageSize:   10,
+		BatchSize:  100,
+		TimeBudget: budget,
+	}
+	clock := newFakeClock()
+
+	checkpoints.seed(t, orgID, packageModeMigrationCheckpoint{
+		Version:   packageModeTemplateMigrationVersion,
+		Phase:     packageModeMigrationRunning,
+		Retry:     []string{"a", "b"},
+		ScanFirst: true,
+	})
+
+	var getFleetACalls int
+	var pollStarts []time.Time
+
+	// --- Poll 1 mocks (ScanFirst=true: scan first, then drain retries) ---
+	// Listing returns [a, c] with NextCursor, consumes 2*budget.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			if len(pollStarts) > 0 {
+				require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+					"ListFleets must not start after the poll deadline")
+			}
+			clock.Advance(2 * budget) // consumes budget
+			return fleetList(lo.ToPtr("page3"),
+				fleetWithImage("a", "quay.io/org/os:v1"),
+				fleetWithImage("c", "quay.io/org/os:v2"),
+			), domain.StatusOK()
+		}).Times(1)
+
+	// --- Poll 2 mocks (ScanFirst=false: drain retries first, then scan) ---
+	// "a" fails cheaply in drainRetries.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "a", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			if len(pollStarts) > 0 {
+				require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+					"GetFleet('a') must not start after the poll deadline")
+			}
+			getFleetACalls++
+			return nil, domain.Status{Code: http.StatusInternalServerError, Message: "boom"}
+		}).Times(1) // exactly once: drainRetries attempts, resumePending must skip
+
+	// "b" succeeds in drainRetries.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "b", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			if len(pollStarts) > 0 {
+				require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+					"GetFleet('b') must not start after the poll deadline")
+			}
+			f := fleetWithImage("b", "")
+			return &f, domain.StatusOK()
+		}).Times(1)
+
+	// "c" succeeds in resumePending.
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, "c", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			if len(pollStarts) > 0 {
+				require.True(t, clock.Now().Sub(pollStarts[len(pollStarts)-1]) < budget,
+					"GetFleet('c') must not start after the poll deadline")
+			}
+			f := fleetWithImage("c", "")
+			return &f, domain.StatusOK()
+		}).Times(1)
+
+	// Poll 2: after pending drained, listing from page3.
+	fleetSvc.EXPECT().ListFleets(gomock.Any(), orgID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
+			require.Equal(t, "page3", lo.FromPtr(params.Continue),
+				"poll 2 listing must start from the saved NextCursor")
+			return fleetList(nil), domain.StatusOK()
+		}).Times(1)
+
+	// --- Run 2 polls ---
+	for poll := 0; poll < 2; poll++ {
+		clock.current = newFakeClock().current.Add(time.Duration(poll) * 10 * time.Minute)
+		pollStarts = append(pollStarts, clock.Now())
+		task, err := NewPackageModeFleetTemplateMigrationTask(fleetSvc, checkpoints, config, log)
+		require.NoError(t, err)
+		task.now = clock.Now
+		require.NoError(t, task.poll(t.Context(), orgID))
+	}
+
+	require.Equal(t, 1, getFleetACalls,
+		"'a' must be attempted exactly once across both phases in poll 2")
+
+	stored := checkpoints.stored(t, orgID)
+	require.Contains(t, stored.Retry, "a",
+		"failed 'a' must remain in retry for the next poll")
+	require.NotContains(t, stored.Retry, "b",
+		"healthy 'b' must have been processed and removed from retry")
+	require.Empty(t, stored.Pending,
+		"all pending must be drained")
+	require.NotEqual(t, packageModeMigrationComplete, stored.Phase,
+		"must not complete while 'a' remains in retry")
+
+	require.NotEmpty(t, capture.perPoll)
+	total := capture.total()
+	require.Equal(t, 2, total,
+		"exactly 'b' and 'c' must have been processed (total across polls)")
 }

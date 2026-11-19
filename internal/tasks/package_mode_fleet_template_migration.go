@@ -310,7 +310,7 @@ func (t *PackageModeFleetTemplateMigrationTask) scanPages(ctx context.Context, o
 			} else if next == nil {
 				run.listingExhausted = true
 				run.checkpoint.Cursor = nil
-				return nil
+				return ctx.Err()
 			} else {
 				// An empty page with an advancing continuation: advance
 				// the cursor so the same empty page is not re-listed
@@ -321,7 +321,7 @@ func (t *PackageModeFleetTemplateMigrationTask) scanPages(ctx context.Context, o
 				run.checkpoint.Cursor = cloneString(next)
 			}
 			run.budgetStopped = true
-			return nil
+			return ctx.Err()
 		}
 
 		// Process items one at a time, checking the budget BEFORE each.
@@ -396,14 +396,21 @@ func (t *PackageModeFleetTemplateMigrationTask) resumePending(ctx context.Contex
 	var remaining []string
 	for i, name := range pending {
 		if err := ctx.Err(); err != nil {
-			remaining = append(remaining, pending[i:]...)
+			remaining = append(pending[i:], remaining...)
 			run.checkpoint.Pending = remaining
 			return err
 		}
 		if t.budgetExceeded(run, startedAt) {
-			remaining = append(remaining, pending[i:]...)
+			remaining = append(pending[i:], remaining...)
 			run.budgetStopped = true
 			break
+		}
+		// Skip names already attempted this poll (e.g. by a prior
+		// drainRetries phase) so the same fleet is not fetched twice.
+		// The name is already tracked in the retry list from the earlier
+		// phase, so it does not need to stay in pending.
+		if run.attemptedRetries != nil && run.attemptedRetries[name] {
+			continue
 		}
 		fleet, status := t.fleetSvc.GetFleet(ctx, orgID, name, domain.GetFleetParams{})
 		if status.Code == http.StatusNotFound {
@@ -411,6 +418,10 @@ func (t *PackageModeFleetTemplateMigrationTask) resumePending(ctx context.Contex
 		}
 		if status.Code >= http.StatusBadRequest {
 			run.failed = true
+			if run.attemptedRetries == nil {
+				run.attemptedRetries = make(map[string]bool)
+			}
+			run.attemptedRetries[name] = true
 			if !t.queueRetryOrKeepPending(run, name) {
 				remaining = append(remaining, name)
 			}
