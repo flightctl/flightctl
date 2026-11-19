@@ -1,9 +1,11 @@
 package firmware
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/bits"
+	"reflect"
 	"slices"
 	"sort"
 
@@ -32,20 +34,66 @@ func DefaultExtractionCeilings() policy.ExtractionLimits {
 }
 
 // boundExtraction is the extraction budget taken from the authenticated
-// release descriptor that a fetch verified.
+// release descriptor that a fetch verified, together with the identity of the
+// package that fetch authenticated.
 type boundExtraction struct {
 	descriptorDigest string
 	limits           *policy.ExtractionLimits
 	budgetKeys       []string
+	identity         *packageIdentity
 }
 
-func bindExtraction(descriptorDigest string, d *policy.ReleaseDescriptor) boundExtraction {
-	b := boundExtraction{descriptorDigest: descriptorDigest, budgetKeys: slices.Clone(d.BudgetKeySet)}
+// packageIdentity is the identity of a verified package as its fetch
+// authenticated it.
+type packageIdentity struct {
+	name, version, packageDigest, reference string
+	publisherPolicyDigest, manifestDigest   string
+	manifest                                Manifest
+}
+
+// bindExtraction binds the extraction budget of d to the identity that pkg
+// carries when its fetch has authenticated it.
+func bindExtraction(pkg *VerifiedPackage, d *policy.ReleaseDescriptor) boundExtraction {
+	b := boundExtraction{descriptorDigest: pkg.DescriptorDigest, budgetKeys: slices.Clone(d.BudgetKeySet)}
 	if d.Extraction != nil {
 		limits := *d.Extraction
 		b.limits = &limits
 	}
+	if manifest, err := cloneManifest(pkg.Manifest); err == nil {
+		b.identity = &packageIdentity{
+			name: pkg.Name, version: pkg.Version, packageDigest: pkg.PackageDigest, reference: pkg.Reference,
+			publisherPolicyDigest: pkg.PublisherPolicyDigest, manifestDigest: pkg.ManifestDigest, manifest: manifest,
+		}
+	}
 	return b
+}
+
+// cloneManifest returns a deep copy of m.
+func cloneManifest(m Manifest) (Manifest, error) {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return Manifest{}, err
+	}
+	var c Manifest
+	err = json.Unmarshal(data, &c)
+	return c, err
+}
+
+// matches checks that pkg still carries the identity its fetch authenticated.
+func (b boundExtraction) matches(pkg *VerifiedPackage) error {
+	id := b.identity
+	switch {
+	case b.descriptorDigest != pkg.DescriptorDigest:
+		return fmt.Errorf("extraction budget is bound to descriptor %s, not %s", b.descriptorDigest, pkg.DescriptorDigest)
+	case id == nil:
+		return errors.New("extraction budget is not bound to an authenticated package")
+	case pkg.Name != id.name || pkg.Version != id.version || pkg.PackageDigest != id.packageDigest || pkg.Reference != id.reference ||
+		pkg.PublisherPolicyDigest != id.publisherPolicyDigest || pkg.ManifestDigest != id.manifestDigest:
+		return errors.New("package identity differs from the one its fetch authenticated")
+	case !reflect.DeepEqual(pkg.Manifest, id.manifest):
+		return errors.New("package manifest differs from the one its fetch authenticated")
+	}
+	return nil
 }
 
 // ExtractionLimits returns the extraction budget of the authenticated release
@@ -58,8 +106,9 @@ func (p *VerifiedPackage) ExtractionLimits() (policy.ExtractionLimits, bool) {
 }
 
 // EffectiveExtractionLimits returns the authenticated extraction budget of
-// pkg after checking that it is bound to the package's descriptor, names only
-// listed budget keys and lies within ceilings.
+// pkg after checking that pkg still carries the complete identity its fetch
+// authenticated and that the budget names only listed budget keys and lies
+// within ceilings.
 func EffectiveExtractionLimits(pkg *VerifiedPackage, ceilings policy.ExtractionLimits) (policy.ExtractionLimits, error) {
 	if pkg == nil {
 		return policy.ExtractionLimits{}, unavailable("", false, errors.New("no verified package"))
@@ -69,8 +118,8 @@ func EffectiveExtractionLimits(pkg *VerifiedPackage, ceilings policy.ExtractionL
 	if b.limits == nil {
 		return policy.ExtractionLimits{}, unavailable(release, false, ErrNoExtractionBudget)
 	}
-	if b.descriptorDigest != pkg.DescriptorDigest {
-		return policy.ExtractionLimits{}, unavailable(release, false, fmt.Errorf("extraction budget is bound to descriptor %s, not %s", b.descriptorDigest, pkg.DescriptorDigest))
+	if err := b.matches(pkg); err != nil {
+		return policy.ExtractionLimits{}, unavailable(release, false, err)
 	}
 	limits := *b.limits
 	if err := limits.Validate(); err != nil {
