@@ -120,9 +120,11 @@ type PublishedPayload struct {
 	Cleanup  CleanupReport
 }
 
-// StagedTree is a fully staged, synced and unpublished payload owned by the
-// call that created it. A successful Publish consumes it; until then it stays
-// owned, including after Publish reports that the final name exists.
+// StagedTree is a staged, unpublished payload owned by the call that created
+// it. Only a tree that StageTree completed can be published; a tree returned
+// with a staging error can only be discarded. A successful Publish consumes
+// it; until then it stays owned, including after Publish reports that the
+// final name exists.
 type StagedTree struct {
 	cache          fileio.Anchor
 	name           string
@@ -132,6 +134,7 @@ type StagedTree struct {
 	files          []PublishedFile
 	limits         policy.ExtractionLimits
 	sourceReadOnly bool
+	ready          bool
 	consumed       bool
 	discarded      bool
 }
@@ -434,12 +437,17 @@ func (s *stager) stageFile(dir fileio.Anchor, f ManifestFile) error {
 // budget before creating anything, accepts only the exact expected source
 // tree, verifies every copied file and checks that executables run natively
 // on goarch. When it fails after creating the staging directory, it returns
-// the partial tree with the error so that the caller can discard it.
+// the partial tree with the error so that the caller can discard it; such a
+// tree cannot be published. Missing manifest bytes are refused before
+// anything is created.
 func StageTree(ctx context.Context, src, cache fileio.Anchor, manifestBytes []byte, m *Manifest, limits policy.ExtractionLimits, goarch string) (*StagedTree, error) {
 	if m == nil {
 		return nil, publishFailure("", PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, errors.New("no manifest"))
 	}
 	release := m.Name + "/" + m.Version
+	if len(manifestBytes) == 0 {
+		return nil, publishFailure(release, PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, errors.New("no manifest bytes"))
+	}
 	plan, err := planPayload(release, m, manifestBytes, limits)
 	if err != nil {
 		return nil, err
@@ -481,6 +489,7 @@ func StageTree(ctx context.Context, src, cache fileio.Anchor, manifestBytes []by
 	for _, f := range m.Files {
 		st.files = append(st.files, PublishedFile{Path: f.Path, SHA256: s.digests[f.Path].SHA256, Size: s.digests[f.Path].Size, Executable: f.Executable})
 	}
+	st.ready = true
 	return st, nil
 }
 
@@ -493,6 +502,9 @@ func (s *StagedTree) Name() string { return s.name }
 func (s *StagedTree) Publish(ctx context.Context, finalName string) (*PublishedPayload, error) {
 	if s.consumed || s.discarded {
 		return nil, publishFailure(s.release, PublishNotVisible, "rename", ReasonUpdaterUnavailable, false, errors.New("staged tree is no longer available"))
+	}
+	if !s.ready {
+		return nil, publishFailure(s.release, PublishNotVisible, "rename", ReasonUpdaterUnavailable, false, errors.New("staged tree is incomplete"))
 	}
 	if ctx.Err() != nil {
 		return nil, contextFailure(ctx, s.release, PublishNotVisible, "rename")
