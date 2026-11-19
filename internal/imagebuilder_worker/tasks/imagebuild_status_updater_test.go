@@ -198,6 +198,14 @@ func (m *mockKVStore) StreamRead(ctx context.Context, key string, lastID string,
 }
 func (m *mockKVStore) Delete(ctx context.Context, key string) error { return nil }
 
+func (m *mockKVStore) ExpireIfMatch(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (m *mockKVStore) DeleteIfMatch(_ context.Context, _ string, _ []byte) (bool, error) {
+	return false, nil
+}
+
 func TestStatusUpdater_getLogKey(t *testing.T) {
 	orgID := uuid.New()
 	name := "test-build"

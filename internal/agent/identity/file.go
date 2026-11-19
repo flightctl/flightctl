@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"crypto"
+	"crypto/tls"
 	"fmt"
 	"io"
 
@@ -172,6 +173,33 @@ func (f *fileProvider) CreateGRPCClient(config *baseclient.Config) (grpc_v1.Rout
 		return nil, err
 	}
 	return baseclient.NewGRPCClientFromConfig(config, "")
+}
+
+// CreateTLSConfig returns the verification policy for a direct TLS dial,
+// carrying the device certificate loaded from disk.
+func (f *fileProvider) CreateTLSConfig(config *baseclient.Config) (*tls.Config, error) {
+	if err := f.ensureManagementCert(config); err != nil {
+		return nil, err
+	}
+
+	flattened, err := flattenConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsConfig, err := baseTLSConfig(flattened)
+	if err != nil {
+		return nil, err
+	}
+	if len(flattened.AuthInfo.ClientCertificateData) == 0 {
+		return nil, fmt.Errorf("no client certificate available - device needs enrollment")
+	}
+	clientCert, err := tls.X509KeyPair(flattened.AuthInfo.ClientCertificateData, flattened.AuthInfo.ClientKeyData)
+	if err != nil {
+		return nil, fmt.Errorf("loading client certificate: %w", err)
+	}
+	tlsConfig.Certificates = []tls.Certificate{clientCert}
+	return tlsConfig, nil
 }
 
 func (f *fileProvider) CreateEnrollmentGRPCClient(config *baseclient.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {

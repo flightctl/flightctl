@@ -667,4 +667,12 @@ func (s *DummyKVStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+func (s *DummyKVStore) ExpireIfMatch(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (s *DummyKVStore) DeleteIfMatch(_ context.Context, _ string, _ []byte) (bool, error) {
+	return false, nil
+}
+
 func (s *DummyKVStore) Close() {}

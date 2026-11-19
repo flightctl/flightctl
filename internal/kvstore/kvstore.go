@@ -34,13 +34,24 @@ type KVStore interface {
 	StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]StreamEntry, error)
 	SetExpire(ctx context.Context, key string, expiration time.Duration) error
 	Delete(ctx context.Context, key string) error
+
+	// ExpireIfMatch refreshes a key's TTL only if its current value equals
+	// expected. It returns false when the key is absent or has been taken
+	// over by another writer.
+	ExpireIfMatch(ctx context.Context, key string, expected []byte, expiration time.Duration) (bool, error)
+	// DeleteIfMatch deletes a key only if its current value equals expected.
+	// It returns false when the key is absent or has been taken over by
+	// another writer.
+	DeleteIfMatch(ctx context.Context, key string, expected []byte) (bool, error)
 }
 
 type kvStore struct {
-	log                logrus.FieldLogger
-	client             *redis.Client
-	getSetNxScript     *redis.Script
-	setIfGreaterScript *redis.Script
+	log                 logrus.FieldLogger
+	client              *redis.Client
+	getSetNxScript      *redis.Script
+	setIfGreaterScript  *redis.Script
+	expireIfMatchScript *redis.Script
+	deleteIfMatchScript *redis.Script
 }
 
 func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password domain.SecureString) (KVStore, error) {
@@ -88,11 +99,37 @@ else
 end
 `)
 
+	// Lua script to refresh a key's TTL only if its current value is
+	// unchanged, so only the writer that holds a key may keep it alive.
+	expireIfMatchScript := redis.NewScript(`
+local current = redis.call("get", KEYS[1])
+if current == ARGV[1] then
+    redis.call("pexpire", KEYS[1], ARGV[2])
+    return 1
+else
+    return 0
+end
+`)
+
+	// Lua script to delete a key only if its current value is unchanged, so
+	// a writer cannot delete a key another writer has taken over.
+	deleteIfMatchScript := redis.NewScript(`
+local current = redis.call("get", KEYS[1])
+if current == ARGV[1] then
+    redis.call("del", KEYS[1])
+    return 1
+else
+    return 0
+end
+`)
+
 	return &kvStore{
-		log:                log,
-		client:             client,
-		getSetNxScript:     luaScript,
-		setIfGreaterScript: setIfGreaterScript,
+		log:                 log,
+		client:              client,
+		getSetNxScript:      luaScript,
+		setIfGreaterScript:  setIfGreaterScript,
+		expireIfMatchScript: expireIfMatchScript,
+		deleteIfMatchScript: deleteIfMatchScript,
 	}, nil
 }
 
@@ -315,4 +352,22 @@ func (s *kvStore) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
 	return nil
+}
+
+// ExpireIfMatch refreshes a key's TTL only if its current value equals expected.
+func (s *kvStore) ExpireIfMatch(ctx context.Context, key string, expected []byte, expiration time.Duration) (bool, error) {
+	res, err := s.expireIfMatchScript.Run(ctx, s.client, []string{key}, expected, expiration.Milliseconds()).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to refresh key: %w", err)
+	}
+	return res.(int64) == 1, nil
+}
+
+// DeleteIfMatch deletes a key only if its current value equals expected.
+func (s *kvStore) DeleteIfMatch(ctx context.Context, key string, expected []byte) (bool, error) {
+	res, err := s.deleteIfMatchScript.Run(ctx, s.client, []string{key}, expected).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to delete key: %w", err)
+	}
+	return res.(int64) == 1, nil
 }
