@@ -161,6 +161,10 @@ type Endpoint struct {
 	// refusing is shutdown step 2: new starts are refused explicitly, never
 	// silently ignored and never left running orphaned.
 	refusing bool
+	// draining is the final shutdown cutoff: the writer barrier has been or
+	// is about to be queued, so the reader must silently drop new requests
+	// rather than enqueue refusals that would land after the barrier.
+	draining bool
 
 	pongCh chan struct{}
 

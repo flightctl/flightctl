@@ -453,7 +453,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	// IdleTimeout do not sever it: the library clears the server's deadlines
 	// on the hijacked connection.
 	linkRegistry := agentlink.NewRegistry(s.kvStore, util.GetHostname(), s.log)
-	router.Get(AgentLinkPath, newAgentLinkHandler(linkRegistry, s.log).ServeHTTP)
+	router.Get(AgentLinkPath, newAgentLinkHandler(linkRegistry, ctx, s.log).ServeHTTP)
 
 	if err := s.enrollmentAuthMiddleware.Start(ctx); err != nil {
 		return nil, err

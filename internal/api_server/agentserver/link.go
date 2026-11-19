@@ -26,15 +26,17 @@ const AgentLinkPath = "/ws/v1/agent/link"
 
 // agentLinkHandler serves the agent link route.
 type agentLinkHandler struct {
-	registry *agentlink.Registry
-	log      logrus.FieldLogger
-	upgrader websocket.Upgrader
+	registry  *agentlink.Registry
+	serverCtx context.Context
+	log       logrus.FieldLogger
+	upgrader  websocket.Upgrader
 }
 
-func newAgentLinkHandler(registry *agentlink.Registry, log logrus.FieldLogger) *agentLinkHandler {
+func newAgentLinkHandler(registry *agentlink.Registry, serverCtx context.Context, log logrus.FieldLogger) *agentLinkHandler {
 	return &agentLinkHandler{
-		registry: registry,
-		log:      log,
+		registry:  registry,
+		serverCtx: serverCtx,
+		log:       log,
 		upgrader: websocket.Upgrader{
 			Subprotocols: []string{protocol.Subprotocol},
 			// This route rejects any request carrying an Origin header at
@@ -112,9 +114,10 @@ func (h *agentLinkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Go cancels a request's context when the handler returns, hijacked
 	// connections included. The verified device and organization are
-	// therefore copied here, and the link runs under a lifetime this handler
-	// owns rather than under the request's.
-	linkCtx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	// therefore copied here. The link runs under the server lifetime so
+	// server shutdown cancels active links before their KV dependency is
+	// closed.
+	linkCtx, cancel := context.WithCancel(h.serverCtx)
 	defer cancel()
 
 	h.runLink(linkCtx, conn, deviceName, orgID)

@@ -84,6 +84,10 @@ func (e *Endpoint) enqueue(data []byte) error {
 // sendResult composes and enqueues a terminal result for a request that has
 // no worker of its own -- a refused method, or a request arriving during
 // shutdown.
+//
+// A terminal result that cannot be enqueued means the link cannot fulfil its
+// one-result-each contract, so the link is failed rather than leaving the
+// peer waiting on an open connection.
 func (e *Endpoint) sendResult(key requestKey, reason, message string) {
 	// The identifier is retired even though no work ran, so a re-delivery of
 	// the same request is recognised as a stale duplicate rather than
@@ -99,22 +103,34 @@ func (e *Endpoint) sendResult(key requestKey, reason, message string) {
 	}
 	if err := e.enqueue(data); err != nil {
 		e.log.Debugf("Agent link: cannot send result for %s: %v", key, err)
+		if errors.Is(err, errWriteQueueFull) {
+			e.failLink(websocket.CloseInternalServerErr, "cannot deliver terminal result")
+		}
 	}
 }
 
 // sendResultOnce fixes a worker-owned request's outcome, honouring the
 // one-result-each rule.
+//
+// The result is encoded before the terminal flag is committed, so an
+// encoding failure does not consume the one-shot and finishRequest can
+// still send the fallback.
 func (e *Endpoint) sendResultOnce(key requestKey, st *requestState, reason, message string) error {
+	data, err := protocol.EncodeResult(key.origin, key.id, reason, message)
+	if err != nil {
+		return fmt.Errorf("composing result for %s: %w", key, err)
+	}
 	if !st.resultSent.CompareAndSwap(false, true) {
 		// The outcome was already fixed. Later events for this identifier
 		// are diagnostics and never overwrite it.
 		return nil
 	}
-	data, err := protocol.EncodeResult(key.origin, key.id, reason, message)
-	if err != nil {
-		return fmt.Errorf("composing result for %s: %w", key, err)
+	if err := e.enqueue(data); err != nil {
+		// Uncommit so finishRequest can send the fallback RetrievalFailed.
+		st.resultSent.Store(false)
+		return err
 	}
-	return e.enqueue(data)
+	return nil
 }
 
 // runSupervisor is the one timer-driven goroutine per link that owns

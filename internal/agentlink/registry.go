@@ -142,6 +142,11 @@ func (l *Lease) Release(ctx context.Context) error {
 //
 // Losing the registration ends only the refresh loop. The link stays open and
 // keeps serving the requests already accepted on it.
+//
+// When the registration has expired (e.g. because Redis was unavailable longer
+// than DispatchTTL), KeepAlive attempts to re-register rather than exiting.
+// Re-registration uses SetNX so it cannot overwrite a registration that a
+// newer link now holds. A superseded link still exits without resurrecting.
 func (l *Lease) KeepAlive(ctx context.Context) {
 	ticker := time.NewTicker(l.refreshInterval)
 	defer ticker.Stop()
@@ -156,10 +161,53 @@ func (l *Lease) KeepAlive(ctx context.Context) {
 				l.registry.log.Warnf("Agent link: failed to refresh registration for %s: %v", l.deviceName, err)
 				continue
 			}
-			if !held {
+			if held {
+				continue
+			}
+			// Refresh returned false: either the key expired or a newer
+			// link superseded us. Distinguish the two before acting.
+			if !l.tryRecover(ctx) {
 				l.registry.log.Infof("Agent link registration for %s was superseded; this link remains open for its running requests", l.deviceName)
 				return
 			}
 		}
 	}
+}
+
+// tryRecover attempts to restore a registration that has expired while the
+// connection stayed open. It uses SetNX so it cannot overwrite a newer link's
+// registration. Returns true if recovery succeeded, false if superseded.
+func (l *Lease) tryRecover(ctx context.Context) bool {
+	// Check whether the key is absent (expired) or holds another link's
+	// registration (superseded).
+	current, err := l.registry.kv.Get(ctx, l.key)
+	if err != nil {
+		l.registry.log.Warnf("Agent link: cannot check registration for %s during recovery: %v", l.deviceName, err)
+		return true // transient error; stay alive and retry next tick
+	}
+	if len(current) > 0 {
+		// Another link registered. Do not overwrite it.
+		return false
+	}
+
+	// The key is absent (expired). Re-register atomically: SetNX succeeds
+	// only if the key is still absent, so a concurrent Register from a
+	// newer link wins and this recovery harmlessly fails.
+	set, err := l.registry.kv.SetNX(ctx, l.key, l.value)
+	if err != nil {
+		l.registry.log.Warnf("Agent link: recovery SetNX for %s failed: %v", l.deviceName, err)
+		return true // transient error; stay alive and retry
+	}
+	if !set {
+		// A concurrent registration won the race. This link is superseded.
+		return false
+	}
+
+	// SetNX succeeded; now set the TTL. This is not atomic with SetNX but
+	// the gap is negligible and the worst case is a brief key without TTL.
+	if err := l.registry.kv.SetExpire(ctx, l.key, DispatchTTL); err != nil {
+		l.registry.log.Warnf("Agent link: could not set TTL after recovery for %s: %v", l.deviceName, err)
+	}
+	l.registry.log.Infof("Agent link registration for %s recovered after expiry", l.deviceName)
+	return true
 }

@@ -185,13 +185,19 @@ func (e *Endpoint) dispatchRequest(env *protocol.Envelope) *protocol.LinkViolati
 		return nil
 	}
 	refusing := e.refusing
+	draining := e.draining
 	e.mu.Unlock()
 
 	if refusing {
-		// A request arriving between "refuse new starts" and "connection
-		// closed" is refused explicitly for its id -- not MethodNotSupported,
-		// not silently dropped. The refusal is post-accept and is never
-		// re-resolved.
+		if draining {
+			// Past the final shutdown cutoff: the writer barrier is queued
+			// and a refusal enqueued now would land after it. Drop silently
+			// rather than producing an undeliverable result.
+			return nil
+		}
+		// A request arriving between "refuse new starts" and the final
+		// cutoff is refused explicitly for its id -- not MethodNotSupported,
+		// not silently dropped.
 		e.sendResult(key, protocol.ReasonRetrievalFailed, "endpoint is shutting down")
 		return nil
 	}

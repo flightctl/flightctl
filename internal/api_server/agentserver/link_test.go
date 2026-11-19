@@ -91,7 +91,7 @@ func newLinkTestServer(t *testing.T, kv kvstore.KVStore, authenticated bool) *ht
 	log := logrus.New()
 	log.SetOutput(io.Discard)
 
-	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-under-test", log), log)
+	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-under-test", log), context.Background(), log)
 
 	var root http.Handler = handler
 	if authenticated {
@@ -173,7 +173,7 @@ func TestAgentLinkRefusesNonHTTP11(t *testing.T) {
 
 	log := logrus.New()
 	log.SetOutput(io.Discard)
-	handler := newAgentLinkHandler(agentlink.NewRegistry(newFakeKV(), "replica", log), log)
+	handler := newAgentLinkHandler(agentlink.NewRegistry(newFakeKV(), "replica", log), context.Background(), log)
 
 	req := httptest.NewRequest(http.MethodGet, AgentLinkPath, nil)
 	req.Proto = "HTTP/2.0"

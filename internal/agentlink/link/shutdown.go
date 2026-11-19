@@ -88,6 +88,13 @@ func (e *Endpoint) finishShutdown(outstanding []*Originated) {
 		o.fail(protocol.ReasonRetrievalFailed, "endpoint is shutting down")
 	}
 
+	// Set the final admission cutoff before the barrier. After this, the
+	// reader silently drops requests rather than enqueuing refusals that
+	// would land after the barrier and be lost before the Close frame.
+	e.mu.Lock()
+	e.draining = true
+	e.mu.Unlock()
+
 	// Let the writer drain what the previous steps queued, so the Close
 	// frame really is last.
 	e.waitForWriterDrain()
