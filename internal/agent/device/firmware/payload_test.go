@@ -747,11 +747,45 @@ func TestStageTreeFaultsBeforePublication(t *testing.T) {
 				entries := f.cacheEntries()
 				require.Len(entries, 1)
 				require.Equal(st.Name(), entries[0])
+				payload, perr := st.Publish(context.Background(), strings.Repeat("e", 64))
+				require.Nil(payload, "an incomplete staging is never published")
+				requirePublishError(t, perr, firmware.PublishNotVisible, "rename")
+				requireFetchError(t, perr, firmware.ReasonUpdaterUnavailable, false)
+				require.Equal([]string{st.Name()}, f.cacheEntries())
 				require.NoError(st.Discard(context.Background()))
 			}
 			require.Empty(f.cacheEntries())
 		})
 	}
+}
+
+func TestStageTreeRequiresManifestBytes(t *testing.T) {
+	testCases := []struct {
+		name  string
+		bytes []byte
+	}{
+		{name: "When the manifest bytes are missing it should reject staging before creating anything", bytes: nil},
+		{name: "When the manifest bytes are empty it should reject staging before creating anything", bytes: []byte{}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			f := newPayloadFixture(t, defaultPayload(t))
+			st, err := firmware.StageTree(context.Background(), f.src(), f.cache(), tc.bytes, f.manifest, testLimits(), testArch)
+			require.Nil(st)
+			requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+			require.Empty(f.cacheEntries())
+		})
+	}
+	t.Run("When the manifest bytes are missing and the image manifest is empty it should reject staging before creating anything", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		require.NoError(os.WriteFile(f.imageDir("manifest.json"), nil, 0o600))
+		st, err := firmware.StageTree(context.Background(), f.src(), f.cache(), nil, f.manifest, testLimits(), testArch)
+		require.Nil(st)
+		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
+		require.Empty(f.cacheEntries())
+	})
 }
 
 func TestPublishOutcomes(t *testing.T) {
