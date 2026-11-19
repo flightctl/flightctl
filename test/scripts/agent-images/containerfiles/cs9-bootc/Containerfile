@@ -28,7 +28,10 @@ RUN --mount=type=cache,target=/var/cache/dnf \
 # Base services and tooling that don't depend on our RPMs
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    # Temporary: use --nobest for greenboot packages while CS9 AppStream
+    # greenboot and greenboot-default-health-checks versions may differ.
+    dnf install -y --nobest greenboot greenboot-default-health-checks && \
+    dnf install -y podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
