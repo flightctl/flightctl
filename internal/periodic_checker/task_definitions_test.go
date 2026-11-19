@@ -240,3 +240,47 @@ func TestLabelMappingScanTaskMetadataAndConfiguration(t *testing.T) {
 	require.Equal(t, 250, taskConfig.PageSize)
 	require.Equal(t, 15*time.Second, taskConfig.TimeBudget)
 }
+
+func TestPackageModeTemplateMigrationTaskMetadataAndConfiguration(t *testing.T) {
+	merged := MergeTasksWithConfig(nil)
+	meta, ok := merged[PeriodicTaskTypePackageModeTemplateMigration]
+	require.True(t, ok, "the migration task must be registered alongside the other periodic tasks")
+	require.Equal(t, config.DefaultPackageModeTemplateMigrationInterval, meta.Interval)
+	require.False(t, meta.SystemWide, "the migration runs per organization")
+
+	t.Run("When nothing is configured it should use the documented defaults", func(t *testing.T) {
+		resolved := packageModeTemplateMigrationConfigFromConfig(&config.Config{})
+		require.Equal(t, int32(config.DefaultPackageModeTemplateMigrationPageSize), resolved.PageSize)
+		require.Equal(t, config.DefaultPackageModeTemplateMigrationBatchSize, resolved.BatchSize)
+		require.Equal(t, config.DefaultPackageModeTemplateMigrationTimeBudget, resolved.TimeBudget)
+		require.False(t, resolved.DryRun)
+	})
+
+	t.Run("When a nil config is supplied it should still resolve defaults", func(t *testing.T) {
+		resolved := packageModeTemplateMigrationConfigFromConfig(nil)
+		require.Equal(t, int32(config.DefaultPackageModeTemplateMigrationPageSize), resolved.PageSize)
+	})
+
+	t.Run("When the task is configured it should use every configured setting", func(t *testing.T) {
+		cfg := &config.Config{}
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"periodic": {"tasks": {"packageModeTemplateMigration": {
+				"schedule": {"interval": "9m"},
+				"pageSize": 25,
+				"batchSize": 5,
+				"timeBudget": "12s",
+				"dryRun": true
+			}}}
+		}`), cfg))
+
+		configured := MergeTasksWithConfig(cfg)[PeriodicTaskTypePackageModeTemplateMigration]
+		require.Equal(t, 9*time.Minute, configured.Interval,
+			"a configured poll interval must reach the scheduler, not just the configuration file")
+
+		resolved := packageModeTemplateMigrationConfigFromConfig(cfg)
+		require.Equal(t, int32(25), resolved.PageSize)
+		require.Equal(t, 5, resolved.BatchSize)
+		require.Equal(t, 12*time.Second, resolved.TimeBudget)
+		require.True(t, resolved.DryRun)
+	})
+}

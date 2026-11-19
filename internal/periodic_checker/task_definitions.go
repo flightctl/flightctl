@@ -46,18 +46,19 @@ const QueueMaintenanceInterval = 2 * tasks.EventProcessingTimeout
 type PeriodicTaskType string
 
 const (
-	PeriodicTaskTypeRepositoryTester       PeriodicTaskType = "repository-tester"
-	PeriodicTaskTypeResourceSync           PeriodicTaskType = "resource-sync"
-	PeriodicTaskTypeDeviceConnection       PeriodicTaskType = "device-connection"
-	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
-	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
-	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
-	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
-	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
-	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
-	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
-	PeriodicTaskTypeDeltaPrepareDeadline   PeriodicTaskType = "delta-prepare-deadline"
-	PeriodicTaskTypeLabelMappingScan       PeriodicTaskType = "label-sync-mapping-scan"
+	PeriodicTaskTypeRepositoryTester             PeriodicTaskType = "repository-tester"
+	PeriodicTaskTypeResourceSync                 PeriodicTaskType = "resource-sync"
+	PeriodicTaskTypeDeviceConnection             PeriodicTaskType = "device-connection"
+	PeriodicTaskTypeRolloutDeviceSelection       PeriodicTaskType = "rollout-device-selection"
+	PeriodicTaskTypeDisruptionBudget             PeriodicTaskType = "disruption-budget"
+	PeriodicTaskTypeEventCleanup                 PeriodicTaskType = "event-cleanup"
+	PeriodicTaskTypeQueueMaintenance             PeriodicTaskType = "queue-maintenance"
+	PeriodicTaskTypeVulnerabilitySync            PeriodicTaskType = "vulnerability-sync"
+	PeriodicTaskTypeDependencySyncGit            PeriodicTaskType = "dependency-sync-git"
+	PeriodicTaskTypeDependencySyncHttp           PeriodicTaskType = "dependency-sync-http"
+	PeriodicTaskTypeDeltaPrepareDeadline         PeriodicTaskType = "delta-prepare-deadline"
+	PeriodicTaskTypeLabelMappingScan             PeriodicTaskType = "label-sync-mapping-scan"
+	PeriodicTaskTypePackageModeTemplateMigration PeriodicTaskType = "package-mode-fleet-template-migration"
 )
 
 type PeriodicTaskMetadata struct {
@@ -66,18 +67,19 @@ type PeriodicTaskMetadata struct {
 }
 
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
-	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeDeviceConnection:       {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
-	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
-	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
-	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
-	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
-	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
-	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
-	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
-	PeriodicTaskTypeDeltaPrepareDeadline:   {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
-	PeriodicTaskTypeLabelMappingScan:       {Interval: config.DefaultLabelMappingScanTaskInterval, SystemWide: false},
+	PeriodicTaskTypeRepositoryTester:             {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeResourceSync:                 {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeDeviceConnection:             {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
+	PeriodicTaskTypeRolloutDeviceSelection:       {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
+	PeriodicTaskTypeDisruptionBudget:             {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
+	PeriodicTaskTypeEventCleanup:                 {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
+	PeriodicTaskTypeQueueMaintenance:             {Interval: QueueMaintenanceInterval, SystemWide: true},
+	PeriodicTaskTypeVulnerabilitySync:            {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
+	PeriodicTaskTypeDependencySyncGit:            {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDependencySyncHttp:           {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDeltaPrepareDeadline:         {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
+	PeriodicTaskTypeLabelMappingScan:             {Interval: config.DefaultLabelMappingScanTaskInterval, SystemWide: false},
+	PeriodicTaskTypePackageModeTemplateMigration: {Interval: config.DefaultPackageModeTemplateMigrationInterval, SystemWide: false},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -126,6 +128,11 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 			meta := merged[PeriodicTaskTypeLabelMappingScan]
 			meta.Interval = time.Duration(periodicTasks.LabelMappingScan.Schedule.Interval)
 			merged[PeriodicTaskTypeLabelMappingScan] = meta
+		}
+		if periodicTasks.PackageModeTemplateMigration.Schedule.Interval > 0 {
+			meta := merged[PeriodicTaskTypePackageModeTemplateMigration]
+			meta.Interval = time.Duration(periodicTasks.PackageModeTemplateMigration.Schedule.Interval)
+			merged[PeriodicTaskTypePackageModeTemplateMigration] = meta
 		}
 	}
 
@@ -225,6 +232,45 @@ func (e *LabelMappingScanExecutor) Execute(ctx context.Context, _ logrus.FieldLo
 		return
 	}
 	task.Poll(taskCtx, orgID)
+}
+
+type PackageModeTemplateMigrationExecutor struct {
+	log        logrus.FieldLogger
+	fleetSvc   fleetservice.Service
+	checkpoint checkpointservice.Service
+	config     *config.Config
+}
+
+func (e *PackageModeTemplateMigrationExecutor) Execute(ctx context.Context, _ logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypePackageModeTemplateMigration)
+	task, err := tasks.NewPackageModeFleetTemplateMigrationTask(e.fleetSvc, e.checkpoint, packageModeTemplateMigrationConfigFromConfig(e.config), e.log)
+	if err != nil {
+		e.log.WithError(err).Error("Failed to create package-mode fleet template migration task")
+		return
+	}
+	task.Poll(taskCtx, orgID)
+}
+
+func packageModeTemplateMigrationConfigFromConfig(cfg *config.Config) tasks.PackageModeTemplateMigrationConfig {
+	result := tasks.PackageModeTemplateMigrationConfig{
+		PageSize:   config.DefaultPackageModeTemplateMigrationPageSize,
+		BatchSize:  config.DefaultPackageModeTemplateMigrationBatchSize,
+		TimeBudget: config.DefaultPackageModeTemplateMigrationTimeBudget,
+	}
+	if cfg != nil && cfg.Periodic != nil {
+		settings := cfg.Periodic.Tasks.PackageModeTemplateMigration
+		if settings.PageSize != nil {
+			result.PageSize = *settings.PageSize
+		}
+		if settings.BatchSize != nil {
+			result.BatchSize = *settings.BatchSize
+		}
+		if settings.TimeBudget != nil {
+			result.TimeBudget = time.Duration(*settings.TimeBudget)
+		}
+		result.DryRun = settings.DryRun
+	}
+	return result
 }
 
 func (e *DeviceConnectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -439,6 +485,12 @@ func InitializeTaskExecutors(
 			log:        log.WithField("pkg", "label-sync-mapping-scan"),
 			reconciler: labelSyncMappingSvc,
 			deviceSvc:  deviceSvc,
+			checkpoint: checkpointSvc,
+			config:     cfg,
+		},
+		PeriodicTaskTypePackageModeTemplateMigration: &PackageModeTemplateMigrationExecutor{
+			log:        log.WithField("pkg", "package-mode-fleet-template-migration"),
+			fleetSvc:   fleetSvc,
 			checkpoint: checkpointSvc,
 			config:     cfg,
 		},
