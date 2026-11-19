@@ -144,24 +144,32 @@ The Flight Control quadlet services pull their images at startup. On an air-gapp
 machine those pulls must come from a local registry. The bundle includes
 `docker.io/library/registry:2` so you do not need internet access.
 
-Load the `registry:2` image from the bundle into podman's local image storage:
+Load the `registry:2` image from the bundle into the root user's podman image
+storage so the registry container runs as a system service:
 
 ```bash
-skopeo copy \
+sudo skopeo copy \
     "dir:$HOME/flightctl-bundle/images/library/registry:2" \
     "containers-storage:docker.io/library/registry:2"
 ```
 
-Create the registry data directory and start the registry container:
+Create the registry data directory and start the registry container as root:
 
 ```bash
-mkdir -p ~/registry-data
-podman run -d --name local-registry \
+sudo mkdir -p /var/lib/local-registry
+sudo podman run -d --name local-registry \
     --network=host \
     --security-opt label=disable \
-    -v ~/registry-data:/var/lib/registry \
+    -v /var/lib/local-registry:/var/lib/registry:Z \
     --restart=always \
     docker.io/library/registry:2
+```
+
+Enable `podman-restart.service` so the registry container starts automatically
+after a reboot:
+
+```bash
+sudo systemctl enable podman-restart.service
 ```
 
 Verify the registry is ready:
@@ -174,25 +182,35 @@ curl http://localhost:5000/v2/
 {}
 ```
 
-> [!NOTE]
-> `--network=host` avoids port-forwarding issues with rootless podman on RHEL 9.
-> Use `--security-opt label=disable` in place of the `:z` volume flag when
-> `--network=host` is set.
+> [!IMPORTANT]
+> Running the registry as root (with `sudo podman`) and enabling
+> `podman-restart.service` ensures it persists across logouts and reboots.
+> Without additional configuration such as lingering sessions, a rootless
+> container stops when the owning user session ends.
 
 ## Step 5: Import images into the local registry
 
-Run the included import script to push all bundled images into the local registry:
+Run the included import script as root to push all bundled images into the local
+registry. Running as root causes `skopeo` to write detached image signatures to
+the default system-wide directory (`/var/lib/containers/sigstore/`). If your
+system has a custom `lookaside-staging` path configured in `registries.d`, the
+signatures are written there instead:
 
 ```bash
 cd ~/flightctl-bundle
-./import.sh
+sudo ./import.sh
 ```
 
 By default `import.sh` targets `localhost:5000`. To use a different registry address:
 
 ```bash
-./import.sh --registry <host>:<port>
+sudo ./import.sh --registry <host>:<port>
 ```
+
+If your bundle includes images from `registry.redhat.io` or
+`registry.access.redhat.com`, complete the steps in
+[Configure offline signature lookup](#configure-offline-signature-lookup) before
+starting the services.
 
 Verify the images are available:
 
@@ -250,6 +268,67 @@ For `rhem-el9` or `rhem-el10` variants, add a mirror entry for
 > (which is the default for the registry container started in Step 4). If your
 > registry is configured with TLS, remove this flag and ensure its CA certificate
 > is trusted on the target system.
+
+### Configure offline signature lookup
+
+RHEL's container policy requires signature verification for images from
+`registry.redhat.io` and `registry.access.redhat.com`. The `import.sh` script
+in Step 5 wrote detached signatures to `/var/lib/containers/sigstore/` (the
+default system-wide signature directory). You must configure `registries.d` so
+that podman reads signatures from that directory instead of the internet.
+
+Because the registry redirect in Step 7 routes pulls from the original source
+registries to the local registry via `registries.conf`, podman resolves the
+signature lookaside using the **physical import destination** (`localhost:5000`
+by default) rather than the original source registry names. Configure a single
+lookaside entry for the import destination.
+
+Create or edit a file under `/etc/containers/registries.d/` — the
+filename is arbitrary (any `.yaml` name works); what matters is the
+`docker` namespace key matching your import destination:
+
+```yaml
+# /etc/containers/registries.d/flightctl-offline.yaml
+docker:
+  "localhost:5000":
+    lookaside: file:///var/lib/containers/sigstore
+```
+
+If you used `--registry <host>:<port>` during import, replace
+`localhost:5000` with your actual destination registry.
+
+If a `registries.d` file already contains a `docker` section for your
+import destination, merge the `lookaside` key into that existing section.
+Preserve any other keys in that section (such as `lookaside-staging` or
+`use-sigstore-attachments`). Do not duplicate the same `docker` namespace
+across multiple `registries.d` files.
+
+> [!NOTE]
+> If your system uses a custom signature storage path (configured via
+> `lookaside-staging` or a non-default `lookaside` in `registries.d`), use
+> the actual path where `skopeo` wrote the signatures instead of the default
+> `/var/lib/containers/sigstore`.
+
+Verify the configuration by pulling one of the images included in your bundle.
+To find the original source reference and tag for a bundled image, check the
+`import.sh` script — each `skopeo copy` line shows the image path. For example,
+if the script contains `docker://$REGISTRY/rhel9/postgresql-16:9.8`, the
+original source reference is `registry.redhat.io/rhel9/postgresql-16:9.8`:
+
+```bash
+sudo podman pull --log-level=debug <source_registry>/<image_path>:<tag>
+```
+
+Replace `<source_registry>/<image_path>:<tag>` with an image and tag from your
+bundle's `import.sh`. The pull should succeed with the registry redirect
+resolving to `localhost:5000` and signature verification completing against the
+local directory. If it fails, review the full output for `lookaside` or
+`sigstore` path messages that indicate where podman looked for signatures.
+
+> [!IMPORTANT]
+> Do not remove or weaken the signature verification policy in
+> `/etc/containers/policy.json`. The steps above configure podman to find the
+> bundled signatures locally so that verification succeeds offline.
 
 ## Step 8: Configure and start the Flight Control services
 
