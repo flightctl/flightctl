@@ -107,8 +107,8 @@ func NewExtractor(dataDir string, mounter ImageMounter, approval ApprovalChecker
 // own timeout before the single no-replace publication; when the final name
 // is taken, the existing directory is classified and either adopted, left
 // alone, or quarantined once before one retry with the same staging. A usable
-// result has durable host evidence and is leased until it is pinned or its
-// lease is released.
+// result has durable host evidence and holds its own lease until it is
+// pinned or released.
 func (e *Extractor) Extract(ctx context.Context, pkg *VerifiedPackage) (*PublishedPayload, error) {
 	if pkg == nil {
 		return nil, unavailable("", false, errors.New("no verified package"))
@@ -222,7 +222,8 @@ func (x *extraction) finish(p *PublishedPayload, fresh bool) (*PublishedPayload,
 	}
 	p.Evidence = obs
 	p.Cleanup = CleanupReport{Pending: append([]string(nil), x.pending...), Err: x.cleanupErr}
-	x.e.retention.leases[x.pkg.PackageDigest] = struct{}{}
+	x.e.retention.leases[x.pkg.PackageDigest]++
+	p.lease = &lease{owner: x.e.retention, digest: x.pkg.PackageDigest}
 	return p, nil
 }
 
