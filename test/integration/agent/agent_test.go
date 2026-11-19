@@ -529,6 +529,115 @@ var _ = Describe("Device Agent behavior", func() {
 
 	})
 
+	When("a fleet update is blocked by an expired one-time window", func() {
+		It("should apply the device configuration after a later window opens", func() {
+			const configPath = "/etc/policy-window"
+
+			fleetName := "policy-window-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			configProvider := func(contents string) *[]v1beta1.ConfigProviderSpec {
+				provider := v1beta1.ConfigProviderSpec{}
+				err := provider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
+					Name: "policy-window",
+					Inline: []v1beta1.FileSpec{{
+						Path:    configPath,
+						Content: contents,
+						Mode:    lo.ToPtr(0600),
+						User:    v1beta1.Username(strconv.Itoa(os.Getuid())),
+						Group:   strconv.Itoa(os.Getgid()),
+					}},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				providers := []v1beta1.ConfigProviderSpec{provider}
+				return &providers
+			}
+			oneTimeSchedule := func(start time.Time, duration string) *v1beta1.UpdateSchedule {
+				start = start.UTC().Truncate(time.Minute)
+				return &v1beta1.UpdateSchedule{
+					TimeZone: lo.ToPtr(v1beta1.TimeZone("UTC")),
+					OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+						Date:               start.Format("2006-01-02"),
+						At:                 start.Format("15:04"),
+						StartGraceDuration: v1beta1.Duration(duration),
+					}}),
+				}
+			}
+			policy := func(schedule *v1beta1.UpdateSchedule) *v1beta1.DeviceUpdatePolicySpec {
+				return &v1beta1.DeviceUpdatePolicySpec{
+					DownloadSchedule: schedule,
+					UpdateSchedule:   schedule,
+				}
+			}
+
+			fleet := v1beta1.Fleet{
+				ApiVersion: "flightctl.io/v1beta1",
+				Kind:       "Fleet",
+				Metadata:   v1beta1.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Spec: v1beta1.FleetSpec{
+					Selector: &v1beta1.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
+				},
+			}
+			fleet.Spec.Template.Metadata = &v1beta1.ObjectMeta{Labels: &map[string]string{"fleet": fleetName}}
+
+			_, status := h.Fleet.CreateFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleet)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated), status.Message)
+
+			approval := testutil.TestEnrollmentApproval()
+			approval.Labels = &map[string]string{"fleet": fleetName}
+			dev := enrollAndWaitForDevice(h, approval)
+			deviceName := lo.FromPtr(dev.Metadata.Name)
+
+			getRenderedVersion := func() string {
+				device, getStatus := h.Device.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
+				if device.Status == nil {
+					return ""
+				}
+				return device.Status.Config.RenderedVersion
+			}
+			Eventually(getRenderedVersion, TIMEOUT, POLLING).ShouldNot(BeEmpty())
+			baselineRenderedVersion := getRenderedVersion()
+
+			updatedFleet, getStatus := h.Fleet.GetFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, v1beta1.GetFleetParams{})
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
+			updatedFleet.Spec.Template.Spec.Config = configProvider("blocked")
+			updatedFleet.Spec.Template.Spec.UpdatePolicy = policy(oneTimeSchedule(time.Now().Add(-2*time.Hour), "1m"))
+
+			_, status = h.Fleet.ReplaceFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, *updatedFleet, true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+
+			Eventually(getRenderedVersion, TIMEOUT, POLLING).ShouldNot(Equal(baselineRenderedVersion))
+			expiredRenderedVersion := getRenderedVersion()
+
+			Consistently(func() bool {
+				_, err := os.Stat(filepath.Join(h.TestDirPath, configPath))
+				return os.IsNotExist(err)
+			}, "5s", POLLING).Should(BeTrue())
+
+			updatedFleet, getStatus = h.Fleet.GetFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, v1beta1.GetFleetParams{})
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
+			updatedFleet.Spec.Template.Spec.Config = configProvider("authorized")
+			updatedFleet.Spec.Template.Spec.UpdatePolicy = policy(oneTimeSchedule(time.Now().Add(-1*time.Minute), "1h"))
+
+			_, status = h.Fleet.ReplaceFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, *updatedFleet, true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+
+			// A policy-blocked device keeps the fleet rollout in progress, so the
+			// rollout controller defers the next fleet revision. Update the device
+			// spec directly to deliver that later desired revision and exercise the
+			// real rendered-spec and reconciliation path.
+			device, getStatus := h.Device.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Spec).ToNot(BeNil())
+			device.Spec.Config = configProvider("authorized")
+			device.Spec.UpdatePolicy = policy(oneTimeSchedule(time.Now().Add(-1*time.Minute), "1h"))
+			_, status = h.Device.ReplaceDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *device, nil, false, false)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			Eventually(getRenderedVersion, TIMEOUT, POLLING).ShouldNot(Equal(expiredRenderedVersion))
+
+			waitForFile(configPath, deviceName, h.TestDirPath, lo.ToPtr("authorized"), lo.ToPtr(0600))
+		})
+	})
+
 	Context("decommissioning", func() {
 		It("should delete all files in data directory during decommissioning", func() {
 			// Enroll the device first
