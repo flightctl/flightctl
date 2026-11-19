@@ -136,6 +136,9 @@ func New(
 	return ret
 }
 
+// errRetainedReferences marks a failure to read the retained image references.
+var errRetainedReferences = errors.New("reading retained image references")
+
 // retainedRefs returns the retained image references as root podman
 // references.
 func (m *manager) retainedRefs(ctx context.Context) ([]ImageRef, error) {
@@ -170,7 +173,8 @@ func (m *manager) resetPruneRequest() {
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
 // It preserves images required for current and desired operations.
 // Prune runs only when prune is marked pending (RequestPrune or ReloadConfig); on entry the pending flag
-// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures.
+// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures
+// and the retained image references could be read.
 func (m *manager) Prune(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -182,9 +186,9 @@ func (m *manager) Prune(ctx context.Context) error {
 	if since != nil && time.Since(*since) > PruneRetryTimeout {
 		m.resetPruneRequest()
 	}
-	var hasRemovalErrors bool
+	var hasRemovalErrors, retainedUnreadable bool
 	defer func() {
-		if !hasRemovalErrors {
+		if !hasRemovalErrors && !retainedUnreadable {
 			m.resetPruneRequest()
 		}
 	}()
@@ -201,6 +205,7 @@ func (m *manager) Prune(ctx context.Context) error {
 	eligible, err := m.determineEligibleImages(ctx)
 	if err != nil {
 		m.log.Warnf("Failed to determine eligible images: %v", err)
+		retainedUnreadable = errors.Is(err, errRetainedReferences)
 		// Don't block reconciliation on pruning errors
 		return nil
 	}
@@ -564,7 +569,7 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 
 	retained, err := m.retainedRefs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("reading retained image references: %w", err)
+		return nil, fmt.Errorf("%w: %w", errRetainedReferences, err)
 	}
 	currentRequiredRefs = append(currentRequiredRefs, retained...)
 
