@@ -109,6 +109,17 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(partial.Inspection.Revision).To(Equal(incomplete.Revision))
 		Expect(partial.Inspection.DiagnosticCodes).To(Equal(incomplete.DiagnosticCodes))
 		Expect(partial.References).To(HaveLen(1))
+
+		foreignID, err := inspections.RecordAttempt(ctx, otherOrg, attempt)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(foreignID).NotTo(Equal(completeID))
+		_, err = reopened.FindComplete(ctx, otherOrg, key)
+		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		foreignKey, err := appinspectionstore.KeyForInput(otherOrg, attempt.Input)
+		Expect(err).NotTo(HaveOccurred())
+		foreign, err := reopened.FindComplete(ctx, otherOrg, foreignKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(foreign.Inspection.ID).To(Equal(foreignID))
 	})
 
 	It("When completions race it should return one canonical result with one writer's reference set", func() {
@@ -167,6 +178,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(inspections.ListReferences(ctx, orgID, scope)).To(HaveLen(4))
 		scope.Path = nil
 		Expect(inspections.ListReferences(ctx, orgID, scope)).To(HaveLen(5))
+		Expect(inspections.ListReferences(ctx, orgID, appinspectionstore.ReferenceScope{})).Error().To(HaveOccurred())
 	})
 
 	createDevice := func(org uuid.UUID, name string) appinspectionstore.OwnerVersion {
@@ -259,6 +271,32 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		}
 	})
 
+	It("When a usage update contains invalid identities it should leave the current set intact", func() {
+		owner := createDevice(orgID, "device")
+		result, err := inspections.RecordAttempt(ctx, orgID, attempt)
+		Expect(err).NotTo(HaveOccurred())
+		binding := makeBinding("application", result)
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding})).To(BeTrue())
+
+		invalidOwner := owner
+		invalidOwner.Kind = "unknown"
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, invalidOwner, nil)).Error().To(HaveOccurred())
+		Expect(inspections.ListUsages(ctx, orgID, invalidOwner.Owner)).Error().To(HaveOccurred())
+		Expect(inspections.ListUsages(ctx, orgID, appinspectionstore.Owner{Kind: owner.Kind})).Error().To(HaveOccurred())
+		invalidOwner = owner
+		invalidOwner.CreatedAt = time.Time{}
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, invalidOwner, nil)).Error().To(HaveOccurred())
+		invalidBinding := makeBinding("unexpected configuration text", result)
+		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{invalidBinding})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).NotTo(ContainSubstring(invalidBinding.ApplicationContext))
+		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(usages).To(HaveLen(1))
+		Expect(usages[0].ApplicationContext).To(Equal(binding.ApplicationContext))
+		Expect(usages[0].InspectionID).To(Equal(result))
+	})
+
 	It("When owners are removed it should cascade usages and reject a deleted device incarnation", func() {
 		devices := devicestore.NewDeviceStore(db, flightlog.InitLogs())
 		fleets := fleetstore.NewFleetStore(db, flightlog.InitLogs())
@@ -335,6 +373,10 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(refs).To(HaveLen(2))
 		Expect([]uuid.UUID{refs[0].InspectionID, refs[1].InspectionID}).To(ConsistOf(live, boundary))
 		Expect(inspections.GetAttempt(ctx, otherOrg, foreign)).Error().NotTo(HaveOccurred())
+
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, nil)).To(BeTrue())
+		Expect(cleaner.Cleanup(ctx, orgID, now)).To(Equal(int64(1)))
+		Expect(inspections.GetAttempt(ctx, orgID, live)).Error().To(MatchError(flterrors.ErrResourceNotFound))
 	})
 
 	It("When cleanup and an application link overlap it should preserve a successful link and reject a reclaimed target", func() {
@@ -369,7 +411,13 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).NotTo(ContainSubstring("secret-value"))
 		invalid = attempt
+		invalid.State = "queued"
+		Expect(inspections.RecordAttempt(ctx, orgID, invalid)).Error().To(HaveOccurred())
+		invalid.State = model.InspectionComplete
+		invalid.DiagnosticCodes = []model.InspectionDiagnostic{model.InspectionParseFailed}
+		Expect(inspections.RecordAttempt(ctx, orgID, invalid)).Error().To(HaveOccurred())
 		invalid.State = model.InspectionFinishedIncomplete
+		invalid.DiagnosticCodes = nil
 		_, err = inspections.RecordAttempt(ctx, orgID, invalid)
 		Expect(err).To(HaveOccurred())
 		invalid.DiagnosticCodes = []model.InspectionDiagnostic{"secret-value"}
