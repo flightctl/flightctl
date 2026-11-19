@@ -376,9 +376,10 @@ func TestServerShutdownWaitsForLinksBeforeKVClose(t *testing.T) {
 	require.True(kv.isClosed())
 }
 
-func TestShutdownRefusesNewLinksWhileDraining(t *testing.T) {
-	// After WaitForLinks sets draining, new upgrade attempts must be refused
-	// to prevent an Add-after-Wait race on the WaitGroup.
+func TestShutdownRefusesNewLinksWithHTTP503(t *testing.T) {
+	// Regression: draining check was after Upgrade, allowing a WebSocket
+	// connection to be established and then immediately closed. The fix
+	// checks draining before Upgrade and returns HTTP 503.
 	require := require.New(t)
 
 	kv := newFakeKV()
@@ -389,7 +390,6 @@ func TestShutdownRefusesNewLinksWhileDraining(t *testing.T) {
 	defer serverCancel()
 	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-drain-test", log), serverCtx, log)
 
-	// Set draining manually.
 	handler.mu.Lock()
 	handler.draining = true
 	handler.mu.Unlock()
@@ -398,21 +398,75 @@ func TestShutdownRefusesNewLinksWhileDraining(t *testing.T) {
 	srv := httptest.NewServer(root)
 	defer srv.Close()
 
-	// Attempt to connect. The upgrade must fail or the connection must be
-	// closed immediately.
+	// A WebSocket dial during draining must fail with a non-101 HTTP status.
 	dialer := &websocket.Dialer{Subprotocols: []string{protocol.Subprotocol}}
-	conn, _, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
-	if err == nil {
-		// Connection established but should be immediately closed.
-		_, _, readErr := conn.ReadMessage()
-		require.Error(readErr, "connection must be closed during draining")
-		_ = conn.Close()
-	}
-	// Either dial failed or read failed — both are correct.
+	_, resp, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.Error(err, "dial must fail during draining")
+	require.NotNil(resp, "HTTP response must be present")
+	require.Equal(http.StatusServiceUnavailable, resp.StatusCode,
+		"server must refuse with 503 during draining, not upgrade and close")
+	_ = resp.Body.Close()
 
 	key := (&kvstore.AgentLinkDispatchKey{
 		OrgID:      uuid.MustParse(testOrg),
 		DeviceName: testDevice,
 	}).ComposeKey()
 	require.Nil(kv.get(key), "no registration must be created during draining")
+}
+
+func TestKeepAliveIsJoinedBeforeWaitForLinksReturns(t *testing.T) {
+	// Regression: KeepAlive goroutine was started with `go` and never
+	// joined. A Refresh could be in-flight when WaitForLinks unblocked
+	// and kvStore.Close ran. The fix gives KeepAlive its own context
+	// and joins it before Release and before activeLinks.Done.
+	require := require.New(t)
+
+	// Use a fakeKV that records whether a Refresh (ExpireIfMatch) ran
+	// after the main link closed, which would indicate a join gap.
+	kv := newFakeKV()
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	handler := newAgentLinkHandler(agentlink.NewRegistry(kv, "replica-join-test", log), serverCtx, log)
+
+	var root http.Handler = withAuthenticatedAgent(handler, testDevice, testOrg)
+	srv := httptest.NewServer(root)
+	defer srv.Close()
+
+	// Establish a link.
+	dialer := &websocket.Dialer{Subprotocols: []string{protocol.Subprotocol}}
+	conn, resp, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(err)
+	defer func() { _ = resp.Body.Close() }()
+
+	key := (&kvstore.AgentLinkDispatchKey{
+		OrgID:      uuid.MustParse(testOrg),
+		DeviceName: testDevice,
+	}).ComposeKey()
+	require.Eventually(func() bool { return kv.get(key) != nil }, 5*time.Second, 10*time.Millisecond)
+
+	// Close the peer side. serverCtx is still live, so KeepAlive would
+	// keep running if it used serverCtx directly. The fix gives it a
+	// separate cancellable context that runLink cancels on return.
+	require.NoError(conn.Close())
+
+	// WaitForLinks must return: the link closed, KeepAlive was joined,
+	// Release ran, and Done was called.
+	serverCancel()
+	waitDone := make(chan struct{})
+	go func() {
+		handler.WaitForLinks()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("WaitForLinks did not return; KeepAlive goroutine likely not joined")
+	}
+
+	// Registration must be released.
+	require.Nil(kv.get(key), "lease must be released before WaitForLinks returns")
+	require.False(kv.isClosed(), "KV must not be closed until after drain completes")
 }

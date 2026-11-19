@@ -120,37 +120,38 @@ func (h *agentLinkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := h.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		// Upgrade has already written the error response.
-		h.log.Debugf("Agent link: upgrade failed for device %s: %v", deviceName, err)
-		return
-	}
-
-	if conn.Subprotocol() != protocol.Subprotocol {
-		h.log.Errorf("Agent link: negotiated subprotocol %q is not %q", conn.Subprotocol(), protocol.Subprotocol)
-		_ = conn.Close()
-		return
-	}
-
-	// Refuse new links once the server is draining. This prevents an
-	// Add-after-Wait race on activeLinks.
+	// Reserve a tracking slot before upgrading so WaitForLinks cannot
+	// complete while this handler is about to start a link. The check and
+	// Add are under the same lock that WaitForLinks holds when it sets
+	// draining, preventing an Add-after-Wait race.
 	h.mu.Lock()
 	if h.draining {
 		h.mu.Unlock()
-		h.log.Infof("Agent link: refusing upgrade for %s: server is shutting down", deviceName)
-		_ = conn.Close()
+		http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
 		return
 	}
 	h.activeLinks.Add(1)
 	h.mu.Unlock()
 
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.activeLinks.Done()
+		h.log.Debugf("Agent link: upgrade failed for device %s: %v", deviceName, err)
+		return
+	}
+
+	if conn.Subprotocol() != protocol.Subprotocol {
+		h.activeLinks.Done()
+		h.log.Errorf("Agent link: negotiated subprotocol %q is not %q", conn.Subprotocol(), protocol.Subprotocol)
+		_ = conn.Close()
+		return
+	}
+
 	// Go cancels a request's context when the handler returns, hijacked
 	// connections included. The verified device and organization are
 	// therefore copied here. The link runs under the server lifetime so
 	// server shutdown cancels active links before their KV dependency is
-	// closed. activeLinks.Done runs after runLink returns and its deferred
-	// lease release completes.
+	// closed.
 	linkCtx, cancel := context.WithCancel(h.serverCtx)
 	defer cancel()
 	defer h.activeLinks.Done()
@@ -173,16 +174,15 @@ func (h *agentLinkHandler) runLink(ctx context.Context, conn *websocket.Conn, de
 	}
 	logger.Infof("Agent link established")
 
-	go lease.KeepAlive(ctx)
-	defer func() {
-		// Releasing compares the stored value, so a link that has already
-		// been superseded removes nothing and cannot delete its
-		// replacement's registration.
-		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(ctx), agentlink.DispatchRefreshInterval)
-		defer releaseCancel()
-		if err := lease.Release(releaseCtx); err != nil {
-			logger.Warnf("Agent link: failed to release registration: %v", err)
-		}
+	// KeepAlive runs under its own cancellable context so this function
+	// can stop and join it on every exit path — including normal peer
+	// disconnect where the parent ctx is still live. Cancelling kaCtx
+	// does not cancel the link's work; it only stops the refresh loop.
+	kaCtx, kaCancel := context.WithCancel(ctx)
+	kaDone := make(chan struct{})
+	go func() {
+		defer close(kaDone)
+		lease.KeepAlive(kaCtx)
 	}()
 
 	err = link.Serve(ctx, conn, link.Config{
@@ -194,6 +194,21 @@ func (h *agentLinkHandler) runLink(ctx context.Context, conn *websocket.Conn, de
 		Log:      logger,
 	})
 	logger.Infof("Agent link closed: %v", err)
+
+	// Stop and join the KeepAlive goroutine before releasing the
+	// registration, so no Refresh is in flight when Release runs or
+	// when the caller's activeLinks.Done permits KV closure.
+	kaCancel()
+	<-kaDone
+
+	// Releasing compares the stored value, so a link that has already been
+	// superseded removes nothing and cannot delete its replacement's
+	// registration.
+	releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(ctx), agentlink.DispatchRefreshInterval)
+	defer releaseCancel()
+	if err := lease.Release(releaseCtx); err != nil {
+		logger.Warnf("Agent link: failed to release registration: %v", err)
+	}
 }
 
 // offersSubprotocol reports whether the handshake offered a token, using the
