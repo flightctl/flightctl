@@ -235,7 +235,10 @@ func readRegistry(fw fileio.Anchor) ([]Pin, error) {
 		}
 		return nil, fmt.Errorf("read retention registry: %w", err)
 	}
-	var doc registryDocument
+	var doc struct {
+		APIVersion string `json:"apiVersion"`
+		Pins       *[]Pin `json:"pins"`
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
@@ -247,9 +250,12 @@ func readRegistry(fw fileio.Anchor) ([]Pin, error) {
 	if doc.APIVersion != registryAPIVersion {
 		return nil, fmt.Errorf("unsupported retention registry version %q", doc.APIVersion)
 	}
+	if doc.Pins == nil {
+		return nil, errors.New("retention registry has no pin list")
+	}
 	byDigest := map[string]Pin{}
 	byAttempt := map[string]bool{}
-	for _, p := range doc.Pins {
+	for _, p := range *doc.Pins {
 		if err := validatePin(p); err != nil {
 			return nil, fmt.Errorf("retention registry: %w", err)
 		}
@@ -263,7 +269,7 @@ func readRegistry(fw fileio.Anchor) ([]Pin, error) {
 		}
 		byDigest[p.PackageDigest] = p
 	}
-	return doc.Pins, nil
+	return *doc.Pins, nil
 }
 
 func sameRetainedPayload(a, b Pin) bool {
@@ -284,12 +290,15 @@ func writeRegistry(fw fileio.Anchor, pins []Pin) error {
 	if err != nil {
 		return err
 	}
+	if len(data) > maxRegistryBytes {
+		return fmt.Errorf("retention registry of %d bytes would exceed the %d byte read limit", len(data), maxRegistryBytes)
+	}
 	return fw.ReplaceFileDurable(registryFileName, data, 0o600)
 }
 
 // Pin durably retains a published payload for an attempt and clears its
 // lease. The version directory must exist; pinning the same attempt and role
-// again is a no-op.
+// again only makes the registry durable before succeeding.
 func (r *Retention) Pin(p Pin) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -319,6 +328,9 @@ func (r *Retention) Pin(p Pin) error {
 			if q != p {
 				return fmt.Errorf("attempt %q already pins a different %s payload: %w", p.AttemptID, p.Role, ErrPinConflict)
 			}
+			if err := c.firmware.Sync(); err != nil {
+				return fmt.Errorf("persist retention registry: %w", err)
+			}
 			delete(r.leases, p.PackageDigest)
 			return nil
 		}
@@ -333,8 +345,8 @@ func (r *Retention) Pin(p Pin) error {
 	return nil
 }
 
-// Release removes every pin of an attempt. Releasing an unknown attempt is a
-// no-op.
+// Release removes every pin of an attempt. Releasing an unknown attempt only
+// makes the registry durable.
 func (r *Retention) Release(attemptID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -354,6 +366,11 @@ func (r *Retention) Release(attemptID string) error {
 		}
 	}
 	if len(kept) == len(pins) {
+		if c.firmware != nil {
+			if err := c.firmware.Sync(); err != nil {
+				return fmt.Errorf("persist retention registry: %w", err)
+			}
+		}
 		return nil
 	}
 	if err := writeRegistry(c.firmware, kept); err != nil {

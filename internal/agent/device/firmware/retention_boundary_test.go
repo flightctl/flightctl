@@ -709,3 +709,138 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		require.NoError(statErr, "verification never removes the retained payload")
 	})
 }
+
+// registryAPIVersion reads the API version of the registry written by a
+// successful Pin.
+func registryAPIVersion(t *testing.T, f *payloadFixture) string {
+	t.Helper()
+	data, err := os.ReadFile(registryPath(f))
+	require.NoError(t, err)
+	var doc struct {
+		APIVersion string `json:"apiVersion"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	return doc.APIVersion
+}
+
+func encodedRegistry(t *testing.T, version string, pins []firmware.Pin) []byte {
+	t.Helper()
+	data, err := json.Marshal(struct {
+		APIVersion string         `json:"apiVersion"`
+		Pins       []firmware.Pin `json:"pins"`
+	}{version, pins})
+	require.NoError(t, err)
+	return data
+}
+
+func TestRetentionRegistrySizeBound(t *testing.T) {
+	const readLimit = 1 << 20
+	testCases := []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "When the updated registry stays below the read limit it should persist the pin", size: readLimit - 1},
+		{name: "When the updated registry is exactly the read limit it should persist the pin", size: readLimit},
+		{name: "When the updated registry would exceed the read limit it should refuse the pin and keep the registry", size: readLimit + 1, wantErr: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			f := newPayloadFixture(t, defaultPayload(t))
+			pin := publishVersion(t, f, 'a')
+			require.NoError(newRetention(f).Pin(pin))
+			version := registryAPIVersion(t, f)
+			next := pin
+			next.AttemptID = "next"
+			sizeWith := func(fill []firmware.Pin) int {
+				return len(encodedRegistry(t, version, append(append(append([]firmware.Pin{}, fill...), pin), next)))
+			}
+			filler := func(i int) firmware.Pin {
+				p := pin
+				p.AttemptID = fmt.Sprintf("fill-%07d", i)
+				return p
+			}
+			perPin := sizeWith([]firmware.Pin{filler(0)}) - sizeWith(nil)
+			fill := make([]firmware.Pin, 0, readLimit/perPin)
+			for i := 0; sizeWith(fill)+perPin <= tc.size; i++ {
+				fill = append(fill, filler(i))
+			}
+			gap := tc.size - sizeWith(fill)
+			for i := 0; gap > 0; i++ {
+				k := min(gap, 200)
+				fill[i].AttemptID += strings.Repeat("x", k)
+				gap -= k
+			}
+			require.Equal(tc.size, sizeWith(fill))
+			prior := encodedRegistry(t, version, append(append([]firmware.Pin{}, fill...), pin))
+			require.NoError(os.WriteFile(registryPath(f), prior, 0o600))
+
+			err := newRetention(f).Pin(next)
+			after, readErr := os.ReadFile(registryPath(f))
+			require.NoError(readErr)
+			if tc.wantErr {
+				require.Error(err)
+				require.Equal(prior, after, "a refused update keeps the prior registry")
+				pins, err := newRetention(f).Pins()
+				require.NoError(err, "the prior registry stays readable")
+				require.Len(pins, len(fill)+1)
+				return
+			}
+			require.NoError(err)
+			require.Len(after, tc.size)
+			pins, err := newRetention(f).Pins()
+			require.NoError(err)
+			require.Len(pins, len(fill)+2)
+		})
+	}
+}
+
+func TestRetentionNoOpRetriesAreDurable(t *testing.T) {
+	failFirmwareSync := func(synced *int, err error) *hooks {
+		return &hooks{sync: func(dir string) error {
+			if strings.HasSuffix(dir, "/firmware") {
+				*synced++
+				return err
+			}
+			return nil
+		}}
+	}
+	t.Run("When an identical pin is retried it should sync the registry before reporting success", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		require.NoError(newRetention(f).Pin(pin))
+		synced := 0
+		require.NoError(evidenceRetention(f, failFirmwareSync(&synced, nil)).Pin(pin))
+		require.Equal(1, synced)
+	})
+	t.Run("When syncing the registry fails on an identical pin retry it should report the failure", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		require.NoError(newRetention(f).Pin(pin))
+		synced := 0
+		err := evidenceRetention(f, failFirmwareSync(&synced, unix.EIO)).Pin(pin)
+		require.ErrorIs(err, unix.EIO)
+		require.Equal(1, synced)
+	})
+	t.Run("When a release finds nothing to remove it should sync the registry before reporting success", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		require.NoError(newRetention(f).Pin(pin))
+		synced := 0
+		require.NoError(evidenceRetention(f, failFirmwareSync(&synced, nil)).Release("other-attempt"))
+		require.Equal(1, synced)
+	})
+	t.Run("When syncing the registry fails on a release that finds nothing to remove it should report the failure", func(t *testing.T) {
+		require := require.New(t)
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		require.NoError(newRetention(f).Pin(pin))
+		synced := 0
+		err := evidenceRetention(f, failFirmwareSync(&synced, unix.EIO)).Release("other-attempt")
+		require.ErrorIs(err, unix.EIO)
+	})
+}
