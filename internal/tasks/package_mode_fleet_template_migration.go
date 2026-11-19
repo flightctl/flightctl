@@ -29,6 +29,10 @@ const (
 	// carried in the checkpoint for retry, so one organization's checkpoint
 	// cannot grow without limit.
 	maxPackageModeTemplateMigrationRetries = 256
+	// packageModeTemplateMigrationPersistTimeout bounds how long a checkpoint
+	// write may take after the parent context is cancelled. This follows the
+	// pattern in internal/delta_worker/tasks/generate/handler.go.
+	packageModeTemplateMigrationPersistTimeout = 5 * time.Second
 )
 
 // Migration lifecycle phases.
@@ -73,6 +77,20 @@ type packageModeMigrationCheckpoint struct {
 	Deferred []deferredFleet `json:"deferred,omitempty"`
 	// Transformed counts fleets rewritten across the whole run.
 	Transformed int `json:"transformed,omitempty"`
+	// Pending holds the fleet names from an incomplete page that were listed but
+	// not yet processed. When non-empty the cursor still points at the page
+	// start and the pending identities are resumed via GetFleet on the next
+	// poll before any new listing starts. Backward-compatible: an older reader
+	// ignoring this field replays the whole page from the cursor.
+	Pending []string `json:"pending,omitempty"`
+	// NextCursor is the server-provided continuation token for the page after
+	// the one whose items are in Pending. It is applied once all Pending items
+	// are completed.
+	NextCursor *string `json:"next_cursor,omitempty"`
+	// ScanFirst controls whether scan or retry work runs first on the next
+	// poll, ensuring fair alternation so neither phase can permanently starve
+	// the other. Backward-compatible: defaults to false (retries first).
+	ScanFirst bool `json:"scan_first,omitempty"`
 }
 
 // PackageModeFleetTemplateMigrationTask rewrites fleet templates whose OS image
@@ -88,6 +106,7 @@ type PackageModeFleetTemplateMigrationTask struct {
 	fleetSvc    fleetservice.Service
 	checkpoints checkpointservice.Service
 	config      PackageModeTemplateMigrationConfig
+	now         func() time.Time // defaults to time.Now; test-injectable
 }
 
 func NewPackageModeFleetTemplateMigrationTask(
@@ -116,6 +135,7 @@ func NewPackageModeFleetTemplateMigrationTask(
 		fleetSvc:    fleetSvc,
 		checkpoints: checkpoints,
 		config:      config,
+		now:         time.Now,
 	}, nil
 }
 
@@ -136,19 +156,31 @@ func (t *PackageModeFleetTemplateMigrationTask) poll(ctx context.Context, orgID 
 	}
 	checkpoint.Phase = packageModeMigrationRunning
 
-	startedAt := time.Now()
+	startedAt := t.now()
 	run := &migrationRun{checkpoint: checkpoint}
 
-	// Fleets owing a retry are reattempted first and with a fresh read, so a
-	// conflict is resolved on the next poll regardless of where the previous
-	// poll's budget stopped.
-	if err := t.drainRetries(ctx, orgID, run, startedAt); err != nil {
-		return t.persist(ctx, orgID, run, err)
+	// Fair scheduling: alternate which phase runs first so neither retries
+	// nor scanning can permanently starve the other. The preference is
+	// flipped before persisting regardless of error so a failing phase
+	// cannot hold the preference permanently.
+	var firstErr, secondErr error
+	if checkpoint.ScanFirst {
+		firstErr = t.scanPages(ctx, orgID, run, startedAt)
+		if firstErr == nil {
+			secondErr = t.drainRetries(ctx, orgID, run, startedAt)
+		}
+		run.checkpoint.ScanFirst = false
+	} else {
+		firstErr = t.drainRetries(ctx, orgID, run, startedAt)
+		if firstErr == nil {
+			secondErr = t.scanPages(ctx, orgID, run, startedAt)
+		}
+		run.checkpoint.ScanFirst = true
 	}
-	if err := t.scanPages(ctx, orgID, run, startedAt); err != nil {
-		return t.persist(ctx, orgID, run, err)
+	if firstErr != nil {
+		return t.persist(ctx, orgID, run, firstErr)
 	}
-	return t.persist(ctx, orgID, run, nil)
+	return t.persist(ctx, orgID, run, secondErr)
 }
 
 // migrationRun is the mutable state of one poll.
@@ -167,6 +199,9 @@ type migrationRun struct {
 	// failed is true when any fleet could not be completed in this poll.
 	failed                       bool
 	processed, skipped, deferred int
+	// attemptedRetries tracks names attempted this poll so a re-queued failure
+	// is not retried again in the same poll (bounded per-poll work).
+	attemptedRetries map[string]bool
 }
 
 // budgetExceeded reports whether this poll must stop doing more work.
@@ -174,23 +209,36 @@ func (t *PackageModeFleetTemplateMigrationTask) budgetExceeded(run *migrationRun
 	if run.writes >= t.config.BatchSize {
 		return true
 	}
-	return time.Since(startedAt) >= t.config.TimeBudget
+	return t.now().Sub(startedAt) >= t.config.TimeBudget
 }
 
 func (t *PackageModeFleetTemplateMigrationTask) drainRetries(ctx context.Context, orgID uuid.UUID, run *migrationRun, startedAt time.Time) error {
 	pending := run.checkpoint.Retry
 	run.checkpoint.Retry = nil
+	if run.attemptedRetries == nil {
+		run.attemptedRetries = make(map[string]bool)
+	}
 	for i, name := range pending {
 		if err := ctx.Err(); err != nil {
-			// Whatever is left still owes a retry; keep it durable.
-			run.checkpoint.Retry = append(run.checkpoint.Retry, pending[i:]...)
+			// Place unattempted tail BEFORE already-requeued failures so
+			// healthy entries get a turn on the next poll instead of being
+			// permanently stuck behind slow failures.
+			run.checkpoint.Retry = append(pending[i:], run.checkpoint.Retry...)
 			return err
 		}
 		if t.budgetExceeded(run, startedAt) {
 			run.budgetStopped = true
-			run.checkpoint.Retry = append(run.checkpoint.Retry, pending[i:]...)
+			run.checkpoint.Retry = append(pending[i:], run.checkpoint.Retry...)
 			return nil
 		}
+		// Skip names already attempted this poll so a re-queued failure
+		// cannot loop indefinitely when the test clock is frozen.
+		if run.attemptedRetries[name] {
+			t.rememberRetry(run, name)
+			continue
+		}
+		run.attemptedRetries[name] = true
+
 		fleet, status := t.fleetSvc.GetFleet(ctx, orgID, name, domain.GetFleetParams{})
 		if status.Code == http.StatusNotFound {
 			// The fleet is gone, so there is nothing left to migrate for it.
@@ -207,6 +255,14 @@ func (t *PackageModeFleetTemplateMigrationTask) drainRetries(ctx context.Context
 }
 
 func (t *PackageModeFleetTemplateMigrationTask) scanPages(ctx context.Context, orgID uuid.UUID, run *migrationRun, startedAt time.Time) error {
+	// Resume a pending page from a previous poll before listing anything new.
+	if len(run.checkpoint.Pending) > 0 {
+		done, err := t.completePendingPage(ctx, orgID, run, startedAt)
+		if err != nil || !done || run.listingExhausted {
+			return err
+		}
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -224,34 +280,79 @@ func (t *PackageModeFleetTemplateMigrationTask) scanPages(ctx context.Context, o
 			return fmt.Errorf("fleet listing returned %d: %s", status.Code, status.Message)
 		}
 
-		completedPage := true
+		// Collect named fleet items, skipping entries without a name.
+		type namedFleet struct {
+			name  string
+			fleet *domain.Fleet
+		}
+		named := make([]namedFleet, 0, len(fleets.Items))
 		for i := range fleets.Items {
+			if fleets.Items[i].Metadata.Name != nil {
+				named = append(named, namedFleet{
+					name:  *fleets.Items[i].Metadata.Name,
+					fleet: &fleets.Items[i],
+				})
+			}
+		}
+		next := fleets.Metadata.Continue
+
+		// If the listing itself consumed the budget, save the page as
+		// pending rather than processing any fleet. The identities will
+		// be resumed via GetFleet on a later poll.
+		if t.budgetExceeded(run, startedAt) {
+			if len(named) > 0 {
+				pending := make([]string, len(named))
+				for i, nf := range named {
+					pending[i] = nf.name
+				}
+				run.checkpoint.Pending = pending
+				run.checkpoint.NextCursor = cloneString(next)
+			} else if next == nil {
+				run.listingExhausted = true
+				run.checkpoint.Cursor = nil
+				return nil
+			} else {
+				// An empty page with an advancing continuation: advance
+				// the cursor so the same empty page is not re-listed
+				// forever when the listing always consumes the budget.
+				if pageStart != nil && *next == *pageStart {
+					return errors.New("fleet listing did not advance its cursor")
+				}
+				run.checkpoint.Cursor = cloneString(next)
+			}
+			run.budgetStopped = true
+			return nil
+		}
+
+		// Process items one at a time, checking the budget BEFORE each.
+		completedPage := true
+		for i, nf := range named {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 			if t.budgetExceeded(run, startedAt) {
-				// Stop inside the page without advancing the cursor, so the
-				// remainder is listed again next poll instead of being skipped.
+				// Save remaining names as pending for the next poll.
+				remaining := make([]string, len(named)-i)
+				for j, r := range named[i:] {
+					remaining[j] = r.name
+				}
+				run.checkpoint.Pending = remaining
+				run.checkpoint.NextCursor = cloneString(next)
 				run.budgetStopped = true
 				completedPage = false
 				break
 			}
-			t.applyToFleet(ctx, orgID, run, &fleets.Items[i])
+			t.applyToFleet(ctx, orgID, run, nf.fleet)
 		}
 		if !completedPage {
 			return nil
 		}
 
 		if run.retryOverflow {
-			// A fleet owing a retry could not be recorded by name, so the only
-			// way it is seen again is a replay of the listing. End the poll with
-			// the cursor rewound; the listing is not exhausted and a fleet has
-			// failed, so this poll cannot be reported as complete either.
 			run.checkpoint.Cursor = nil
 			return nil
 		}
 
-		next := fleets.Metadata.Continue
 		if next == nil {
 			run.listingExhausted = true
 			run.checkpoint.Cursor = nil
@@ -262,6 +363,79 @@ func (t *PackageModeFleetTemplateMigrationTask) scanPages(ctx context.Context, o
 		}
 		run.checkpoint.Cursor = cloneString(next)
 	}
+}
+
+// completePendingPage resumes and finishes a durably saved pending page. It
+// returns (true, nil) when the page is fully drained and the cursor has been
+// advanced, (false, nil) when pending work remains, or (false, err) on error.
+func (t *PackageModeFleetTemplateMigrationTask) completePendingPage(ctx context.Context, orgID uuid.UUID, run *migrationRun, startedAt time.Time) (bool, error) {
+	if err := t.resumePending(ctx, orgID, run, startedAt); err != nil {
+		return false, err
+	}
+	if len(run.checkpoint.Pending) > 0 {
+		return false, nil
+	}
+	next := run.checkpoint.NextCursor
+	run.checkpoint.NextCursor = nil
+	// Guard: reject a continuation token that did not advance.
+	if next != nil && run.checkpoint.Cursor != nil && *next == *run.checkpoint.Cursor {
+		return false, errors.New("fleet listing did not advance its cursor")
+	}
+	run.checkpoint.Cursor = cloneString(next)
+	if run.checkpoint.Cursor == nil && !run.failed && !run.retryOverflow {
+		run.listingExhausted = true
+	}
+	return true, nil
+}
+
+// resumePending processes durably saved fleet identities from an incomplete
+// page, using GetFleet to fetch each one freshly. A 404 means the fleet was
+// deleted and can be forgotten; other errors move the name to the retry list.
+func (t *PackageModeFleetTemplateMigrationTask) resumePending(ctx context.Context, orgID uuid.UUID, run *migrationRun, startedAt time.Time) error {
+	pending := run.checkpoint.Pending
+	var remaining []string
+	for i, name := range pending {
+		if err := ctx.Err(); err != nil {
+			remaining = append(remaining, pending[i:]...)
+			run.checkpoint.Pending = remaining
+			return err
+		}
+		if t.budgetExceeded(run, startedAt) {
+			remaining = append(remaining, pending[i:]...)
+			run.budgetStopped = true
+			break
+		}
+		fleet, status := t.fleetSvc.GetFleet(ctx, orgID, name, domain.GetFleetParams{})
+		if status.Code == http.StatusNotFound {
+			continue
+		}
+		if status.Code >= http.StatusBadRequest {
+			run.failed = true
+			if !t.queueRetryOrKeepPending(run, name) {
+				remaining = append(remaining, name)
+			}
+			continue
+		}
+		t.applyToFleet(ctx, orgID, run, fleet)
+	}
+	run.checkpoint.Pending = remaining
+	return nil
+}
+
+// queueRetryOrKeepPending tries to move a failed name to the retry list.
+// If the retry list is full, it returns false so the caller can keep the
+// name in the pending list instead, preserving it without advancing past it.
+func (t *PackageModeFleetTemplateMigrationTask) queueRetryOrKeepPending(run *migrationRun, name string) bool {
+	for _, existing := range run.checkpoint.Retry {
+		if existing == name {
+			return true // already in retry
+		}
+	}
+	if len(run.checkpoint.Retry) >= maxPackageModeTemplateMigrationRetries {
+		return false
+	}
+	run.checkpoint.Retry = append(run.checkpoint.Retry, name)
+	return true
 }
 
 // applyToFleet advances one fleet. Until classification and rewriting are in
@@ -286,22 +460,39 @@ func (t *PackageModeFleetTemplateMigrationTask) rememberRetry(run *migrationRun,
 	if len(run.checkpoint.Retry) >= maxPackageModeTemplateMigrationRetries {
 		run.retryOverflow = true
 		run.checkpoint.Cursor = nil
+		// Invalidate any cached page so the full replay from cursor=nil
+		// cannot be bypassed by a stale Pending/NextCursor.
+		run.checkpoint.Pending = nil
+		run.checkpoint.NextCursor = nil
 		return
 	}
 	run.checkpoint.Retry = append(run.checkpoint.Retry, name)
 }
 
 func (t *PackageModeFleetTemplateMigrationTask) persist(ctx context.Context, orgID uuid.UUID, run *migrationRun, cause error) error {
+	// When retry overflow triggered, normalize the checkpoint so that
+	// caller-local bookkeeping (remaining/next assignments after
+	// rememberRetry returned) cannot restore stale Pending/NextCursor and
+	// bypass the intended full replay from cursor=nil.
+	if run.retryOverflow {
+		run.checkpoint.Cursor = nil
+		run.checkpoint.Pending = nil
+		run.checkpoint.NextCursor = nil
+	}
+
 	// Completion requires that the listing ran out, nothing is waiting for a
-	// retry, no fleet failed, and no bound cut the poll short. Any of those
-	// means eligible work may remain.
-	if run.listingExhausted && len(run.checkpoint.Retry) == 0 && !run.failed && !run.budgetStopped && cause == nil {
+	// retry or pending processing, no fleet failed, no retry overflow, and
+	// no bound cut the poll short. Any of those means eligible work may remain.
+	if run.listingExhausted &&
+		len(run.checkpoint.Retry) == 0 &&
+		len(run.checkpoint.Pending) == 0 &&
+		!run.failed && !run.budgetStopped && !run.retryOverflow && cause == nil {
 		run.checkpoint.Phase = packageModeMigrationComplete
 		run.checkpoint.Cursor = nil
 	}
 	if err := t.persistCheckpoint(ctx, orgID, run.checkpoint); err != nil {
 		if cause != nil {
-			return cause
+			return errors.Join(cause, fmt.Errorf("checkpoint write also failed: %w", err))
 		}
 		return err
 	}
@@ -355,7 +546,13 @@ func (t *PackageModeFleetTemplateMigrationTask) persistCheckpoint(ctx context.Co
 	if err != nil {
 		return err
 	}
-	if status := t.checkpoints.SetCheckpoint(ctx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID), encoded); status.Code >= http.StatusBadRequest {
+	// Use a finalization context that is independent of parent cancellation
+	// but bounded by a timeout, so a cancelled poll context does not prevent
+	// persisting retry rotation and other durable progress. This follows the
+	// pattern in internal/delta_worker/tasks/generate/handler.go.
+	writeCtx, writeCancel := context.WithTimeout(context.WithoutCancel(ctx), packageModeTemplateMigrationPersistTimeout)
+	defer writeCancel()
+	if status := t.checkpoints.SetCheckpoint(writeCtx, packageModeTemplateMigrationConsumer, packageModeMigrationCheckpointKey(orgID), encoded); status.Code >= http.StatusBadRequest {
 		return fmt.Errorf("writing migration checkpoint returned %d: %s", status.Code, status.Message)
 	}
 	return nil
