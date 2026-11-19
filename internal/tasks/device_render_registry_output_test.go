@@ -165,6 +165,82 @@ func TestRegistryRenderRuntimePolicy(t *testing.T) {
 	require.NotEmpty(t, result.ConfigResources, "the server cannot establish that the configured CRI reads containers policy")
 }
 
+func TestRegistryRenderAuthoredContextIsolation(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		suppressed registryconfig.Consumer
+	}{
+		{"When OS auth is authored it should retain workload and Helm auth", "/etc/ostree/auth.json", registryconfig.ConsumerOS},
+		{"When Helm auth is authored it should retain workload and OS auth", "/root/.config/helm/registry/config.json", registryconfig.ConsumerHelmChart},
+		{"When root containers auth is authored it should retain named workload and OS auth", "/root/.config/containers/auth.json", registryconfig.ConsumerHelmChart},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			org := uuid.New()
+			ca := registryTestCA(t)
+			logic := registryRenderLogic(t, org, func(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+				require.Len(t, needs, 3)
+				result := registryComposition(needs)
+				result.Endpoints[0].CABundle = ca
+				for i, need := range needs {
+					require.Equal(t, need.Consumer == tc.suppressed, need.SuppressAuthentication)
+					var auth api.OciAuth
+					require.NoError(t, auth.FromDockerAuth(api.DockerAuth{AuthType: "docker", Username: string(need.Consumer), Password: "fixture-secret"}))
+					var supplier domain.Repository
+					require.NoError(t, supplier.Spec.FromOciRepoSpec(api.OciRepoSpec{Type: api.OciRepoSpecTypeOci, Registry: "quay.io", OciAuth: &auth}))
+					result.Selections[i].Supplier = &supplier
+					result.Selections[i].Outcome = registryconfig.OutcomeSelected
+				}
+				return result, nil
+			})
+			spec := registrySpec(t, `{"os":{"image":"quay.io/team/os:v1"},"applications":[{"name":"workload","appType":"container","runAs":"alice","image":"quay.io/team/app:v1"},{"name":"chart","appType":"helm","image":"oci://quay.io/team/chart:1"}]}`)
+			var provider domain.ConfigProviderSpec
+			require.NoError(t, provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Inline: []api.FileSpec{{Path: tc.path, Content: "{}"}, {Path: "/etc/containers/registries.conf", Content: ""}}}))
+			spec.Config = &[]domain.ConfigProviderSpec{provider}
+			rendered, err := logic.RenderSpec(context.Background(), org, spec)
+			require.NoError(t, err)
+			var resources []api.ConfigResource
+			require.NoError(t, json.Unmarshal(rendered.ConfigResources, &resources))
+			require.Len(t, resources, 1)
+			resource, err := resources[0].AsRegistryConfigResource()
+			require.NoError(t, err)
+			require.Equal(t, base64.StdEncoding.EncodeToString([]byte(ca)), lo.FromPtr(resource.CaCrt))
+			require.Len(t, resource.Access, 3)
+			for _, access := range resource.Access {
+				require.Len(t, access.Consumers, 1)
+				consumer := access.Consumers[0]
+				if registryconfig.Consumer(consumer.Type) == tc.suppressed {
+					require.Nil(t, access.Authentication)
+				} else {
+					require.NotNil(t, access.Authentication)
+					auth, err := access.Authentication.AsDockerAuth()
+					require.NoError(t, err)
+					require.Equal(t, string(consumer.Type), auth.Username)
+				}
+				if consumer.Type == api.Container {
+					require.Equal(t, api.Username("alice"), lo.FromPtr(consumer.User))
+				} else {
+					require.Equal(t, api.RootUsername, lo.FromPtr(consumer.User))
+				}
+			}
+		})
+	}
+}
+
+func TestRegistryRenderSpecForDevice(t *testing.T) {
+	org := uuid.New()
+	called := false
+	logic := registryRenderLogic(t, org, func(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+		called = true
+		require.Equal(t, []registryconfig.PullNeed{{Reference: "quay.io/virt/launcher:v1", Consumer: registryconfig.ConsumerContainer, User: "vmuser", Destination: "containers:vmuser"}}, needs)
+		return registryComposition(needs), nil
+	}).WithVmConverter(stubbedConverter(map[string]string{"launcher.container": "[Container]\nImage=quay.io/virt/launcher:v1\n"}))
+	spec := registrySpec(t, `{"applications":[{"name":"vm","appType":"vm","runAs":"vmuser","inline":[{"path":"vm.yaml","content":"kind: VirtualMachine"}]}]}`)
+	rendered, err := logic.RenderSpecForDevice(context.Background(), org, &domain.Device{Status: lo.ToPtr(api.NewDeviceStatus())}, spec)
+	require.NoError(t, err)
+	require.True(t, called)
+	require.NotEmpty(t, rendered.ConfigResources)
+}
+
 func TestRegistryRenderSnapshotFailure(t *testing.T) {
 	org := uuid.New()
 	want := errors.New("invalid registry snapshot")
