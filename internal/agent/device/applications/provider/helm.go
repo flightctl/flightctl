@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/chartutil"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
@@ -22,10 +23,7 @@ const (
 	helmValuesPath     = "/var/lib/flightctl/helm/values"
 	helmValuesFileName = "flightctl-values.yaml"
 
-	helmRegistryConfig = "/root/.config/helm/registry/config.json"
-	helmRepoConfig     = "/root/.config/helm/repositories.yaml"
-	criConfigPath      = "/etc/crictl.yaml"
-	helmPullAuthPath   = "/root/.config/containers/auth.json"
+	criConfigPath = "/etc/crictl.yaml"
 
 	dryRunTimeout = 90 * time.Second
 )
@@ -38,11 +36,11 @@ func helmPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOp
 	}
 	return resolver.Options(
 		dependency.PullConfigSpec{
-			Paths:    []string{helmRegistryConfig, helmPullAuthPath},
+			Paths:    []string{consts.HelmRegistryConfigPath, consts.RootContainersAuthPath},
 			OptionFn: client.WithPullSecret,
 		},
 		dependency.PullConfigSpec{
-			Paths:    []string{helmRepoConfig},
+			Paths:    []string{consts.HelmRepositoryConfigPath},
 			OptionFn: client.WithRepositoryConfig,
 		},
 	)
@@ -60,7 +58,7 @@ func CRIImageOptions(resolver dependency.PullConfigResolver) dependency.ClientOp
 			OptionFn: client.WithCRIConfig,
 		},
 		dependency.PullConfigSpec{
-			Paths:    []string{helmPullAuthPath},
+			Paths:    []string{consts.RootContainersAuthPath},
 			OptionFn: client.WithPullSecret,
 		},
 	)

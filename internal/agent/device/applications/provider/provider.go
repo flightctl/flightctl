@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/chartutil"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -110,7 +111,7 @@ func pullAuthPathForUser(username v1beta1.Username) string {
 	// If we have an error it is because the user doesn't exist or the homedir isn't set, in which
 	// case there is no pull auth file that could be present so just ignore it.
 	if err == nil && len(u.HomeDir) > 0 {
-		return filepath.Join(u.HomeDir, ".config/containers/auth.json")
+		return filepath.Join(u.HomeDir, consts.ContainersAuthRelativePath)
 	}
 	return ""
 }

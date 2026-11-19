@@ -24,13 +24,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	defaultRenderTimeout = 5 * time.Minute
-	helmRegistryConfig   = "/root/.config/helm/registry/config.json"
-	containerAuthConfig  = "/root/.config/containers/auth.json"
-	helmRepositoryConfig = "/root/.config/helm/repositories.yaml"
-	registryCertsDir     = "/etc/containers/certs.d"
-)
+const defaultRenderTimeout = 5 * time.Minute
 
 // Renderer renders a target Helm chart locally and extracts the image
 // references from its Kubernetes workloads.
