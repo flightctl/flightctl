@@ -621,14 +621,14 @@ storage faults.
 ### Budgets and order of checks
 
 Before anything is mounted, the extractor checks that the package reference is
-pinned to its digest, takes the extraction budget from the authenticated
-release descriptor (a release without the object is refused), compares it
-with the agent ceilings (1 MiB manifest, 4096 files, 1 GiB per file, 2 GiB in
-total, 3 GiB scratch, 1800 seconds and a path depth of 16 components), checks
-the manifest file count, sizes and depth against the budget, and checks the
-current approval of the release. A budget above a ceiling is rejected, not
-clamped. It then checks the retention registry and the free space of the
-cache.
+pinned to its digest and that the package still carries the identity and
+manifest its fetch authenticated, takes the extraction budget from the
+authenticated release descriptor (a release without the object is refused),
+compares it with the agent ceilings (1 MiB manifest, 4096 files, 1 GiB per file,
+2 GiB in total, 3 GiB scratch, 1800 seconds and a path depth of 16 components),
+checks the manifest file count, sizes and depth against the budget, and checks
+the current approval of the release. A budget above a ceiling is rejected, not
+clamped. It then checks the retention registry and the free space of the cache.
 
 ### Extraction and publication
 
