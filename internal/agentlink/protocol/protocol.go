@@ -69,16 +69,39 @@ const (
 	// this responder does not implement. It starts no work and leaves the link
 	// and siblings untouched. It carries no version verdict.
 	ReasonMethodNotSupported = "MethodNotSupported"
-	// ReasonRetrievalFailed is the generic request-scoped failure.
+	// ReasonRetrievalFailed is the generic request-scoped failure. It covers a
+	// malformed request, a request whose parameters this responder rejects,
+	// and any device-side failure with no more specific reason below.
 	ReasonRetrievalFailed = "RetrievalFailed"
+	// ReasonSourceNotFound reports that the named source does not exist.
+	ReasonSourceNotFound = "SourceNotFound"
+	// ReasonBootUnavailable reports that the requested boot is not present in
+	// the journal. It is the ordinary outcome of boot=previous on a device
+	// whose journal is volatile, not a device fault.
+	ReasonBootUnavailable = "BootUnavailable"
+	// ReasonDeviceTimeout reports that the agent's own budget for assembling
+	// the response expired before it could. It is the agent giving up, never
+	// the originator's deadline reflected back.
+	ReasonDeviceTimeout = "DeviceTimeout"
+	// ReasonResponseTooLarge reports that the response would exceed a fixed
+	// byte ceiling. It is a stated failure rather than a silent truncation:
+	// the bytes that fit are never returned as a success.
+	ReasonResponseTooLarge = "ResponseTooLarge"
 )
 
 // IsValidReason reports whether reason is one this profile defines. A missing,
 // empty or unrecognised reason on a received result is itself a request-scoped
 // protocol violation.
+//
+// The set is closed and compiled in. It is deliberately the set the
+// implemented methods can actually produce rather than every reason the
+// design anticipates: a reason no responder sends is one no originator has to
+// decide what to do with. Adding one is additive and costs no version bump,
+// because both ends are built from this same constant.
 func IsValidReason(reason string) bool {
 	switch reason {
-	case ReasonOK, ReasonCancelled, ReasonMethodNotSupported, ReasonRetrievalFailed:
+	case ReasonOK, ReasonCancelled, ReasonMethodNotSupported, ReasonRetrievalFailed,
+		ReasonSourceNotFound, ReasonBootUnavailable, ReasonDeviceTimeout, ReasonResponseTooLarge:
 		return true
 	default:
 		return false
