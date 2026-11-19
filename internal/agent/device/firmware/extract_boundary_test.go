@@ -578,3 +578,39 @@ func TestExtractChecksApprovalAfterWaitingForTheCache(t *testing.T) {
 	require.Equal(1, x.mounter.mounts, "the revoked extraction never mounts")
 	require.Equal([]string{x.finalName()}, x.entries())
 }
+
+func TestExtractLeasesProtectEachResult(t *testing.T) {
+	twoResults := func(t *testing.T) (*extractHarness, *firmware.PublishedPayload, *firmware.PublishedPayload) {
+		t.Helper()
+		x := newExtractHarness(t, defaultPayload(t))
+		first, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(t, err)
+		second, err := x.extractor().Extract(context.Background(), x.pkg)
+		require.NoError(t, err)
+		require.True(t, second.Reused)
+		require.Equal(t, first.Dir, second.Dir)
+		return x, first, second
+	}
+	t.Run("When one of two results releases its lease the other result keeps the payload protected", func(t *testing.T) {
+		require := require.New(t)
+		x, first, second := twoResults(t)
+		x.retention.ReleaseLease(first)
+		x.retention.ReleaseLease(first)
+		removed, err := x.retention.CleanupUnreferenced(context.Background())
+		require.NoError(err)
+		require.NotContains(removed, first.Dir, "releasing one result twice never ends the other lease")
+		x.retention.ReleaseLease(second)
+		removed, err = x.retention.CleanupUnreferenced(context.Background())
+		require.NoError(err)
+		require.Contains(removed, first.Dir, "with no lease left the payload is removable")
+	})
+	t.Run("When one of two results is pinned and released the other result keeps the payload protected", func(t *testing.T) {
+		require := require.New(t)
+		x, first, _ := twoResults(t)
+		x.pin(t, first)
+		require.NoError(x.retention.Release("attempt-1"))
+		removed, err := x.retention.CleanupUnreferenced(context.Background())
+		require.NoError(err)
+		require.NotContains(removed, first.Dir)
+	})
+}

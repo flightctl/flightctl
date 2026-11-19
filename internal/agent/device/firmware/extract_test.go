@@ -814,7 +814,7 @@ func TestExtractLeases(t *testing.T) {
 		x := newExtractHarness(t, defaultPayload(t))
 		payload, err := x.extractor().Extract(context.Background(), x.pkg)
 		require.NoError(err)
-		x.retention.ReleaseLease(payload.PackageDigest)
+		x.retention.ReleaseLease(payload)
 		removed, err := x.retention.CleanupUnreferenced(context.Background())
 		require.NoError(err)
 		require.Contains(removed, payload.Dir)

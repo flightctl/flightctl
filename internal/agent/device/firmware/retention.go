@@ -64,6 +64,8 @@ type Pin struct {
 	PayloadDir       string                  `json:"payloadDir"`
 	WorkspaceDir     string                  `json:"workspaceDir,omitempty"`
 	Limits           policy.ExtractionLimits `json:"limits"`
+
+	lease *lease
 }
 
 // Pin returns a retention pin of the payload for attemptID in role.
@@ -77,7 +79,22 @@ func (p *PublishedPayload) Pin(attemptID string, role PinRole) Pin {
 		DescriptorDigest: p.DescriptorDigest,
 		PayloadDir:       p.Dir,
 		Limits:           p.Limits,
+		lease:            p.lease,
 	}
+}
+
+// lease protects the payload of one Extract result until the result is pinned
+// or released.
+type lease struct {
+	owner    *Retention
+	digest   string
+	released bool
+}
+
+// identity returns p without the lease of the result it was made from.
+func (p Pin) identity() Pin {
+	p.lease = nil
+	return p
 }
 
 // VerifyResult reports the host observation made after a retained payload
@@ -104,7 +121,7 @@ type Retention struct {
 	log      *log.PrefixLogger
 	mu       sync.Mutex
 	ceilings policy.ExtractionLimits
-	leases   map[string]struct{}
+	leases   map[string]int
 	now      func() time.Time
 
 	treesPerPass int
@@ -134,7 +151,7 @@ func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, o
 		rw:           rw,
 		log:          log,
 		ceilings:     DefaultExtractionCeilings(),
-		leases:       map[string]struct{}{},
+		leases:       map[string]int{},
 		now:          time.Now,
 		treesPerPass: CleanupTreesPerPass,
 		listingCap:   MaxCacheListingEntries,
@@ -296,8 +313,8 @@ func writeRegistry(fw fileio.Anchor, pins []Pin) error {
 	return fw.ReplaceFileDurable(registryFileName, data, 0o600)
 }
 
-// Pin durably retains a published payload for an attempt and clears its
-// lease. The version directory must exist; pinning the same attempt and role
+// Pin durably retains a published payload for an attempt and ends the lease
+// of the Extract result the pin was made from. The version directory must exist; pinning the same attempt and role
 // again only makes the registry durable before succeeding.
 func (r *Retention) Pin(p Pin) error {
 	r.mu.Lock()
@@ -325,13 +342,13 @@ func (r *Retention) Pin(p Pin) error {
 	}
 	for _, q := range pins {
 		if q.AttemptID == p.AttemptID && q.Role == p.Role {
-			if q != p {
+			if q != p.identity() {
 				return fmt.Errorf("attempt %q already pins a different %s payload: %w", p.AttemptID, p.Role, ErrPinConflict)
 			}
 			if err := c.firmware.Sync(); err != nil {
 				return fmt.Errorf("persist retention registry: %w", err)
 			}
-			delete(r.leases, p.PackageDigest)
+			r.endLease(p.lease)
 			return nil
 		}
 		if q.PackageDigest == p.PackageDigest && !sameRetainedPayload(p, q) {
@@ -341,7 +358,7 @@ func (r *Retention) Pin(p Pin) error {
 	if err := writeRegistry(c.firmware, append(pins, p)); err != nil {
 		return fmt.Errorf("persist retention registry: %w", err)
 	}
-	delete(r.leases, p.PackageDigest)
+	r.endLease(p.lease)
 	return nil
 }
 
@@ -379,12 +396,26 @@ func (r *Retention) Release(attemptID string) error {
 	return nil
 }
 
-// ReleaseLease ends the lease on a payload that Extract returned as usable
-// and that will not be pinned.
-func (r *Retention) ReleaseLease(packageDigest string) {
+// ReleaseLease ends the lease of payload, a result of Extract. Releasing a
+// result again does nothing, and the payload stays protected while another
+// result still holds its lease.
+func (r *Retention) ReleaseLease(payload *PublishedPayload) {
+	if payload == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.leases, packageDigest)
+	r.endLease(payload.lease)
+}
+
+func (r *Retention) endLease(l *lease) {
+	if l == nil || l.owner != r || l.released {
+		return
+	}
+	l.released = true
+	if r.leases[l.digest]--; r.leases[l.digest] <= 0 {
+		delete(r.leases, l.digest)
+	}
 }
 
 // Pins returns the registered pins.

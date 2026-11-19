@@ -682,9 +682,10 @@ recovery). Pins survive restarts and refuse a conflicting identity. Pinning
 reports a missing version directory as `ErrRetainedPayloadMissing`, any other
 entry at that name as `ErrRetainedPayloadChanged`, and keeps the cause of any
 other inspection failure; a refused pin records nothing. An unreadable or
-malformed registry fails closed for every operation. A usable payload is leased
-in memory until it is pinned or its lease is released, so cleanup cannot remove
-it in between; leases end with the agent process.
+malformed registry fails closed for every operation. Each usable result of
+`Extract` holds its own lease in memory until that result is pinned or its
+lease is released, and cleanup does not remove a payload while any result still
+holds a lease; leases end with the agent process.
 
 A pinned payload is only verified and reused. Verification checks the exact
 entries, modes, owner, single links, sizes and digests within the pinned limits
