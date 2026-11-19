@@ -99,7 +99,8 @@ func NewExtractor(dataDir string, mounter ImageMounter, approval ApprovalChecker
 
 // Extract publishes the payload of pkg, or reuses a verified published copy.
 // Every check against the release budget, the current approval and any
-// retention pin runs before the image is mounted: a pinned payload is only
+// retention pin runs before the image is mounted, and approval is checked
+// again once the updater cache is held: a pinned payload is only
 // verified and reused, and a missing or changed pinned payload fails without
 // mounting, extracting or repairing anything. A fresh extraction stages the
 // payload from a read-only mount, closes the source and unmounts it under its
@@ -129,6 +130,9 @@ func (e *Extractor) Extract(ctx context.Context, pkg *VerifiedPackage) (*Publish
 	r := e.retention
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !e.approval.IsApproved(pkg.Name, pkg.Version, pkg.DescriptorDigest) {
+		return nil, unavailable(release, false, errors.New("release is no longer approved"))
+	}
 	c, err := r.openCache(true)
 	if err != nil {
 		return nil, unavailable(release, false, fmt.Errorf("open the updater cache under %s: %w", e.dataDir, err))
