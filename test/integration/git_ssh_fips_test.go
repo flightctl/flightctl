@@ -12,22 +12,26 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	"github.com/gliderlabs/ssh"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 )
 
 // startSshGitServerForFIPSTest starts a minimal SSH server for testing git clone operations
-// Returns the port number and a cleanup function that should be called to stop the server
-func startSshGitServerForFIPSTest(t *testing.T, pubKey gossh.PublicKey) (string, func()) {
+// Returns the port number, a cleanup function, and a function reporting successful authentication.
+func startSshGitServerForFIPSTest(t *testing.T, pubKey gossh.PublicKey) (string, func(), func() bool) {
 	t.Helper()
+	var authenticated atomic.Bool
 
 	// Use port 0 to let the OS assign a free ephemeral port
 	// This avoids port conflicts in parallel CI
@@ -47,7 +51,11 @@ func startSshGitServerForFIPSTest(t *testing.T, pubKey gossh.PublicKey) (string,
 			<-s.Context().Done()
 		},
 		PublicKeyHandler: func(ctx ssh.Context, key ssh.PublicKey) bool {
-			return ssh.KeysEqual(key, pubKey)
+			if ctx.User() != "git" || !ssh.KeysEqual(key, pubKey) {
+				return false
+			}
+			authenticated.Store(true)
+			return true
 		},
 	}
 
@@ -65,12 +73,14 @@ func startSshGitServerForFIPSTest(t *testing.T, pubKey gossh.PublicKey) (string,
 	return port, func() {
 		server.Close()
 		ln.Close()
-	}
+	}, authenticated.Load
 }
 
 // TestGitSSHCloneWithFIPS tests that SSH git clone operations work correctly in FIPS mode
 // This test reproduces the bug where go-git defaults to non-FIPS-compliant algorithms like curve25519
 func TestGitSSHCloneWithFIPS(t *testing.T) {
+	integrationstack.EnsureTestEncryption(logrus.StandardLogger())
+
 	// Native FIPS mode is selected when the test process starts.
 	fipsMode := fips140.Enabled()
 	if !fipsMode {
@@ -87,8 +97,11 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 	require.NoError(err)
 
 	// Start SSH git server with OS-assigned ephemeral port
-	testPort, cleanup := startSshGitServerForFIPSTest(t, publicRsaKey)
+	testPort, cleanup, authenticated := startSshGitServerForFIPSTest(t, publicRsaKey)
 	defer cleanup()
+	testHost := "127.0.0.1"
+	testAddress := net.JoinHostPort(testHost, testPort)
+	repoURL := fmt.Sprintf("ssh://git@%s/test.git", testAddress)
 
 	// Encode private key to PEM format
 	privatePEM := pem.EncodeToMemory(&pem.Block{
@@ -102,7 +115,7 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 	// Create Repository spec with SSH configuration
 	spec := api.RepositorySpec{}
 	err = spec.FromGitRepoSpec(api.GitRepoSpec{
-		Url:  fmt.Sprintf("ssh://root@127.0.0.1:%s/test.git", testPort),
+		Url:  repoURL,
 		Type: api.GitRepoSpecTypeGit,
 		SshConfig: &api.SshConfig{
 			SshPrivateKey:          &privKey,
@@ -119,6 +132,7 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 	// Attempt to clone the repository
 	// In FIPS mode WITH the fix, this should succeed by using FIPS-compliant algorithms
 	_, _, err = tasks.CloneGitRepo(context.Background(), repo, nil, nil, nil)
+	require.True(authenticated(), "SSH public-key authentication should succeed for user git: %v", err)
 
 	// With the fix implemented, SSH clone should succeed in FIPS mode
 	// The fix applies FIPS-compliant algorithms (ecdh-sha2-nistp*, diffie-hellman-group*-sha256)
@@ -140,6 +154,8 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 // TestGitSSHCloneNonFIPS tests that SSH git clone works in non-FIPS mode
 // This ensures backward compatibility - existing functionality should continue to work
 func TestGitSSHCloneNonFIPS(t *testing.T) {
+	integrationstack.EnsureTestEncryption(logrus.StandardLogger())
+
 	// Only run this when NOT in FIPS mode
 	fipsMode := fips140.Enabled()
 	if fipsMode {
@@ -156,8 +172,11 @@ func TestGitSSHCloneNonFIPS(t *testing.T) {
 	require.NoError(err)
 
 	// Start SSH server with OS-assigned ephemeral port
-	testPort, cleanup := startSshGitServerForFIPSTest(t, publicRsaKey)
+	testPort, cleanup, authenticated := startSshGitServerForFIPSTest(t, publicRsaKey)
 	defer cleanup()
+	testHost := "127.0.0.1"
+	testAddress := net.JoinHostPort(testHost, testPort)
+	repoURL := fmt.Sprintf("ssh://git@%s/test.git", testAddress)
 
 	// Encode private key
 	privatePEM := pem.EncodeToMemory(&pem.Block{
@@ -171,7 +190,7 @@ func TestGitSSHCloneNonFIPS(t *testing.T) {
 	// Create Repository spec
 	spec := api.RepositorySpec{}
 	err = spec.FromGitRepoSpec(api.GitRepoSpec{
-		Url:  fmt.Sprintf("ssh://root@127.0.0.1:%s/test.git", testPort),
+		Url:  repoURL,
 		Type: api.GitRepoSpecTypeGit,
 		SshConfig: &api.SshConfig{
 			SshPrivateKey:          &privKey,
@@ -187,6 +206,7 @@ func TestGitSSHCloneNonFIPS(t *testing.T) {
 
 	// In non-FIPS mode, this should work with default algorithms
 	_, _, err = tasks.CloneGitRepo(context.Background(), repo, nil, nil, nil)
+	require.True(authenticated(), "SSH public-key authentication should succeed for user git: %v", err)
 
 	// Note: This might still fail because we're using a minimal SSH server
 	// The important part is that it should NOT fail due to FIPS restrictions

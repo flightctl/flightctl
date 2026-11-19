@@ -8,8 +8,11 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"net"
+	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,6 +22,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 var _ = Describe("ConvertFileSystemToIgnition", func() {
@@ -203,6 +207,31 @@ func TestGetAuthSSHURIUser(t *testing.T) {
 	clientConfig, err := sshAuth.ClientConfig()
 	require.NoError(t, err)
 	require.Equal(t, "git", clientConfig.User)
+}
+
+// TestBuildKnownHostsCallback_CustomPort verifies host-key matching for a non-default SSH port.
+func TestBuildKnownHostsCallback_CustomPort(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
+	require.NoError(t, err)
+
+	port := 443
+	host := net.JoinHostPort("ssh.github.com", strconv.Itoa(port))
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	knownHostsEntry := knownhosts.Line([]string{host}, publicKey) + "\n"
+	require.NoError(t, os.WriteFile(knownHostsPath, []byte(knownHostsEntry), 0600))
+
+	callback, err := buildKnownHostsCallbackFromFile(knownHostsPath)
+	require.NoError(t, err)
+	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: port}
+	require.NoError(t, callback(host, remote, publicKey))
+
+	wrongPort := net.JoinHostPort("ssh.github.com", strconv.Itoa(port+1))
+	err = callback(wrongPort, remote, publicKey)
+	require.Error(t, err)
+	t.Logf("expected host-key rejection for %s: %v", wrongPort, err)
+	require.Contains(t, err.Error(), "key is unknown")
 }
 
 func TestGitLsRemote_EmptyURL(t *testing.T) {
