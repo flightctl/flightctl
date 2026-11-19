@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
+	"github.com/flightctl/flightctl/internal/registryconfig"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -1178,7 +1179,7 @@ func TestRenderDevice_CatalogItemRef_ResolvesOsImage(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), "", gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, emptyRegistryRepositories(ctrl), mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
 	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.NoError(t, err)
@@ -1213,7 +1214,7 @@ func TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), "", gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, emptyRegistryRepositories(ctrl), nil, nil, newTestKVStore(), &config.Config{})
 
 	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.NoError(t, err)
@@ -1252,7 +1253,7 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), "", gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, emptyRegistryRepositories(ctrl), mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 
 	// Plain-image spec: passes the image through directly.
@@ -1572,7 +1573,7 @@ func TestRenderSpec_WhenCatalogItemRefItShouldResolveOsImageWithoutPersisting(t 
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
+	logic := NewDeviceRenderLogic(logrus.New(), nil, emptyRegistryRepositories(ctrl), mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
 	spec := &domain.DeviceSpec{
 		Os: &domain.DeviceOsSpec{
@@ -1667,7 +1668,7 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 		return oci.ImageDigestPair{SourceDigest: src, TargetDigest: tgt}, nil
 	})
 	require.NoError(t, err)
-	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, kv, &stubGenerationLookup{
+	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, emptyRegistryRepositories(ctrl), nil, nil, kv, &stubGenerationLookup{
 		gen: &deltamodel.DeltaGeneration{
 			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,
@@ -1675,6 +1676,16 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 		},
 	}, &config.Config{})
 	require.NoError(t, err)
+	logic.WithRegistryConfigSnapshotFactory(func(id uuid.UUID, candidates []registryconfig.Candidate) (registryconfig.Composer, error) {
+		require.Equal(t, orgId, id)
+		return registryFixtureComposer(func(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+			require.ElementsMatch(t, []registryconfig.PullNeed{
+				{Reference: osImage, Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"},
+				{Reference: deltaRef, Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"},
+			}, needs)
+			return &registryconfig.Composition{}, nil
+		}), nil
+	})
 
 	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 }
@@ -1785,7 +1796,7 @@ func TestRenderDevice_DeltaCompletionGeneration(t *testing.T) {
 			if tt.eventGeneration != "" {
 				event.Metadata.Annotations = &map[string]string{domain.EventAnnotationDeltaGeneration: tt.eventGeneration}
 			}
-			logic := NewDeviceRenderLogic(logrus.New(), devices, nil, nil, nil, newTestKVStore(), &config.Config{})
+			logic := NewDeviceRenderLogic(logrus.New(), devices, emptyRegistryRepositories(ctrl), nil, nil, newTestKVStore(), &config.Config{})
 			require.NoError(t, logic.RenderDevice(context.Background(), orgID, event))
 			if !tt.wantRender {
 				require.True(t, domain.IsStatusConditionTrue(device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
