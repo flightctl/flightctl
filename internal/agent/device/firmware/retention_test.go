@@ -150,7 +150,7 @@ func TestRetentionPins(t *testing.T) {
 		f := newPayloadFixture(t, defaultPayload(t))
 		pin := publishVersion(t, f, 'a')
 		require.NoError(os.MkdirAll(filepath.Dir(registryPath(f)), 0o700))
-		for _, content := range []string{"{", `{"apiVersion":"updater-retention/v9","pins":[]}`, `{"apiVersion":"updater-retention/v1","pins":[],"extra":1}`, strings.Repeat(" ", 2<<20)} {
+		for _, content := range []string{"{", `{"apiVersion":"updater-retention/v9","pins":[]}`, `{"apiVersion":"updater-retention/v1","pins":[],"extra":1}`, `{"apiVersion":"updater-retention/v1"}`, `{"apiVersion":"updater-retention/v1","pins":null}`, strings.Repeat(" ", 2<<20)} {
 			require.NoError(os.WriteFile(registryPath(f), []byte(content), 0o600))
 			r := newRetention(f)
 			_, err := r.Pins()
