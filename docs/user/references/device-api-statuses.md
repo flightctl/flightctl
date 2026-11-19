@@ -109,7 +109,7 @@ The `device.status.deltaGeneration.completed` and `device.status.deltaGeneration
 
 Fleet-managed updates report preparation through the fleet's `FleetDeltaPreparing` condition. For fleet preparation, see [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation).
 
-The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called. A rollback OS reboot remains in `RollingBack` because the separate device summary reports `Rebooting` during that reboot.
+The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called. A rollback OS reboot remains in `RollingBack`. The separate device summary can show `Rebooting` while connected, but `AwaitingReconnect` and `ConflictPaused` annotations take precedence; otherwise, a disconnect timeout changes it to `Unknown`.
 
 ```mermaid
 stateDiagram
