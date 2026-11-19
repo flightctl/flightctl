@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/registryconfig"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/google/uuid"
@@ -239,6 +240,39 @@ func TestRegistryRenderSpecForDevice(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, called)
 	require.NotEmpty(t, rendered.ConfigResources)
+}
+
+func TestRegistryRenderSpecOnlySkipsLiveHints(t *testing.T) {
+	for _, forDevice := range []bool{false, true} {
+		name := "When rendering a spec it should skip live delta lookup"
+		if forDevice {
+			name = "When rendering with device launcher options it should skip live delta lookup"
+		}
+		t.Run(name, func(t *testing.T) {
+			const source = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			const target = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			const image = "quay.io/team/os@" + target
+			org := uuid.New()
+			lookup := &stubGenerationLookup{}
+			logic := registryRenderLogic(t, org, func(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+				require.Equal(t, []registryconfig.PullNeed{{Reference: image, Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"}}, needs)
+				return &registryconfig.Composition{}, nil
+			})
+			logic.deltaLookup = lookup
+			_, err := oci.CachedImageDigestPair(context.Background(), logrus.New(), logic.kvStore, org, image, source, nil, 15*time.Minute, nil, func(context.Context, string) (oci.ImageDigestPair, error) {
+				return oci.ImageDigestPair{SourceDigest: source, TargetDigest: target}, nil
+			})
+			require.NoError(t, err)
+			spec := &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: image}}
+			if forDevice {
+				_, err = logic.RenderSpecForDevice(context.Background(), org, &domain.Device{Status: &domain.DeviceStatus{Os: domain.DeviceOsStatus{ImageDigest: source}}}, spec)
+			} else {
+				_, err = logic.RenderSpec(context.Background(), org, spec)
+			}
+			require.NoError(t, err)
+			require.Zero(t, lookup.callCount())
+		})
+	}
 }
 
 func TestRegistryRenderSnapshotFailure(t *testing.T) {

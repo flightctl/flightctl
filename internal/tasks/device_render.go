@@ -237,6 +237,7 @@ type deviceRenderState struct {
 	log             logrus.FieldLogger
 	orgId           uuid.UUID
 	event           domain.Event
+	device          *domain.Device
 	ownerFleet      *string
 	templateVersion *string
 	vmConverter     VmConverterFn
@@ -299,6 +300,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 	}
 
+	t.device = device
 	t.bindVmLauncher(device)
 
 	// Calculate hash including device spec and selected virt-launcher image.
@@ -410,14 +412,6 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	}
 
 	rendered, renderErr := t.renderSpec(ctx, spec)
-	if renderErr == nil {
-		renderErr = t.resolveRenderedAppDeltaHints(ctx, device, &rendered)
-	}
-	var osHints *deviceservice.RenderedOSHints
-	if renderErr == nil {
-		osHints = t.resolveOSDeltaHint(ctx, device, rendered)
-		renderErr = t.renderRegistryConfigResources(ctx, &rendered, osHints)
-	}
 	if errors.Is(renderErr, errIgnitionConversion) {
 		return t.setErrorStatus(ctx, renderErr)
 	}
@@ -455,6 +449,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
+	osHints := rendered.osHints
 	if len(rendered.appDeltaSizes) > 0 {
 		if osHints == nil {
 			osHints = &deviceservice.RenderedOSHints{}
@@ -494,6 +489,7 @@ type RenderedSpec struct {
 	ConfigResources []byte
 
 	configFingerprints []ConfigRefFingerprint
+	osHints            *deviceservice.RenderedOSHints
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
 	// delta payload size.
 	appDeltaSizes map[string]*string
@@ -502,7 +498,7 @@ type RenderedSpec struct {
 // RenderSpec resolves a spec for orgId without device-event state.
 func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (RenderedSpec, error) {
 	state := t.newRenderState(orgId, domain.Event{})
-	return state.renderSpecWithRegistryConfig(ctx, spec)
+	return state.renderSpec(ctx, spec)
 }
 
 // RenderSpecForDevice resolves a spec using the VM render options selected for
@@ -510,15 +506,7 @@ func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, orgId uuid.UUID, spe
 func (t *DeviceRenderLogic) RenderSpecForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (RenderedSpec, error) {
 	state := t.newRenderState(orgId, domain.Event{})
 	state.bindVmLauncher(device)
-	return state.renderSpecWithRegistryConfig(ctx, spec)
-}
-
-func (t *deviceRenderState) renderSpecWithRegistryConfig(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
-	rendered, err := t.renderSpec(ctx, spec)
-	if err == nil {
-		err = t.renderRegistryConfigResources(ctx, &rendered, nil)
-	}
-	return rendered, err
+	return state.renderSpec(ctx, spec)
 }
 
 func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
@@ -562,6 +550,15 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 		return result, err
 	}
 	result.Applications = renderedApplications
+	if t.device != nil {
+		if err := t.resolveRenderedAppDeltaHints(ctx, t.device, &result); err != nil {
+			return result, err
+		}
+		result.osHints = t.resolveOSDeltaHint(ctx, t.device, result)
+	}
+	if err := t.renderRegistryConfigResources(ctx, &result, result.osHints); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

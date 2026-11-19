@@ -1613,6 +1613,7 @@ func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t 
 	repo := makeHTTPRepository(repoName, srv.URL)
 	mockRepoSvc := repositoryservice.NewMockService(ctrl)
 	mockRepoSvc.EXPECT().GetRepository(gomock.Any(), orgId, repoName).Return(repo, statusOK)
+	mockRepoSvc.EXPECT().ListRepositories(gomock.Any(), orgId, domain.ListRepositoriesParams{}).Return(&domain.RepositoryList{}, statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device-1")
 	logic := newFleetOwnedLogic(mockRepoSvc, nil, newTestKVStore(), orgId, event, fleet, tv)
@@ -1676,9 +1677,11 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 		},
 	}, &config.Config{})
 	require.NoError(t, err)
+	compositionCalls := 0
 	logic.WithRegistryConfigSnapshotFactory(func(id uuid.UUID, candidates []registryconfig.Candidate) (registryconfig.Composer, error) {
 		require.Equal(t, orgId, id)
 		return registryFixtureComposer(func(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+			compositionCalls++
 			require.ElementsMatch(t, []registryconfig.PullNeed{
 				{Reference: osImage, Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"},
 				{Reference: deltaRef, Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"},
@@ -1688,6 +1691,7 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 	})
 
 	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
+	require.Equal(t, 1, compositionCalls)
 }
 
 func TestDeviceRender_NonDeviceKind(t *testing.T) {

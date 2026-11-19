@@ -13,12 +13,12 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
-	authPath            = "/etc/ostree/auth.json"
 	fallbackReasonPull  = "delta pull failed"
 	fallbackReasonApply = "delta apply failed"
 	osDeltaTempPrefix   = "os-delta"
@@ -274,7 +274,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 
 func (m *manager) osPullOptsFn() dependency.ClientOptsFn {
 	return m.pullConfigResolver.Options(dependency.PullConfigSpec{
-		Paths:    []string{authPath},
+		Paths:    []string{consts.OSTreeAuthPath},
 		OptionFn: client.WithPullSecret,
 	})
 }

@@ -109,8 +109,8 @@ func TestRendererImageRefs(t *testing.T) {
 	scheme := domain.OciRepoSchemeHttp
 	registrySpec := &domain.OciRepoSpec{Registry: "registry.example", Scheme: &scheme}
 	config, err := json.Marshal([]domain.FileSpec{
-		{Path: helmRegistryConfig, Content: `{"auths":{"registry.example":{}}}`},
-		{Path: helmRepositoryConfig, Content: "repositories: []\n"},
+		{Path: "/root/.config/helm/registry/config.json", Content: `{"auths":{"registry.example":{}}}`},
+		{Path: "/root/.config/helm/repositories.yaml", Content: "repositories: []\n"},
 	})
 	require.NoError(t, err)
 
@@ -155,8 +155,8 @@ func TestRendererImageRefsReturnsTemplateError(t *testing.T) {
 	scheme := domain.OciRepoSchemeHttp
 	registrySpec := &domain.OciRepoSpec{Registry: "registry.example", Scheme: &scheme}
 	config, err := json.Marshal([]domain.FileSpec{
-		{Path: helmRegistryConfig, Content: `{"auths":{"registry.example":{}}}`},
-		{Path: helmRepositoryConfig, Content: "repositories: []\n"},
+		{Path: "/root/.config/helm/registry/config.json", Content: `{"auths":{"registry.example":{}}}`},
+		{Path: "/root/.config/helm/repositories.yaml", Content: "repositories: []\n"},
 	})
 	require.NoError(t, err)
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -22,6 +23,47 @@ var testBackoffConfig = poll.Config{
 	Factor:    2.0,
 	MaxDelay:  100 * time.Millisecond,
 	MaxSteps:  1,
+}
+
+func TestRegistryPullConfigPaths(t *testing.T) {
+	testCases := []struct {
+		name    string
+		options func(dependency.PullConfigResolver) dependency.ClientOptsFn
+		paths   [][]string
+	}{
+		{
+			name:    "When pulling a Helm chart it should prefer Helm auth and retain the containers fallback",
+			options: helmPullOptions,
+			paths: [][]string{
+				{"/root/.config/helm/registry/config.json", "/root/.config/containers/auth.json"},
+				{"/root/.config/helm/repositories.yaml"},
+			},
+		},
+		{
+			name:    "When pulling a CRI image it should use CRI config and root containers auth",
+			options: CRIImageOptions,
+			paths: [][]string{
+				{"/etc/crictl.yaml"},
+				{"/root/.config/containers/auth.json"},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			resolver := dependency.NewMockPullConfigResolver(ctrl)
+			resolver.EXPECT().Options(gomock.Any(), gomock.Any()).DoAndReturn(func(specs ...dependency.PullConfigSpec) dependency.ClientOptsFn {
+				require.Len(specs, len(tc.paths))
+				for i, spec := range specs {
+					require.Equal(tc.paths[i], spec.Paths)
+				}
+				return nil
+			})
+			tc.options(resolver)
+		})
+	}
 }
 
 func TestHelmEnsureDependencies(t *testing.T) {

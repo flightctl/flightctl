@@ -993,7 +993,7 @@ func expectPullConfig(t *testing.T, mockResolver *dependency.MockPullConfigResol
 	t.Helper()
 	mockResolver.EXPECT().Options(gomock.Any()).DoAndReturn(func(specs ...dependency.PullConfigSpec) dependency.ClientOptsFn {
 		require.NotEmpty(t, specs)
-		require.Equal(t, []string{authPath}, specs[0].Paths)
+		require.Equal(t, []string{"/etc/ostree/auth.json"}, specs[0].Paths)
 		return func() []client.ClientOption { return nil }
 	}).AnyTimes()
 }

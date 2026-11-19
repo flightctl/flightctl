@@ -13,6 +13,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/appspec"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/registryconfig"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -148,11 +149,11 @@ type registryAuthoredFiles map[string]bool
 func (files registryAuthoredFiles) auth(need registryconfig.PullNeed) bool {
 	switch need.Consumer {
 	case registryconfig.ConsumerOS:
-		return files["/etc/ostree/auth.json"]
+		return files[consts.OSTreeAuthPath]
 	case registryconfig.ConsumerHelmChart:
-		return files["/root/.config/helm/registry/config.json"] || files["/root/.config/containers/auth.json"]
+		return files[consts.HelmRegistryConfigPath] || files[consts.RootContainersAuthPath]
 	default:
-		return need.User == api.RootUsername.String() && files["/root/.config/containers/auth.json"]
+		return need.User == api.RootUsername.String() && files[consts.RootContainersAuthPath]
 	}
 }
 
@@ -162,7 +163,7 @@ func (files registryAuthoredFiles) policy(consumer registryconfig.Consumer) bool
 		return false
 	}
 	for path := range files {
-		if path == "/etc/containers/registries.conf" || (filepath.Dir(path) == "/etc/containers/registries.conf.d" && strings.HasSuffix(path, ".conf")) {
+		if path == consts.ContainersRegistriesConfPath || (filepath.Dir(path) == consts.ContainersRegistriesConfDir && strings.HasSuffix(path, ".conf")) {
 			return true
 		}
 	}

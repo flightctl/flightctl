@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 )
 
@@ -40,7 +41,7 @@ func prepareHelmConfig(
 }
 
 func prepareHelmRegistryConfig(ctx context.Context, configHome string, files []domain.FileSpec, registrySpec *domain.OciRepoSpec) (string, error) {
-	registryConfig, registryConfigFound, err := firstConfigFile(files, helmRegistryConfig, containerAuthConfig)
+	registryConfig, registryConfigFound, err := firstConfigFile(files, consts.HelmRegistryConfigPath, consts.RootContainersAuthPath)
 	if err != nil {
 		return "", fmt.Errorf("read rendered Helm registry configuration: %w", err)
 	}
@@ -65,7 +66,7 @@ func prepareHelmRegistryConfig(ctx context.Context, configHome string, files []d
 }
 
 func prepareHelmRepositoryConfig(configHome string, files []domain.FileSpec) (string, error) {
-	repositoryConfig, repositoryConfigFound, err := firstConfigFile(files, helmRepositoryConfig)
+	repositoryConfig, repositoryConfigFound, err := firstConfigFile(files, consts.HelmRepositoryConfigPath)
 	if err != nil {
 		return "", fmt.Errorf("read rendered Helm repository configuration: %w", err)
 	}
@@ -113,7 +114,7 @@ func prepareHelmTransportArgs(workDir string, files []domain.FileSpec, registryS
 	// mounted into the worker container. Honor those files when the Repository
 	// resource does not carry an explicit CA.
 	if !hasTransportArg(transportArgs, "--insecure-skip-tls-verify") && !hasTransportArg(transportArgs, "--ca-file") {
-		caPath := filepath.Join(registryCertsDir, host, "ca.crt")
+		caPath := filepath.Join(consts.ContainersCertsDir, host, "ca.crt")
 		ca, found, err := configFile(files, caPath)
 		if err != nil {
 			return nil, fmt.Errorf("read rendered chart registry CA certificate: %w", err)
