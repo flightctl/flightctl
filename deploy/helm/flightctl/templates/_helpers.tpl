@@ -782,6 +782,28 @@ Usage: {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }
 {{- end }}
 
 {{- /*
+Validate that URL override hosts are not IPv4 literals when using cert-manager.
+cert-manager Certificate resources use dnsNames which do not support IP
+addresses; the builtin certificate generator handles IP SANs itself.
+Must be called once from a template that always renders when cert-manager is
+the active certificate method.
+*/}}
+{{- define "flightctl.validateCertManagerUrlHosts" }}
+  {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+  {{- if eq $certMethod "cert-manager" }}
+    {{- range $key := list "uiUrl" "apiUrl" "agentApiUrl" "cliArtifactsUrl" }}
+      {{- $url := index $.Values.global $key | default "" | toString }}
+      {{- if $url }}
+        {{- $host := (urlParse $url).hostname }}
+        {{- if regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$" $host }}
+          {{- fail (printf "global.%s contains an IPv4 address (%s) which is not supported with cert-manager certificates. Use a hostname instead; see the installation guide for details." $key $host) }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- /*
 Get DNS SANs for flightctl-api server certificate
 Usage: {{- $result := include "flightctl.getApiServerDNSSans" . | fromJson }}{{ $apiServerDNSSans := $result.sans }}
 */}}

@@ -1,5 +1,6 @@
 {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
 {{- if eq $certMethod "cert-manager" }}
+{{- include "flightctl.validateCertManagerUrlHosts" . }}
 {{- $routeExternalCertificate := .Values.global.routeExternalCertificate | default "auto" | toString }}
 {{- $patchRouteCertificates := and (not .Values.global.baseDomainTlsSecretName) (or (eq $routeExternalCertificate "auto") (eq $routeExternalCertificate "true")) }}
 {{- $uiRouteEnabled := and .Values.ui.enabled (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}

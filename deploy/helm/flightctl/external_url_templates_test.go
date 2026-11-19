@@ -269,6 +269,302 @@ func TestExternalURLsBracketsInPath(t *testing.T) {
 	require.NoError(t, err, output)
 }
 
+// certManagerChart renders the chart with cert-manager as the certificate
+// generation method. extraArgs are passed directly to helm (e.g.
+// --api-versions).
+func certManagerChart(t *testing.T, extraArgs []string, settings ...string) (string, error) {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	args := []string{"template", "flightctl", filepath.Dir(file),
+		"--namespace", "public",
+		"--set-string", "global.enableOpenShiftExtensions=false",
+		"--set-string", "global.exposeServicesMethod=none",
+		"--set-string", "global.auth.type=none",
+		"--set-string", "global.generateCertificates=cert-manager",
+		"--set-string", "global.baseDomain=example.test",
+		"--kube-version", "1.32.0",
+	}
+	args = append(args, extraArgs...)
+	for _, setting := range settings {
+		args = append(args, "--set-string", setting)
+	}
+	output, err := exec.Command("helm", args...).CombinedOutput()
+	return string(output), err
+}
+
+func TestCertManagerRejectsIPv4Hosts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setting string
+		key     string // expected key name in error message
+	}{
+		{
+			name:    "When uiUrl uses an IPv4 host with cert-manager it should reject",
+			setting: "global.uiUrl=https://192.168.1.1",
+			key:     "global.uiUrl",
+		},
+		{
+			name:    "When apiUrl uses an IPv4 host with cert-manager it should reject",
+			setting: "global.apiUrl=https://10.0.0.1/_/flightctl",
+			key:     "global.apiUrl",
+		},
+		{
+			name:    "When agentApiUrl uses an IPv4 host with port and cert-manager it should reject",
+			setting: "global.agentApiUrl=https://172.16.0.1:7443",
+			key:     "global.agentApiUrl",
+		},
+		{
+			name:    "When cliArtifactsUrl uses an IPv4 host with path and cert-manager it should reject",
+			setting: "global.cliArtifactsUrl=https://10.0.0.1/_/cli-artifacts",
+			key:     "global.cliArtifactsUrl",
+		},
+		{
+			name:    "When uiUrl uses a loopback IPv4 address with cert-manager it should reject",
+			setting: "global.uiUrl=https://127.0.0.1",
+			key:     "global.uiUrl",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t, nil, tc.setting)
+			require.Error(t, err, output)
+			require.Contains(t, output, tc.key,
+				"error should name the offending setting")
+			require.Contains(t, output, "IPv4",
+				"error should mention IPv4")
+			require.Contains(t, output, "hostname",
+				"error should mention hostname requirement")
+		})
+	}
+}
+
+func TestCertManagerAutoDetectedRejectsIPv4(t *testing.T) {
+	// When generateCertificates=auto and cert-manager.io/v1/Certificate is
+	// available, the resolved method is cert-manager and IPv4 hosts must be
+	// rejected for all four override keys.
+	for _, tc := range []struct {
+		name    string
+		setting string
+		key     string
+	}{
+		{
+			name:    "When auto detects cert-manager and uiUrl is IPv4 it should reject",
+			setting: "global.uiUrl=https://192.168.1.1",
+			key:     "global.uiUrl",
+		},
+		{
+			name:    "When auto detects cert-manager and apiUrl is IPv4 it should reject",
+			setting: "global.apiUrl=https://10.0.0.1/_/flightctl",
+			key:     "global.apiUrl",
+		},
+		{
+			name:    "When auto detects cert-manager and agentApiUrl is IPv4 it should reject",
+			setting: "global.agentApiUrl=https://172.16.0.1:7443",
+			key:     "global.agentApiUrl",
+		},
+		{
+			name:    "When auto detects cert-manager and cliArtifactsUrl is IPv4 it should reject",
+			setting: "global.cliArtifactsUrl=https://10.0.0.1/_/cli-artifacts",
+			key:     "global.cliArtifactsUrl",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t,
+				[]string{"--api-versions", "cert-manager.io/v1/Certificate"},
+				"global.generateCertificates=auto", tc.setting)
+			require.Error(t, err, output)
+			require.Contains(t, output, tc.key)
+			require.Contains(t, output, "IPv4")
+		})
+	}
+}
+
+func TestBuiltinAcceptsIPv4Hosts(t *testing.T) {
+	// The builtin certificate generator supports IP SANs, so IPv4 literal
+	// hosts must be accepted.
+	for _, tc := range []struct {
+		name    string
+		setting string
+	}{
+		{
+			name:    "When uiUrl uses IPv4 with builtin certs it should accept",
+			setting: "global.uiUrl=https://192.168.1.1",
+		},
+		{
+			name:    "When apiUrl uses IPv4 with builtin certs it should accept",
+			setting: "global.apiUrl=https://10.0.0.1/_/flightctl",
+		},
+		{
+			name:    "When agentApiUrl uses IPv4 with port and builtin certs it should accept",
+			setting: "global.agentApiUrl=https://172.16.0.1:7443",
+		},
+		{
+			name:    "When cliArtifactsUrl uses IPv4 with builtin certs it should accept",
+			setting: "global.cliArtifactsUrl=https://10.0.0.1/_/cli-artifacts",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t, nil,
+				"global.generateCertificates=builtin", tc.setting)
+			require.NoError(t, err, output)
+		})
+	}
+}
+
+func TestAutoBuiltinAcceptsIPv4Hosts(t *testing.T) {
+	// When auto resolves to builtin (no cert-manager API available),
+	// IPv4 hosts should be accepted. No --api-versions flag means the
+	// cert-manager CRD is absent, so auto resolves to builtin.
+	output, err := certManagerChart(t, nil,
+		"global.generateCertificates=auto",
+		"global.apiUrl=https://192.168.1.1/_/flightctl",
+		"global.uiUrl=https://10.0.0.1")
+	require.NoError(t, err, output)
+}
+
+func TestNoCertGenerationAcceptsIPv4Hosts(t *testing.T) {
+	// When certificate generation is disabled (none), IPv4 hosts should
+	// be accepted because no certificates are generated.
+	output, err := certManagerChart(t, nil,
+		"global.generateCertificates=none",
+		"global.apiUrl=https://192.168.1.1/_/flightctl")
+	require.NoError(t, err, output)
+}
+
+func TestExplicitMethodIgnoresCertManagerCapability(t *testing.T) {
+	// When generateCertificates is explicitly set to builtin or none, the
+	// presence of the cert-manager.io/v1/Certificate API must NOT trigger
+	// IPv4 rejection — only the resolved method matters.
+	certManagerAPI := []string{"--api-versions", "cert-manager.io/v1/Certificate"}
+	for _, tc := range []struct {
+		name    string
+		method  string
+		setting string
+	}{
+		{
+			name:    "When builtin is explicit with cert-manager API and uiUrl is IPv4 it should accept",
+			method:  "builtin",
+			setting: "global.uiUrl=https://192.168.1.1",
+		},
+		{
+			name:    "When builtin is explicit with cert-manager API and apiUrl is IPv4 it should accept",
+			method:  "builtin",
+			setting: "global.apiUrl=https://10.0.0.1/_/flightctl",
+		},
+		{
+			name:    "When builtin is explicit with cert-manager API and agentApiUrl is IPv4 it should accept",
+			method:  "builtin",
+			setting: "global.agentApiUrl=https://172.16.0.1:7443",
+		},
+		{
+			name:    "When builtin is explicit with cert-manager API and cliArtifactsUrl is IPv4 it should accept",
+			method:  "builtin",
+			setting: "global.cliArtifactsUrl=https://10.0.0.1/_/cli-artifacts",
+		},
+		{
+			name:    "When none is explicit with cert-manager API and apiUrl is IPv4 it should accept",
+			method:  "none",
+			setting: "global.apiUrl=https://192.168.1.1/_/flightctl",
+		},
+		{
+			name:    "When none is explicit with cert-manager API and uiUrl is IPv4 it should accept",
+			method:  "none",
+			setting: "global.uiUrl=https://10.0.0.1",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t, certManagerAPI,
+				"global.generateCertificates="+tc.method, tc.setting)
+			require.NoError(t, err, output)
+		})
+	}
+}
+
+func TestCertManagerAcceptsHostnames(t *testing.T) {
+	// Valid hostnames must still be accepted with cert-manager, including
+	// hostnames that contain numeric labels.
+	for _, tc := range []struct {
+		name    string
+		setting string
+	}{
+		{
+			name:    "When uiUrl uses a hostname with cert-manager it should accept",
+			setting: "global.uiUrl=https://edge.example.com",
+		},
+		{
+			name:    "When apiUrl uses a hostname with cert-manager it should accept",
+			setting: "global.apiUrl=https://api.example.com/_/flightctl",
+		},
+		{
+			name:    "When agentApiUrl uses a hostname with port and cert-manager it should accept",
+			setting: "global.agentApiUrl=https://agent.example.com:7443",
+		},
+		{
+			name:    "When a hostname has a numeric prefix label with cert-manager it should accept",
+			setting: "global.uiUrl=https://10host.example.com",
+		},
+		{
+			name:    "When a hostname has a numeric-only label with cert-manager it should accept",
+			setting: "global.uiUrl=https://1.example.com",
+		},
+		{
+			name:    "When a hostname resembles an IP prefix with cert-manager it should accept",
+			setting: "global.uiUrl=https://192.0.2.1.example.test",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t, nil, tc.setting)
+			require.NoError(t, err, output)
+		})
+	}
+}
+
+func TestCertManagerNoOverridesAccepted(t *testing.T) {
+	// No URL overrides set: default baseDomain-derived hostnames should
+	// render without error.
+	output, err := certManagerChart(t, nil)
+	require.NoError(t, err, output)
+}
+
+func TestCertManagerIPv4RejectedWithDisabledConsumers(t *testing.T) {
+	// Even when the UI and CLI-artifacts components are disabled, the
+	// guard must still reject IPv4 hosts because the override values
+	// influence other rendered resources.
+	for _, tc := range []struct {
+		name    string
+		setting string
+		key     string
+	}{
+		{
+			name:    "When UI is disabled and uiUrl is IPv4 with cert-manager it should still reject",
+			setting: "global.uiUrl=https://192.168.1.1",
+			key:     "global.uiUrl",
+		},
+		{
+			name:    "When cliArtifacts is disabled and cliArtifactsUrl is IPv4 with cert-manager it should still reject",
+			setting: "global.cliArtifactsUrl=https://10.0.0.1/_/cli-artifacts",
+			key:     "global.cliArtifactsUrl",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := certManagerChart(t,
+				[]string{"--set", "ui.enabled=false", "--set", "cliArtifacts.enabled=false"},
+				tc.setting)
+			require.Error(t, err, output)
+			require.Contains(t, output, tc.key)
+			require.Contains(t, output, "IPv4")
+		})
+	}
+}
+
+func TestCertManagerAcceptsIPInPath(t *testing.T) {
+	// An IPv4 address appearing in the URL path (not the host) must not be
+	// rejected — only the authority is checked.
+	output, err := certManagerChart(t, nil,
+		"global.apiUrl=https://api.example.com/_/10.0.0.1/flightctl")
+	require.NoError(t, err, output)
+}
+
 func externalURLChart(t *testing.T, args ...string) map[string]map[string]any {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
