@@ -8,6 +8,8 @@ connection setup.
 This document describes the transport and the envelope. **No method is
 implemented yet**: the link carries the envelope and nothing that uses it, so
 every well-formed request is currently answered with one `MethodNotSupported`.
+The agent-side log retrieval the first method will call is built and callable
+in isolation; see [Device log retrieval](device-log-retrieval.md).
 
 ## Endpoint and handshake
 
