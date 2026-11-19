@@ -25,6 +25,8 @@ type PullNeed struct {
 	User      string
 	// Destination identifies the logical auth store shared by compatible consumers.
 	Destination string
+	// SuppressAuthentication leaves authored authentication in control while retaining trust and transport needs.
+	SuppressAuthentication bool
 }
 
 type Outcome string
@@ -62,3 +64,9 @@ type Selection struct {
 	Outcome  Outcome
 	Supplier *domain.Repository
 }
+
+type Composer interface {
+	Compose(needs []PullNeed) (*Composition, error)
+}
+
+type SnapshotFactory func(orgID uuid.UUID, candidates []Candidate) (Composer, error)
