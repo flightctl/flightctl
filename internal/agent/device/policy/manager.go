@@ -41,10 +41,11 @@ func (m *manager) Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 		m.download = nil
 		return nil
 	}
+	var syncErr error
 	if desired.UpdatePolicy.DownloadSchedule != nil {
 		schedule := newSchedule(Download)
 		if err := schedule.Parse(m.log, desired.UpdatePolicy.DownloadSchedule); err != nil {
-			return fmt.Errorf("failed to parse download schedule: %w", err)
+			syncErr = fmt.Errorf("failed to parse download schedule: %w", err)
 		}
 		m.download = schedule
 	} else {
@@ -54,14 +55,16 @@ func (m *manager) Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if desired.UpdatePolicy.UpdateSchedule != nil {
 		schedule := newSchedule(Update)
 		if err := schedule.Parse(m.log, desired.UpdatePolicy.UpdateSchedule); err != nil {
-			return fmt.Errorf("failed to parse update schedule: %w", err)
+			if syncErr == nil {
+				syncErr = fmt.Errorf("failed to parse update schedule: %w", err)
+			}
 		}
 		m.update = schedule
 	} else {
 		m.update = nil
 	}
 
-	return nil
+	return syncErr
 }
 
 func (m *manager) IsReady(ctx context.Context, policyType Type) bool {
@@ -92,6 +95,7 @@ type schedule struct {
 	cron               cron.Schedule
 	startGraceDuration time.Duration
 	oneTimeWindows     []oneTimeWindow
+	valid              bool
 
 	// this is used for testing to override time.Now
 	nowFn func() time.Time
@@ -118,6 +122,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	s.cron = nil
 	s.startGraceDuration = 0
 	s.oneTimeWindows = nil
+	s.valid = false
 
 	hasAt := updateSchedule.At != ""
 	hasGraceDuration := updateSchedule.StartGraceDuration != ""
@@ -178,6 +183,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 		}
 	}
 
+	s.valid = true
 	return nil
 }
 
@@ -208,6 +214,10 @@ func parseOneTimeWindow(window v1beta1.OneTimeWindow, location *time.Location) (
 
 // IsReady returns true if an activation falls within a current grace window.
 func (s *schedule) IsReady(log *log.PrefixLogger) bool {
+	if !s.valid {
+		log.Debugf("Policy %s schedule is invalid", s.policyType)
+		return false
+	}
 	now := s.nowFn().In(s.location)
 
 	if s.cron != nil {
