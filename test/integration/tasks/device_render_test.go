@@ -2,6 +2,8 @@ package tasks_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,6 +15,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
+	"github.com/flightctl/flightctl/internal/registryconfig"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -102,6 +105,17 @@ func (m *mockK8sClient) ListProjects(ctx context.Context, token string, opts ...
 
 func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
 	return nil, nil
+}
+
+type registryCompositionFixture struct {
+	result *registryconfig.Composition
+	err    error
+	needs  []registryconfig.PullNeed
+}
+
+func (f *registryCompositionFixture) Compose(needs []registryconfig.PullNeed) (*registryconfig.Composition, error) {
+	f.needs = needs
+	return f.result, f.err
 }
 
 var _ = Describe("DeviceRender", func() {
@@ -250,6 +264,124 @@ var _ = Describe("DeviceRender", func() {
 			Entry("unreported file-only update", (*bool)(nil), `[]`, true),
 			Entry("supported file-only update", lo.ToPtr(true), `[]`, true),
 		)
+	})
+
+	Context("registry configuration", func() {
+		DescribeTable("When composition fails it should retain the last successful payload and allow repair", func(message string, previous bool) {
+			status := api.NewDeviceStatus()
+			status.SystemInfo.ConfigResourcesSupported = lo.ToPtr(true)
+			device := &api.Device{Metadata: api.ObjectMeta{Name: &deviceName}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/team/new:v2"}}, Status: &status}
+			const oldResources = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"team","consumers":[{"type":"os","user":"root"}]}]}]`
+			var old *devicestore.DeviceRendered
+			if previous {
+				device.Metadata.Annotations = &map[string]string{api.DeviceAnnotationRenderedVersion: "1"}
+				old = &devicestore.DeviceRendered{Config: `[{"name":"old","inline":[{"path":"/etc/old","content":"old"}]}]`, Applications: `[{"name":"old","appType":"container","image":"quay.io/team/old:v1"}]`, ConfigResources: oldResources, OsImage: "quay.io/team/old:v1", DeltaImage: lo.ToPtr("delta.example.com/team/old:v1")}
+			}
+			_, err := deviceStore.Create(ctx, orgId, device, old)
+			Expect(err).NotTo(HaveOccurred())
+			var repoSpec api.RepositorySpec
+			Expect(repoSpec.FromOciRepoSpec(api.OciRepoSpec{Type: api.OciRepoSpecTypeOci, Registry: "quay.io"})).To(Succeed())
+			repo, err := repoStore.Create(ctx, orgId, &api.Repository{Metadata: api.ObjectMeta{Name: &repoName}, Spec: repoSpec})
+			Expect(err).NotTo(HaveOccurred())
+			fixture := &registryCompositionFixture{err: errors.New(message)}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil).WithRegistryConfigSnapshotFactory(func(id uuid.UUID, candidates []registryconfig.Candidate) (registryconfig.Composer, error) {
+				Expect(id).To(Equal(orgId))
+				Expect(candidates).To(HaveLen(1))
+				Expect(candidates[0].Repository.Metadata.Name).To(Equal(&repoName))
+				return fixture, nil
+			})
+			event := api.Event{Reason: api.EventReasonResourceUpdated, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName}}
+			Expect(logic.RenderDevice(ctx, orgId, event)).To(MatchError(message))
+			got, st := deviceSvc.GetDevice(ctx, orgId, deviceName)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			condition := api.FindStatusCondition(got.Status.Conditions, api.ConditionTypeDeviceSpecValid)
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(api.ConditionStatusFalse))
+			Expect(condition.Message).To(Equal(message))
+			if previous {
+				published, st := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(got.Version()).To(Equal("1"))
+				Expect(published.Spec.Os.Image).To(Equal("quay.io/team/old:v1"))
+				Expect(published.Spec.Os.DeltaImage).To(Equal(old.DeltaImage))
+				configBytes, err := json.Marshal(published.Spec.Config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(configBytes)).To(MatchJSON(old.Config))
+				appBytes, err := json.Marshal(published.Spec.Applications)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(appBytes)).To(MatchJSON(old.Applications))
+				resourceBytes, err := json.Marshal(published.Spec.ConfigResources)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(resourceBytes)).To(MatchJSON(oldResources))
+			} else {
+				Expect(got.Version()).To(BeEmpty())
+			}
+			repoAfter, err := repoStore.Get(ctx, orgId, repoName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(repoAfter.Status).To(Equal(repo.Status))
+			fixture.err = nil
+			fixture.result = &registryconfig.Composition{Endpoints: []registryconfig.EndpointConfig{{Registry: "quay.io", Scheme: api.Https}}, Selections: []registryconfig.Selection{{Need: registryconfig.PullNeed{Consumer: registryconfig.ConsumerOS, User: "root"}, Registry: "quay.io", Scope: "team", Outcome: registryconfig.OutcomeAllowed}}}
+			Expect(logic.RenderDevice(ctx, orgId, event)).To(Succeed())
+			published, st := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(published.Spec.Os.Image).To(Equal("quay.io/team/new:v2"))
+			Expect(lo.FromPtr(published.Spec.ConfigResources)).To(HaveLen(1))
+			Expect(fixture.needs).To(ContainElement(registryconfig.PullNeed{Reference: "quay.io/team/new:v2", Consumer: registryconfig.ConsumerOS, User: "root", Destination: "os:root"}))
+		}, Entry("credential ambiguity with previous output", "credential ambiguity at quay.io: repositories a, b", true), Entry("transport conflict with previous output", "transport conflict at quay.io: repositories a, b", true), Entry("first-render ambiguity", "credential ambiguity at quay.io: repositories a, b", false))
+
+		DescribeTable("When authored files suppress all handler work it should publish without capability", func(support *bool) {
+			status := api.NewDeviceStatus()
+			status.SystemInfo.ConfigResourcesSupported = support
+			var provider api.ConfigProviderSpec
+			Expect(provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Name: "registry-files", Inline: []api.FileSpec{{Path: "/etc/ostree/auth.json", Content: "{}"}, {Path: "/etc/containers/registries.conf", Content: ""}}})).To(Succeed())
+			device := &api.Device{Metadata: api.ObjectMeta{Name: &deviceName}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/team/os:v1"}, Config: &[]api.ConfigProviderSpec{provider}}, Status: &status}
+			_, err := deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).NotTo(HaveOccurred())
+			fixture := &registryCompositionFixture{result: &registryconfig.Composition{Endpoints: []registryconfig.EndpointConfig{{Registry: "quay.io", Scheme: api.Https}}, Selections: []registryconfig.Selection{{Need: registryconfig.PullNeed{Consumer: registryconfig.ConsumerOS, User: "root", SuppressAuthentication: true}, Registry: "quay.io", Scope: "team", Outcome: registryconfig.OutcomeAllowed}}}}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil).WithRegistryConfigSnapshotFactory(func(uuid.UUID, []registryconfig.Candidate) (registryconfig.Composer, error) { return fixture, nil })
+			Expect(logic.RenderDevice(ctx, orgId, api.Event{Reason: api.EventReasonResourceUpdated, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName}})).To(Succeed())
+			Expect(fixture.needs).To(HaveLen(1))
+			Expect(fixture.needs[0].SuppressAuthentication).To(BeTrue())
+			published, st := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(lo.FromPtr(published.Spec.ConfigResources)).To(BeEmpty())
+			Expect(lo.FromPtr(published.Spec.Config)).To(HaveLen(1))
+		}, Entry("absent support", (*bool)(nil)), Entry("false support", lo.ToPtr(false)))
+
+		DescribeTable("When generated registry work remains it should require explicit capability", func(support *bool, allowed bool) {
+			status := api.NewDeviceStatus()
+			status.SystemInfo.ConfigResourcesSupported = support
+			device := &api.Device{Metadata: api.ObjectMeta{Name: &deviceName}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/team/os:v1"}}, Status: &status}
+			_, err := deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).NotTo(HaveOccurred())
+			fixture := &registryCompositionFixture{result: &registryconfig.Composition{Endpoints: []registryconfig.EndpointConfig{{Registry: "quay.io", Scheme: api.Https}}, Selections: []registryconfig.Selection{{Need: registryconfig.PullNeed{Consumer: registryconfig.ConsumerOS, User: "root"}, Registry: "quay.io", Scope: "team", Outcome: registryconfig.OutcomeAllowed}}}}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil).WithRegistryConfigSnapshotFactory(func(uuid.UUID, []registryconfig.Candidate) (registryconfig.Composer, error) { return fixture, nil })
+			err = logic.RenderDevice(ctx, orgId, api.Event{Reason: api.EventReasonResourceUpdated, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName}})
+			got, st := deviceSvc.GetDevice(ctx, orgId, deviceName)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+			if allowed {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(got.Version()).To(Equal("1"))
+			} else {
+				Expect(err).To(MatchError(ContainSubstring("Upgrade the agent")))
+				condition := api.FindStatusCondition(got.Status.Conditions, api.ConditionTypeDeviceSpecValid)
+				Expect(condition).NotTo(BeNil())
+				Expect(condition.Reason).To(Equal(api.DeviceConditionUnsupportedConfigResourcesReason))
+				Expect(got.Version()).To(BeEmpty())
+			}
+		}, Entry("unreported", (*bool)(nil), false), Entry("false", lo.ToPtr(false), false), Entry("true", lo.ToPtr(true), true))
+
+		It("When a VM is converted it should collect the actual launcher with its execution identity", func() {
+			var spec api.DeviceSpec
+			Expect(json.Unmarshal([]byte(`{"applications":[{"name":"vm","appType":"vm","runAs":"vmuser","inline":[{"path":"vm.yaml","content":"kind: VirtualMachine"}]}]}`), &spec)).To(Succeed())
+			fixture := &registryCompositionFixture{result: &registryconfig.Composition{}}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil).WithVmConverter(func(context.Context, []byte) (map[string]string, string, error) {
+				return map[string]string{"launcher.container": "[Container]\nImage=registry.redhat.io/virt/launcher:v1\n"}, "", nil
+			}).WithRegistryConfigSnapshotFactory(func(uuid.UUID, []registryconfig.Candidate) (registryconfig.Composer, error) { return fixture, nil })
+			_, err := logic.RenderSpec(ctx, orgId, &spec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fixture.needs).To(ContainElement(registryconfig.PullNeed{Reference: "registry.redhat.io/virt/launcher:v1", Consumer: registryconfig.ConsumerContainer, User: "vmuser", Destination: "containers:vmuser"}))
+		})
 	})
 
 	Context("render-time path validation", func() {
