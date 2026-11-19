@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -374,6 +375,71 @@ func (a *PackageModeAgent) GetEnrollmentID(ctx context.Context, timeout time.Dur
 		case <-timeoutCtx.Done():
 			return "", fmt.Errorf("timeout waiting for enrollment ID in agent logs: %w", timeoutCtx.Err())
 		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// EnrollPackageModeAgent approves the helper container's enrollment request and
+// waits for the resulting device to report online, returning its device ID.
+//
+// The caller's labels are merged on top of the harness-owned test resource
+// labels, so a device enrolled this way is collected by the harness cleanup
+// along with the rest of the test's resources.
+//
+// The identifier is returned as soon as it is known, including alongside an
+// error. Approval creates the device before it comes online, so a caller that
+// discarded the id on failure would leave that device behind; returning it
+// lets the caller register its cleanup even when the wait times out.
+func EnrollPackageModeAgent(ctx context.Context, harness *Harness, agent *PackageModeAgent, labels map[string]string, timeout, pollInterval time.Duration) (string, error) {
+	if harness == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	if agent == nil {
+		return "", fmt.Errorf("package-mode agent is nil")
+	}
+
+	enrollmentID, err := agent.GetEnrollmentID(ctx, timeout)
+	if err != nil {
+		return "", fmt.Errorf("get enrollment ID: %w", err)
+	}
+	if _, err := harness.WaitForEnrollmentRequestResource(enrollmentID, testutil.TIMEOUT_5M, testutil.SHORT_POLLING); err != nil {
+		return enrollmentID, err
+	}
+
+	testLabels, err := harness.TestResourceLabels()
+	if err != nil {
+		return enrollmentID, err
+	}
+	approvalLabels := make(map[string]string, len(testLabels)+len(labels))
+	for key, value := range testLabels {
+		approvalLabels[key] = value
+	}
+	for key, value := range labels {
+		approvalLabels[key] = value
+	}
+	if _, err := harness.ApproveEnrollmentRequestWithLabels(enrollmentID, approvalLabels); err != nil {
+		return enrollmentID, err
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var lastErr error
+	for {
+		device, err := harness.CheckDeviceStatus(enrollmentID, v1beta1.DeviceSummaryStatusOnline)
+		switch {
+		case err != nil:
+			lastErr = err
+		case device == nil:
+			lastErr = fmt.Errorf("device %s is still nil", enrollmentID)
+		default:
+			return enrollmentID, nil
+		}
+		select {
+		case <-timeoutCtx.Done():
+			// The device exists from approval onwards, so hand its id back
+			// with the error rather than losing track of it.
+			return enrollmentID, fmt.Errorf("waiting for device %s to come online: %w", enrollmentID, lastErr)
+		case <-time.After(pollInterval):
 		}
 	}
 }

@@ -61,7 +61,10 @@ should_preload_package_mode_image() {
     for suite_dir in "${GO_E2E_DIRS[@]}"; do
         if [[ "${suite_dir}" == *"/package_mode" || \
               "${suite_dir}" == *"/package_mode/"* || \
+              "${suite_dir}" == *"/package_mode_migration" || \
+              "${suite_dir}" == *"/package_mode_migration/"* || \
               "${suite_dir}" == "./test/e2e/package_mode" || \
+              "${suite_dir}" == "./test/e2e/package_mode_migration" || \
               "${suite_dir}" == "./test/e2e/..." || \
               "${suite_dir}" == "test/e2e/..." || \
               "${suite_dir}" == *"/test/e2e/..." ]]; then
