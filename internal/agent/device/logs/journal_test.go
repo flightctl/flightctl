@@ -355,9 +355,13 @@ func TestJournalSnapshotExhaustionWhileTheJournalGrows(t *testing.T) {
 	require := require.New(t)
 
 	// The filtered result is exhausted at 3 entries, but a new entry lands
-	// between rounds. Judging exhaustion by the line count alone would see
-	// progress forever and eventually fail; judging it by the oldest line
-	// settles it on the second round.
+	// between rounds. The count changes each round, so the == check in
+	// reachedStart correctly refuses to declare exhaustion. In production
+	// the until-time filter prevents appended entries from reaching
+	// reachedStart; this test models the unfiltered fake.
+	//
+	// Without the production until-time guard the growing count means we
+	// hit the entry-budget ceiling instead, which is ErrLogScanIncomplete.
 	fake := &fakeJournal{
 		entries: singleLineEntries(3),
 		onCall: func(f *fakeJournal, call int) {
@@ -366,11 +370,8 @@ func TestJournalSnapshotExhaustionWhileTheJournalGrows(t *testing.T) {
 	}
 	j := newJournalUnderTest(t, fake, WithMaxEntryBudget(64))
 
-	snapshot, err := j.Snapshot(context.Background(), JournalRequest{TailLines: 50})
-	require.NoError(err)
-	require.True(snapshot.Exhausted)
-	require.Equal("line-01", snapshot.Lines[0])
-	require.Len(fake.budgets, 2)
+	_, err := j.Snapshot(context.Background(), JournalRequest{TailLines: 50})
+	require.ErrorIs(err, errors.ErrLogScanIncomplete)
 }
 
 func TestJournalSnapshotScanBudget(t *testing.T) {
@@ -619,7 +620,7 @@ func TestReachedStartStableInputReportsExhaustion(t *testing.T) {
 	// reachedStart is stable across widening rounds. This test verifies
 	// that reachedStart correctly detects genuine exhaustion on stable
 	// input, and correctly detects NON-exhaustion when the budget reaches
-	// further back.
+	// further back or when distinct entries share identical oldest text.
 
 	testCases := []struct {
 		name     string
@@ -651,6 +652,23 @@ func TestReachedStartStableInputReportsExhaustion(t *testing.T) {
 			current:  []string{"line-01"},
 			want:     false,
 		},
+		{
+			name: "When distinct entries share identical oldest text but counts differ it should report not exhausted",
+			// Regression: with >= the identical oldest line and increased
+			// count would falsely report exhaustion. The == check correctly
+			// requires the same count as proof.
+			previous: []string{"shared-text", "b", "c", "d"},
+			current:  []string{"shared-text", "e", "f", "g", "h", "i"},
+			want:     false,
+		},
+		{
+			name: "When identical oldest text and identical count it should report exhausted",
+			// Same oldest line AND same count with stable input means the
+			// same entry set was returned.
+			previous: []string{"shared-text", "b", "c"},
+			current:  []string{"shared-text", "b", "c"},
+			want:     true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -658,6 +676,55 @@ func TestReachedStartStableInputReportsExhaustion(t *testing.T) {
 			require.New(t).Equal(tc.want, reachedStart(tc.previous, tc.current))
 		})
 	}
+}
+
+func TestJournalSnapshotIdenticalOldestTextDoesNotFalselyExhaust(t *testing.T) {
+	// Consumer-path regression: entries at different depths render identical
+	// oldest lines. With the == count check, the widening loop must continue
+	// rather than falsely declaring exhaustion.
+	require := require.New(t)
+
+	// 10 entries, each renders "shared" as first line, plus a distinguishing
+	// second line. Budget starts small, widens, and each round's oldest line
+	// is "shared" but the count grows.
+	entries := make([]fakeEntry, 0, 10)
+	for i := 1; i <= 10; i++ {
+		entries = append(entries, fakeEntry{text: fmt.Sprintf("shared\nentry-%02d", i), match: true})
+	}
+	fake := &fakeJournal{entries: entries}
+	j := newJournalUnderTest(t, fake, WithMaxEntryBudget(64))
+
+	snapshot, err := j.Snapshot(context.Background(), JournalRequest{TailLines: 100})
+	require.NoError(err)
+	require.True(snapshot.Exhausted)
+	require.Len(snapshot.Lines, 20) // 10 entries × 2 lines each
+	require.Equal("shared", snapshot.Lines[0])
+}
+
+func TestSplitRenderedLinesBoundedRejectsExcessiveLines(t *testing.T) {
+	// Regression: newline-dense content under the byte cap can amplify into
+	// metadata that exceeds the memory budget. The bounded split counts
+	// newlines before allocating.
+	require := require.New(t)
+
+	// 10 newlines → 10 lines, with a bound of 5
+	_, err := SplitRenderedLinesBounded("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n", 5)
+	require.ErrorIs(err, errors.ErrLogBufferExceeded)
+
+	// Within bounds
+	lines, err := SplitRenderedLinesBounded("a\nb\nc\n", 5)
+	require.NoError(err)
+	require.Equal([]string{"a", "b", "c"}, lines)
+
+	// Empty input
+	lines, err = SplitRenderedLinesBounded("", 5)
+	require.NoError(err)
+	require.Nil(lines)
+
+	// Embedded blank lines are preserved as content
+	lines, err = SplitRenderedLinesBounded("a\n\nb\n", 10)
+	require.NoError(err)
+	require.Equal([]string{"a", "", "b"}, lines)
 }
 
 func TestJournalSnapshotRejectsWindowOverflow(t *testing.T) {

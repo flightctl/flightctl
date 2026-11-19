@@ -121,6 +121,7 @@ type Journal struct {
 	scanBudget     time.Duration
 	maxEntryBudget int64
 	maxBufferBytes int
+	maxLineCount   int64
 }
 
 // JournalOption customises a Journal. The defaults are the design's budgets.
@@ -161,6 +162,7 @@ func NewJournal(log *log.PrefixLogger, journalctl *client.Journalctl, opts ...Jo
 		scanBudget:     DefaultScanBudget,
 		maxEntryBudget: DefaultMaxEntryBudget,
 		maxBufferBytes: DefaultMaxBufferBytes,
+		maxLineCount:   DefaultMaxLineCount,
 	}
 	for _, opt := range opts {
 		opt(j)
@@ -274,17 +276,21 @@ func (j *Journal) query(ctx, scanCtx context.Context, filters []client.LogOption
 		}
 		return nil, err
 	}
-	return SplitRenderedLines(out), nil
+	return SplitRenderedLinesBounded(out, j.maxLineCount)
 }
 
 // reachedStart reports whether widening the entry budget stopped reaching
 // further back.
 //
 // Each candidate set is a suffix of the filtered result, so a larger budget can
-// only extend it at the old end. When the oldest rendered line stops moving the
-// budget is no longer what is limiting the result, and the filtered result is
-// exhausted. Comparing the oldest line rather than the line count is what keeps
-// a journal that is still being appended to from looking like progress forever.
+// only extend it at the old end. When the oldest rendered line stops moving and
+// the line count stays the same, the budget is no longer what is limiting the
+// result, and the filtered result is exhausted. The equality check on count
+// (not >=) prevents false positives when distinct entries render identical
+// oldest lines: a wider budget that finds more entries always increases the
+// rendered line count, so equal count with matching oldest text proves the
+// same entry set was returned. The until-time query boundary prevents entries
+// appended during the scan from affecting the comparison.
 func reachedStart(previous, current []string) bool {
 	if len(current) == 0 {
 		return len(previous) == 0
@@ -292,7 +298,7 @@ func reachedStart(previous, current []string) bool {
 	if len(previous) == 0 {
 		return false
 	}
-	return current[0] == previous[0] && len(current) >= len(previous)
+	return current[0] == previous[0] && len(current) == len(previous)
 }
 
 // widen chooses the next entry budget. The shortfall ratio projects the

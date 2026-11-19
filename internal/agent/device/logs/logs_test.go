@@ -166,10 +166,10 @@ func TestReachedStart(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "When the oldest line stopped moving while new lines arrived it should still report exhaustion",
+			name:     "When the oldest line matches but count differs it should not report exhaustion",
 			previous: []string{"a", "b"},
 			current:  []string{"a", "b", "c"},
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "When the previous round was empty and this one is not it should not report exhaustion",

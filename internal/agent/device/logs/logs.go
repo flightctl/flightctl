@@ -12,8 +12,11 @@
 package logs
 
 import (
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 const (
@@ -32,6 +35,12 @@ const (
 	// one query. It sits above the API's own response ceiling so a legitimate
 	// maximum-size response is never rejected by the agent's working buffer.
 	DefaultMaxBufferBytes = 128 << 20
+
+	// DefaultMaxLineCount caps the number of rendered lines held as string
+	// metadata for one query. Each line is a 16-byte string header; without a
+	// cap, newline-dense content under DefaultMaxBufferBytes can amplify into
+	// metadata that exceeds the intended memory budget.
+	DefaultMaxLineCount int64 = 1 << 20
 )
 
 // Snapshot is one finite, fully assembled selection of log lines.
@@ -63,6 +72,25 @@ func SplitRenderedLines(out string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
+}
+
+// SplitRenderedLinesBounded splits rendered output like SplitRenderedLines but
+// rejects output whose line count exceeds maxLines. The count is computed
+// before the slice is allocated, so newline-dense content under the byte cap
+// cannot amplify into unbounded string-header metadata.
+func SplitRenderedLinesBounded(out string, maxLines int64) ([]string, error) {
+	if out == "" {
+		return nil, nil
+	}
+	n := int64(strings.Count(out, "\n"))
+	if len(out) > 0 && out[len(out)-1] != '\n' {
+		n++ // unterminated last line
+	}
+	if maxLines > 0 && n > maxLines {
+		return nil, fmt.Errorf("%w: rendered output has %d lines, exceeding the %d-line limit",
+			errors.ErrLogBufferExceeded, n, maxLines)
+	}
+	return SplitRenderedLines(out), nil
 }
 
 // TailWindow returns the tailLines lines ending at len(lines)-lineOffset: drop
