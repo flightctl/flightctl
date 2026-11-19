@@ -463,7 +463,7 @@ func nativeELF() []byte {
 	for _, v := range []any{
 		uint16(elf.ET_EXEC), uint16(machine), uint32(elf.EV_CURRENT), uint64(0x401000), uint64(64), uint64(0), uint32(0),
 		uint16(64), uint16(56), uint16(1), uint16(64), uint16(0), uint16(0),
-		uint32(elf.PT_LOAD), uint32(elf.PF_R | elf.PF_X), uint64(0), uint64(0x400000), uint64(0x400000), uint64(120), uint64(120), uint64(0x1000),
+		uint32(elf.PT_LOAD), uint32(elf.PF_R | elf.PF_X), uint64(0), uint64(0x400000), uint64(0x400000), uint64(120), uint64(0x2000), uint64(0x1000),
 	} {
 		Expect(binary.Write(&buf, binary.LittleEndian, v)).To(Succeed())
 	}

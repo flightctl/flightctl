@@ -31,9 +31,9 @@ var nativeTargets = map[string]nativeTarget{
 }
 
 // CheckNativeExecutable verifies that r holds a Linux (System V or Linux OS
-// ABI) ELF executable for goarch that runs without a program interpreter or
-// shared libraries. Static and static position-independent executables are
-// accepted.
+// ABI) ELF executable for goarch whose entry point lies in an executable load
+// segment and that runs without a program interpreter or shared libraries.
+// Static and static position-independent executables are accepted.
 func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	target, ok := nativeTargets[goarch]
 	if !ok {
@@ -53,11 +53,14 @@ func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	if f.Type != elf.ET_EXEC && f.Type != elf.ET_DYN {
 		return fmt.Errorf("%w: ELF type %s is not an executable", errNotNativeExecutable, f.Type)
 	}
-	loadable := false
+	loadable, entryExecutable := false, false
 	for _, p := range f.Progs {
 		switch p.Type {
 		case elf.PT_LOAD:
 			loadable = true
+			if p.Flags&elf.PF_X != 0 && f.Entry >= p.Vaddr && f.Entry-p.Vaddr < p.Memsz {
+				entryExecutable = true
+			}
 		case elf.PT_INTERP:
 			return fmt.Errorf("%w: requires a program interpreter", errNotNativeExecutable)
 		case elf.PT_DYNAMIC:
@@ -72,6 +75,9 @@ func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	}
 	if !loadable {
 		return fmt.Errorf("%w: has no loadable segment", errNotNativeExecutable)
+	}
+	if !entryExecutable {
+		return fmt.Errorf("%w: entry point %#x is not in an executable load segment", errNotNativeExecutable, f.Entry)
 	}
 	return nil
 }
