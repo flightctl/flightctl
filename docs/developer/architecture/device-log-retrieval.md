@@ -100,18 +100,19 @@ The end-relative scan is:
    doubling as a floor so a round that learned nothing still makes progress.
 3. **Window over rendered lines**, as above.
 
-Whether journalctl applies `-n` before or after the other filters is
-deliberately **not** depended on. The window is computed from the rendered
-output, so it is correct either way; the ordering affects only how many widening
-rounds step 2 needs.
+When no explicit upper time bound is set, the scan pins the query at the
+scan-start time (`--until <scan_time>`). This creates a stable query boundary
+so that entries appended during the scan cannot shift the tail window between
+widening rounds.
 
 ### Knowing when to stop
 
 Each candidate set is a *suffix* of the filtered result, so a larger budget can
-only extend it at the old end. The filtered result is exhausted exactly when the
-**oldest rendered line stops moving** between rounds. Judging that by the line
-count instead would mistake a journal still being appended to for progress, and
-widen forever.
+only extend it at the old end. The filtered result is considered exhausted when
+both the **oldest rendered line** and the **total rendered line count** are
+unchanged between two rounds. The count check prevents false exhaustion when
+distinct entries happen to share the same oldest rendered text: a wider budget
+that finds additional entries always increases the rendered line count.
 
 ### Failing loudly
 
@@ -128,6 +129,7 @@ success, and there is no byte-based truncation on this path.
 | Scan budget | 60 s | Wall time to assemble one snapshot, across every widening round. A deployment may shorten it; nothing may lengthen it |
 | Entry budget cap | 2²² entries | How far `-n` may be widened before the scan fails |
 | Working buffer | 128 MiB | stdout buffered for one invocation. An overrun fails the call rather than returning the bytes that fit |
+| Rendered-line cap | 2²⁰ lines | Rendered logical content lines per query. Newlines are counted before the string slice is allocated; exceeding the cap fails with `ErrLogBufferExceeded`. This prevents newline-dense content under the byte cap from amplifying into unbounded string-header metadata |
 
 The scan budget ends at scan **completion**, not at first output. It is not a
 follow lifetime and not an inactivity timer.
