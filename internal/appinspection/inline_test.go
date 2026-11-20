@@ -81,6 +81,44 @@ func TestInspectQuadlet(t *testing.T) {
 			},
 			complete: true,
 		},
+		{
+			name: "When a volume uses an image unit it should classify the effective image as a volume",
+			contents: []v1beta1.ApplicationContent{
+				app,
+				content("data.volume", "[Volume]\nDriver=image\nImage=data.image\n"),
+				content("data.image", "[Image]\nImage=quay.io/example/data:v1\n"),
+				content("data.image.d/10-image.conf", "[Image]\nImage=quay.io/example/data:v2\n"),
+			},
+			refs:     []appinspection.Reference{workload, containerRef("quay.io/example/data:v2", appinspection.RoleVolume)},
+			complete: true,
+		},
+		{
+			name: "When a container and volume share an image unit it should report both roles",
+			contents: []v1beta1.ApplicationContent{
+				content("app.container", "[Container]\nImage=local.image\n"),
+				content("data.volume", "[Volume]\nDriver=image\nImage=local.image\n"),
+				content("local.image", "[Image]\nImage=quay.io/example/shared:v1\n"),
+			},
+			refs: []appinspection.Reference{
+				containerRef("quay.io/example/shared:v1", appinspection.RoleWorkload),
+				containerRef("quay.io/example/shared:v1", appinspection.RoleVolume),
+			},
+			complete: true,
+		},
+		{
+			name: "When an image mount uses an image unit it should classify the image as a volume",
+			contents: []v1beta1.ApplicationContent{
+				content("app.container", "[Container]\nImage=quay.io/example/old:v1\nMount=type=image,source=data.image,destination=/data\n"),
+				content("data.image", "[Image]\nImage=quay.io/example/data:v1\n"),
+				content("standalone.image", "[Image]\nImage=quay.io/example/standalone:v1\n"),
+			},
+			refs: []appinspection.Reference{
+				workload,
+				containerRef("quay.io/example/data:v1", appinspection.RoleVolume),
+				containerRef("quay.io/example/standalone:v1", appinspection.RoleWorkload),
+			},
+			complete: true,
+		},
 		{"When another unit is malformed it should retain valid unit refs", []v1beta1.ApplicationContent{app,
 			content("private-name.container", "[Service]\n")}, []appinspection.Reference{workload}, false},
 		{"When a matching drop-in is malformed it should keep independent units", []v1beta1.ApplicationContent{app,

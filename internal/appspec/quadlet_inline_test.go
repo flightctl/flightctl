@@ -23,6 +23,19 @@ func TestParsePartialQuadletImageReferencesFromSpec(t *testing.T) {
 	require.Nil(t, strict)
 }
 
+func TestParseQuadletImageReferencesFromSpec(t *testing.T) {
+	t.Run("When a container and volume share an image unit it should return only the registry reference", func(t *testing.T) {
+		contents := []v1beta1.ApplicationContent{
+			{Path: "app.container", Content: lo.ToPtr("[Container]\nImage=local.image")},
+			{Path: "data.volume", Content: lo.ToPtr("[Volume]\nDriver=image\nImage=local.image")},
+			{Path: "local.image", Content: lo.ToPtr("[Image]\nImage=quay.io/example/shared:v1")},
+		}
+		images, err := ParseQuadletImageReferencesFromSpec(contents)
+		require.NoError(t, err)
+		require.Equal(t, []string{"quay.io/example/shared:v1"}, images)
+	})
+}
+
 func TestParseQuadletReferencesFromSpec(t *testing.T) {
 	tests := []struct {
 		name              string

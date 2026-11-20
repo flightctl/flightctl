@@ -207,16 +207,61 @@ func ParsePartialQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationCo
 	return parseQuadletImageReferencesFromSpec(contents, true)
 }
 
+type quadletImageRoles struct {
+	workload bool
+	volume   bool
+}
+
+func quadletImageUnitRoles(quadlets map[string]*common.QuadletReferences) map[string]quadletImageRoles {
+	roles := make(map[string]quadletImageRoles)
+	for _, unit := range quadlets {
+		if unit.Image != nil && quadlet.IsImageReference(*unit.Image) {
+			name := *unit.Image
+			role := roles[name]
+			switch unit.Type {
+			case common.QuadletTypeContainer:
+				role.workload = true
+			case common.QuadletTypeVolume:
+				role.volume = true
+			}
+			roles[name] = role
+		}
+		for _, image := range unit.MountImages {
+			if quadlet.IsImageReference(image) {
+				role := roles[image]
+				role.volume = true
+				roles[image] = role
+			}
+		}
+	}
+	return roles
+}
+
 func parseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent, partial bool) ([]QuadletImageReference, error) {
 	quadlets, firstErr := parseQuadletReferencesFromSpec(contents, partial)
 	if firstErr != nil && !partial {
 		return nil, firstErr
 	}
 
+	// Classify image-unit uses for inspection; the flat parser returns each image unit once.
+	var imageUnitRoles map[string]quadletImageRoles
+	if partial {
+		imageUnitRoles = quadletImageUnitRoles(quadlets)
+	}
+
 	var refs []QuadletImageReference
-	for _, parsed := range quadlets {
+	for filename, parsed := range quadlets {
 		if parsed.Image != nil && !quadlet.IsImageReference(*parsed.Image) {
-			refs = append(refs, QuadletImageReference{Image: *parsed.Image, IsVolume: parsed.Type == common.QuadletTypeVolume})
+			roles := quadletImageRoles{volume: parsed.Type == common.QuadletTypeVolume}
+			if parsed.Type == common.QuadletTypeImage {
+				roles = imageUnitRoles[filename]
+			}
+			if roles.workload || !roles.volume {
+				refs = append(refs, QuadletImageReference{Image: *parsed.Image})
+			}
+			if roles.volume {
+				refs = append(refs, QuadletImageReference{Image: *parsed.Image, IsVolume: true})
+			}
 		}
 		for _, image := range parsed.MountImages {
 			if !quadlet.IsImageReference(image) {

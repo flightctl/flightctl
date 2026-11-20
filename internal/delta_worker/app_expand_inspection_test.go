@@ -31,6 +31,14 @@ func TestExpandAppCandidatesWithPartialInspection(t *testing.T) {
 				"inline":[{"path":"app.container","content":"[Container]\nImage=quay.io/example/web:v2\nMount=type=image,source=quay.io/example/web:v2,destination=/data"}]}`,
 			images: []string{"quay.io/example/web:v2"},
 		},
+		{
+			name: "When Quadlet units share an image unit it should pair the registry reference once",
+			app: `{"appType":"quadlet","inline":[
+				{"path":"app.container","content":"[Container]\nImage=local.image"},
+				{"path":"data.volume","content":"[Volume]\nDriver=image\nImage=local.image"},
+				{"path":"local.image","content":"[Image]\nImage=quay.io/example/web:v2"}]}`,
+			images: []string{"quay.io/example/web:v2"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

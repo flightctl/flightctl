@@ -57,6 +57,8 @@ func ExtractImagesFromManifests(manifests string) ([]string, error) {
 	if errors.Is(err, errManifestStream) {
 		return nil, err
 	}
+	// Legacy Helm and agent callers use the readable documents. Inspection uses
+	// ExtractPartialImagesFromManifests to report a skipped document as incomplete.
 	return images, nil
 }
 
