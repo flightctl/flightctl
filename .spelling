@@ -532,6 +532,7 @@ NFS
 claimRef
 matchLabels
 matchExpressions
+passthrough
  - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded

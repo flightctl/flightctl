@@ -147,6 +147,46 @@ kubectl create secret tls flightctl-ca -n flightctl \
 
 Your CA must be capable of signing other certificates (a CA certificate, not a leaf certificate).
 
+### Overriding the external service URLs
+
+Use this section if you expose the Flight Control services through your own ingress instead of the Helm chart (`global.exposeServicesMethod: none`), and the services are not reachable at the URLs derived from `global.baseDomain`, such as `api.${baseDomain}`.
+
+The Helm chart exposes the `global.uiUrl`, `global.apiUrl`, `global.agentApiUrl`, and `global.cliArtifactsUrl` values. Set them to the URLs at which your ingress serves the services. For example, to serve all services on a single hostname, like the [Linux deployment](installing-service-on-linux.md):
+
+```yaml
+global:
+  baseDomain: edge.example.com
+  exposeServicesMethod: none
+  uiUrl: https://edge.example.com
+  apiUrl: https://edge.example.com/_/flightctl
+  cliArtifactsUrl: https://edge.example.com/_/cli-artifacts
+  agentApiUrl: https://edge.example.com:7443   # Host and port only, without a path
+```
+
+All values are optional and unset by default, which preserves the URLs derived from `global.baseDomain`. `global.baseDomain` remains required.
+
+The `flightctl` CLI and the agent derive further endpoints from these URLs:
+
+- For the CLI: The remote access and image builder endpoints are derived from the API URL passed to `flightctl login`. For an `api.<domain>` host without a port, or on port 80 or 443, the CLI uses `remote-access.<domain>` and `imagebuilder-api.<domain>`. For port 3443, it uses ports 3444 and 8445 on the same host. Otherwise, it uses the `/_/remote-access` and `/_/imagebuilder` paths on the same host.
+- For the agent: The remote access endpoint is derived from `global.agentApiUrl`. For an `agent-api.<domain>` host, the agent uses `agent-remote-access.<domain>` on the same port, or on port 7444 if the port is 7443. Otherwise, it uses port 7444 on the same host.
+
+Configure your ingress to route each endpoint to its service. For the single hostname example, this requires the following routes:
+
+| Endpoint | Service | Notes |
+|---|---|---|
+| `https://edge.example.com/` | `flightctl-ui:8080` | The service uses WebSocket connections. |
+| `https://edge.example.com/_/flightctl/` | `flightctl-api:3443` | Remove the path prefix. The service uses TLS and WebSocket connections. |
+| `https://edge.example.com/_/remote-access/` | `flightctl-remote-access:3444` | Remove the path prefix. The service uses TLS and WebSocket connections. |
+| `https://edge.example.com/_/imagebuilder/` | `flightctl-imagebuilder-api:8445` | Remove the path prefix. The service uses TLS. |
+| `https://edge.example.com/_/cli-artifacts/` | `flightctl-cli-artifacts:8090` | Remove the path prefix. |
+| `edge.example.com:7443` | `flightctl-api-agent:7443` | Use TLS passthrough. |
+| `edge.example.com:7444` | `flightctl-remote-access-agent:7444` | Use TLS passthrough. |
+
+> [!IMPORTANT]
+> The agent endpoints must use TLS passthrough. Devices authenticate with client certificates, which the ingress cannot forward when it terminates TLS.
+
+If Flight Control generates the server certificates (`global.generateCertificates` set to `builtin` or `cert-manager`), it adds the hostnames of these URLs and of the derived endpoints to them. With `cert-manager`, use hostnames instead of IP addresses, because the generated certificates only contain DNS names.
+
 ### (Optional) Installing a `kind` cluster
 
 If you do not have a Kubernetes cluster available and are not running RHEL, you can use the [installation on Linux](installing-service-on-linux.md) or create a local test cluster using `kind` (Kubernetes in Docker). This section guides you through setting up a `kind` cluster with Gateway API support for use with Flight Control.
