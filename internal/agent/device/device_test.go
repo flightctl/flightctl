@@ -579,7 +579,7 @@ func TestRollbackDevice(t *testing.T) {
 
 			// Pass a non-retryable error to trigger rollback logic
 			syncErr := errors.New("non-retryable sync error")
-			err = agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSync.sync)
+			_, err = agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSync.sync)
 			if tc.wantSyncErr != nil {
 				require.Error(err)
 				require.Equal(tc.wantSyncErr.Error(), err.Error())
@@ -605,17 +605,58 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
+type rollbackStatusReport struct {
+	summary v1beta1.DeviceSummaryStatusType
+	status  v1beta1.ConditionStatus
+	reason  string
+}
+
+func TestForwardOSReboot(t *testing.T) {
+	ctx := context.Background()
+	deviceName := "test-device"
+	desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v2"}}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockOSManager := os.NewMockManager(ctrl)
+	mockHookManager := hook.NewMockManager(ctrl)
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockManagementClient := client.NewMockManagement(ctrl)
+	statusManager := status.NewManager(deviceName, log.NewPrefixLogger("test"))
+	statusManager.SetClient(mockManagementClient)
+	var reports []rollbackStatusReport
+
+	mockOSManager.EXPECT().AfterUpdate(ctx, desired).Return(nil)
+	mockHookManager.EXPECT().OnBeforeRebooting(ctx).Return(nil)
+	mockSpecManager.EXPECT().CreateRollback(ctx).Return(nil)
+	mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).DoAndReturn(captureRollbackStatus(&reports)).AnyTimes()
+	mockOSManager.EXPECT().Reboot(ctx, desired).Return(nil)
+
+	agent := &Agent{
+		log: log.NewPrefixLogger("test"), statusManager: statusManager,
+		specManager: mockSpecManager, hookManager: mockHookManager, osManager: mockOSManager,
+	}
+	require.NoError(t, agent.afterUpdateOS(ctx, desired))
+	require.NotEmpty(t, reports)
+	last := reports[len(reports)-1]
+	require.Equal(t, v1beta1.DeviceSummaryStatusRebooting, last.summary)
+	require.Equal(t, v1beta1.ConditionStatusTrue, last.status)
+	require.Equal(t, string(v1beta1.UpdateStateRebooting), last.reason)
+}
+
 func TestOSRollback(t *testing.T) {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	testCases := []struct {
-		name       string
-		current    *v1beta1.Device
-		desired    *v1beta1.Device
-		syncFnErr  error
-		setupMocks func(
+		name                 string
+		current              *v1beta1.Device
+		desired              *v1beta1.Device
+		syncFnErr            error
+		initialForwardReboot bool
+		syncChangesCondition bool
+		setupMocks           func(
 			mockSpecManager *spec.MockManager,
 			mockManagementClient *client.MockManagement,
 			mockHookManager *hook.MockManager,
@@ -634,7 +675,6 @@ func TestOSRollback(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockOSManager *os.MockManager,
 			) {
-				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
@@ -657,7 +697,6 @@ func TestOSRollback(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockOSManager *os.MockManager,
 			) {
-				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
@@ -679,7 +718,6 @@ func TestOSRollback(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockOSManager *os.MockManager,
 			) {
-				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(errors.New("write error"))
@@ -692,21 +730,29 @@ func TestOSRollback(t *testing.T) {
 			wantReboot: true,
 		},
 		{
-			name:    "When OS is not reconciled it should not trigger OS rollback",
-			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
-			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			name:                 "When a failed forward reboot leaves OS unchanged it should clear the reboot summary",
+			current:              newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired:              newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			initialForwardReboot: true,
 			setupMocks: func(
 				mockSpecManager *spec.MockManager,
 				mockManagementClient *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockOSManager *os.MockManager,
 			) {
-				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v1", false, nil)
 				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
 			},
 			wantReboot: false,
+		},
+		{
+			name:                 "When rollback sync overwrites the condition and the reboot hook fails it should restore RollingBack",
+			current:              newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired:              newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			syncChangesCondition: true,
+			setupMocks:           setupOSRollbackHookFailure,
+			wantErr:              errors.New("hook failed"),
 		},
 		{
 			name:    "When there is no OS update it should not trigger OS rollback",
@@ -718,7 +764,6 @@ func TestOSRollback(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockOSManager *os.MockManager,
 			) {
-				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
 			},
@@ -743,12 +788,27 @@ func TestOSRollback(t *testing.T) {
 			mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 			mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
 
+			var reports []rollbackStatusReport
+			mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).DoAndReturn(
+				captureRollbackStatus(&reports),
+			).AnyTimes()
+
 			tc.setupMocks(mockSpecManager, mockManagementClient, mockHookManager, mockOSManager)
 
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
+			if tc.initialForwardReboot {
+				_, err := statusManager.Update(ctx,
+					status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{Status: v1beta1.DeviceSummaryStatusRebooting}),
+					status.SetCondition(v1beta1.Condition{
+						Type: v1beta1.ConditionTypeDeviceUpdating, Status: v1beta1.ConditionStatusTrue,
+						Reason: string(v1beta1.UpdateStateRebooting),
+					}))
+				require.NoError(err)
+				reports = nil
+			}
 
 			agent := Agent{
 				log:                log,
@@ -763,17 +823,58 @@ func TestOSRollback(t *testing.T) {
 			syncFnCalled := false
 			mockSyncFn := func(ctx context.Context, c, d *v1beta1.Device) error {
 				syncFnCalled = true
+				if tc.syncChangesCondition {
+					if err := statusManager.UpdateCondition(ctx, v1beta1.Condition{
+						Type: v1beta1.ConditionTypeDeviceUpdating, Status: v1beta1.ConditionStatusTrue,
+						Reason: string(v1beta1.UpdateStateApplyingUpdate),
+					}); err != nil {
+						return err
+					}
+				}
 				return tc.syncFnErr
 			}
 
 			syncErr := errors.New("non-retryable sync error")
-			err := agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSyncFn)
+			rebootPending, err := agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSyncFn)
+			if tc.wantErr != nil {
+				require.EqualError(err, tc.wantErr.Error())
+			} else {
+				require.NoError(err)
+			}
 
 			if tc.wantReboot {
-				require.NoError(err)
+				require.True(rebootPending)
 				require.True(syncFnCalled, "syncFn should be called before OS rollback")
+				require.NotEmpty(reports)
+				last := reports[len(reports)-1]
+				require.Equal(v1beta1.DeviceSummaryStatusRebooting, last.summary)
+				require.Equal(v1beta1.ConditionStatusTrue, last.status)
+				require.Equal(string(v1beta1.UpdateStateRollingBack), last.reason)
 			} else {
+				require.False(rebootPending)
 				require.True(syncFnCalled, "syncFn should be called for non-OS rollback")
+			}
+			rebootReports := 0
+			for _, report := range reports {
+				require.Equal(v1beta1.ConditionStatusTrue, report.status)
+				if tc.syncChangesCondition && report.reason == string(v1beta1.UpdateStateApplyingUpdate) {
+					continue
+				}
+				require.Equal(string(v1beta1.UpdateStateRollingBack), report.reason)
+				if report.summary == v1beta1.DeviceSummaryStatusRebooting {
+					rebootReports++
+				}
+			}
+			if tc.wantReboot {
+				require.Equal(1, rebootReports, "the reboot summary and reason should be reported together once")
+			} else {
+				require.Zero(rebootReports)
+			}
+			if tc.initialForwardReboot {
+				require.Equal(v1beta1.DeviceSummaryStatusOnline, reports[0].summary)
+			}
+			if tc.syncChangesCondition {
+				require.Equal(string(v1beta1.UpdateStateRollingBack), reports[len(reports)-1].reason)
 			}
 		})
 	}
@@ -1137,4 +1238,33 @@ func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desire
 		return errors.New("desired version mismatch")
 	}
 	return nil
+}
+
+func captureRollbackStatus(reports *[]rollbackStatusReport) func(context.Context, string, v1beta1.Device, ...interface{}) error {
+	return func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
+		if device.Status == nil {
+			return errors.New("device status is nil")
+		}
+		condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+		if condition == nil {
+			return errors.New("Updating condition is missing")
+		}
+		*reports = append(*reports, rollbackStatusReport{device.Status.Summary.Status, condition.Status, condition.Reason})
+		return nil
+	}
+}
+
+func setupOSRollbackHookFailure(
+	mockSpecManager *spec.MockManager,
+	_ *client.MockManagement,
+	mockHookManager *hook.MockManager,
+	_ *os.MockManager,
+) {
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
+	mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+	mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
+	mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+		Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+	}, nil)
+	mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(errors.New("hook failed"))
 }

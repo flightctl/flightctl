@@ -98,8 +98,8 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	assert.Equal(t, "quay.io/apps/web:latest", imageSpec.Image)
 }
 
-func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldNotCopyTheRef(t *testing.T) {
-	ref := domain.CatalogItemRefSpec{Catalog: "rhel", Item: "edge", Version: "9.4"}
+func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldCopyTheRef(t *testing.T) {
+	ref := domain.CatalogItemRefSpec{Catalog: "rhel", Item: "edge", Version: "9.4", Channel: lo.ToPtr("stable")}
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
 		Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "old-image:latest"}},
@@ -114,7 +114,7 @@ func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldNotCopyTheRef(t 
 	spec, err := DesiredSpecFromTemplate(device, tv)
 	require.NoError(t, err)
 	require.NotNil(t, spec.Os)
-	assert.Nil(t, spec.Os.CatalogItemRef)
+	assert.Equal(t, &ref, spec.Os.CatalogItemRef)
 	assert.Empty(t, spec.Os.Image)
 	assert.Equal(t, "old-image:latest", device.Spec.Os.Image)
 }

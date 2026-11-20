@@ -208,3 +208,34 @@ func TestUpdateServerSideApplicationStatus_PreservesDeviceStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestRollbackRebootServerSummaries(t *testing.T) {
+	tests := []struct {
+		name       string
+		reason     string
+		summary    domain.DeviceSummaryStatusType
+		wantDevice domain.DeviceSummaryStatusType
+		wantApp    domain.ApplicationsSummaryStatusType
+	}{
+		{name: "When rollback is rebooting it should show reboot summaries", reason: string(domain.UpdateStateRollingBack), summary: domain.DeviceSummaryStatusRebooting, wantDevice: domain.DeviceSummaryStatusRebooting, wantApp: domain.ApplicationsSummaryStatusDegraded},
+		{name: "When rollback is ordinary work it should not show reboot summaries", reason: string(domain.UpdateStateRollingBack), summary: domain.DeviceSummaryStatusOnline, wantDevice: domain.DeviceSummaryStatusOnline, wantApp: domain.ApplicationsSummaryStatusHealthy},
+		{name: "When forward reboot is active it should show reboot summaries", reason: string(domain.UpdateStateRebooting), summary: domain.DeviceSummaryStatusRebooting, wantDevice: domain.DeviceSummaryStatusRebooting, wantApp: domain.ApplicationsSummaryStatusDegraded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{Status: &domain.DeviceStatus{
+				LastSeen:            lo.ToPtr(time.Now()),
+				Summary:             domain.DeviceSummaryStatus{Status: tt.summary},
+				ApplicationsSummary: domain.DeviceApplicationsSummaryStatus{Status: domain.ApplicationsSummaryStatusHealthy},
+				Applications:        []domain.DeviceApplicationStatus{{Name: "app1", Status: domain.ApplicationStatusRunning}},
+				Conditions:          []domain.Condition{{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue, Reason: tt.reason}},
+			}}
+
+			updateServerSideDeviceStatus(device)
+			updateServerSideApplicationStatus(device)
+			assert.Equal(t, tt.wantDevice, device.Status.Summary.Status)
+			assert.Equal(t, tt.wantApp, device.Status.ApplicationsSummary.Status)
+		})
+	}
+}
