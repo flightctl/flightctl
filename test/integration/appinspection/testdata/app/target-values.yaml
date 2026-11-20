@@ -1,0 +1,4 @@
+channel: file
+tag: file
+child:
+  tag: file

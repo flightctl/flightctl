@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: chart-app
+spec:
+  containers:
+    - name: app
+      image: "quay.io/example/{{ .Release.Namespace }}/{{ .Release.Name }}:{{ .Values.channel }}-{{ .Values.tag }}"
