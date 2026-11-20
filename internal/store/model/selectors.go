@@ -19,6 +19,7 @@ var (
 	}
 	deviceDerivedSelectors = selectorToTypeMap{
 		selector.NewSelectorName("enrollmentCertificateName"): selector.String,
+		selector.NewSelectorName("status.updateStage"):        selector.String,
 	}
 	deviceStatusSelectors = selectorToTypeMap{
 		selector.NewSelectorName("status.summary.status"):               selector.String,
@@ -69,6 +70,9 @@ func (m *Device) MapSelectorName(name selector.SelectorName) []selector.Selector
 }
 
 func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if name.String() == "status.updateStage" {
+		return nil, fmt.Errorf("status.updateStage is supported only by the device list query")
+	}
 	if name.String() == "enrollmentCertificateName" {
 		return &selector.SelectorField{
 			Type:      selector.String,

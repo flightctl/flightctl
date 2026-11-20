@@ -71,6 +71,7 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
+	lastListParams    devicestore.DeviceListParams
 	devices           map[string]*domain.Device
 	deviceCredentials map[string]string
 	rendered          map[string]*devicestore.DeviceRendered
@@ -410,6 +411,7 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 }
 
 func (s *fakeDeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {
+	s.lastListParams = listParams
 	items := make([]domain.Device, 0, len(s.devices))
 	for _, d := range s.devices {
 		items = append(items, *deepCopyDevice(d))

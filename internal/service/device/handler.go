@@ -28,6 +28,9 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/jsonpatch"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -240,14 +243,56 @@ func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector
 	}, domain.StatusOK()
 }
 
-func (h *DeviceServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
+func convertDeviceStageListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*devicestore.DeviceListParams, domain.Status) {
+	var stage *string
+	if params.FieldSelector != nil {
+		parsed, err := fields.ParseSelector(*params.FieldSelector)
+		if err != nil {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
+		}
+		requirements, _ := parsed.Requirements()
+		remaining := make(k8sselector.Requirements, 0, len(requirements))
+		for _, requirement := range requirements {
+			if requirement.Key().String() != "status.updateStage" {
+				remaining = append(remaining, requirement)
+				continue
+			}
+			values := requirement.Values()
+			if stage != nil || (requirement.Operator() != selection.Equals && requirement.Operator() != selection.DoubleEquals) || len(values) != 1 {
+				return nil, domain.StatusBadRequest("status.updateStage requires one equality value")
+			}
+			value := values[0].String()
+			switch value {
+			case "Downloading", "Staged", "Applying", "Rebooting", "RollingBack":
+				stage = &value
+			default:
+				return nil, domain.StatusBadRequest("unsupported status.updateStage value")
+			}
+		}
+		if stage != nil {
+			cleaned := remaining.String()
+			params.FieldSelector = &cleaned
+		}
+	}
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+	storeParams.UpdateStage = stage
+	return storeParams, domain.StatusOK()
+}
+
+func (h *DeviceServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
+	storeParams, status := convertDeviceStageListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
 
 	// Check if SummaryOnly is true
 	if params.SummaryOnly != nil && *params.SummaryOnly {
+		if storeParams.UpdateStage != nil {
+			return nil, domain.StatusBadRequest("status.updateStage is not supported with summaryOnly")
+		}
 		// Check for unsupported parameters
 		if params.Limit != nil || params.Continue != nil {
 			return nil, domain.StatusBadRequest("parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true")
