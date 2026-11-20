@@ -596,9 +596,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if authInfo.ExpiresIn != nil {
-		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
-		o.clientConfig.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
+	expiryStr, err := login.ExpiryFromLifetime(authInfo.ExpiresIn)
+	if err != nil {
+		return fmt.Errorf("computing token expiry: %w", err)
+	}
+	if expiryStr != "" {
+		o.clientConfig.AuthInfo.AccessTokenExpiry = expiryStr
 	}
 	o.clientConfig.AuthInfo.AccessToken = authInfo.AccessToken
 	o.clientConfig.AuthInfo.RefreshToken = authInfo.RefreshToken
