@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -32,6 +33,9 @@ func TestInvalidateLastStatus_CausesNextSyncToPush(t *testing.T) {
 	mgr.RegisterStatusExporter(mockExporter)
 
 	mockExporter.EXPECT().Status(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	mockClient.EXPECT().GetRenderedDevice(gomock.Any(), deviceName, nil).Return(&v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{ResourceVersion: lo.ToPtr("1")},
+	}, http.StatusOK, nil)
 	mockClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).Times(2)
 
 	require.NoError(mgr.Sync(ctx))

@@ -17,6 +17,7 @@ var _ Management = (*management)(nil)
 var (
 	ErrEmptyResponse  = errors.New("empty response")
 	ErrDeviceNotFound = errors.New("device not found - certificate should be wiped and agent restarted")
+	ErrStatusConflict = errors.New("device status version conflict")
 )
 
 func NewManagement(
@@ -57,6 +58,9 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		if resp.StatusCode() == http.StatusConflict {
+			return fmt.Errorf("update device status failed: %s: %w", resp.Status(), ErrStatusConflict)
+		}
 		if resp.JSON400 != nil && resp.JSON400.Message != "" {
 			return fmt.Errorf("update device status failed: %s: %s", resp.Status(), resp.JSON400.Message)
 		}
