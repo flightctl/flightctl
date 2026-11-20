@@ -26,7 +26,7 @@ The following table lists the fields supported for filtering for each resource k
 |---------------------------------|-----------------------------------------------------|
 | **Catalog Item**                | `metadata.name`<br/>`metadata.catalog`<br/>`spec.category`<br/>`spec.type`<br/>`fleet` (only `in`) |
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status`<br/>`enrollmentCertificateName`<br/>`status.enrollmentCredential.revoked` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.updateStage` (query only)<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status`<br/>`enrollmentCertificateName`<br/>`status.enrollmentCredential.revoked` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate`<br/>`status.enrollmentCertificateName` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
@@ -37,6 +37,21 @@ The following table lists the fields supported for filtering for each resource k
 For Enrollment Requests, use `status.enrollmentCertificateName` to select requests with an enrollment credential CSR reference and `!status.enrollmentCertificateName` to select requests without one. This optional reference does not prove that the CSR still exists, is unrevoked, has a known issuance time, or meets approval policy requirements. Consumers must resolve the referenced CSR's current state before using it.
 
 For Devices admitted with an enrollment credential, use `enrollmentCertificateName` to select devices by issuing credential. The filter resolves the credential name from the same-name Enrollment Request. Use `status.enrollmentCredential.revoked=true` to select devices whose admitting credential was revoked.
+
+For updating devices, use `status.updateStage=<value>` to select one active
+stage. The allowed values are `Downloading` (preparing the update), `Staged`
+(ready to apply), `Applying`, `Rebooting`, and `RollingBack`. Only `=` and
+`==` are supported. The filter runs before pagination and does not add a
+stage field to device responses.
+
+`Rebooting` requires a released agent version 1.5 or newer. An older or
+unrecognized agent version has no confirmed reboot stage. To include every
+updating device, including those without an available stage, use
+`status.updated.status=Updating`.
+
+```bash
+flightctl get devices --field-selector 'status.updateStage=Staged'
+```
 
 For catalog items, use `fleet in (fleet-a,fleet-b)` on `GET /api/v1/catalogitems` to list items referenced by either fleet. The filter includes OS images, application images, and application volume images. You can specify up to 100 fleet names, each at most 253 characters long.
 
