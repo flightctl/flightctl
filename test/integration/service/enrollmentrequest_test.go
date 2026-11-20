@@ -522,13 +522,13 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Not(HaveField("Status.Approval.Labels", PointTo(HaveKeyWithValue("second", "attempt")))),
 			))
 
-			By("trying to change approval from true to false and verifying it fails")
+			By("trying to change approval from true to false")
 			denial := api.EnrollmentRequestApproval{
 				Approved: false,
 				Labels:   &map[string]string{"denied": "later"},
 			}
 			_, st = suite.EnrollmentRequest.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, denial)
-			// This should either fail or be ignored, but approval state should remain true
+			// approved:false is a no-op — verify it doesn't change approval state
 
 			By("verifying denial attempt did not change approval state")
 			final, st := suite.EnrollmentRequest.GetEnrollmentRequest(ctx, suite.OrgID, erName)

@@ -647,10 +647,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 	}
 
-	approvalStatusToReturn := enrollmentReq.Status.Approval
-
-	// if the enrollment request was already approved we should not try to approve it one more time
 	if approval.Approved {
+		// if the enrollment request was already approved we should not try to approve it one more time
 		if domain.IsStatusConditionTrue(enrollmentReq.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) {
 			return nil, domain.StatusBadRequest("Enrollment request is already approved")
 		}
@@ -674,7 +672,6 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 			ApprovedAt:    time.Now(),
 			ApprovedBy:    approvedBy,
 		}
-		approvalStatusToReturn = &approvalStatus
 
 		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
 		if err != nil {
@@ -689,12 +686,17 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
+
+		// Update the enrollment request status using the specific approval callback
+		result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
+		h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
+		return &approvalStatus, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 	}
 
-	// Update the enrollment request status using the specific approval callback
-	result, oldER, err := h.updateStatus(ctx, orgId, enrollmentReq)
-	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
-	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+	// Denial is not supported on this endpoint: approved:false leaves the enrollment
+	// request untouched. Return the existing approval status without writing to the
+	// store or emitting an approval event, so no bogus approval is recorded.
+	return enrollmentReq.Status.Approval, domain.StatusOK()
 }
 
 func (h *ServiceHandler) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
