@@ -7,7 +7,7 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/appspec"
+	"github.com/flightctl/flightctl/internal/appinspection"
 	"github.com/flightctl/flightctl/internal/chartutil"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -357,190 +357,25 @@ func applicationImageRepository(image string) (string, error) {
 // extractNewImageRefs extracts all image references from a rendered application
 // spec. These are the "new" images the device will pull after the update.
 func extractNewImageRefs(app *domain.ApplicationProviderSpec) []string {
-	appType, err := (*app).GetAppType()
-	if err != nil {
-		return nil
-	}
-
+	inspected := appinspection.InspectSpec(app)
 	var refs []string
-	switch appType {
-	case domain.AppTypeContainer:
-		refs = extractContainerRefs(app)
-	case domain.AppTypeCompose:
-		refs = extractComposeRefs(app)
-	case domain.AppTypeQuadlet:
-		refs = extractQuadletRefs(app)
-	case domain.AppTypeHelm:
-		refs = extractHelmRefs(app)
-	case domain.AppTypeVm:
-		refs = extractVmRefs(app)
+	for _, ref := range inspected.Declared {
+		if ref.Role != appinspection.RoleVolume {
+			refs = append(refs, ref.Image)
+		}
 	}
-
-	refs = append(refs, extractVolumeImageRefs(app)...)
+	// Inline delta candidates require a complete parse; declared refs stand alone.
+	if inspected.Inline != nil && inspected.Inline.Complete() {
+		for _, ref := range inspected.Inline.References {
+			refs = append(refs, ref.Image)
+		}
+	}
+	for _, ref := range inspected.Declared {
+		if ref.Role == appinspection.RoleVolume {
+			refs = append(refs, ref.Image)
+		}
+	}
 	return deduplicateStrings(refs)
-}
-
-// extractContainerRefs extracts the container image from a rendered container
-// application.
-func extractContainerRefs(app *domain.ApplicationProviderSpec) []string {
-	container, err := (*app).AsContainerApplication()
-	if err != nil {
-		return nil
-	}
-	imageSpec, err := container.AsImageApplicationProviderSpec()
-	if err != nil || imageSpec.Image == "" {
-		return nil
-	}
-	return []string{imageSpec.Image}
-}
-
-// extractComposeRefs extracts all image references from a rendered compose
-// application: the parent artifact image (when image-based) and every service
-// image inside the compose YAML. Rendered compose apps always carry inline
-// content — the render pipeline expands image-based artifacts into inline
-// files before the spec reaches PrepareDeltas.
-func extractComposeRefs(app *domain.ApplicationProviderSpec) []string {
-	compose, err := (*app).AsComposeApplication()
-	if err != nil {
-		return nil
-	}
-
-	var refs []string
-
-	// Parent artifact image (image-based compose).
-	imageSpec, err := compose.AsImageApplicationProviderSpec()
-	if err == nil && imageSpec.Image != "" {
-		refs = append(refs, imageSpec.Image)
-	}
-
-	// Service images from the inline compose YAML.
-	inline, err := compose.AsInlineApplicationProviderSpec()
-	if err == nil {
-		refs = append(refs, parseComposeServiceImages(inline.Inline)...)
-	}
-
-	return refs
-}
-
-// extractQuadletRefs extracts all image references from a rendered quadlet
-// application: the parent artifact image (when image-based), references in
-// inline quadlet units, and images in Pod YAML referenced by .kube units.
-// Rendered quadlet apps always carry inline content.
-func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
-	quadlet, err := (*app).AsQuadletApplication()
-	if err != nil {
-		return nil
-	}
-
-	var refs []string
-
-	// Parent artifact image (image-based quadlet).
-	imageSpec, err := quadlet.AsImageApplicationProviderSpec()
-	if err == nil && imageSpec.Image != "" {
-		refs = append(refs, imageSpec.Image)
-	}
-
-	// Image= refs from inline quadlet unit files.
-	inline, err := quadlet.AsInlineApplicationProviderSpec()
-	if err == nil {
-		refs = append(refs, parseQuadletImageRefs(inline.Inline)...)
-	}
-
-	return refs
-}
-
-// extractHelmRefs extracts the chart OCI reference from a rendered Helm
-// application. Workload image references are added by rendering the chart with
-// its target values in the delta worker.
-func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
-	helm, err := (*app).AsHelmApplication()
-	if err != nil {
-		return nil
-	}
-	imageSpec, err := helm.AsImageApplicationProviderSpec()
-	if err != nil || imageSpec.Image == "" {
-		return nil
-	}
-	return []string{imageSpec.Image}
-}
-
-// extractVmRefs extracts an image-backed VM application image. Inline VM apps
-// are rendered as Quadlet applications before delta candidates are prepared.
-func extractVmRefs(app *domain.ApplicationProviderSpec) []string {
-	vm, err := (*app).AsVmApplication()
-	if err != nil {
-		return nil
-	}
-	imageSpec, err := vm.AsImageApplicationProviderSpec()
-	if err != nil || imageSpec.Image == "" {
-		return nil
-	}
-	return []string{imageSpec.Image}
-}
-
-// extractVolumeImageRefs extracts OCI image references from application volumes.
-func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
-	// Volumes are on the typed app specs. Try each type.
-	var volumes *[]v1beta1.ApplicationVolume
-
-	if c, err := (*app).AsContainerApplication(); err == nil {
-		volumes = c.Volumes
-	} else if comp, err := (*app).AsComposeApplication(); err == nil {
-		volumes = comp.Volumes
-	} else if q, err := (*app).AsQuadletApplication(); err == nil {
-		volumes = q.Volumes
-	}
-
-	if volumes == nil {
-		return nil
-	}
-
-	var refs []string
-	for _, vol := range *volumes {
-		volType, err := vol.Type()
-		if err != nil {
-			continue
-		}
-		switch volType {
-		case v1beta1.ImageApplicationVolumeProviderType:
-			imgVol, err := vol.AsImageVolumeProviderSpec()
-			if err == nil && imgVol.Image.Reference != "" {
-				refs = append(refs, imgVol.Image.Reference)
-			}
-		case v1beta1.ImageMountApplicationVolumeProviderType:
-			imgVol, err := vol.AsImageMountVolumeProviderSpec()
-			if err == nil && imgVol.Image.Reference != "" {
-				refs = append(refs, imgVol.Image.Reference)
-			}
-		}
-	}
-	return refs
-}
-
-// parseComposeServiceImages parses compose YAML content and returns all service
-// image references.
-func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
-	spec, err := appspec.ParseComposeFromSpec(contents)
-	if err != nil || spec == nil {
-		return nil
-	}
-	var images []string
-	for _, svc := range spec.Services {
-		if svc.Image != "" {
-			images = append(images, svc.Image)
-		}
-	}
-	return images
-}
-
-// parseQuadletImageRefs returns external images referenced by inline Quadlet
-// units and any Pod YAML referenced by .kube units.
-func parseQuadletImageRefs(contents []v1beta1.ApplicationContent) []string {
-	images, err := appspec.ParseQuadletImageReferencesFromSpec(contents)
-	if err != nil {
-		return nil
-	}
-	return images
 }
 
 func deduplicateStrings(s []string) []string {
