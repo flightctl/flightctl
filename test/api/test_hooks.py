@@ -21,6 +21,25 @@ from common import hooks
 from core import hooks as core_hooks  # noqa: F401 -- registers CatalogItem hooks
 
 
+@pytest.mark.parametrize("delivery", [True, False, "omitted"])
+@pytest.mark.parametrize("repo_type", ["oci", "git", "http"])
+def test_repository_delivery_flag_follows_repository_type(delivery, repo_type):
+    spec = {"type": repo_type, "registry": "quay.io", "url": "https://example.com"}
+    if delivery != "omitted":
+        spec["devicePullAccess"] = delivery
+    body = {"kind": "Repository", "metadata": {"name": "registry"}, "spec": spec}
+    original = deepcopy(body)
+    context = SimpleNamespace(operation=SimpleNamespace(path="/repositories/{name}", method="PUT"))
+
+    result = hooks.mutate_body(context, body)
+
+    if repo_type == "oci" and delivery != "omitted":
+        assert result["spec"]["devicePullAccess"] is delivery
+    else:
+        assert "devicePullAccess" not in result["spec"]
+    assert body == original
+
+
 @pytest.mark.parametrize(
     ("prefix", "path", "expected_kind"),
     [

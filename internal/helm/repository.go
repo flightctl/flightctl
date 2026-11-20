@@ -117,6 +117,8 @@ func sameRegistryFallback(host string, fallback *domain.OciRepoSpec) *domain.Oci
 }
 
 func sameRepositoryConfig(a, b domain.OciRepoSpec) bool {
+	a.DevicePullAccess = nil
+	b.DevicePullAccess = nil
 	return reflect.DeepEqual(a, b)
 }
 

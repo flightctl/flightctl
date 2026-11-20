@@ -2,6 +2,7 @@ package helm
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -72,6 +73,33 @@ func TestResolveOCIRepositorySpec(t *testing.T) {
 
 		require.ErrorContains(t, err, "equally specific")
 	})
+}
+
+func TestResolveOCIRepositoryDevicePullAccess(t *testing.T) {
+	flags := []*bool{nil, lo.ToPtr(false), lo.ToPtr(true)}
+	for i, first := range flags {
+		for j, second := range flags {
+			t.Run(fmt.Sprintf("When delivery states are %d and %d it should retain service-side resolution", i, j), func(t *testing.T) {
+				a := domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", DevicePullAccess: first}
+				b := domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", DevicePullAccess: second}
+				service := &repositoryPageService{pages: []*domain.RepositoryList{{Items: []domain.Repository{
+					repositoryForSpec(t, a), repositoryForSpec(t, b),
+				}}}}
+				got, err := ResolveOCIRepositorySpec(t.Context(), service, uuid.New(), "oci://registry.example/chart:1.0", nil)
+				require.NoError(t, err)
+				require.Equal(t, &b, got)
+				fallback, err := ResolveOCIRepositorySpec(t.Context(), nil, uuid.New(), "oci://registry.example/chart:1.0", &a)
+				require.NoError(t, err)
+				require.Equal(t, &a, fallback)
+				b.SkipServerVerification = lo.ToPtr(true)
+				service = &repositoryPageService{pages: []*domain.RepositoryList{{Items: []domain.Repository{
+					repositoryForSpec(t, a), repositoryForSpec(t, b),
+				}}}}
+				_, err = ResolveOCIRepositorySpec(t.Context(), service, uuid.New(), "oci://registry.example/chart:1.0", nil)
+				require.ErrorContains(t, err, "equally specific")
+			})
+		}
+	}
 }
 
 func repositoryForSpec(t *testing.T, spec domain.OciRepoSpec) domain.Repository {

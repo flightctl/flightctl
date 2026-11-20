@@ -15,8 +15,57 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
+
+func TestEditRepositoryDevicePullAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before *bool
+		after  *bool
+		path   string
+		op     string
+	}{
+		{name: "enable", after: lo.ToPtr(true), path: "/spec/devicePullAccess", op: "add"},
+		{name: "disable", before: lo.ToPtr(true), after: lo.ToPtr(false), path: "/spec/devicePullAccess", op: "replace"},
+		{name: "remove", before: lo.ToPtr(true), path: "/spec/devicePullAccess", op: "remove"},
+		{name: "unrelated edit", before: lo.ToPtr(true), after: lo.ToPtr(true), path: "/metadata/labels", op: "add"},
+	} {
+		t.Run("When editing repository to "+tc.name+" it should send an ordinary PATCH", func(t *testing.T) {
+			original := repositoryWithDelivery(t, tc.before)
+			edited := repositoryWithDelivery(t, tc.after)
+			if tc.name == "unrelated edit" {
+				edited.Metadata.Labels = &map[string]string{"changed": "yes"}
+			}
+			c, recorder := newRecordingClient(t, http.StatusOK, edited)
+			response := &apiclient.GetRepositoryResponse{JSON200: &original, HTTPResponse: jsonResponse(t, http.StatusOK, original)}
+			opts := DefaultEditOptions()
+			content, err := yaml.Marshal(edited)
+			require.NoError(t, err)
+			require.NoError(t, opts.applyChanges(t.Context(), c.ClientWithResponses, content, RepositoryKind, "registry", response))
+			require.Len(t, recorder.requests, 1)
+			require.Equal(t, http.MethodPatch, recorder.requests[0].Method)
+			require.Equal(t, "/repositories/registry", recorder.requests[0].URL.Path)
+			require.Equal(t, "application/json-patch+json", recorder.requests[0].Header.Get("Content-Type"))
+			var patch []map[string]any
+			require.NoError(t, json.Unmarshal([]byte(recorder.bodies[0]), &patch))
+			found := false
+			for _, operation := range patch {
+				require.NotContains(t, operation["path"], "ociAuth")
+				if operation["path"] == tc.path {
+					require.Equal(t, tc.op, operation["op"])
+					if tc.after != nil && tc.path == "/spec/devicePullAccess" {
+						require.Equal(t, *tc.after, operation["value"])
+					}
+					found = true
+				}
+			}
+			require.True(t, found)
+		})
+	}
+}
 
 func TestEditOptions_Validate(t *testing.T) {
 	tests := []struct {
