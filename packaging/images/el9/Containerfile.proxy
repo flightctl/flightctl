@@ -1,1 +1,1 @@
-FROM registry.access.redhat.com/ubi9/nginx-126:9.8-1793639981
+FROM registry.access.redhat.com/ubi9/nginx-126:1794514191
