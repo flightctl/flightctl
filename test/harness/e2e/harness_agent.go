@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	agentConfigPath = "/etc/flightctl/config.yaml"
+	agentConfigPath  = "/etc/flightctl/config.yaml"
+	vmAgentCertsPath = "/etc/flightctl/certs"
 
 	// defaultAgentJournalTailLines caps journalctl output when no --since filter is used
 	// (avoids pulling the full journal on long-lived VMs during Eventually polling).
@@ -319,6 +320,54 @@ func (h *Harness) RemoveAgentFile(path string) error {
 	_, err := h.VM.RunSSH([]string{"sudo", "rm", "-f", path}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to remove file %s: %w", path, err)
+	}
+	return nil
+}
+
+// InstallPreparedAgentFilesOnVM copies the host's prepared agent config and enrollment
+// certs (bin/agent/etc/flightctl) onto the VM. Call this after SetupVMFromPool and after
+// regenerating those files for the currently selected organization.
+func (h *Harness) InstallPreparedAgentFilesOnVM() error {
+	configDir := GetAgentConfigDir()
+	srcConfigPath := GetAgentConfigPath(configDir)
+	srcCertsDir := GetAgentCertsDir(configDir)
+
+	configBytes, err := os.ReadFile(srcConfigPath)
+	if err != nil {
+		return fmt.Errorf("reading prepared agent config %s: %w", srcConfigPath, err)
+	}
+	if err := h.WriteAgentFile(agentConfigPath, string(configBytes)); err != nil {
+		return fmt.Errorf("writing prepared agent config to VM: %w", err)
+	}
+	if _, err := h.VM.RunSSH([]string{"sudo", "chmod", "600", agentConfigPath}, nil); err != nil {
+		return fmt.Errorf("setting permissions on VM agent config %s: %w", agentConfigPath, err)
+	}
+
+	entries, err := os.ReadDir(srcCertsDir)
+	if err != nil {
+		return fmt.Errorf("reading prepared agent cert dir %s: %w", srcCertsDir, err)
+	}
+	if _, err := h.VM.RunSSH([]string{"sudo", "mkdir", "-p", vmAgentCertsPath}, nil); err != nil {
+		return fmt.Errorf("creating VM agent cert dir %s: %w", vmAgentCertsPath, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		certPath := filepath.Join(srcCertsDir, entry.Name())
+		certBytes, err := os.ReadFile(certPath)
+		if err != nil {
+			return fmt.Errorf("reading prepared agent cert %s: %w", certPath, err)
+		}
+		vmCertPath := filepath.Join(vmAgentCertsPath, entry.Name())
+		if err := h.WriteAgentFile(vmCertPath, string(certBytes)); err != nil {
+			return fmt.Errorf("writing prepared agent cert %s to VM: %w", vmCertPath, err)
+		}
+		if strings.HasSuffix(entry.Name(), ".key") {
+			if _, err := h.VM.RunSSH([]string{"sudo", "chmod", "600", vmCertPath}, nil); err != nil {
+				return fmt.Errorf("setting permissions on VM agent key %s: %w", vmCertPath, err)
+			}
+		}
 	}
 	return nil
 }
