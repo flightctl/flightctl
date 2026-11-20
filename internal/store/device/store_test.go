@@ -3,6 +3,7 @@ package device
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -65,6 +66,25 @@ func TestPreserveDeltaEstimatesFromSnapshot(t *testing.T) {
 
 			require.NotNil(t, updated.ServiceConditions)
 			require.Equal(t, tt.want, updated.ServiceConditions.Data.DeltaEstimates)
+		})
+	}
+}
+
+func TestNormalizeSortColumns(t *testing.T) {
+	tests := []struct {
+		name     string
+		columns  []store.SortColumn
+		expected []store.SortColumn
+	}{
+		{name: "When no columns are set it should leave the default to the query", columns: nil, expected: nil},
+		{name: "When sorting by name it should keep name", columns: []store.SortColumn{store.SortByName}, expected: []store.SortColumn{store.SortByName}},
+		{name: "When sorting by alias only it should add name as a tiebreaker", columns: []store.SortColumn{store.SortByAlias}, expected: []store.SortColumn{store.SortByAlias, store.SortByName}},
+		{name: "When sorting by alias and name it should keep both", columns: []store.SortColumn{store.SortByAlias, store.SortByName}, expected: []store.SortColumn{store.SortByAlias, store.SortByName}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, NormalizeSortColumns(tt.columns))
 		})
 	}
 }

@@ -516,6 +516,47 @@ flightctl get devices --cve-id CVE-2023-44487 --selector region=us-west
 
 ---
 
+## Sorting devices
+
+Choose the order of the device list using the `--sort-by` flag.
+
+### Synopsis
+
+```shell
+flightctl get devices [--sort-by alias|name] [flags]
+```
+
+### Description
+
+By default, `flightctl get devices` lists devices by name.
+
+Use `--sort-by alias` to list devices by alias instead. Devices are ordered by alias first and then by name, so devices that share an alias appear together in name order. Devices without an `alias` label are listed last. A device whose `alias` label is set to an empty value is listed before devices with a non-empty alias.
+
+A `--continue` value from an alias-sorted list only works with `--sort-by alias`. A `--continue` value from a name-sorted list only works with `--sort-by name` or without `--sort-by`.
+
+### Flags
+
+* `--sort-by <field>` - Sort devices by `name` (default) or `alias`
+
+This flag can be combined with other `get devices` flags such as `--selector`, `--field-selector`, `--cve-id`, and `--output`. It cannot be used when getting specific devices by name.
+
+### Examples
+
+```shell
+# List devices by name
+flightctl get devices
+
+# List devices by alias, then by name
+flightctl get devices --sort-by alias
+```
+
+### Exit Status
+
+* `0` - Success
+* Non-zero - Error
+
+---
+
 ## flightctl app start
 
 Start an application running on a device, or on every device owned by a fleet.

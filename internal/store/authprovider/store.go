@@ -279,7 +279,11 @@ func (s *AuthProviderStore) ListAll(ctx context.Context, listParams store.ListPa
 				q, p, _ := listParams.AnnotationSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.annotations"), nil)
 				countQuery = countQuery.Where(q, p...)
 			}
-			numRemainingVal = store.CountRemainingItems(countQuery, continueValues, listParams)
+			var err error
+			numRemainingVal, err = store.CountRemainingItems(countQuery, continueValues, listParams)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		nextContinue = store.BuildContinueString(continueValues, numRemainingVal)

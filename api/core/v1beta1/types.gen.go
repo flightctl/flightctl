@@ -693,6 +693,12 @@ const (
 	Bearer TokenResponseTokenType = "Bearer"
 )
 
+// Defines values for ListDevicesParamsSortBy.
+const (
+	ListDevicesSortByAlias ListDevicesParamsSortBy = "alias"
+	ListDevicesSortByName  ListDevicesParamsSortBy = "name"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -4402,7 +4408,13 @@ type ListDevicesParams struct {
 
 	// CveId Filter devices by CVE ID. Only returns devices whose OS image digest has the specified vulnerability. Must be a MITRE-style identifier (CVE-YYYY-sequence, e.g. CVE-2024-12345).
 	CveId *string `form:"cveId,omitempty" json:"cveId,omitempty"`
+
+	// SortBy Field to sort the device list by. 'name' sorts by device name. 'alias' sorts by device alias, then by name; devices without an alias are listed last. A 'continue' value is only valid with the same 'sortBy' that produced it.
+	SortBy *ListDevicesParamsSortBy `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
+
+// ListDevicesParamsSortBy defines parameters for ListDevices.
+type ListDevicesParamsSortBy string
 
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
 type GetRenderedDeviceParams struct {

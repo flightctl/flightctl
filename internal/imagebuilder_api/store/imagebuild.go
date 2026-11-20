@@ -198,7 +198,10 @@ func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if listParams.Limit > 0 && len(models) > listParams.Limit {
-		nextContinue, numRemaining = s.calculateContinue(ctx, orgId, models, listParams)
+		nextContinue, numRemaining, err = s.calculateContinue(ctx, orgId, models, listParams)
+		if err != nil {
+			return nil, err
+		}
 		models = models[:len(models)-1]
 	}
 
@@ -240,7 +243,7 @@ func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 }
 
 // calculateContinue calculates the continue token for pagination
-func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID, models []ImageBuild, listParams flightctlstore.ListParams) (*string, *int64) {
+func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID, models []ImageBuild, listParams flightctlstore.ListParams) (*string, *int64, error) {
 	lastIndex := len(models) - 1
 	lastItem := models[lastIndex]
 
@@ -255,12 +258,16 @@ func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID
 		}
 	} else {
 		countQuery, err := flightctlstore.ListQuery(&ImageBuild{}).Build(ctx, s.db.WithContext(ctx), orgId, listParams)
-		if err == nil {
-			numRemainingVal = flightctlstore.CountRemainingItems(countQuery, continueValues, listParams)
+		if err != nil {
+			return nil, nil, err
+		}
+		numRemainingVal, err = flightctlstore.CountRemainingItems(countQuery, continueValues, listParams)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
-	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal
+	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal, nil
 }
 
 // Delete removes an ImageBuild resource by name and returns the deleted resource.

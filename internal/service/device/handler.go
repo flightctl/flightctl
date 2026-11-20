@@ -234,10 +234,42 @@ func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector
 		return nil, status
 	}
 	listParams.AnnotationSelector = annotationSelector
+
+	sortColumns, status := deviceSortColumns(params.SortBy)
+	if status != domain.StatusOK() {
+		return nil, status
+	}
+	listParams.SortColumns = sortColumns
+
+	// A continue token records one value per sort column. Paging with a token
+	// from a different sortBy would compare the wrong values and silently skip
+	// or repeat devices.
+	expected := max(len(devicestore.NormalizeSortColumns(sortColumns)), 1)
+	if listParams.Continue != nil && len(listParams.Continue.Names) != expected {
+		return nil, domain.StatusBadRequest("continue token does not match the requested sortBy")
+	}
+
 	return &devicestore.DeviceListParams{
 		ListParams: *listParams,
 		CveID:      params.CveId,
 	}, domain.StatusOK()
+}
+
+// deviceSortColumns maps the API sortBy value to store sort columns. Name stays
+// the default so internal scanners and existing continue tokens keep paging on
+// the unique, immutable key.
+func deviceSortColumns(sortBy *domain.ListDevicesParamsSortBy) ([]store.SortColumn, domain.Status) {
+	if sortBy == nil || *sortBy == "" {
+		return nil, domain.StatusOK()
+	}
+	switch *sortBy {
+	case domain.ListDevicesSortByName:
+		return []store.SortColumn{store.SortByName}, domain.StatusOK()
+	case domain.ListDevicesSortByAlias:
+		return devicestore.NormalizeSortColumns([]store.SortColumn{store.SortByAlias}), domain.StatusOK()
+	default:
+		return nil, domain.StatusBadRequest(fmt.Sprintf("sortBy must be one of: %s, %s", domain.ListDevicesSortByName, domain.ListDevicesSortByAlias))
+	}
 }
 
 func (h *DeviceServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {

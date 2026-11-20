@@ -1226,6 +1226,19 @@ paths:
             type: string
             pattern: '^CVE-[0-9]{4}-[0-9]{4,}$'
             maxLength: 64
+        - name: sortBy
+          in: query
+          description: Field to sort the device list by. 'name' sorts by device name. 'alias' sorts by device alias, then by name; devices without an alias are listed last. A 'continue' value is only valid with the same 'sortBy' that produced it.
+          required: false
+          schema:
+            type: string
+            enum:
+              - name
+              - alias
+            x-enum-varnames:
+              - ListDevicesSortByName
+              - ListDevicesSortByAlias
+            default: name
       responses:
         "200":
           description: OK

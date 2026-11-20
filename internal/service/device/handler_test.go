@@ -799,6 +799,77 @@ func TestListDevices(t *testing.T) {
 	require.Len(t, result.Items, 1)
 }
 
+func TestConvertDeviceListParamsSortBy(t *testing.T) {
+	nameToken := store.BuildContinueString([]string{"dev-1"}, 2)
+	aliasToken := store.BuildContinueString([]string{"alpha", "dev-1"}, 2)
+
+	tests := []struct {
+		name            string
+		sortBy          *domain.ListDevicesParamsSortBy
+		continueToken   *string
+		expectedColumns []store.SortColumn
+		expectedCode    int32
+	}{
+		{
+			name:            "When sortBy is omitted it should keep the default name order",
+			expectedColumns: nil,
+			expectedCode:    http.StatusOK,
+		},
+		{
+			name:            "When sortBy is name it should sort by name",
+			sortBy:          lo.ToPtr(domain.ListDevicesSortByName),
+			expectedColumns: []store.SortColumn{store.SortByName},
+			expectedCode:    http.StatusOK,
+		},
+		{
+			name:            "When sortBy is alias it should sort by alias with name as a tiebreaker",
+			sortBy:          lo.ToPtr(domain.ListDevicesSortByAlias),
+			expectedColumns: []store.SortColumn{store.SortByAlias, store.SortByName},
+			expectedCode:    http.StatusOK,
+		},
+		{
+			name:         "When sortBy is unknown it should reject the request",
+			sortBy:       lo.ToPtr(domain.ListDevicesParamsSortBy("owner")),
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:            "When sortBy is omitted and the token is from a name sort it should accept the token",
+			continueToken:   nameToken,
+			expectedColumns: nil,
+			expectedCode:    http.StatusOK,
+		},
+		{
+			name:            "When sortBy is alias and the token is from an alias sort it should accept the token",
+			sortBy:          lo.ToPtr(domain.ListDevicesSortByAlias),
+			continueToken:   aliasToken,
+			expectedColumns: []store.SortColumn{store.SortByAlias, store.SortByName},
+			expectedCode:    http.StatusOK,
+		},
+		{
+			name:          "When sortBy is alias and the token is from a name sort it should reject the request",
+			sortBy:        lo.ToPtr(domain.ListDevicesSortByAlias),
+			continueToken: nameToken,
+			expectedCode:  http.StatusBadRequest,
+		},
+		{
+			name:          "When sortBy is omitted and the token is from an alias sort it should reject the request",
+			continueToken: aliasToken,
+			expectedCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params, status := convertDeviceListParams(domain.ListDevicesParams{SortBy: tt.sortBy, Continue: tt.continueToken}, nil)
+			require.Equal(t, tt.expectedCode, status.Code)
+			if tt.expectedCode != http.StatusOK {
+				return
+			}
+			require.Equal(t, tt.expectedColumns, params.SortColumns)
+		})
+	}
+}
+
 func TestListConnectivityChangedDevices(t *testing.T) {
 	_, _, svc := newTestHandler()
 	ctx := context.Background()

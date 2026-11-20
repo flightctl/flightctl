@@ -41,7 +41,7 @@ const (
 	FlagSummaryOnly = "summary-only" // for listing devices and vulnerabilities
 	FlagLastSeen    = "last-seen"    // for a single device
 	FlagWithExports = "with-exports" // for imagebuilds
-	FlagSortBy      = "sort-by"      // for vulnerabilities
+	FlagSortBy      = "sort-by"      // for vulnerabilities and device lists
 	FlagOrder       = "order"        // for vulnerabilities
 	FlagCveId       = "cve-id"       // for filtering devices by CVE
 )
@@ -139,7 +139,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
 	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include related ImageExport resources when getting imagebuilds.")
-	fs.StringVar(&o.SortBy, FlagSortBy, o.SortBy, "Field to sort results by (for vulnerabilities).")
+	fs.StringVar(&o.SortBy, FlagSortBy, o.SortBy, "Field to sort results by. For device lists: 'name' (default) or 'alias'. For vulnerabilities, see the vulnerability commands.")
 	fs.StringVar(&o.Order, FlagOrder, o.Order, "Sort order: 'asc' or 'desc' (for vulnerabilities).")
 	fs.StringVar(&o.CveId, FlagCveId, o.CveId, "Filter devices by CVE ID (e.g., CVE-2023-44487).")
 	o.hideHelpContextualFlags(fs)
@@ -153,6 +153,7 @@ var flagContextualRules = []FlagContextualRule{
 	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
 	{FlagCatalogName, []ResourceKind{CatalogItemKind}, []string{"any"}},
 	{FlagSortBy, []ResourceKind{VulnerabilityKind}, []string{"any"}},
+	{FlagSortBy, []ResourceKind{DeviceKind}, []string{"list"}},
 	{FlagOrder, []ResourceKind{VulnerabilityKind}, []string{"any"}},
 	{FlagCveId, []ResourceKind{DeviceKind}, []string{"list"}},
 }
@@ -269,6 +270,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateLastSeen(kind, names) },
 		func() error { return o.validateWithExports(kind) },
 		func() error { return o.validateVulnerabilityFlags(kind) },
+		func() error { return o.validateDeviceSortBy(kind, names) },
 		func() error { return o.validateCveId(kind, names) },
 		func() error { return o.validateLabelSyncMapping(kind, names) },
 	}
@@ -427,13 +429,43 @@ func (o *GetOptions) validateLabelSyncMapping(kind ResourceKind, names []string)
 
 // validateVulnerabilityFlags checks that --sort-by and --order are only used with vulnerabilities.
 func (o *GetOptions) validateVulnerabilityFlags(kind ResourceKind) error {
-	if o.SortBy != "" && kind != VulnerabilityKind {
-		return fmt.Errorf("'--sort-by' can only be specified when getting vulnerabilities")
+	if o.SortBy != "" && kind != VulnerabilityKind && kind != DeviceKind {
+		return fmt.Errorf("'--sort-by' can only be specified when listing devices or getting vulnerabilities")
 	}
 	if o.Order != "" && kind != VulnerabilityKind {
 		return fmt.Errorf("'--order' can only be specified when getting vulnerabilities")
 	}
 	return nil
+}
+
+// deviceSortByValues lists the --sort-by values accepted when listing devices.
+var deviceSortByValues = []string{
+	string(api.ListDevicesSortByAlias),
+	string(api.ListDevicesSortByName),
+}
+
+// validateDeviceSortBy checks the usage of the --sort-by flag for devices.
+func (o *GetOptions) validateDeviceSortBy(kind ResourceKind, names []string) error {
+	if o.SortBy == "" || kind != DeviceKind {
+		return nil
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("cannot specify '--sort-by' when getting specific devices")
+	}
+	if !slices.Contains(deviceSortByValues, o.SortBy) {
+		return fmt.Errorf("'--sort-by' value %q is not valid for devices; allowed values: %s",
+			o.SortBy, strings.Join(deviceSortByValues, ", "))
+	}
+	return nil
+}
+
+// deviceSortBy returns the sort to request when listing devices. Alias order
+// is opt-in: without --sort-by the server's default name order applies.
+func (o *GetOptions) deviceSortBy() *api.ListDevicesParamsSortBy {
+	if o.SortBy == "" {
+		return nil
+	}
+	return lo.ToPtr(api.ListDevicesParamsSortBy(o.SortBy))
 }
 
 // validateCveId checks the usage of the --cve-id flag.
@@ -811,6 +843,7 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 			SummaryOnly:   lo.ToPtr(o.SummaryOnly),
 			CveId:         util.ToPtrWithNilDefault(o.CveId),
+			SortBy:        o.deviceSortBy(),
 		}
 		return c.ListDevicesWithResponse(ctx, &params)
 	case EnrollmentRequestKind:
