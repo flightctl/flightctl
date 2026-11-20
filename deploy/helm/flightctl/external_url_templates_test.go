@@ -1,11 +1,13 @@
 package flightctl_test
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -289,7 +291,9 @@ func certManagerChart(t *testing.T, extraArgs []string, settings ...string) (str
 	for _, setting := range settings {
 		args = append(args, "--set-string", setting)
 	}
-	output, err := exec.Command("helm", args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "helm", args...).CombinedOutput()
 	return string(output), err
 }
 
@@ -570,7 +574,9 @@ func externalURLChart(t *testing.T, args ...string) map[string]map[string]any {
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	args = append([]string{"template", "flightctl", ".", "--namespace", "public", "--set-string", "global.enableOpenShiftExtensions=false", "--set-string", "global.exposeServicesMethod=none", "--set-string", "global.auth.type=none", "--set-string", "global.generateCertificates=builtin", "--set-string", "global.baseDomain=example.test"}, args...)
-	command := exec.Command("helm", args...)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "helm", args...)
 	command.Dir = filepath.Dir(file)
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, string(output))
