@@ -16,6 +16,7 @@ type ReferenceInput struct {
 }
 
 // NormalizeReference derives endpoint and path facts from an OCI reference.
+// Errors identify the invalid field without exposing potentially credential-bearing input.
 func NormalizeReference(input ReferenceInput) (model.ApplicationInspectionRef, error) {
 	switch input.Role {
 	case model.InspectionRolePackage, model.InspectionRoleWorkload, model.InspectionRoleVolume, model.InspectionRoleOS, model.InspectionRoleDelta:
@@ -31,14 +32,14 @@ func NormalizeReference(input ReferenceInput) (model.ApplicationInspectionRef, e
 	}
 	named, err := reference.ParseNormalizedNamed(raw)
 	if err != nil {
-		return model.ApplicationInspectionRef{}, errors.New("invalid inspection OCI reference")
+		return model.ApplicationInspectionRef{}, errors.New("invalid inspection OCI reference: expected an image name with optional tag or digest")
 	}
 	registry, rawPort, explicitPort := strings.Cut(reference.Domain(named), ":")
 	var port uint64
 	if explicitPort {
 		port, err = strconv.ParseUint(rawPort, 10, 16)
 		if err != nil || port == 0 {
-			return model.ApplicationInspectionRef{}, errors.New("invalid inspection OCI registry port")
+			return model.ApplicationInspectionRef{}, errors.New("invalid inspection OCI registry port: expected a number from 1 to 65535")
 		}
 	}
 	return model.ApplicationInspectionRef{

@@ -44,6 +44,8 @@ import (
 // It's set to 2x EventProcessingTimeout to ensure timely processing of timed out messages
 const QueueMaintenanceInterval = 2 * tasks.EventProcessingTimeout
 
+const appInspectionCleanupInterval = 10 * time.Minute
+
 type PeriodicTaskType string
 
 const (
@@ -74,7 +76,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
-	PeriodicTaskTypeAppInspectionCleanup:   {Interval: 10 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeAppInspectionCleanup:   {Interval: appInspectionCleanupInterval, SystemWide: false},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},

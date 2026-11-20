@@ -26,6 +26,7 @@ func (s *Store) DeleteExpiredUnreferenced(ctx context.Context, orgID uuid.UUID, 
 	var deleted int64
 	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
 		var ids []uuid.UUID
+		// Lock the bounded batch against new usage links and skip results another transaction holds.
 		if err := tx.Model(&model.ApplicationInspection{}).Where("org_id = ? AND created_at < ?", orgID, cutoff).
 			Where(inspectionWithoutUsage).Order("created_at, id").Limit(limit).
 			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Pluck("id", &ids).Error; err != nil {

@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/storeutil"
@@ -64,14 +63,17 @@ func (s *Store) ReplaceUsagesIfCurrent(ctx context.Context, orgID uuid.UUID, own
 	if err != nil {
 		return false, err
 	}
-	rows, resultIDs, err := prepareUsages(orgID, owner, bindings)
+	rows, err := prepareUsages(orgID, owner, bindings)
 	if err != nil {
 		return false, err
 	}
 
 	applied := false
-	err = store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
+	// Use a savepoint within a caller's transaction so a binding rejected by
+	// the foreign key rolls back the preceding deletion as well.
+	err = store.DB(ctx, s.db).Transaction(func(tx *gorm.DB) error {
 		var version struct{ Matches bool }
+		// Keep the owner version stable through replacement and serialize writers for this owner.
 		if err := tx.Table(table).Clauses(clause.Locking{Strength: "UPDATE"}).
 			Select("COALESCE(generation, 0) = ? AND created_at = ? AS matches", owner.Generation, owner.CreatedAt).
 			Where("org_id = ? AND name = ? AND deleted_at IS NULL", orgID, owner.Name).Take(&version).Error; err != nil {
@@ -79,17 +81,6 @@ func (s *Store) ReplaceUsagesIfCurrent(ctx context.Context, orgID uuid.UUID, own
 		}
 		if !version.Matches {
 			return nil
-		}
-		if len(resultIDs) > 0 {
-			var locked []uuid.UUID
-			err := tx.Model(&model.ApplicationInspection{}).Clauses(clause.Locking{Strength: "KEY SHARE"}).
-				Where("org_id = ? AND id IN ?", orgID, resultIDs).Pluck("id", &locked).Error
-			if err != nil {
-				return err
-			}
-			if len(locked) != len(resultIDs) {
-				return flterrors.ErrResourceNotFound
-			}
 		}
 		if err := tx.Where("org_id = ?", orgID).Where(clause.Eq{Column: clause.Column{Name: column}, Value: owner.Name}).
 			Delete(&model.ApplicationInspectionUsage{}).Error; err != nil {
@@ -109,28 +100,20 @@ func (s *Store) ReplaceUsagesIfCurrent(ctx context.Context, orgID uuid.UUID, own
 	return applied, nil
 }
 
+// usageIdentity accepts application contexts, template identities, and users
+// such as compose/web, template.v2, and app-user. It allows 1–255 ASCII
+// letters, digits, or the separators _.:/@+-.
 var usageIdentity = regexp.MustCompile(`^[a-zA-Z0-9_.:/@+-]{1,255}$`)
 
-func prepareUsages(orgID uuid.UUID, owner OwnerVersion, bindings []UsageBinding) ([]model.ApplicationInspectionUsage, []uuid.UUID, error) {
+func prepareUsages(orgID uuid.UUID, owner OwnerVersion, bindings []UsageBinding) ([]model.ApplicationInspectionUsage, error) {
 	if owner.CreatedAt.IsZero() || owner.Generation < 0 || (owner.TemplateIdentity != "" && !usageIdentity.MatchString(owner.TemplateIdentity)) {
-		return nil, nil, errors.New("invalid inspection usage owner version")
+		return nil, errors.New("invalid inspection usage owner version")
 	}
 	rows := make([]model.ApplicationInspectionUsage, 0, len(bindings))
-	contexts := make(map[string]struct{}, len(bindings))
-	seenIDs := make(map[uuid.UUID]struct{}, len(bindings))
-	var ids []uuid.UUID
 	for _, binding := range bindings {
 		if !usageIdentity.MatchString(binding.ApplicationContext) || (binding.User != "" && !usageIdentity.MatchString(binding.User)) ||
 			!validMechanism(binding.Mechanism) || binding.InspectionID == uuid.Nil {
-			return nil, nil, errors.New("invalid inspection application binding")
-		}
-		if _, exists := contexts[binding.ApplicationContext]; exists {
-			return nil, nil, errors.New("duplicate inspection application context")
-		}
-		contexts[binding.ApplicationContext] = struct{}{}
-		if _, exists := seenIDs[binding.InspectionID]; !exists {
-			ids = append(ids, binding.InspectionID)
-			seenIDs[binding.InspectionID] = struct{}{}
+			return nil, errors.New("invalid inspection application binding")
 		}
 		row := model.ApplicationInspectionUsage{
 			OrgID: orgID, ID: uuid.New(), InspectionID: binding.InspectionID, Generation: owner.Generation,
@@ -144,7 +127,7 @@ func prepareUsages(orgID uuid.UUID, owner OwnerVersion, bindings []UsageBinding)
 		}
 		rows = append(rows, row)
 	}
-	return rows, ids, nil
+	return rows, nil
 }
 
 func (s *Store) ListUsages(ctx context.Context, orgID uuid.UUID, owner Owner) ([]model.ApplicationInspectionUsage, error) {

@@ -3,6 +3,7 @@ package appinspection
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -88,10 +89,10 @@ func (s *Store) RecordAttempt(ctx context.Context, orgID uuid.UUID, attempt Atte
 	}
 	id := uuid.New()
 	refs := make([]model.ApplicationInspectionRef, 0, len(attempt.References))
-	for _, input := range attempt.References {
+	for i, input := range attempt.References {
 		ref, err := NormalizeReference(input)
 		if err != nil {
-			return uuid.Nil, err
+			return uuid.Nil, fmt.Errorf("inspection reference %d: %w", i+1, err)
 		}
 		ref.OrgID, ref.InspectionID = orgID, id
 		refs = append(refs, ref)
@@ -156,20 +157,22 @@ func (s *Store) GetAttempt(ctx context.Context, orgID, resultID uuid.UUID) (Resu
 }
 
 func (s *Store) getResult(ctx context.Context, orgID uuid.UUID, predicate string, arg any) (Result, error) {
-	var result Result
-	err := store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
-		// Hold the parent through both reads so reclamation cannot erase its refs between them.
-		if err := tx.Clauses(clause.Locking{Strength: "KEY SHARE"}).Where("org_id = ?", orgID).
-			Where(predicate, arg).Take(&result.Inspection).Error; err != nil {
-			return err
-		}
-		return tx.Where("org_id = ? AND inspection_id = ?", orgID, result.Inspection.ID).
-			Order("reference, role, mechanism").Find(&result.References).Error
-	})
+	var row struct {
+		model.ApplicationInspection
+		References []model.ApplicationInspectionRef `gorm:"column:reference_facts;serializer:json"`
+	}
+	// Read the attempt and its refs in the same snapshot while cleanup can proceed independently.
+	err := store.DB(ctx, s.db).Model(&model.ApplicationInspection{}).
+		Select(`application_inspections.*, (
+			SELECT COALESCE(jsonb_agg(ref ORDER BY ref.reference, ref.role, ref.mechanism), '[]'::jsonb)
+			FROM application_inspection_refs AS ref
+			WHERE ref.org_id = application_inspections.org_id AND ref.inspection_id = application_inspections.id
+		) AS reference_facts`).
+		Where("org_id = ?", orgID).Where(predicate, arg).Take(&row).Error
 	if err != nil {
 		return Result{}, storeutil.ErrorFromGormError(err)
 	}
-	return result, nil
+	return Result{Inspection: row.ApplicationInspection, References: row.References}, nil
 }
 
 func (s *Store) ListReferences(ctx context.Context, orgID uuid.UUID, scope ReferenceScope) ([]model.ApplicationInspectionRef, error) {

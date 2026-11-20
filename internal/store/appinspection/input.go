@@ -15,6 +15,8 @@ import (
 
 type InputKey string
 
+// inspectionPlatform accepts os/arch or os/arch/variant, such as linux/amd64
+// and linux/arm/v7. Each lowercase component starts with a letter or digit.
 var inspectionPlatform = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*){1,2}$`)
 
 // KeyForInput hashes canonical identity metadata for one organization.

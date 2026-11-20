@@ -110,7 +110,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(partial.Inspection.DiagnosticCodes).To(Equal(incomplete.DiagnosticCodes))
 		Expect(partial.References).To(HaveLen(1))
 
-		foreignID, err := inspections.RecordAttempt(ctx, otherOrg, attempt)
+		foreignID, err := inspections.RecordAttempt(ctx, otherOrg, rotated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(foreignID).NotTo(Equal(completeID))
 		_, err = reopened.FindComplete(ctx, otherOrg, key)
@@ -120,6 +120,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		foreign, err := reopened.FindComplete(ctx, otherOrg, foreignKey)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(foreign.Inspection.ID).To(Equal(foreignID))
+		Expect(foreign.References).To(BeEmpty())
 	})
 
 	It("When completions race it should return one canonical result with one writer's reference set", func() {
@@ -252,7 +253,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		binding.User, binding.Pending, binding.ContinuationID = "app-user", true, lo.ToPtr(uuid.New())
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding})).To(BeTrue())
 		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding, binding})
-		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
@@ -261,8 +262,12 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(usages[0].Pending).To(BeTrue())
 		Expect(usages[0].ContinuationID).To(Equal(binding.ContinuationID))
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, otherOrg, otherOwner, []appinspectionstore.UsageBinding{makeBinding("application", foreign)})).To(BeTrue())
-		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding, makeBinding("foreign", foreign)})
-		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		Expect(store.WithTransaction(ctx, db, func(txCtx context.Context) error {
+			_, err := inspections.ReplaceUsagesIfCurrent(txCtx, orgID, owner, []appinspectionstore.UsageBinding{binding, makeBinding("foreign", foreign)})
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			Expect(inspections.ListUsages(txCtx, orgID, owner.Owner)).To(HaveLen(1))
+			return nil
+		})).To(Succeed())
 		for org, id := range map[uuid.UUID]uuid.UUID{orgID: local, otherOrg: foreign} {
 			usages, err := inspections.ListUsages(ctx, org, owner.Owner)
 			Expect(err).NotTo(HaveOccurred())
@@ -379,6 +384,28 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(inspections.GetAttempt(ctx, orgID, live)).Error().To(MatchError(flterrors.ErrResourceNotFound))
 	})
 
+	It("When cleanup holds an uncommitted deletion it should read the complete previous snapshot without waiting", func() {
+		cutoff := time.Now()
+		id := recordAt(orgID, 1, cutoff.Add(-time.Hour))
+		key, err := appinspectionstore.KeyForInput(orgID, attempt.Input)
+		Expect(err).NotTo(HaveOccurred())
+		expected, err := appinspectionstore.NormalizeReference(attempt.References[0])
+		Expect(err).NotTo(HaveOccurred())
+		expected.OrgID, expected.InspectionID = orgID, id
+		Expect(store.WithTransaction(ctx, db, func(txCtx context.Context) error {
+			Expect(inspections.DeleteExpiredUnreferenced(txCtx, orgID, cutoff, 1)).To(Equal(int64(1)))
+			readCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			// Read on a separate connection while cleanup's deletion is uncommitted.
+			result, err := inspections.FindComplete(readCtx, orgID, key)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Inspection.ID).To(Equal(id))
+			Expect(result.References).To(Equal([]model.ApplicationInspectionRef{expected}))
+			return nil
+		})).To(Succeed())
+		Expect(inspections.GetAttempt(ctx, orgID, id)).Error().To(MatchError(flterrors.ErrResourceNotFound))
+	})
+
 	It("When cleanup and an application link overlap it should preserve a successful link and reject a reclaimed target", func() {
 		cutoff := time.Now()
 		attached := recordAt(orgID, 1, cutoff.Add(-time.Hour))
@@ -408,7 +435,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 			Reference: "https://user:secret-value@registry.example/image", Role: model.InspectionRoleWorkload, Mechanism: model.InspectionPullContainer,
 		})
 		_, err := inspections.RecordAttempt(ctx, orgID, invalid)
-		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(ContainSubstring("inspection reference 2: invalid inspection OCI reference")))
 		Expect(err.Error()).NotTo(ContainSubstring("secret-value"))
 		invalid = attempt
 		invalid.State = "queued"

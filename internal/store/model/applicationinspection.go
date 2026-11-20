@@ -42,8 +42,9 @@ type ApplicationInspectionInput struct {
 	Format            InspectionFormat
 	InlineFingerprint InspectionFingerprint
 	ParentDigest      digest.Digest
-	Platform          string
-	Helm              *InspectionHelmIdentity
+	// Platform is set when selecting bundle content from an OCI index.
+	Platform string
+	Helm     *InspectionHelmIdentity
 }
 
 type InspectionState string
@@ -92,14 +93,14 @@ const (
 )
 
 type ApplicationInspectionRef struct {
-	OrgID        uuid.UUID               `gorm:"type:uuid;primaryKey;index:inspection_ref_scope,priority:1"`
-	InspectionID uuid.UUID               `gorm:"type:uuid;primaryKey"`
-	Reference    string                  `gorm:"primaryKey"`
-	Role         InspectionArtifactRole  `gorm:"primaryKey"`
-	Mechanism    InspectionPullMechanism `gorm:"primaryKey"`
-	Registry     string                  `gorm:"not null;index:inspection_ref_scope,priority:2"`
-	Port         uint16                  `gorm:"not null"`
-	Path         StringArray             `gorm:"type:text[];not null;index:inspection_ref_scope,priority:3"`
+	OrgID        uuid.UUID               `gorm:"type:uuid;primaryKey;index:inspection_ref_scope,priority:1" json:"org_id"`
+	InspectionID uuid.UUID               `gorm:"type:uuid;primaryKey" json:"inspection_id"`
+	Reference    string                  `gorm:"primaryKey" json:"reference"`
+	Role         InspectionArtifactRole  `gorm:"primaryKey" json:"role"`
+	Mechanism    InspectionPullMechanism `gorm:"primaryKey" json:"mechanism"`
+	Registry     string                  `gorm:"not null;index:inspection_ref_scope,priority:2" json:"registry"`
+	Port         uint16                  `gorm:"not null" json:"port"`
+	Path         StringArray             `gorm:"type:text[];not null;index:inspection_ref_scope,priority:3" json:"path"`
 }
 
 type ApplicationInspectionUsage struct {
