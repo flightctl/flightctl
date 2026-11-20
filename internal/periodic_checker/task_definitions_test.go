@@ -206,6 +206,13 @@ func TestMergeTasksWithConfig_VulnerabilitySync(t *testing.T) {
 	}
 }
 
+func TestApplicationInspectionCleanupTaskMetadata(t *testing.T) {
+	meta, ok := MergeTasksWithConfig(nil)[PeriodicTaskTypeAppInspectionCleanup]
+	require.True(t, ok)
+	require.False(t, meta.SystemWide)
+	require.Equal(t, 10*time.Minute, meta.Interval)
+}
+
 func TestDeltaPrepareDeadlineTaskMetadata(t *testing.T) {
 	meta, ok := periodicTasks[PeriodicTaskTypeDeltaPrepareDeadline]
 	require.True(t, ok)

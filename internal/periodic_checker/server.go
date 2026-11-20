@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
+	appinspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -33,6 +34,7 @@ import (
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	updatercatalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
+	appinspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
@@ -77,6 +79,14 @@ func New(
 		log: log,
 		db:  db,
 	}
+}
+
+func newInspectionCleaner(db *gorm.DB) (*appinspectionservice.Cleaner, error) {
+	inspectionStore, err := appinspectionstore.NewStore(db)
+	if err != nil {
+		return nil, err
+	}
+	return appinspectionservice.NewCleaner(inspectionStore)
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -198,13 +208,18 @@ func (s *Server) Run(ctx context.Context) error {
 	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
 
+	inspectionCleaner, err := newInspectionCleaner(s.db)
+	if err != nil {
+		return fmt.Errorf("create application inspection cleaner: %w", err)
+	}
+
 	// Initialize the task executors.
 	deltaPrepareStore := deltapreparestore.NewStore(s.db, s.log.WithField("pkg", "delta-prepare-store"))
 	deltaPrepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(deltaPrepareStore, nil))
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc, inspectionCleaner)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
