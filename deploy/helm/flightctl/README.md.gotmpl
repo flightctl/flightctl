@@ -56,6 +56,8 @@ kubectl label namespace <namespace> \
 
 On OpenShift clusters, the chart automatically creates a security context constraint (SCC) for the `flightctl-imagebuilder-worker` and `flightctl-delta-worker` service accounts.
 
+If you install without cluster-admin permissions, see [Namespace-scoped installation](#namespace-scoped-installation) instead. That mode does not create SCCs and requires the privileged workers to stay disabled.
+
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
 SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. Podman and bootc-image-builder use their own defaults when those image fields are empty.
@@ -66,6 +68,77 @@ If you don't need image building capabilities, you can disable the imagebuilder-
 imageBuilderWorker:
   enabled: false
 ```
+
+### Namespace-scoped installation
+
+By default, the chart creates cluster-scoped resources such as ClusterRoles, ClusterRoleBindings, OpenShift security context constraints (SCCs), and an OAuthClient. Set `global.namespaceScoped=true` to render only namespaced resources and skip cluster-scoped lookups. This limits the chart's resource scope; the installer still needs authorization to create and delegate all rendered RBAC permissions.
+
+A namespace-scoped installation has these requirements:
+
+- You must have project-admin permissions in the existing target project. The chart creates namespaced Roles and RoleBindings.
+- An authorized RBAC administrator must grant the installer the permissions declared by the rendered Roles, including `flightctl.io` permissions, or explicit namespaced `escalate` and `bind` privileges. Stock OpenShift project-admin permissions do not include the custom Flight Control permissions, so project-admin access alone cannot install these Roles.
+- Set `global.baseDomain` to the domain used by the Flight Control routes. The chart cannot discover the OpenShift base domain without a cluster-scoped lookup.
+- For OpenShift authentication, have an administrator authorized to update Namespace labels apply `io.flightctl/instance=<main_flightctl_release_name>` to the main project. Stock project-admin permissions do not authorize this operation.
+- Leave `global.internalNamespace` empty for a single-project installation. A separate internal namespace requires project-admin access to both namespaces.
+- If your identity provider uses a private CA, set `global.auth.caCert`. The chart cannot read the cluster ingress CA in namespace-scoped mode.
+- Choose authentication: `k8s` supports token login, and `openshift` with `global.auth.openshift.clientType=serviceaccount` supports browser login without an OAuthClient. External providers (`oidc`, `aap`, or `oauth2`) require their provider configuration. The default OpenShift `clientType=oauthclient` requires an externally provisioned OAuthClient in namespace-scoped mode.
+- Set `global.enableMulticlusterExtensions=false`. MultiCluster Engine integration requires cluster-admin permissions.
+- Keep `worker.clusterLevelSecretAccess` and `periodic.clusterLevelSecretAccess` at `false`.
+- For Kubernetes authentication, leave `global.auth.k8s.rbacNs` empty or set it to a namespace you can manage. The chart creates namespaced RBAC in that namespace.
+- Enforce the restricted Pod Security Standard on the namespace. The chart does not create SCCs in namespace-scoped mode.
+- Disable the privileged image builder and delta workers unless a cluster administrator has granted their service accounts the required SCC:
+
+  ```yaml
+  imageBuilderWorker:
+    enabled: false
+  deltaWorker:
+    enabled: false
+  ```
+
+  Removing the privileged worker requirements is future work (delta de-privileging and the VM sandbox). It is not part of namespace-scoped mode.
+
+The following example installs with AAP authentication and without cluster-scoped resources:
+
+```yaml
+global:
+  namespaceScoped: true
+  baseDomain: flightctl.example.com
+  exposeServicesMethod: route
+  auth:
+    type: aap
+    aap:
+      apiUrl: https://aap.example.com
+      externalApiUrl: https://aap.example.com
+      authorizationUrl: https://aap.example.com/o/authorize
+      tokenUrl: https://aap.example.com/o/token
+      clientId: flightctl
+      clientSecret: <client_secret>
+  enableMulticlusterExtensions: "false"
+imageBuilderWorker:
+  enabled: false
+deltaWorker:
+  enabled: false
+```
+
+If you use `global.auth.type=k8s`, no cluster-scoped TokenReview permissions are needed. The API validates the caller's token with `SelfSubjectReview`, which Kubernetes allows for every authenticated user.
+
+If you use `global.auth.type=openshift`, the default `clientType=oauthclient` requires a cluster-scoped OAuthClient. Set `clientType=serviceaccount` to use the `flightctl-api` ServiceAccount as the OAuth client instead; the chart annotates it with the UI and CLI redirect URIs and requests `user:info user:check-access user:list-projects`. The token proxy injects the projected ServiceAccount token as the client secret, so the secret is not exposed to clients. This requires OpenShift support for service-account OAuth clients; verify on your target version. For CLI-only access, `flightctl login -t $(oc whoami -t)` with `global.auth.type=k8s` avoids the OAuthClient entirely.
+
+### Multi-project tenants
+
+A namespace-scoped main chart manages a single project by default. To manage additional projects, install the tenant chart in each project. The installer needs project-admin permissions and authorization to create and delegate the rendered Flight Control permissions, as described above:
+
+```console
+helm install flightctl-tenant oci://quay.io/flightctl/charts/flightctl-tenant \
+  --namespace <project> \
+  --set flightctlNamespace=<main_flightctl_namespace> \
+  --set flightctlReleaseName=<main_flightctl_release_name> \
+  --values tenant-values.yaml
+```
+
+The tenant chart creates the standard Flight Control Roles and RoleBindings in that project and grants the main control plane read access to RoleBindings there. A project administrator can grant the RoleBinding reader access without cluster-admin permissions because they already hold those permissions. Have an administrator authorized to update Namespace labels apply `io.flightctl/instance=<main_flightctl_release_name>` so the OpenShift auth provider includes the project. See the [tenant chart README](../flightctl-tenant/README.md) for values and examples.
+
+Use namespace-scoped mode for new installations. Changing an existing cluster-scoped release to `global.namespaceScoped=true` makes Helm remove the old cluster-scoped resources, which requires cluster-admin permissions.
 
 ## Installation
 

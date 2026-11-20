@@ -16,6 +16,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 	k8sAuthorizationV1 "k8s.io/api/authorization/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type OpenShiftAuthZ struct {
@@ -212,6 +213,10 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	osAuth.Log.Debugf("OpenShiftAuthZ: posting SelfSubjectRulesReview to K8s API")
 	res, err := osAuth.K8sClient.PostCRD(ctx, "authorization.k8s.io/v1/selfsubjectrulesreviews", body, k8sclient.WithToken(token))
 	if err != nil {
+		if apierrors.IsForbidden(err) {
+			osAuth.Log.Debugf("OpenShiftAuthZ: Kubernetes rules review forbidden by token scope; using OpenShift rules review")
+			return osAuth.getPermissionsFromOpenShiftRulesReview(ctx, token, namespace)
+		}
 		osAuth.Log.Debugf("OpenShiftAuthZ: K8s API call failed: %v", err)
 		return nil, err
 	}
@@ -223,8 +228,72 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	}
 
 	// 7. Convert K8s rules to our permission format
-	permissions := make(map[string][]string)
+	rules := make([]policyRule, 0, len(ssrrResponse.Status.ResourceRules))
 	for _, rule := range ssrrResponse.Status.ResourceRules {
+		rules = append(rules, policyRule{
+			APIGroups: rule.APIGroups,
+			Resources: rule.Resources,
+			Verbs:     rule.Verbs,
+		})
+	}
+	permissions := permissionsFromPolicyRules(rules)
+
+	osAuth.Log.Debugf("OpenShiftAuthZ: returning %d permissions for user=%s, org=%s", len(permissions.Permissions), mappedIdentity.GetUsername(), orgID)
+	return permissions, nil
+}
+
+type policyRule struct {
+	APIGroups []string `json:"apiGroups"`
+	Resources []string `json:"resources"`
+	Verbs     []string `json:"verbs"`
+}
+
+type openShiftRulesReview struct {
+	Spec struct {
+		Scopes []string `json:"scopes"`
+	} `json:"spec"`
+}
+
+type openShiftRulesReviewResponse struct {
+	Status struct {
+		Rules           []policyRule `json:"rules"`
+		EvaluationError string       `json:"evaluationError"`
+	} `json:"status"`
+}
+
+func (osAuth OpenShiftAuthZ) getPermissionsFromOpenShiftRulesReview(ctx context.Context, token, namespace string) (*v1beta1.PermissionList, error) {
+	review := openShiftRulesReview{}
+	// An explicitly empty scope list asks OpenShift to evaluate the user's
+	// underlying permissions instead of inheriting the token's constrained scopes.
+	review.Spec.Scopes = []string{}
+	body, err := json.Marshal(review)
+	if err != nil {
+		return nil, err
+	}
+
+	crdGVK := fmt.Sprintf("authorization.openshift.io/v1/namespaces/%s/selfsubjectrulesreviews", namespace)
+	osAuth.Log.Debugf("OpenShiftAuthZ: posting OpenShift SelfSubjectRulesReview for namespace=%s", namespace)
+	res, err := osAuth.K8sClient.PostCRD(ctx, crdGVK, body, k8sclient.WithToken(token))
+	if err != nil {
+		osAuth.Log.Debugf("OpenShiftAuthZ: OpenShift rules review failed: %v", err)
+		return nil, err
+	}
+
+	response := &openShiftRulesReviewResponse{}
+	if err := json.Unmarshal(res, response); err != nil {
+		osAuth.Log.Debugf("OpenShiftAuthZ: failed to unmarshal OpenShift rules review: %v", err)
+		return nil, err
+	}
+	if response.Status.EvaluationError != "" {
+		return nil, fmt.Errorf("OpenShift rules review failed: %s", response.Status.EvaluationError)
+	}
+
+	return permissionsFromPolicyRules(response.Status.Rules), nil
+}
+
+func permissionsFromPolicyRules(rules []policyRule) *v1beta1.PermissionList {
+	permissions := make(map[string][]string)
+	for _, rule := range rules {
 		// Only process rules for our API group (flightctl.io)
 		if len(rule.APIGroups) > 0 && rule.APIGroups[0] != "flightctl.io" {
 			continue
@@ -274,8 +343,7 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 		})
 	}
 
-	osAuth.Log.Debugf("OpenShiftAuthZ: returning %d permissions for user=%s, org=%s", len(apiPermissions), mappedIdentity.GetUsername(), orgID)
 	return &v1beta1.PermissionList{
 		Permissions: apiPermissions,
-	}, nil
+	}
 }

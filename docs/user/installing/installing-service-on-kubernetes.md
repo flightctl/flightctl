@@ -62,6 +62,8 @@ Ensure the registry is reachable from both the control plane and the device agen
 
 The delta worker runs `oci-delta`, which must run as root with the `SYS_ADMIN` capability. The chart sets that security context on the delta-worker container. On OpenShift, it also creates a security context constraint (SCC) named `flightctl-delta-worker` for the delta-worker service account. A restricted policy otherwise assigns a non-root user id, and generation fails while creating the delta. If the installation namespace enforces a restricted or baseline Pod Security Standard, label that namespace `privileged`, as described for the image builder in the Helm chart README.
 
+If you install without cluster-admin permissions, follow [Installing without cluster-admin permissions](#installing-without-cluster-admin-permissions) and keep the delta worker disabled.
+
 You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for the shared `deltaGeneration` keys used by both Helm and Podman deployments.
 
 ### Binding to pre-provisioned PersistentVolumes
@@ -441,6 +443,133 @@ FC_API_ENDPOINT=$(oc get route flightctl-api -n ${FC_NAMESPACE} -o jsonpath='{.s
 
 flightctl login ${FC_API_ENDPOINT} -t $(oc whoami -t)
 ```
+
+### Installing without cluster-admin permissions
+
+Set `global.namespaceScoped=true` to install Flight Control into an existing OpenShift project using only namespaced resources and no cluster-scoped lookups. The installer still needs authorization to create and delegate all rendered RBAC permissions. Stock project-admin permissions alone are insufficient for a fresh installation.
+
+Prerequisites:
+
+- You have project-admin permissions in the existing target OpenShift project.
+- An authorized RBAC administrator has granted you the permissions declared by the rendered Roles, including `flightctl.io` permissions, or explicit namespaced `escalate` and `bind` privileges. Kubernetes prevents creating or binding Roles that delegate permissions you do not hold. Stock OpenShift project-admin permissions do not include the custom Flight Control permissions.
+- You have selected an authentication method. Kubernetes token login (`k8s`) and OpenShift browser login with `global.auth.openshift.clientType=serviceaccount` do not require an OAuthClient. External identity providers require their provider configuration. OpenShift's default `clientType=oauthclient` requires an externally provisioned OAuthClient in namespace-scoped mode.
+- For OpenShift authentication, an administrator authorized to update Namespace labels can apply the project label shown in the procedure. Stock project-admin permissions do not authorize this operation.
+- You have `helm` version 3.17+ installed.
+
+Procedure:
+
+1. Define the namespace and base domain for the installation.
+
+    ```console
+    FC_NAMESPACE=flightctl
+    FC_BASE_DOMAIN=flightctl.example.com
+    ```
+
+2. Create a values file for the namespace-scoped installation. This example uses AAP authentication and disables the privileged image builder and delta workers.
+
+    ```yaml
+    global:
+      namespaceScoped: true
+      baseDomain: <base_domain>
+      exposeServicesMethod: route
+      enableMulticlusterExtensions: "false"
+      auth:
+        type: aap
+        aap:
+          apiUrl: <aap_api_url>
+          externalApiUrl: <aap_external_api_url>
+          authorizationUrl: <aap_authorization_url>
+          tokenUrl: <aap_token_url>
+          clientId: <aap_client_id>
+          clientSecret: <aap_client_secret>
+    imageBuilderWorker:
+      enabled: false
+    deltaWorker:
+      enabled: false
+    ```
+
+3. Install the chart.
+
+    ```console
+    helm upgrade --install flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
+      --namespace ${FC_NAMESPACE} \
+      --values values.namespace-scoped.yaml
+    ```
+
+4. Verify the installation does not create cluster-scoped resources.
+
+    ```console
+    helm get manifest flightctl --namespace ${FC_NAMESPACE} \
+      | grep -E '^kind: (ClusterRole|ClusterRoleBinding|SecurityContextConstraints|OAuthClient)$'
+    ```
+
+    The command returns no output.
+
+5. If you use OpenShift authentication, have an administrator authorized to update Namespace labels label the main project so the auth provider includes it.
+
+    ```console
+    oc label namespace ${FC_NAMESPACE} io.flightctl/instance=flightctl
+    ```
+
+    Replace `flightctl` with the main Helm release name if you used a different one.
+
+Namespace-scoped limitations:
+
+- The installer must have project-admin permissions and authorization to create and delegate the rendered RBAC permissions in each target namespace.
+- MultiCluster Engine integration requires cluster-admin permissions. Set `global.enableMulticlusterExtensions=false`.
+- A single-project installation requires `global.internalNamespace` to be empty. A separate internal namespace requires project-admin access to both namespaces.
+- For Kubernetes authentication, leave `global.auth.k8s.rbacNs` empty or set it to a namespace you can manage.
+- The chart cannot read the cluster ingress CA. If your identity provider uses a private CA, set `global.auth.caCert`.
+- The image builder and delta workers require elevated privileges in this release. Keep them disabled, or ask a cluster administrator for the required security context constraint. Removing those privileges is future work and is not part of namespace-scoped mode.
+- Kubernetes authentication (`global.auth.type=k8s`) uses `SelfSubjectReview` and does not require cluster-scoped TokenReview permissions.
+- OpenShift authentication (`global.auth.type=openshift`) uses a cluster-scoped OAuthClient by default. Set `global.auth.openshift.clientType=serviceaccount` to use the `flightctl-api` ServiceAccount as the OAuth client and avoid the OAuthClient; see [OpenShift Authentication](configuring-auth/auth-openshift.md#service-account-oauth-client). For CLI-only access, use `global.auth.type=k8s` and `flightctl login -t $(oc whoami -t)`.
+- Additional projects require the tenant chart. See [Onboarding additional projects](#onboarding-additional-projects).
+- The chart does not create or change namespace labels. Enforce the restricted Pod Security Standard on the project.
+- Use namespace-scoped mode for new installations. Changing an existing cluster-scoped release to `global.namespaceScoped=true` makes Helm remove the old cluster-scoped resources, which requires cluster-admin permissions.
+
+#### Onboarding additional projects
+
+The main chart manages the project where it is installed. To let users manage devices in another project, install the tenant chart there. The installer needs project-admin permissions and authorization to create and delegate the rendered Flight Control permissions, as described in the prerequisites above.
+
+The tenant chart creates the standard Flight Control Roles and RoleBindings and grants the main control plane read access to RoleBindings in that project. A project administrator can grant this reader access without cluster-admin permissions because they already hold the delegated `get` and `list` permissions. Provisioning the custom Flight Control permissions and updating Namespace labels remain separate prerequisites.
+
+1. Create a tenant values file.
+
+    ```yaml
+    flightctlNamespace: <main_flightctl_namespace>
+    flightctlReleaseName: <main_flightctl_release_name>
+    roleBindings:
+      - role: org-admin
+        subjects:
+          - kind: Group
+            name: <project_admin_group>
+      - role: viewer
+        subjects:
+          - kind: User
+            name: <user>
+    ```
+
+2. Install the tenant chart in the project.
+
+    ```console
+    helm install flightctl-tenant oci://quay.io/flightctl/charts/flightctl-tenant:${FC_VERSION} \
+      --namespace <project> \
+      --values tenant-values.yaml
+    ```
+
+3. Have an administrator authorized to update Namespace labels label the project so the OpenShift auth provider includes it.
+
+    ```console
+    oc label namespace <project> io.flightctl/instance=<main_flightctl_release_name>
+    ```
+
+4. If users need to see the project in the OpenShift console, also grant the built-in `view` role.
+
+    ```console
+    oc adm policy add-role-to-user view <user> -n <project>
+    ```
+
+See the [tenant chart README](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl-tenant/README.md) for all values.
 
 ### Installing from the OpenShift Software Catalog
 

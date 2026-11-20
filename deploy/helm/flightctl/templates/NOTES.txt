@@ -25,3 +25,28 @@ You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
 You can login using the following CLI command:
    
     flightctl login {{ include "flightctl.getApiUrl" . }} --web
+
+{{- if eq (include "flightctl.isNamespaceScoped" .) "true" }}
+
+This is a namespace-scoped installation (global.namespaceScoped=true). The chart
+renders only namespaced resources and does not look up cluster-scoped objects.
+{{- $authType := include "flightctl.getEffectiveAuthType" . }}
+{{- if eq $authType "openshift" }}
+
+OpenShift authentication uses a cluster-scoped OAuthClient by default. Set
+global.auth.openshift.clientType=serviceaccount to use the flightctl-api
+ServiceAccount instead; no OAuthClient is created and the token proxy injects
+the projected ServiceAccount token as the client secret. For CLI-only access,
+use auth.type=k8s with `flightctl login -t $(oc whoami -t)` instead.
+
+To manage additional projects, install the flightctl-tenant chart in each
+project and label it with io.flightctl/instance={{ .Release.Name }}.
+{{- end }}
+{{- if or (and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled) (and .Values.deltaWorker .Values.deltaWorker.enabled) }}
+
+The image builder and delta workers still require elevated privileges in this
+release. If the namespace enforces the restricted Pod Security Standard, ask a
+cluster administrator for the required SCC or disable the workers with
+imageBuilderWorker.enabled=false and deltaWorker.enabled=false.
+{{- end }}
+{{- end }}

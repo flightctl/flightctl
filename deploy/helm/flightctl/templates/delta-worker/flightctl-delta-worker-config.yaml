@@ -1,3 +1,4 @@
+{{- if and .Values.deltaWorker .Values.deltaWorker.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -92,3 +93,4 @@ data:
     {{ end }}
 {{ include "flightctl.profiling" . | nindent 4 }}
 {{- include "flightctl.encryptionConfig" . | nindent 4 }}
+{{- end }}

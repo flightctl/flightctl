@@ -6,17 +6,21 @@ Flight Control API server supports Kubernetes service account-based authenticati
 
 Flight Control API server validates Kubernetes service account tokens by:
 
-- Sending TokenReview requests to the Kubernetes API server
+- Sending `SelfSubjectReview` requests with the caller's token to the Kubernetes API server
 - Validating the token's authenticity and user identity
 - Mapping Kubernetes users/service accounts to Flight Control users
 - Checking RoleBindings in the namespace where Flight Control is deployed for authorization
 - Assigning all users to the `default` organization
+
+> [!NOTE]
+> The Kubernetes cluster used for authentication must support `SelfSubjectReview` (Kubernetes 1.27 or later). The Flight Control Helm chart requires Kubernetes 1.32 or later for the cluster where Flight Control is installed.
 
 ## Standard ClusterRoles Provided
 
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
 - **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
+- **`flightctl-org-admin-<namespace>`** - Full access to all Flight Control resources within an organization
 - **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories; application lifecycle (start/stop/restart); device and application console; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
 - **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer-<namespace>`** - Access to enrollmentrequests, certificate signing requests; view imagebuilds and imageexports; download imageexports
@@ -24,6 +28,10 @@ Flight Control provides the following standard ClusterRoles out-of-the-box:
 **Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`). The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
 
 **Note:** Flight Control automatically creates a service account named `flightctl-admin` with the `flightctl-admin-<namespace>` role; to use other role types, create your own service account and bind it to the desired ClusterRole.
+
+### Namespace-scoped installations
+
+When you set `global.namespaceScoped=true`, Flight Control creates the standard roles as namespaced Roles in the RBAC namespace instead of ClusterRoles. Token validation uses `SelfSubjectReview`, which Kubernetes allows for every authenticated user, so no cluster-scoped TokenReview RBAC is required. For more information, see [Installing without cluster-admin permissions](../installing-service-on-kubernetes.md#installing-without-cluster-admin-permissions).
 
 ## Configuration
 
@@ -48,7 +56,7 @@ With these settings, the k8s cluster on which Flight Control will be deployed wi
 If you want to use a different cluster as auth authority, the following variables need to be set:
 
 - Set **global.auth.k8s.apiUrl** to API URL of the external k8s cluster
-- Set **global.auth.k8s.externalApiToken** to a token which has permission to CREATE `authentication.k8s.io/tokenreview` resource in the external k8s cluster
+- Set **global.auth.k8s.externalApiToken** to a valid token for the external Kubernetes cluster. Token validation uses `SelfSubjectReview` with the caller's token.
 
 ### OpenShift Clusters
 

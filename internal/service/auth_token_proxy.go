@@ -328,7 +328,7 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	// Log request details
 	p.authN.GetLogger().Infof("Token proxy: sending request to %s", providerConfig.TokenEndpoint)
 	p.authN.GetLogger().Infof("Token proxy: UseBasicAuth=%v, grant_type=%s", providerConfig.UseBasicAuth, tokenReq.GrantType)
-	p.authN.GetLogger().Debugf("Token proxy: form data: %s", encodedBody)
+	p.authN.GetLogger().Debugf("Token proxy: form fields prepared (client_secret present=%t)", clientSecret != "")
 
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, providerConfig.TokenEndpoint, bytes.NewBufferString(encodedBody))
