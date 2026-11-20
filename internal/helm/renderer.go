@@ -64,24 +64,44 @@ func (r *Renderer) ImageRefs(
 	renderedConfig []byte,
 	registrySpec *domain.OciRepoSpec,
 ) ([]string, error) {
+	manifests, err := r.RenderManifests(ctx, app, device, renderedConfig, registrySpec)
+	if err != nil {
+		return nil, err
+	}
+	images, err := chartutil.ExtractImagesFromManifests(manifests)
+	if err != nil {
+		return nil, fmt.Errorf("extract target chart workload images: %w", err)
+	}
+	slices.Sort(images)
+	return images, nil
+}
+
+// RenderManifests templates the target chart and its dependencies with the effective release and values.
+func (r *Renderer) RenderManifests(
+	ctx context.Context,
+	app v1beta1.HelmApplication,
+	device *domain.Device,
+	renderedConfig []byte,
+	registrySpec *domain.OciRepoSpec,
+) (string, error) {
 	imageSpec, err := app.AsImageApplicationProviderSpec()
 	if err != nil {
-		return nil, fmt.Errorf("get chart image reference: %w", err)
+		return "", fmt.Errorf("get chart image reference: %w", err)
 	}
 	if imageSpec.Image == "" {
-		return nil, fmt.Errorf("chart image reference is empty")
+		return "", fmt.Errorf("chart image reference is empty")
 	}
 
 	chartName, _, err := chartutil.ParseChartRef(imageSpec.Image)
 	if err != nil {
-		return nil, fmt.Errorf("parse chart reference: %w", err)
+		return "", fmt.Errorf("parse chart reference: %w", err)
 	}
 	if chartName == "." || chartName == ".." || filepath.Base(chartName) != chartName {
-		return nil, fmt.Errorf("invalid chart name %q in reference %q", chartName, imageSpec.Image)
+		return "", fmt.Errorf("invalid chart name %q in reference %q", chartName, imageSpec.Image)
 	}
 	releaseName, err := releaseNameForApp(app, imageSpec.Image)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -89,7 +109,7 @@ func (r *Renderer) ImageRefs(
 
 	workDir, err := os.MkdirTemp("", "flightctl-helm-render-")
 	if err != nil {
-		return nil, fmt.Errorf("create temporary Helm render directory: %w", err)
+		return "", fmt.Errorf("create temporary Helm render directory: %w", err)
 	}
 	defer func() {
 		if err := os.RemoveAll(workDir); err != nil {
@@ -103,13 +123,13 @@ func (r *Renderer) ImageRefs(
 	dataHome := filepath.Join(workDir, "data")
 	for _, dir := range []string{chartRoot, configHome, cacheHome, dataHome} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("create temporary Helm directory: %w", err)
+			return "", fmt.Errorf("create temporary Helm directory: %w", err)
 		}
 	}
 
 	registryConfig, repositoryConfig, transportArgs, err := prepareHelmConfig(ctx, workDir, configHome, renderedConfig, registrySpec, imageSpec.Image)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	helmEnv := helmEnvironment(configHome, cacheHome, dataHome)
 
@@ -124,7 +144,7 @@ func (r *Renderer) ImageRefs(
 	}
 	pullArgs = append(pullArgs, transportArgs...)
 	if err := r.run(ctx, workDir, helmEnv, pullArgs...); err != nil {
-		return nil, fmt.Errorf("pull target chart %s: %w", imageSpec.Image, err)
+		return "", fmt.Errorf("pull target chart %s: %w", imageSpec.Image, err)
 	}
 
 	chartPath := filepath.Join(chartRoot, chartName)
@@ -137,21 +157,21 @@ func (r *Renderer) ImageRefs(
 	}
 	dependencyArgs = append(dependencyArgs, transportArgs...)
 	if err := r.run(ctx, workDir, helmEnv, dependencyArgs...); err != nil {
-		return nil, fmt.Errorf("update dependencies for target chart %s: %w", imageSpec.Image, err)
+		return "", fmt.Errorf("update dependencies for target chart %s: %w", imageSpec.Image, err)
 	}
 
 	valuesPaths, err := targetValuesFiles(chartPath, app.ValuesFiles)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if app.Values != nil && len(*app.Values) > 0 {
 		values, err := yaml.Marshal(*app.Values)
 		if err != nil {
-			return nil, fmt.Errorf("marshal inline Helm values: %w", err)
+			return "", fmt.Errorf("marshal inline Helm values: %w", err)
 		}
 		valuesPath := filepath.Join(workDir, "flightctl-values.yaml")
 		if err := os.WriteFile(valuesPath, values, 0o600); err != nil {
-			return nil, fmt.Errorf("write inline Helm values: %w", err)
+			return "", fmt.Errorf("write inline Helm values: %w", err)
 		}
 		valuesPaths = append(valuesPaths, valuesPath)
 	}
@@ -169,14 +189,9 @@ func (r *Renderer) ImageRefs(
 	}
 	manifests, err := r.output(ctx, workDir, helmEnv, templateArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("render target chart %s: %w", imageSpec.Image, err)
+		return "", fmt.Errorf("render target chart %s: %w", imageSpec.Image, err)
 	}
-	images, err := chartutil.ExtractImagesFromManifests(manifests)
-	if err != nil {
-		return nil, fmt.Errorf("extract workload images from target chart %s: %w", imageSpec.Image, err)
-	}
-	slices.Sort(images)
-	return images, nil
+	return manifests, nil
 }
 
 // ImageRefsCacheKey returns a content-addressed key for the extracted image

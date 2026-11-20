@@ -16,6 +16,7 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/appinspection"
 	"github.com/flightctl/flightctl/internal/config"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -1128,6 +1129,47 @@ func TestRenderApplication_CatalogItemRef_ResolvesToImageWithoutRetainingRef(t *
 			require.NoError(t, json.Unmarshal(renderedBytes, &renderedJSON))
 			assert.Equal(t, artifactUri+":"+containerRef, renderedJSON["image"])
 			assert.NotContains(t, renderedJSON, "catalogItemRef")
+		})
+	}
+}
+
+func TestRenderSpecApplicationInspection(t *testing.T) {
+	const (
+		name = "example-app"
+		uri  = "quay.io/example/application"
+		tag  = "v1.0.0"
+	)
+	for _, tt := range []struct {
+		appType     domain.AppType
+		catalogType v1alpha1.CatalogItemType
+		consumer    appinspection.ConsumerKind
+	}{
+		{domain.AppTypeCompose, v1alpha1.CatalogItemTypeCompose, appinspection.ConsumerContainer},
+		{domain.AppTypeQuadlet, v1alpha1.CatalogItemTypeQuadlet, appinspection.ConsumerContainer},
+		{domain.AppTypeHelm, v1alpha1.CatalogItemTypeHelm, appinspection.ConsumerHelmChart},
+	} {
+		t.Run(fmt.Sprintf("When a %s app comes from a catalog it should inspect the same effective inputs as a manual app", tt.appType), func(t *testing.T) {
+			orgID := uuid.New()
+			service := catalogservice.NewMockService(gomock.NewController(t))
+			service.EXPECT().GetCatalogItem(gomock.Any(), orgID, "catalog", "item").Return(makeCatalogItem(tt.catalogType, uri, "1.0.0", tag), statusOK)
+			logic := NewDeviceRenderLogic(logrus.New(), nil, nil, service, nil, newTestKVStore(), &config.Config{})
+
+			catalogApp := makeCatalogRefApplication(t, tt.appType, name, "catalog", "item", "1.0.0")
+			var manualApp domain.ApplicationProviderSpec
+			require.NoError(t, json.Unmarshal(fmt.Appendf(nil, `{"appType":%q,"name":%q,"image":%q}`, tt.appType, name, uri+":"+tag), &manualApp))
+
+			fromCatalog, err := logic.RenderSpec(t.Context(), orgID, &domain.DeviceSpec{Applications: lo.ToPtr([]domain.ApplicationProviderSpec{catalogApp})})
+			require.NoError(t, err)
+			manual, err := logic.RenderSpec(t.Context(), orgID, &domain.DeviceSpec{Applications: lo.ToPtr([]domain.ApplicationProviderSpec{manualApp})})
+			require.NoError(t, err)
+			require.JSONEq(t, string(manual.Applications), string(fromCatalog.Applications))
+
+			var apps []domain.ApplicationProviderSpec
+			require.NoError(t, json.Unmarshal(fromCatalog.Applications, &apps))
+			require.Len(t, apps, 1)
+			result := appinspection.InspectSpec(&apps[0])
+			require.Equal(t, []appinspection.Reference{{Image: uri + ":" + tag, Role: appinspection.RolePackage, ConsumerKind: tt.consumer}}, result.Declared)
+			require.Nil(t, result.Inline)
 		})
 	}
 }
