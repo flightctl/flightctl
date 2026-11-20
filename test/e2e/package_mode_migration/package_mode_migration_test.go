@@ -121,9 +121,8 @@ var _ = Describe("Mixed OS-mode fleet template migration", Ordered, Label("packa
 		// belong to it.
 		ctx := harness.GetTestContext()
 		DeferCleanup(func() {
-			if err := harness.CleanUpTestResources(testutil.ResourceTypes[:]...); err != nil {
-				GinkgoWriter.Printf("CleanUpTestResources(api harness): %v\n", err)
-			}
+			Expect(harness.CleanUpTestResources(testutil.ResourceTypes[:]...)).To(Succeed(),
+				"CleanUpTestResources(api harness)")
 		})
 		fleetName = uniqueMigrationName(migrationFleetPrefix)
 		selector = v1beta1.LabelSelector{
@@ -140,9 +139,8 @@ var _ = Describe("Mixed OS-mode fleet template migration", Ordered, Label("packa
 		Expect(err).ToNot(HaveOccurred())
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, selector, legacySpec)).To(Succeed())
 		DeferCleanup(func() {
-			if err := harness.DeleteFleetIgnoreNotFound(fleetName); err != nil {
-				GinkgoWriter.Printf("DeleteFleetIgnoreNotFound(%s): %v\n", fleetName, err)
-			}
+			Expect(harness.DeleteFleetIgnoreNotFound(fleetName)).To(Succeed(),
+				"DeleteFleetIgnoreNotFound(%s)", fleetName)
 		})
 
 		By("enrolling an image-mode device into the fleet")
@@ -155,14 +153,18 @@ var _ = Describe("Mixed OS-mode fleet template migration", Ordered, Label("packa
 			imageHarness.CaptureDeploymentLogsIfFailed()
 			// Scoped to this harness's own test-id labels; see
 			// Harness.CleanUpTestResources.
-			if err := imageHarness.CleanUpAllTestResources(); err != nil {
-				GinkgoWriter.Printf("CleanUpAllTestResources(image-mode harness): %v\n", err)
-			}
+			Expect(imageHarness.CleanUpAllTestResources()).To(Succeed(),
+				"CleanUpAllTestResources(image-mode harness)")
 		})
 		Expect(imageHarness.SetupVMFromPoolAndStartAgent(workerID)).To(Succeed())
+		// EnrollAndWaitForOnlineStatus uses internal Ginkgo assertions that
+		// abort the spec on failure; the discarded second return is the full
+		// device object (not an error). Register cleanup for the device ID
+		// immediately so an already-created resource is collected if any
+		// later step fails.
 		imageDevice, _ = imageHarness.EnrollAndWaitForOnlineStatus(map[string]string{migrationFleetLabelKey: fleetName})
-		Expect(imageDevice).ToNot(BeEmpty())
 		DeferCleanup(func() { deleteDeviceIfNamed(harness, imageDevice) })
+		Expect(imageDevice).ToNot(BeEmpty())
 
 		By("enrolling a package-mode device into the same fleet")
 		startCtx, startCancel := context.WithTimeout(ctx, migrationEnrollTimeout)
@@ -429,9 +431,8 @@ func deleteDeviceIfNamed(harness *e2e.Harness, deviceID string) {
 	if harness == nil || strings.TrimSpace(deviceID) == "" {
 		return
 	}
-	if err := harness.DeleteDeviceIgnoreNotFound(deviceID); err != nil {
-		GinkgoWriter.Printf("DeleteDeviceIgnoreNotFound(%s): %v\n", deviceID, err)
-	}
+	Expect(harness.DeleteDeviceIgnoreNotFound(deviceID)).To(Succeed(),
+		"DeleteDeviceIgnoreNotFound(%s)", deviceID)
 }
 
 // guardedImage returns the fleet template OS image as the migration is expected

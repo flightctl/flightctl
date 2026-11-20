@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -398,12 +399,20 @@ func EnrollPackageModeAgent(ctx context.Context, harness *Harness, agent *Packag
 		return "", fmt.Errorf("package-mode agent is nil")
 	}
 
-	enrollmentID, err := agent.GetEnrollmentID(ctx, timeout)
+	// A single deadline from entry bounds every step: enrollment ID
+	// retrieval, request wait, approval, and status polling. Each API
+	// call receives this context directly so the HTTP transport can
+	// cancel in-flight requests when the deadline fires.
+	enrollCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	enrollmentID, err := agent.GetEnrollmentID(enrollCtx, timeout)
 	if err != nil {
 		return "", fmt.Errorf("get enrollment ID: %w", err)
 	}
-	if _, err := harness.WaitForEnrollmentRequestResource(enrollmentID, testutil.TIMEOUT_5M, testutil.SHORT_POLLING); err != nil {
-		return enrollmentID, err
+
+	if _, err := WaitForEnrollmentRequestWithContext(enrollCtx, harness.Client, enrollmentID, pollInterval); err != nil {
+		return enrollmentID, fmt.Errorf("waiting for enrollment request: %w", err)
 	}
 
 	testLabels, err := harness.TestResourceLabels()
@@ -417,31 +426,100 @@ func EnrollPackageModeAgent(ctx context.Context, harness *Harness, agent *Packag
 	for key, value := range labels {
 		approvalLabels[key] = value
 	}
-	if _, err := harness.ApproveEnrollmentRequestWithLabels(enrollmentID, approvalLabels); err != nil {
+	if err := ApproveEnrollmentWithContext(enrollCtx, harness.Client, enrollmentID, approvalLabels); err != nil {
 		return enrollmentID, err
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	var lastErr error
 	for {
-		device, err := harness.CheckDeviceStatus(enrollmentID, v1beta1.DeviceSummaryStatusOnline)
-		switch {
-		case err != nil:
+		device, err := CheckDeviceOnlineWithContext(enrollCtx, harness.Client, enrollmentID)
+		if err != nil {
 			lastErr = err
-		case device == nil:
-			lastErr = fmt.Errorf("device %s is still nil", enrollmentID)
-		default:
+		} else if device != nil {
 			return enrollmentID, nil
+		} else {
+			lastErr = fmt.Errorf("device %s is still nil or not online", enrollmentID)
 		}
 		select {
-		case <-timeoutCtx.Done():
-			// The device exists from approval onwards, so hand its id back
-			// with the error rather than losing track of it.
+		case <-enrollCtx.Done():
 			return enrollmentID, fmt.Errorf("waiting for device %s to come online: %w", enrollmentID, lastErr)
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// ClientWithResponsesInterface is the subset of the generated API client
+// used by the context-aware enrollment helpers. It avoids importing the
+// full generated client package in test code that only needs these calls.
+type ClientWithResponsesInterface interface {
+	GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...apiclient.RequestEditorFn) (*apiclient.GetEnrollmentRequestResponse, error)
+	ApproveEnrollmentRequestWithResponse(ctx context.Context, name string, body v1beta1.EnrollmentRequestApproval, reqEditors ...apiclient.RequestEditorFn) (*apiclient.ApproveEnrollmentRequestResponse, error)
+	GetDeviceWithResponse(ctx context.Context, name string, reqEditors ...apiclient.RequestEditorFn) (*apiclient.GetDeviceResponse, error)
+}
+
+// WaitForEnrollmentRequestWithContext polls for an enrollment request using
+// the given context for deadline and cancellation, without touching the
+// shared harness context.
+func WaitForEnrollmentRequestWithContext(ctx context.Context, client ClientWithResponsesInterface, enrollmentID string, pollInterval time.Duration) (*v1beta1.EnrollmentRequest, error) {
+	for {
+		resp, err := client.GetEnrollmentRequestWithResponse(ctx, enrollmentID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("getting enrollment request %s: %w", enrollmentID, err)
+		}
+		if resp != nil && resp.JSON200 != nil {
+			return resp.JSON200, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// ApproveEnrollmentWithContext approves an enrollment request using the
+// given context for deadline and cancellation.
+func ApproveEnrollmentWithContext(ctx context.Context, client ClientWithResponsesInterface, enrollmentID string, labels map[string]string) error {
+	approvalLabels := make(map[string]string, len(labels))
+	for k, v := range labels {
+		approvalLabels[k] = v
+	}
+	approval := v1beta1.EnrollmentRequestApproval{
+		Approved: true,
+		Labels:   &approvalLabels,
+	}
+	resp, err := client.ApproveEnrollmentRequestWithResponse(ctx, enrollmentID, approval)
+	if err != nil {
+		return fmt.Errorf("approving enrollment request %s: %w", enrollmentID, err)
+	}
+	if resp == nil {
+		return fmt.Errorf("nil response approving %s", enrollmentID)
+	}
+	if resp.StatusCode() != 200 {
+		return fmt.Errorf("approving %s returned %d: %s", enrollmentID, resp.StatusCode(), string(resp.Body))
+	}
+	return nil
+}
+
+// CheckDeviceOnlineWithContext checks whether a device is online using the
+// given context. Returns the device when it is online, nil when it is not
+// yet ready, or an error.
+func CheckDeviceOnlineWithContext(ctx context.Context, client ClientWithResponsesInterface, deviceID string) (*v1beta1.Device, error) {
+	resp, err := client.GetDeviceWithResponse(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || resp.JSON200 == nil {
+		return nil, nil
+	}
+	device := resp.JSON200
+	if device.Status == nil || device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+		return nil, nil
+	}
+	return device, nil
 }
 
 // Stop terminates the helper container if it is still running.
