@@ -8,7 +8,7 @@ When the device is not yet enrolled, the agent performs service discovery to fin
 
 > [!NOTE]
 > The device **management certificate** is automatically renewed by the `flightctl-agent`
-> **before it expires**, once it reaches approximately **75% of its lifetime**.
+> **before it expires**, when approximately **75% of its lifetime remains**.
 > Renewal happens proactively to avoid service disruption and does not require user action.
 
 ### Enrolling using the Web UI
