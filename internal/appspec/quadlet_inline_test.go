@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParsePartialQuadletImageReferencesFromSpec(t *testing.T) {
+	contents := []v1beta1.ApplicationContent{
+		{Path: "app.container", Content: lo.ToPtr("[Container]\nImage=quay.io/example/app:v1")},
+		{Path: "bad.kube", Content: lo.ToPtr("[Kube]\nYaml=missing.yaml")},
+	}
+	partial, err := ParsePartialQuadletImageReferencesFromSpec(contents)
+	require.Error(t, err)
+	require.Equal(t, []QuadletImageReference{{Image: "quay.io/example/app:v1"}}, partial)
+
+	strict, err := ParseQuadletImageReferencesFromSpec(contents)
+	require.Error(t, err)
+	require.Nil(t, strict)
+}
+
 func TestParseQuadletReferencesFromSpec(t *testing.T) {
 	tests := []struct {
 		name              string
