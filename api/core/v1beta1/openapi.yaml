@@ -24,6 +24,8 @@ tags:
     description: Operations on Device resources.
   - name: deviceactions
     description: Operations for device actions.
+  - name: enrollmentapprovalpolicy
+    description: Operations on enrollment approval policies.
   - name: enrollmenthookpolicy
     description: Operations on EnrollmentHookPolicy resources.
   - name: enrollmentrequest
@@ -3220,6 +3222,458 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /enrollmentapprovalpolicies:
+    x-resource: enrollmentapprovalpolicies
+    get:
+      tags:
+        - enrollmentapprovalpolicy
+      description: List EnrollmentApprovalPolicy resources.
+      operationId: listEnrollmentApprovalPolicies
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicyList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Create an EnrollmentApprovalPolicy resource.
+      operationId: createEnrollmentApprovalPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+          links:
+            GetEnrollmentApprovalPolicy:
+              operationId: getEnrollmentApprovalPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteEnrollmentApprovalPolicy:
+              operationId: deleteEnrollmentApprovalPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceEnrollmentApprovalPolicy:
+              operationId: replaceEnrollmentApprovalPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /enrollmentapprovalpolicies/{name}:
+    x-resource: enrollmentapprovalpolicies
+    get:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Get an EnrollmentApprovalPolicy resource.
+      operationId: getEnrollmentApprovalPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentApprovalPolicy resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Update an EnrollmentApprovalPolicy resource.
+      operationId: replaceEnrollmentApprovalPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentApprovalPolicy resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Delete an EnrollmentApprovalPolicy resource.
+      operationId: deleteEnrollmentApprovalPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentApprovalPolicy resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Patch an EnrollmentApprovalPolicy resource.
+      operationId: patchEnrollmentApprovalPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentApprovalPolicy resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /enrollmentapprovalpolicies/{name}/status:
+    x-resource: enrollmentapprovalpolicies/status
+    get:
+      tags:
+        - enrollmentapprovalpolicy
+      description: Get an EnrollmentApprovalPolicy resource.
+      operationId: getEnrollmentApprovalPolicyStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentApprovalPolicy resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentApprovalPolicyStatus'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /enrollmenthookpolicies:
     x-resource: enrollmenthookpolicies
     get:
@@ -6171,7 +6625,7 @@ components:
         - ApiVersionEmpty
     ResourceKind:
       type: string
-      enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion, AuthProvider]
+      enum: [CertificateSigningRequest, EnrollmentRequest, EnrollmentApprovalPolicy, Device, Fleet, Repository, ResourceSync, TemplateVersion, AuthProvider]
       description: Resource types exposed via the API.
     DeviceDecommissionTargetType:
       type: string
@@ -11203,6 +11657,101 @@ components:
         - metadata
         - items
       description: AuthProviderList is a list of auth providers.
+    EnrollmentApprovalPolicy:
+      type: object
+      additionalProperties: false
+      description: Tenant-scoped enrollment approval policy.
+      required: [apiVersion, kind, metadata, spec]
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          description: REST resource kind.
+          type: string
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/EnrollmentApprovalPolicySpec'
+        status:
+          $ref: '#/components/schemas/EnrollmentApprovalPolicyStatus'
+    EnrollmentApprovalPolicySpec:
+      description: Administrative enrollment policy configuration.
+      type: object
+      additionalProperties: false
+      required: [certificateName, matchExpression, deviceLabels]
+      properties:
+        enabled:
+          description: Whether this policy participates in automatic approval. Defaults to false.
+          type: boolean
+          default: false
+          x-go-type-skip-optional-pointer: true
+        certificateName:
+          description: Immutable name of a valid issued enrollment credential CSR in this tenant.
+          type: string
+          minLength: 1
+        requireTPMVerification:
+          description: Whether server-verified TPM identity is required. Defaults to false.
+          type: boolean
+          default: false
+          x-go-type-skip-optional-pointer: true
+        matchExpression:
+          description: Restricted boolean CEL expression requiring semantic and disjointness validation.
+          type: string
+          minLength: 1
+        deviceLabels:
+          description: Static labels assigned to automatically approved devices; may be empty.
+          type: object
+          additionalProperties:
+            type: string
+        allowedIncomingLabels:
+          description: Exact incoming label keys permitted to supplement static device labels.
+          type: array
+          items:
+            type: string
+        approvalLimit:
+          description: Lifetime automatic approval cap; absent or null is unlimited and zero blocks approvals.
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        autoApprovalWindowDays:
+          description: Optional issuance-relative window in whole days; requires authoritative credential issuance time.
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 106751
+          nullable: true
+    EnrollmentApprovalPolicyStatus:
+      description: Server-owned enrollment policy accounting.
+      type: object
+      additionalProperties: false
+      required: [enrollmentCount]
+      properties:
+        enrollmentCount:
+          description: Server-owned lifetime count of committed automatic approvals, initialized to zero.
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          x-go-type-skip-optional-pointer: true
+          x-omitempty: false
+    EnrollmentApprovalPolicyList:
+      description: Tenant-scoped collection of enrollment approval policies.
+      type: object
+      required: [apiVersion, kind, metadata, items]
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          description: REST resource kind.
+          type: string
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          description: Enrollment approval policies in this tenant.
+          type: array
+          items:
+            $ref: '#/components/schemas/EnrollmentApprovalPolicy'
     EnrollmentHookPolicy:
       type: object
       properties:

@@ -130,6 +130,27 @@ type ServerInterface interface {
 	// (PUT /devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /enrollmentapprovalpolicies)
+	ListEnrollmentApprovalPolicies(w http.ResponseWriter, r *http.Request, params ListEnrollmentApprovalPoliciesParams)
+
+	// (POST /enrollmentapprovalpolicies)
+	CreateEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /enrollmentapprovalpolicies/{name})
+	DeleteEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /enrollmentapprovalpolicies/{name})
+	GetEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /enrollmentapprovalpolicies/{name})
+	PatchEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /enrollmentapprovalpolicies/{name})
+	ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /enrollmentapprovalpolicies/{name}/status)
+	GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /enrollmentconfig)
 	GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams)
 
@@ -491,6 +512,41 @@ func (_ Unimplemented) PatchDeviceStatus(w http.ResponseWriter, r *http.Request,
 
 // (PUT /devices/{name}/status)
 func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /enrollmentapprovalpolicies)
+func (_ Unimplemented) ListEnrollmentApprovalPolicies(w http.ResponseWriter, r *http.Request, params ListEnrollmentApprovalPoliciesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /enrollmentapprovalpolicies)
+func (_ Unimplemented) CreateEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /enrollmentapprovalpolicies/{name})
+func (_ Unimplemented) DeleteEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /enrollmentapprovalpolicies/{name})
+func (_ Unimplemented) GetEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /enrollmentapprovalpolicies/{name})
+func (_ Unimplemented) PatchEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /enrollmentapprovalpolicies/{name})
+func (_ Unimplemented) ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /enrollmentapprovalpolicies/{name}/status)
+func (_ Unimplemented) GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1885,6 +1941,222 @@ func (siw *ServerInterfaceWrapper) ReplaceDeviceStatus(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceDeviceStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEnrollmentApprovalPolicies operation middleware
+func (siw *ServerInterfaceWrapper) ListEnrollmentApprovalPolicies(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEnrollmentApprovalPoliciesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "continue", r.URL.Query(), &params.Continue, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "continue"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "labelSelector"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fieldSelector"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnrollmentApprovalPolicies(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnrollmentApprovalPolicy operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentApprovalPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEnrollmentApprovalPolicy operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEnrollmentApprovalPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEnrollmentApprovalPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnrollmentApprovalPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchEnrollmentApprovalPolicy operation middleware
+func (siw *ServerInterfaceWrapper) PatchEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchEnrollmentApprovalPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceEnrollmentApprovalPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceEnrollmentApprovalPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEnrollmentApprovalPolicyStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnrollmentApprovalPolicyStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4062,6 +4334,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/devices/{name}/status", wrapper.ReplaceDeviceStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/enrollmentapprovalpolicies", wrapper.ListEnrollmentApprovalPolicies)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/enrollmentapprovalpolicies", wrapper.CreateEnrollmentApprovalPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/enrollmentapprovalpolicies/{name}", wrapper.DeleteEnrollmentApprovalPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/enrollmentapprovalpolicies/{name}", wrapper.GetEnrollmentApprovalPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/enrollmentapprovalpolicies/{name}", wrapper.PatchEnrollmentApprovalPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/enrollmentapprovalpolicies/{name}", wrapper.ReplaceEnrollmentApprovalPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/enrollmentapprovalpolicies/{name}/status", wrapper.GetEnrollmentApprovalPolicyStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/enrollmentconfig", wrapper.GetEnrollmentConfig)

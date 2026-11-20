@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/authprovider"
 	"github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
 	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	"github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -33,6 +34,7 @@ type TransportHandler struct {
 	authprovider              authprovider.Service
 	certificatesigningrequest certificatesigningrequest.Service
 	device                    device.Service
+	enrollmentapprovalpolicy  enrollmentapprovalpolicy.Service
 	enrollmenthookpolicy      enrollmenthookpolicy.Service
 	labelsyncmapping          labelsyncmapping.Service
 	enrollmentrequest         enrollmentrequest.Service
@@ -63,6 +65,7 @@ func NewTransportHandler(
 	authproviderSvc authprovider.Service,
 	certificatesigningrequestSvc certificatesigningrequest.Service,
 	deviceSvc device.Service,
+	enrollmentapprovalpolicySvc enrollmentapprovalpolicy.Service,
 	enrollmenthookpolicySvc enrollmenthookpolicy.Service,
 	labelsyncmappingSvc labelsyncmapping.Service,
 	enrollmentrequestSvc enrollmentrequest.Service,
@@ -83,6 +86,7 @@ func NewTransportHandler(
 		authprovider:              authproviderSvc,
 		certificatesigningrequest: certificatesigningrequestSvc,
 		device:                    deviceSvc,
+		enrollmentapprovalpolicy:  enrollmentapprovalpolicySvc,
 		enrollmenthookpolicy:      enrollmenthookpolicySvc,
 		labelsyncmapping:          labelsyncmappingSvc,
 		enrollmentrequest:         enrollmentrequestSvc,

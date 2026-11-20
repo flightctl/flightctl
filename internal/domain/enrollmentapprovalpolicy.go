@@ -1,0 +1,9 @@
+package domain
+
+import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+
+type EnrollmentApprovalPolicy = v1beta1.EnrollmentApprovalPolicy
+type EnrollmentApprovalPolicySpec = v1beta1.EnrollmentApprovalPolicySpec
+type EnrollmentApprovalPolicyStatus = v1beta1.EnrollmentApprovalPolicyStatus
+type EnrollmentApprovalPolicyList = v1beta1.EnrollmentApprovalPolicyList
+type ListEnrollmentApprovalPoliciesParams = v1beta1.ListEnrollmentApprovalPoliciesParams

@@ -221,11 +221,18 @@ func applyFromReader(ctx context.Context, c *client.Client, ibClient *client.Ima
 
 	var err error
 	for {
-		var resource genericResource
-		err = decoder.Decode(&resource)
+		var document json.RawMessage
+		err = decoder.Decode(&document)
 		if err != nil {
 			break
 		}
+		var resource genericResource
+		resourceDecoder := json.NewDecoder(bytes.NewReader(document))
+		resourceDecoder.UseNumber()
+		if err = resourceDecoder.Decode(&resource); err != nil {
+			break
+		}
+		normalizeIntegralJSONNumbers(resource)
 		resources = append(resources, resource)
 	}
 	if !errors.Is(err, io.EOF) {
@@ -327,6 +334,8 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 			return extractApplyResult(replaceResp, err)
 		}
 		return extractApplyResult(createResp, err)
+	case EnrollmentApprovalPolicyKind:
+		return applyEnrollmentApprovalPolicy(ctx, c, resourceName, buf)
 	case EnrollmentHookPolicyKind:
 		createResp, err := c.CreateEnrollmentHookPolicyWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		if err != nil {
@@ -379,6 +388,63 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 	}
 }
 
+func applyEnrollmentApprovalPolicy(ctx context.Context, apiClient *client.Client, resourceName string, buf []byte) applyResult {
+	var document genericResource
+	decoder := json.NewDecoder(bytes.NewReader(buf))
+	decoder.UseNumber()
+	if err := decoder.Decode(&document); err != nil {
+		return applyResult{err: err}
+	}
+	delete(document, "status")
+	metadata, ok := document["metadata"].(map[string]interface{})
+	if !ok {
+		return applyResult{err: fmt.Errorf("policy metadata is required")}
+	}
+	version := ""
+	if supplied, exists := metadata["resourceVersion"]; exists {
+		var valid bool
+		version, valid = supplied.(string)
+		if !valid || version == "" {
+			return applyResult{err: fmt.Errorf("metadata.resourceVersion must be a non-empty string")}
+		}
+	}
+	delete(metadata, "resourceVersion")
+	createBody, err := json.Marshal(document)
+	if err != nil {
+		return applyResult{err: err}
+	}
+	createResp, err := apiClient.CreateEnrollmentApprovalPolicyWithBodyWithResponse(ctx, "application/json", bytes.NewReader(createBody))
+	if err != nil {
+		return applyResult{err: err}
+	}
+	if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict && createResp.JSON409 != nil && createResp.JSON409.Reason == "AlreadyExists" {
+		if version == "" {
+			current, err := apiClient.GetEnrollmentApprovalPolicyWithResponse(ctx, resourceName)
+			if err != nil {
+				return extractApplyResult(current, err)
+			}
+			if current.HTTPResponse != nil && current.HTTPResponse.StatusCode == http.StatusNotFound {
+				return extractApplyResult(createResp, nil)
+			}
+			if current.JSON200 == nil {
+				return extractApplyResult(current, nil)
+			}
+			if current.JSON200.Metadata.ResourceVersion == nil {
+				return applyResult{err: fmt.Errorf("policy response has no resourceVersion")}
+			}
+			version = *current.JSON200.Metadata.ResourceVersion
+		}
+		metadata["resourceVersion"] = version
+		replaceBody, err := json.Marshal(document)
+		if err != nil {
+			return applyResult{err: err}
+		}
+		replaceResp, err := apiClient.ReplaceEnrollmentApprovalPolicyWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(replaceBody))
+		return extractApplyResult(replaceResp, err)
+	}
+	return extractApplyResult(createResp, err)
+}
+
 // extractApplyResult extracts HTTP response and body from various response types
 func extractApplyResult(response interface{}, err error) applyResult {
 	if err != nil {
@@ -408,7 +474,13 @@ func extractApplyResult(response interface{}, err error) applyResult {
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceLabelSyncMappingResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.CreateEnrollmentApprovalPolicyResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.GetEnrollmentApprovalPolicyResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.CreateEnrollmentHookPolicyResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.ReplaceEnrollmentApprovalPolicyResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceEnrollmentHookPolicyResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)

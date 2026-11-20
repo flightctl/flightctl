@@ -23,6 +23,8 @@ type CertificateSigningRequest struct {
 	// The last reported state of the certificate signing request, stored as opaque JSON object.
 	Status *JSONField[domain.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
 
+	PolicySetRevision int64 `gorm:"not null;default:0"`
+
 	// CertificateDigest indexes the public leaf DER without exposing a wire field.
 	CertificateDigest *string `selector:"internal.certificateDigest,hidden,private"`
 }
