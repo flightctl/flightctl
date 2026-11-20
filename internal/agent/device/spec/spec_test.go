@@ -1084,10 +1084,11 @@ func TestGetDesired(t *testing.T) {
 
 	// Define the test cases
 	testCases := []struct {
-		name           string
-		setupMocks     func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager)
-		expectedDevice *v1beta1.Device
-		expectedError  error
+		name            string
+		setupMocks      func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager)
+		expectedDevice  *v1beta1.Device
+		expectedRequeue bool
+		expectedError   error
 	}{
 		{
 			name: "error reading desired spec",
@@ -1140,6 +1141,19 @@ func TestGetDesired(t *testing.T) {
 				return device
 			}(),
 			expectedError: nil,
+		},
+		{
+			name: "When both policies block a desired spec it should return it without consuming it",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				device := newVersionedDevice("3")
+				oldDesired, err := json.Marshal(newVersionedDevice("2"))
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(oldDesired, nil)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(device, false)
+			},
+			expectedDevice:  newVersionedDevice("3"),
+			expectedRequeue: true,
 		},
 		{
 			name: "error when writing the desired spec fails",
@@ -1229,7 +1243,7 @@ func TestGetDesired(t *testing.T) {
 				mockPolicyManager,
 			)
 
-			specResult, _, err := s.GetDesired(ctx)
+			specResult, requeue, err := s.GetDesired(ctx)
 			if tc.expectedError != nil {
 				require.Error(err)
 				require.Contains(err.Error(), tc.expectedError.Error())
@@ -1237,10 +1251,63 @@ func TestGetDesired(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+			require.Equal(tc.expectedRequeue, requeue)
 			require.NotNil(specResult)
 			require.Equal(tc.expectedDevice, specResult)
 		})
 	}
+}
+
+func TestGetDesiredSkipsOlderBlockedSpec(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	logger := log.NewPrefixLogger("test")
+	queue := NewMockPriorityQueue(ctrl)
+	watcher := NewMockWatcher(ctrl)
+	readWriter := fileio.NewMockReadWriter(ctrl)
+	cache := newCache(logger)
+	cache.current.renderedVersion = "1"
+	cache.desired.renderedVersion = "3"
+	stale := newVersionedDevice("2")
+	latest := newVersionedDevice("3")
+	encodedLatest, err := json.Marshal(latest)
+	require.NoError(err)
+
+	watcher.EXPECT().TryPop().Return(nil, false, nil).Times(2)
+	queue.EXPECT().IsFailed(int64(3), gomock.Any()).Return(false)
+	queue.EXPECT().IsFailed(int64(2), stale.SpecHash()).Return(false)
+	queue.EXPECT().Add(ctx, stale)
+	queue.EXPECT().Next(ctx).Return(stale, false)
+	queue.EXPECT().Remove(int64(2))
+	readWriter.EXPECT().ReadFile("test/desired.json").Return(encodedLatest, nil)
+	queue.EXPECT().Add(ctx, gomock.Any())
+	queue.EXPECT().Next(ctx).Return(latest, false)
+
+	s := &manager{
+		log:                logger,
+		queue:              queue,
+		watcher:            watcher,
+		cache:              cache,
+		deviceReadWriter:   readWriter,
+		desiredPath:        "test/desired.json",
+		lastConsumedDevice: stale,
+	}
+	got, requeue, err := s.GetDesired(ctx)
+	require.NoError(err)
+	require.Nil(got)
+	require.True(requeue)
+	require.Nil(s.lastConsumedDevice)
+
+	got, requeue, err = s.GetDesired(ctx)
+	require.NoError(err)
+	require.True(requeue)
+	require.NotNil(got)
+	require.Equal("3", got.Version())
+	require.NotNil(s.lastConsumedDevice)
+	require.Equal("3", s.lastConsumedDevice.Version())
 }
 
 func Test_pathFromType(t *testing.T) {

@@ -287,7 +287,8 @@ func TestPolicy(t *testing.T) {
 				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
 				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
 			},
-			wantNext: false,
+			wantNext:           false,
+			wantDesiredVersion: "2",
 		},
 		{
 			name: "download ready update not on retry",
@@ -376,6 +377,10 @@ func TestPolicy(t *testing.T) {
 				require.Equal(tt.wantDesiredVersion, result.Version())
 			} else {
 				require.False(ok)
+				require.NotNil(result)
+				require.Equal(tt.wantDesiredVersion, result.Version())
+				require.Zero(q.requeueLookup[2].tries)
+				require.True(q.requeueLookup[2].nextAvailable.IsZero())
 			}
 		})
 	}
