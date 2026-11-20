@@ -60,6 +60,17 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		}
 	})
 
+	listReferences := func(ctx context.Context, org uuid.UUID, scope appinspectionstore.ReferenceScope) ([]model.ApplicationInspectionRef, error) {
+		page, err := inspections.ListReferences(ctx, org, scope, 100, nil)
+		Expect(page.Next).To(BeNil(), "fixture should fit in one page")
+		return page.Items, err
+	}
+	listUsages := func(ctx context.Context, org uuid.UUID, owner appinspectionstore.Owner) ([]model.ApplicationInspectionUsage, error) {
+		page, err := inspections.ListUsages(ctx, org, owner, 100, "")
+		Expect(page.Next).To(BeEmpty(), "fixture should fit in one page")
+		return page.Items, err
+	}
+
 	It("When the schema already exists it should be possible to migrate again", func() {
 		migrationDB, err := store.InitMigrationDB(cfg, flightlog.InitLogs())
 		Expect(err).NotTo(HaveOccurred())
@@ -168,18 +179,45 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		port := uint16(5000)
 		scope := appinspectionstore.ReferenceScope{Registry: "registry.example", Port: &port, Path: []string{"team", "tool"}}
-		refs, err := inspections.ListReferences(ctx, orgID, scope)
+		refs, err := listReferences(ctx, orgID, scope)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(refs).To(HaveLen(3))
 		for _, ref := range refs {
 			Expect(ref.OrgID).To(Equal(orgID))
 			Expect(ref.Reference).To(Equal(base.Reference))
 		}
+		var after *appinspectionstore.ReferenceCursor
+		for i, ref := range refs {
+			page, err := inspections.ListReferences(ctx, orgID, scope, 1, after)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(page.Items).To(Equal([]model.ApplicationInspectionRef{ref}))
+			after = page.Next
+			if i < len(refs)-1 {
+				Expect(after).NotTo(BeNil())
+			}
+		}
+		Expect(after).To(BeNil())
+		for _, limit := range []int{-1, 0, appinspectionstore.MaxPageSize + 1} {
+			Expect(inspections.ListReferences(ctx, orgID, scope, limit, nil)).Error().To(HaveOccurred())
+		}
 		scope.Port = nil
-		Expect(inspections.ListReferences(ctx, orgID, scope)).To(HaveLen(4))
+		Expect(listReferences(ctx, orgID, scope)).To(HaveLen(4))
 		scope.Path = nil
-		Expect(inspections.ListReferences(ctx, orgID, scope)).To(HaveLen(5))
-		Expect(inspections.ListReferences(ctx, orgID, appinspectionstore.ReferenceScope{})).Error().To(HaveOccurred())
+		Expect(listReferences(ctx, orgID, scope)).To(HaveLen(5))
+		Expect(listReferences(ctx, orgID, appinspectionstore.ReferenceScope{})).Error().To(HaveOccurred())
+
+		secondAttempt, err := inspections.RecordAttempt(ctx, orgID, attempt)
+		Expect(err).NotTo(HaveOccurred())
+		firstPage, err := inspections.ListReferences(ctx, orgID, scope, 5, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(firstPage.Items).To(HaveLen(5))
+		Expect(firstPage.Next).NotTo(BeNil())
+		secondPage, err := inspections.ListReferences(ctx, orgID, scope, 5, firstPage.Next)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(secondPage.Items).To(HaveLen(5))
+		Expect(secondPage.Next).To(BeNil())
+		Expect(firstPage.Items[0].InspectionID).NotTo(Equal(secondPage.Items[0].InspectionID))
+		Expect(secondAttempt).To(BeElementOf(firstPage.Items[0].InspectionID, secondPage.Items[0].InspectionID))
 	})
 
 	createDevice := func(org uuid.UUID, name string) appinspectionstore.OwnerVersion {
@@ -198,6 +236,40 @@ var _ = Describe("ApplicationInspectionStore", func() {
 			ApplicationContext: application, InspectionID: id, Mechanism: model.InspectionPullContainer,
 		}
 	}
+
+	It("When an earlier usage is removed it should resume after the last context within the same owner and organization", func() {
+		owner := createDevice(orgID, "device")
+		otherOwner := createDevice(orgID, "other")
+		foreignOwner := createDevice(otherOrg, "device")
+		local, err := inspections.RecordAttempt(ctx, orgID, attempt)
+		Expect(err).NotTo(HaveOccurred())
+		foreign, err := inspections.RecordAttempt(ctx, otherOrg, attempt)
+		Expect(err).NotTo(HaveOccurred())
+		bindings := []appinspectionstore.UsageBinding{makeBinding("a", local), makeBinding("c", local), makeBinding("e", local)}
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, bindings)).To(BeTrue())
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, otherOwner, []appinspectionstore.UsageBinding{makeBinding("d", local)})).To(BeTrue())
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, otherOrg, foreignOwner, []appinspectionstore.UsageBinding{makeBinding("b", foreign)})).To(BeTrue())
+
+		for _, limit := range []int{-1, 0, appinspectionstore.MaxPageSize + 1} {
+			Expect(inspections.ListUsages(ctx, orgID, owner.Owner, limit, "")).Error().To(HaveOccurred())
+		}
+		first, err := inspections.ListUsages(ctx, orgID, owner.Owner, 1, "")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(first.Items).To(HaveLen(1))
+		Expect(first.Items[0].ApplicationContext).To(Equal("a"))
+		Expect(first.Next).To(Equal("a"))
+		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, bindings[1:])).To(BeTrue())
+		second, err := inspections.ListUsages(ctx, orgID, owner.Owner, 1, first.Next)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(second.Items).To(HaveLen(1))
+		Expect(second.Items[0].ApplicationContext).To(Equal("c"))
+		Expect(second.Next).To(Equal("c"))
+		last, err := inspections.ListUsages(ctx, orgID, owner.Owner, 1, second.Next)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(last.Items).To(HaveLen(1))
+		Expect(last.Items[0].ApplicationContext).To(Equal("e"))
+		Expect(last.Next).To(BeEmpty())
+	})
 
 	It("When a device generation advances it should replace the application usages and reject stale writes even after clearing them", func() {
 		owner := createDevice(orgID, "device")
@@ -227,7 +299,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		currentBindings := []appinspectionstore.UsageBinding{makeBinding("kept", newID)}
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, current, currentBindings)).To(BeTrue())
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, nil)).To(BeFalse())
-		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
+		usages, err := listUsages(ctx, orgID, owner.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
 		Expect(usages[0].InspectionID).To(Equal(newID))
@@ -235,8 +307,8 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(usages[0].Generation).To(Equal(current.Generation))
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, current, nil)).To(BeTrue())
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, old)).To(BeFalse())
-		Expect(inspections.ListUsages(ctx, orgID, owner.Owner)).To(BeEmpty())
-		sharedUsages, err := inspections.ListUsages(ctx, orgID, shared.Owner)
+		Expect(listUsages(ctx, orgID, owner.Owner)).To(BeEmpty())
+		sharedUsages, err := listUsages(ctx, orgID, shared.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(sharedUsages).To(HaveLen(1))
 		Expect(sharedUsages[0].InspectionID).To(Equal(oldID))
@@ -254,7 +326,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding})).To(BeTrue())
 		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{binding, binding})
 		Expect(err).To(MatchError(flterrors.ErrDuplicateName))
-		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
+		usages, err := listUsages(ctx, orgID, owner.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
 		Expect(usages[0].User).To(Equal(binding.User))
@@ -265,11 +337,11 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(store.WithTransaction(ctx, db, func(txCtx context.Context) error {
 			_, err := inspections.ReplaceUsagesIfCurrent(txCtx, orgID, owner, []appinspectionstore.UsageBinding{binding, makeBinding("foreign", foreign)})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
-			Expect(inspections.ListUsages(txCtx, orgID, owner.Owner)).To(HaveLen(1))
+			Expect(listUsages(txCtx, orgID, owner.Owner)).To(HaveLen(1))
 			return nil
 		})).To(Succeed())
 		for org, id := range map[uuid.UUID]uuid.UUID{orgID: local, otherOrg: foreign} {
-			usages, err := inspections.ListUsages(ctx, org, owner.Owner)
+			usages, err := listUsages(ctx, org, owner.Owner)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(usages).To(HaveLen(1))
 			Expect(usages[0].InspectionID).To(Equal(id))
@@ -286,8 +358,8 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		invalidOwner := owner
 		invalidOwner.Kind = "unknown"
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, invalidOwner, nil)).Error().To(HaveOccurred())
-		Expect(inspections.ListUsages(ctx, orgID, invalidOwner.Owner)).Error().To(HaveOccurred())
-		Expect(inspections.ListUsages(ctx, orgID, appinspectionstore.Owner{Kind: owner.Kind})).Error().To(HaveOccurred())
+		Expect(listUsages(ctx, orgID, invalidOwner.Owner)).Error().To(HaveOccurred())
+		Expect(listUsages(ctx, orgID, appinspectionstore.Owner{Kind: owner.Kind})).Error().To(HaveOccurred())
 		invalidOwner = owner
 		invalidOwner.CreatedAt = time.Time{}
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, invalidOwner, nil)).Error().To(HaveOccurred())
@@ -295,7 +367,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{invalidBinding})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).NotTo(ContainSubstring(invalidBinding.ApplicationContext))
-		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
+		usages, err := listUsages(ctx, orgID, owner.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
 		Expect(usages[0].ApplicationContext).To(Equal(binding.ApplicationContext))
@@ -319,26 +391,26 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		for _, owner := range []appinspectionstore.OwnerVersion{device, fleet} {
 			Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, bindings)).To(BeTrue())
 		}
-		usages, err := inspections.ListUsages(ctx, orgID, fleet.Owner)
+		usages, err := listUsages(ctx, orgID, fleet.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
 		Expect(usages[0].TemplateIdentity).To(Equal(fleet.TemplateIdentity))
 		Expect(devices.Delete(ctx, orgID, device.Name, nil)).To(BeTrue())
-		Expect(inspections.ListUsages(ctx, orgID, device.Owner)).To(BeEmpty())
+		Expect(listUsages(ctx, orgID, device.Owner)).To(BeEmpty())
 		_, err = inspections.ReplaceUsagesIfCurrent(ctx, orgID, device, bindings)
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		recreated := createDevice(orgID, device.Name)
 		Expect(recreated.Generation).To(Equal(device.Generation))
 		Expect(inspections.ReplaceUsagesIfCurrent(ctx, orgID, device, bindings)).To(BeFalse())
-		Expect(inspections.ListUsages(ctx, orgID, device.Owner)).To(BeEmpty())
-		Expect(inspections.ListUsages(ctx, orgID, fleet.Owner)).To(HaveLen(1))
+		Expect(listUsages(ctx, orgID, device.Owner)).To(BeEmpty())
+		Expect(listUsages(ctx, orgID, fleet.Owner)).To(HaveLen(1))
 		Expect(fleets.Delete(ctx, orgID, fleet.Name, nil)).To(Succeed())
-		Expect(inspections.ListUsages(ctx, orgID, fleet.Owner)).To(BeEmpty())
+		Expect(listUsages(ctx, orgID, fleet.Owner)).To(BeEmpty())
 		Expect(devices.Delete(ctx, orgID, recreated.Name, nil)).To(BeTrue())
 		Expect(db.WithContext(ctx).Delete(&model.Organization{ID: orgID}).Error).To(Succeed())
 		_, err = inspections.GetAttempt(ctx, orgID, result)
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
-		Expect(inspections.ListReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})).To(BeEmpty())
+		Expect(listReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})).To(BeEmpty())
 	})
 
 	recordAt := func(org uuid.UUID, fingerprint byte, createdAt time.Time) uuid.UUID {
@@ -373,7 +445,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cleaner.Cleanup(ctx, orgID, now)).To(Equal(int64(1)))
 		Expect(cleaner.Cleanup(ctx, orgID, now)).To(BeZero())
-		refs, err := inspections.ListReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})
+		refs, err := listReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(refs).To(HaveLen(2))
 		Expect([]uuid.UUID{refs[0].InspectionID, refs[1].InspectionID}).To(ConsistOf(live, boundary))
@@ -422,7 +494,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		})).To(Succeed())
 		_, err := inspections.ReplaceUsagesIfCurrent(ctx, orgID, owner, []appinspectionstore.UsageBinding{makeBinding("replacement", reclaimed)})
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
-		usages, err := inspections.ListUsages(ctx, orgID, owner.Owner)
+		usages, err := listUsages(ctx, orgID, owner.Owner)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(usages).To(HaveLen(1))
 		Expect(usages[0].InspectionID).To(Equal(attached))
@@ -455,7 +527,7 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		_, err = inspections.FindComplete(ctx, orgID, key)
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
-		Expect(inspections.ListReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})).To(BeEmpty())
+		Expect(listReferences(ctx, orgID, appinspectionstore.ReferenceScope{Registry: "registry.example"})).To(BeEmpty())
 		Expect(inspections.RecordAttempt(ctx, uuid.New(), attempt)).Error().To(MatchError(flterrors.ErrResourceNotFound))
 	})
 })

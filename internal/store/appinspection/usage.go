@@ -130,16 +130,32 @@ func prepareUsages(orgID uuid.UUID, owner OwnerVersion, bindings []UsageBinding)
 	return rows, nil
 }
 
-func (s *Store) ListUsages(ctx context.Context, orgID uuid.UUID, owner Owner) ([]model.ApplicationInspectionUsage, error) {
+type UsagePage struct {
+	Items []model.ApplicationInspectionUsage
+	Next  string
+}
+
+// ListUsages returns a page in application context order. Use Next as after
+// with the same organization and owner; an empty Next marks the last page.
+func (s *Store) ListUsages(ctx context.Context, orgID uuid.UUID, owner Owner, limit int, after string) (UsagePage, error) {
+	if err := validatePageSize(limit); err != nil {
+		return UsagePage{}, err
+	}
 	_, column, err := owner.tableAndColumn()
 	if err != nil {
-		return nil, err
+		return UsagePage{}, err
 	}
-	var rows []model.ApplicationInspectionUsage
-	err = store.DB(ctx, s.db).Where("org_id = ?", orgID).Where(clause.Eq{Column: clause.Column{Name: column}, Value: owner.Name}).
-		Order("application_context").Find(&rows).Error
-	if err != nil {
-		return nil, storeutil.ErrorFromGormError(err)
+	query := store.DB(ctx, s.db).Where("org_id = ?", orgID).Where(clause.Eq{Column: clause.Column{Name: column}, Value: owner.Name})
+	if after != "" {
+		query = query.Where("application_context > ?", after)
 	}
-	return rows, nil
+	var page UsagePage
+	if err := query.Order("application_context").Limit(limit + 1).Find(&page.Items).Error; err != nil {
+		return UsagePage{}, storeutil.ErrorFromGormError(err)
+	}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		page.Next = page.Items[limit-1].ApplicationContext
+	}
+	return page, nil
 }

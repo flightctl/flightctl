@@ -77,6 +77,27 @@ type ReferenceScope struct {
 	Path     []string
 }
 
+const MaxPageSize = 1000
+
+func validatePageSize(limit int) error {
+	if limit < 1 || limit > MaxPageSize {
+		return fmt.Errorf("inspection list page size must be between 1 and %d", MaxPageSize)
+	}
+	return nil
+}
+
+type ReferenceCursor struct {
+	InspectionID uuid.UUID
+	Reference    string
+	Role         model.InspectionArtifactRole
+	Mechanism    model.InspectionPullMechanism
+}
+
+type ReferencePage struct {
+	Items []model.ApplicationInspectionRef
+	Next  *ReferenceCursor
+}
+
 // RecordAttempt commits attempt and references together. Duplicate complete
 // writes return the existing ID and preserve its references.
 func (s *Store) RecordAttempt(ctx context.Context, orgID uuid.UUID, attempt Attempt) (uuid.UUID, error) {
@@ -175,9 +196,14 @@ func (s *Store) getResult(ctx context.Context, orgID uuid.UUID, predicate string
 	return Result{Inspection: row.ApplicationInspection, References: row.References}, nil
 }
 
-func (s *Store) ListReferences(ctx context.Context, orgID uuid.UUID, scope ReferenceScope) ([]model.ApplicationInspectionRef, error) {
+// ListReferences returns a page in primary-key order within the requested scope.
+// Use Next as after with the same organization and scope; nil Next marks the last page.
+func (s *Store) ListReferences(ctx context.Context, orgID uuid.UUID, scope ReferenceScope, limit int, after *ReferenceCursor) (ReferencePage, error) {
+	if err := validatePageSize(limit); err != nil {
+		return ReferencePage{}, err
+	}
 	if scope.Registry == "" {
-		return nil, errors.New("inspection reference scope requires a registry")
+		return ReferencePage{}, errors.New("inspection reference scope requires a registry")
 	}
 	query := store.DB(ctx, s.db).Where("org_id = ? AND registry = ?", orgID, scope.Registry)
 	if scope.Port != nil {
@@ -186,9 +212,18 @@ func (s *Store) ListReferences(ctx context.Context, orgID uuid.UUID, scope Refer
 	if len(scope.Path) > 0 {
 		query = query.Where("path = ?", model.StringArray(scope.Path))
 	}
-	var refs []model.ApplicationInspectionRef
-	if err := query.Find(&refs).Error; err != nil {
-		return nil, storeutil.ErrorFromGormError(err)
+	if after != nil {
+		query = query.Where("(inspection_id, reference, role, mechanism) > (?, ?, ?, ?)",
+			after.InspectionID, after.Reference, after.Role, after.Mechanism)
 	}
-	return refs, nil
+	var page ReferencePage
+	if err := query.Order("inspection_id, reference, role, mechanism").Limit(limit + 1).Find(&page.Items).Error; err != nil {
+		return ReferencePage{}, storeutil.ErrorFromGormError(err)
+	}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		last := page.Items[limit-1]
+		page.Next = &ReferenceCursor{InspectionID: last.InspectionID, Reference: last.Reference, Role: last.Role, Mechanism: last.Mechanism}
+	}
+	return page, nil
 }
