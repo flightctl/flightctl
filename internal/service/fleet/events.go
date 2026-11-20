@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -48,7 +49,7 @@ func EmitFleetUpdatedEvent(ctx context.Context, eventsService events.Service, lo
 				// selector changes, unless delta generation enablement also changed.
 				deltaGenerationEnabledChanged := fleetDeltaGenerationEnabled(oldFleet) != fleetDeltaGenerationEnabled(newFleet)
 				removeSpec := false
-				if !reflect.DeepEqual(oldFleet.Spec.Template, newFleet.Spec.Template) {
+				if !util.DeepEqualWithUnionHandling(reflect.ValueOf(oldFleet.Spec.Template), reflect.ValueOf(newFleet.Spec.Template)) {
 					updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.SpecTemplate)
 					removeSpec = true
 				}
