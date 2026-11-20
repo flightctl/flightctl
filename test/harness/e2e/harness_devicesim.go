@@ -304,6 +304,8 @@ type LoginFunc func(h *Harness) error
 // StartLabeledSimulatorOptions configures StartLabeledSimulatorWithOptions.
 type StartLabeledSimulatorOptions struct {
 	SkipAutoApprove bool
+	// ConfigPath overrides the agent configuration template used by the simulator.
+	ConfigPath string
 }
 
 // StartLabeledSimulator starts a device simulator with the given test-id label, user prefix,
@@ -336,6 +338,9 @@ func (h *Harness) StartLabeledSimulatorWithOptions(ctx context.Context, testID, 
 		"--label", fmt.Sprintf("test-id=%s", testID),
 		"--label", fmt.Sprintf("user=%s", userPrefix),
 		"--label", fmt.Sprintf("alias=%s", DeviceSimulatorAgentAlias(initialIndex)),
+	}
+	if opts.ConfigPath != "" {
+		args = append(args, "--config", opts.ConfigPath)
 	}
 	if opts.SkipAutoApprove {
 		args = append(args, "--skip-auto-approve")
