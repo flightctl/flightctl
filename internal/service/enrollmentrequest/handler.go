@@ -661,9 +661,6 @@ func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, orgId u
 }
 
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status) {
-	if _, ok := h.store.(enrollmentrequeststore.AdmissionStore); !ok {
-		return nil, domain.NewFailureStatus(503, "AdmissionUnavailable", "Enrollment admission persistence is unavailable")
-	}
 	return h.approveAdmission(ctx, orgId, name, approval)
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	enrollmentservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 )
 
 type recordingEnrollmentReevaluator struct {
+	enrollmentservice.Service
 	orgID uuid.UUID
 	event domain.Event
 	err   error
@@ -46,7 +48,7 @@ func TestEnrollmentAdmissionDispatch(t *testing.T) {
 				consumer.On("Complete", mock.Anything, "entry", payload, nil).Run(func(mock.Arguments) {
 					require.Equal(t, expected, recorder.calls)
 				}).Return(nil).Once()
-				err = (TaskConsumer{EnrollmentReevaluator: recorder}).dispatch()(context.Background(), payload, "entry", consumer, logrus.New())
+				err = (TaskConsumer{EnrollmentRequestSvc: recorder}).dispatch()(context.Background(), payload, "entry", consumer, logrus.New())
 				require.NoError(t, err)
 				if expected != 0 {
 					require.Equal(t, orgID, recorder.orgID)
@@ -72,7 +74,7 @@ func TestEnrollmentAdmissionDispatchRetriesFailure(t *testing.T) {
 		require.Equal(t, 1, recorder.calls)
 		require.ErrorContains(t, args.Get(3).(error), "admission persistence unavailable")
 	}).Return(nil).Once()
-	err = (TaskConsumer{EnrollmentReevaluator: recorder, EventSvc: events}).dispatch()(context.Background(), payload, "entry", consumer, logrus.New())
+	err = (TaskConsumer{EnrollmentRequestSvc: recorder, EventSvc: events}).dispatch()(context.Background(), payload, "entry", consumer, logrus.New())
 	require.ErrorContains(t, err, "admission persistence unavailable")
 	consumer.AssertExpectations(t)
 }

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	icrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -35,6 +37,19 @@ type admissionMatchResult struct {
 
 type admissionMatcher map[string]admissionMatchResult
 
+type countingAdmissionCA struct {
+	*icrypto.CAClient
+	calls atomic.Int32
+}
+
+func (ca *countingAdmissionCA) IssueRequestedCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage, opts ...icrypto.CertOption) (*x509.Certificate, error) {
+	ca.calls.Add(1)
+	if len(usage) == 1 && usage[0] == x509.ExtKeyUsageClientAuth {
+		return ca.IssueRequestedClientCertificate(ctx, csr, expirySeconds, opts...)
+	}
+	return nil, errors.New("unexpected certificate usage")
+}
+
 type admissionMatchFunc func(context.Context, domain.EnrollmentApprovalPolicy, domain.EnrollmentRequest) (bool, error)
 
 func (match admissionMatchFunc) Match(ctx context.Context, policy domain.EnrollmentApprovalPolicy, request domain.EnrollmentRequest) (bool, error) {
@@ -48,7 +63,8 @@ func (matcher admissionMatcher) Match(_ context.Context, policy domain.Enrollmen
 
 type ambiguousAdmissionPool struct {
 	gorm.ConnPool
-	fail *atomic.Bool
+	fail        *atomic.Bool
+	afterCommit func()
 }
 
 func (pool ambiguousAdmissionPool) GetDBConn() (*sql.DB, error) {
@@ -62,13 +78,14 @@ func (pool ambiguousAdmissionPool) BeginTx(ctx context.Context, options *sql.TxO
 	if err != nil {
 		return nil, err
 	}
-	return &ambiguousAdmissionTx{Tx: tx, fail: pool.fail}, nil
+	return &ambiguousAdmissionTx{Tx: tx, fail: pool.fail, afterCommit: pool.afterCommit}, nil
 }
 
 type ambiguousAdmissionTx struct {
 	*sql.Tx
-	fail     *atomic.Bool
-	admitted bool
+	fail        *atomic.Bool
+	admitted    bool
+	afterCommit func()
 }
 
 func (tx *ambiguousAdmissionTx) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
@@ -90,6 +107,9 @@ func (tx *ambiguousAdmissionTx) Commit() error {
 		return err
 	}
 	if tx.admitted && tx.fail.Swap(false) {
+		if tx.afterCommit != nil {
+			tx.afterCommit()
+		}
 		return errors.New("commit acknowledgement lost")
 	}
 	return nil
@@ -254,6 +274,63 @@ var _ = Describe("Enrollment admission", func() {
 			assertRollback(*request.Metadata.Name)
 		}
 	}, Entry("no matches", admissionMatchResult{}, admissionMatchResult{}, false, "NoMatchingPolicy"), Entry("ambiguity", admissionMatchResult{matched: true}, admissionMatchResult{matched: true}, false, "AmbiguousPolicyMatch"), Entry("isolated failure", admissionMatchResult{matched: true}, admissionMatchResult{err: errors.New("private evaluation data")}, true, ""))
+	DescribeTable("When matching policies have mixed quota capacity it should remain ambiguous without falling through", func(exhaustedName string) {
+		request := create()
+		name := *request.Metadata.Name
+		var policy model.EnrollmentApprovalPolicy
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, "policy").Take(&policy).Error).To(Succeed())
+		policy.Name = "other"
+		Expect(suite.DB.WithContext(suite.Ctx).Create(&policy).Error).To(Succeed())
+		Expect(suite.DB.WithContext(suite.Ctx).Exec("UPDATE enrollment_approval_policies SET status = jsonb_set(status, '{enrollmentCount}', '1') WHERE org_id = ? AND name = ?", suite.OrgID, exhaustedName).Error).To(Succeed())
+		var before []model.EnrollmentApprovalPolicy
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ?", suite.OrgID).Order("name").Find(&before).Error).To(Succeed())
+		Expect(before).To(HaveLen(2))
+		for _, candidate := range before {
+			Expect(candidate.Spec.Data.Enabled).To(BeTrue())
+			Expect(candidate.Spec.Data.RequireTPMVerification).To(BeFalse())
+			Expect(candidate.Spec.Data.AutoApprovalWindowDays).To(BeNil())
+			Expect(candidate.Spec.Data.ApprovalLimit).To(Equal(lo.ToPtr(int64(1))))
+			expectedCount := int64(0)
+			if candidate.Name == exhaustedName {
+				expectedCount = 1
+			}
+			Expect(candidate.Status.Data.EnrollmentCount).To(Equal(expectedCount))
+		}
+		ca := &countingAdmissionCA{CAClient: suite.caClient}
+		suite.caClient = icrypto.NewCAClient(suite.caClient.Cfg, ca)
+		producer := queues.NewMockQueueProducer(suite.ctrl)
+		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		var matched []string
+		handler = newHandler(suite.DB, admissionMatchFunc(func(_ context.Context, candidate domain.EnrollmentApprovalPolicy, _ domain.EnrollmentRequest) (bool, error) {
+			matched = append(matched, *candidate.Metadata.Name)
+			return true, nil
+		}), worker_client.NewWorkerClient(producer, suite.Log))
+		for range 2 {
+			matched = nil
+			Expect(handler.ReevaluateEnrollment(suite.Ctx, suite.OrgID, event(name))).To(Succeed())
+			Expect(matched).To(Equal([]string{"other", "policy"}))
+			loaded := load(name)
+			Expect(enrollmentstore.Pending(loaded)).To(BeTrue())
+			Expect(loaded.Status.Certificate).To(BeNil())
+			Expect(loaded.Status.Approval).To(BeNil())
+			Expect(domain.FindStatusCondition(loaded.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved).Reason).To(Equal("AmbiguousPolicyMatch"))
+			Expect(ca.calls.Load()).To(BeZero())
+			var stored model.EnrollmentRequest
+			Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Take(&stored).Error).To(Succeed())
+			Expect(stored.AdmissionID).To(BeNil())
+			for _, record := range []interface{}{&model.Device{}, &model.EnrollmentAdmission{}} {
+				var total int64
+				Expect(suite.DB.WithContext(suite.Ctx).Model(record).Where("org_id = ? AND name = ?", suite.OrgID, name).Count(&total).Error).To(Succeed())
+				Expect(total).To(BeZero())
+			}
+			var eventCount int64
+			Expect(suite.DB.WithContext(suite.Ctx).Model(&model.Event{}).Where("org_id = ? AND involved_object_name = ?", suite.OrgID, name).Count(&eventCount).Error).To(Succeed())
+			Expect(eventCount).To(BeZero())
+			var after []model.EnrollmentApprovalPolicy
+			Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ?", suite.OrgID).Order("name").Find(&after).Error).To(Succeed())
+			Expect(after).To(Equal(before))
+		}
+	}, Entry("first candidate exhausted", "other"), Entry("second candidate exhausted", "policy"))
 	It("When quota is unlimited it should still count every committed admission", func() {
 		Expect(suite.DB.WithContext(suite.Ctx).Exec("UPDATE enrollment_approval_policies SET spec = spec - 'approvalLimit' WHERE org_id = ?", suite.OrgID).Error).To(Succeed())
 		for index := 0; index < 2; index++ {
@@ -472,6 +549,168 @@ var _ = Describe("Enrollment admission", func() {
 		Expect(result.Status.Certificate).To(Equal(certificate))
 		Expect(count()).To(Equal(int64(1)))
 	})
+	It("When a manual commit acknowledgement is lost it should return the committed result without a failure event", func() {
+		request := create()
+		fail := &atomic.Bool{}
+		pool := ambiguousAdmissionPool{ConnPool: suite.DB.ConnPool, fail: fail}
+		database := suite.DB.Session(&gorm.Session{NewDB: true}).WithContext(suite.Ctx)
+		database.Statement.ConnPool = pool
+		database.Config.ConnPool = pool
+		handler = newHandler(database, nil)
+		fail.Store(true)
+		result, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(result.Approved).To(BeTrue())
+		certificate := load(*request.Metadata.Name).Status.Certificate
+		Expect(certificate).NotTo(BeNil())
+		replay, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(replay).To(Equal(result))
+		Expect(load(*request.Metadata.Name).Status.Certificate).To(Equal(certificate))
+		var failures int64
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&model.Event{}).Where("org_id = ? AND involved_object_name = ? AND reason = ?", suite.OrgID, *request.Metadata.Name, domain.EventReasonEnrollmentRequestApprovalFailed).Count(&failures).Error).To(Succeed())
+		Expect(failures).To(BeZero())
+		Expect(count()).To(BeZero())
+	})
+	It("When manual commit resolution fails it should retain the committed result for a safe retry", func() {
+		request := create()
+		name := *request.Metadata.Name
+		ca := &countingAdmissionCA{CAClient: suite.caClient}
+		suite.caClient = icrypto.NewCAClient(suite.caClient.Cfg, ca)
+		var publications atomic.Int32
+		producer := queues.NewMockQueueProducer(suite.ctrl)
+		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, []byte, int64) error {
+			publications.Add(1)
+			return nil
+		}).AnyTimes()
+		failCommit, failResolution := &atomic.Bool{}, &atomic.Bool{}
+		var resolutionFailures atomic.Int32
+		Expect(suite.DB.Callback().Query().Before("gorm:query").Register("admission_resolution_failure", func(database *gorm.DB) {
+			if database.Statement.Table == "enrollment_admissions" && failResolution.Swap(false) {
+				resolutionFailures.Add(1)
+				_ = database.AddError(errors.New("admission resolution unavailable"))
+			}
+		})).To(Succeed())
+		DeferCleanup(func() { Expect(suite.DB.Callback().Query().Remove("admission_resolution_failure")).To(Succeed()) })
+		pool := ambiguousAdmissionPool{ConnPool: suite.DB.ConnPool, fail: failCommit, afterCommit: func() { failResolution.Store(true) }}
+		database := suite.DB.Session(&gorm.Session{NewDB: true}).WithContext(suite.Ctx)
+		database.Statement.ConnPool, database.Config.ConnPool = pool, pool
+		handler = newHandler(database, nil, worker_client.NewWorkerClient(producer, suite.Log))
+		failCommit.Store(true)
+		result, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(500)))
+		Expect(result).To(BeNil())
+		Expect(suite.Ctx.Err()).NotTo(HaveOccurred())
+		Expect(resolutionFailures.Load()).To(Equal(int32(1)))
+		Expect(publications.Load()).To(BeZero())
+		Expect(ca.calls.Load()).To(Equal(int32(1)))
+		committed := load(name)
+		Expect(committed.Status.Certificate).NotTo(BeNil())
+		Expect(committed.Status.Approval.Approved).To(BeTrue())
+		var original model.EnrollmentAdmission
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Take(&original).Error).To(Succeed())
+		Expect(original.Source).To(Equal("manual"))
+		Expect(original.Published).To(BeFalse())
+		Expect(original.EnrollmentRequest.Data.Status.Certificate).To(Equal(committed.Status.Certificate))
+		var device model.Device
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Take(&device).Error).To(Succeed())
+		Expect(suite.DB.Callback().Query().Remove("admission_resolution_failure")).To(Succeed())
+		replay, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(replay).To(Equal(committed.Status.Approval))
+		Expect(load(name).Status.Certificate).To(Equal(committed.Status.Certificate))
+		Expect(ca.calls.Load()).To(Equal(int32(1)))
+		Expect(count()).To(BeZero())
+		Expect(publications.Load()).To(BeNumerically(">", 0))
+		var admissions []model.EnrollmentAdmission
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Find(&admissions).Error).To(Succeed())
+		Expect(admissions).To(HaveLen(1))
+		Expect(admissions[0].AdmissionID).To(Equal(original.AdmissionID))
+		Expect(admissions[0].EnrollmentRequest).To(Equal(original.EnrollmentRequest))
+		Expect(admissions[0].Device).To(Equal(original.Device))
+		Expect(admissions[0].Published).To(BeTrue())
+		var devices []model.Device
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Find(&devices).Error).To(Succeed())
+		Expect(devices).To(Equal([]model.Device{device}))
+		var failures int64
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&model.Event{}).Where("org_id = ? AND involved_object_name = ? AND reason = ?", suite.OrgID, name, domain.EventReasonEnrollmentRequestApprovalFailed).Count(&failures).Error).To(Succeed())
+		Expect(failures).To(BeZero())
+	})
+	DescribeTable("When reenrollment races lost commit acknowledgement it should resolve the original admission", func(approveReplacement bool) {
+		request := create()
+		name := *request.Metadata.Name
+		fail := &atomic.Bool{}
+		var committed *domain.EnrollmentRequest
+		pool := ambiguousAdmissionPool{ConnPool: suite.DB.ConnPool, fail: fail, afterCommit: func() {
+			committed = load(name)
+			Expect(suite.DB.WithContext(suite.Ctx).Unscoped().Where("org_id = ? AND name = ?", suite.OrgID, name).Delete(&model.Device{}).Error).To(Succeed())
+			_, err := requests.Delete(suite.Ctx, suite.OrgID, name)
+			Expect(err).NotTo(HaveOccurred())
+			replacement := &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: &name}, Spec: request.Spec, Status: &domain.EnrollmentRequestStatus{EnrollmentCertificateName: &credentialName, Conditions: []domain.Condition{}}}
+			_, err = requests.Create(suite.Ctx, suite.OrgID, replacement)
+			Expect(err).NotTo(HaveOccurred())
+			if approveReplacement {
+				_, status := newHandler(suite.DB, nil).ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+				Expect(status.Code).To(Equal(int32(200)))
+			}
+		}}
+		database := suite.DB.Session(&gorm.Session{NewDB: true}).WithContext(suite.Ctx)
+		database.Statement.ConnPool, database.Config.ConnPool = pool, pool
+		handler = newHandler(database, nil)
+		fail.Store(true)
+		result, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(result).To(Equal(committed.Status.Approval))
+		current := load(name)
+		Expect(current.Metadata.CreationTimestamp).NotTo(Equal(committed.Metadata.CreationTimestamp))
+		if approveReplacement {
+			Expect(result).NotTo(Equal(current.Status.Approval))
+		} else {
+			Expect(current.Status.Certificate).To(BeNil())
+		}
+		var failures int64
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&model.Event{}).Where("org_id = ? AND involved_object_name = ? AND reason = ?", suite.OrgID, name, domain.EventReasonEnrollmentRequestApprovalFailed).Count(&failures).Error).To(Succeed())
+		Expect(failures).To(BeZero())
+		Expect(count()).To(BeZero())
+	}, Entry("pending replacement", false), Entry("approved replacement", true))
+	DescribeTable("When manual persistence fails it should report failure only after rollback and allow retry", func(table string) {
+		request := create()
+		name := *request.Metadata.Name
+		var failures atomic.Int32
+		injected := errors.New("manual persistence failure")
+		fail := func(database *gorm.DB) {
+			if database.Statement.Table == table {
+				failures.Add(1)
+				_ = database.AddError(injected)
+			}
+		}
+		Expect(suite.DB.Callback().Create().Before("gorm:create").Register("manual_failure", fail)).To(Succeed())
+		Expect(suite.DB.Callback().Update().Before("gorm:update").Register("manual_failure", fail)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(suite.DB.Callback().Create().Remove("manual_failure")).To(Succeed())
+			Expect(suite.DB.Callback().Update().Remove("manual_failure")).To(Succeed())
+		})
+		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(500)))
+		Expect(failures.Load()).To(Equal(int32(1)))
+		Expect(load(name).Status.Certificate).To(BeNil())
+		Expect(enrollmentstore.Pending(load(name))).To(BeTrue())
+		Expect(count()).To(BeZero())
+		for _, record := range []interface{}{&model.Device{}, &model.EnrollmentAdmission{}} {
+			var total int64
+			Expect(suite.DB.WithContext(suite.Ctx).Model(record).Where("org_id = ? AND name = ?", suite.OrgID, name).Count(&total).Error).To(Succeed())
+			Expect(total).To(BeZero())
+		}
+		var recorded []model.Event
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND involved_object_name = ?", suite.OrgID, name).Find(&recorded).Error).To(Succeed())
+		Expect(recorded).To(HaveLen(1))
+		Expect(recorded[0].Reason).To(Equal(string(domain.EventReasonEnrollmentRequestApprovalFailed)))
+		Expect(suite.DB.Callback().Create().Remove("manual_failure")).To(Succeed())
+		Expect(suite.DB.Callback().Update().Remove("manual_failure")).To(Succeed())
+		_, status = handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(count()).To(BeZero())
+	}, Entry("Device", "devices"), Entry("status", "enrollment_requests"), Entry("ledger", "enrollment_admissions"))
 	It("When manual and automatic approvals race they should share one immutable result", func() {
 		request := create()
 		var wait sync.WaitGroup
@@ -496,15 +735,121 @@ var _ = Describe("Enrollment admission", func() {
 		}
 		Expect(admission.EnrollmentRequest.Data.Status.Certificate).To(Equal(load(*request.Metadata.Name).Status.Certificate))
 	})
-	It("When manual denial commits first it should prevent automatic or opposite manual approval", func() {
+	It("When a false manual action precedes approval it should allow later explicit approval", func() {
 		request := create()
 		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: false})
 		Expect(status.Code).To(Equal(int32(200)))
+		Expect(load(*request.Metadata.Name).Status.Certificate).To(BeNil())
+		Expect(enrollmentstore.Pending(load(*request.Metadata.Name))).To(BeTrue())
+		_, status = handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(count()).To(BeZero())
+	})
+	DescribeTable("When manual approval has no credential binding it should commit and replay without quota", func(withStatus bool) {
+		request := CreateTestER()
+		request.Status = nil
+		if withStatus {
+			request.Status = &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}
+		}
+		created, err := requests.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+		name := *created.Metadata.Name
+		if withStatus {
+			Expect(handler.ReevaluateEnrollment(suite.Ctx, suite.OrgID, event(name))).To(Succeed())
+			Expect(load(name).Status.Certificate).To(BeNil())
+		}
+		result, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(result.Approved).To(BeTrue())
+		certificate := *load(name).Status.Certificate
+		Expect(certificate).NotTo(BeEmpty())
+		var admission model.EnrollmentAdmission
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, name).Take(&admission).Error).To(Succeed())
+		Expect(admission.Source).To(Equal("manual"))
+		Expect(admission.CertificateName).To(BeEmpty())
+		replayed, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(replayed).To(Equal(result))
+		Expect(*load(name).Status.Certificate).To(Equal(certificate))
+		Expect(count()).To(BeZero())
+	}, Entry("status present", true), Entry("status absent", false))
+	DescribeTable("When a bound manual credential fails validation it should refuse admission", func(failure string) {
+		request := create()
+		var credential model.CertificateSigningRequest
+		Expect(suite.DB.WithContext(suite.Ctx).Where("org_id = ? AND name = ?", suite.OrgID, credentialName).Take(&credential).Error).To(Succeed())
+		switch failure {
+		case "revoked":
+			credential.Status.Data.Revocation = &domain.EnrollmentCertificateRevocation{}
+		case "unissued":
+			credential.Status.Data.Certificate = nil
+		case "wrong signer":
+			credential.Spec.Data.SignerName = "different-signer"
+		case "invalid certificate":
+			credential.Status.Data.Certificate = lo.ToPtr([]byte("invalid"))
+		}
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&credential).Where("org_id = ? AND name = ?", suite.OrgID, credentialName).Updates(map[string]interface{}{"spec": credential.Spec, "status": credential.Status}).Error).To(Succeed())
+		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(409)))
+		assertRollback(*request.Metadata.Name)
+	}, Entry("revoked", "revoked"), Entry("unissued", "unissued"), Entry("wrong signer", "wrong signer"), Entry("invalid certificate", "invalid certificate"))
+	It("When an unbound request becomes bound before locking it should conflict rather than bypass credential checks", func() {
+		request := CreateTestER()
+		request.Status = &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}
+		created, err := requests.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+		name := *created.Metadata.Name
+		var changed atomic.Bool
+		Expect(suite.DB.Callback().Query().After("gorm:query").Register("bind_before_admission_lock", func(database *gorm.DB) {
+			if database.Statement.Table == "enrollment_requests" && changed.CompareAndSwap(false, true) {
+				created.Status.EnrollmentCertificateName = &credentialName
+				Expect(suite.DB.WithContext(suite.Ctx).Model(&model.EnrollmentRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, name).Update("status", model.MakeJSONField(created.Status)).Error).To(Succeed())
+			}
+		})).To(Succeed())
+		DeferCleanup(func() { Expect(suite.DB.Callback().Query().Remove("bind_before_admission_lock")).To(Succeed()) })
+		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(409)))
+		Expect(changed.Load()).To(BeTrue())
+		Expect(load(name).Status.Certificate).To(BeNil())
+		Expect(load(name).Status.EnrollmentCertificateName).To(Equal(&credentialName))
+		_, status = handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(count()).To(BeZero())
+	})
+	It("When a previously manually denied request is explicitly approved it should remain ineligible to automatic workers", func() {
+		request := create()
+		request.Status.Approval = &domain.EnrollmentRequestApprovalStatus{Approved: false}
+		domain.SetStatusCondition(&request.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestDenied, Status: domain.ConditionStatusTrue, Reason: "ManuallyDenied"})
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&model.EnrollmentRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, *request.Metadata.Name).Update("status", model.MakeJSONField(request.Status)).Error).To(Succeed())
 		Expect(handler.ReevaluateEnrollment(suite.Ctx, suite.OrgID, event(*request.Metadata.Name))).To(Succeed())
 		Expect(load(*request.Metadata.Name).Status.Certificate).To(BeNil())
-		Expect(enrollmentstore.Pending(load(*request.Metadata.Name))).To(BeFalse())
-		_, status = handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
-		Expect(status.Code).To(Equal(int32(409)))
+		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *request.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(domain.IsStatusConditionTrue(load(*request.Metadata.Name).Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)).To(BeFalse())
+		Expect(count()).To(BeZero())
+	})
+	It("When unbound manual approvals race it should commit one tenant-local admission", func() {
+		request := CreateTestER()
+		request.Status = &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}
+		created, err := requests.Create(suite.Ctx, suite.OrgID, &request)
+		Expect(err).NotTo(HaveOccurred())
+		var wait sync.WaitGroup
+		results := make(chan domain.Status, 2)
+		for range 2 {
+			wait.Go(func() {
+				_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *created.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+				results <- status
+			})
+		}
+		wait.Wait()
+		close(results)
+		for status := range results {
+			Expect(status.Code).To(Equal(int32(200)))
+		}
+		var total int64
+		Expect(suite.DB.WithContext(suite.Ctx).Model(&model.EnrollmentAdmission{}).Where("org_id = ? AND name = ?", suite.OrgID, *created.Metadata.Name).Count(&total).Error).To(Succeed())
+		Expect(total).To(Equal(int64(1)))
+		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, uuid.New(), *created.Metadata.Name, domain.EnrollmentRequestApproval{Approved: true})
+		Expect(status.Code).To(Equal(int32(404)))
 		Expect(count()).To(BeZero())
 	})
 	It("When a policy is deleted it should reevaluate only its pending credential scope", func() {
@@ -521,8 +866,11 @@ var _ = Describe("Enrollment admission", func() {
 	DescribeTable("When a policy event is replayed it should scan only pending requests in its organization and credential", func(reason domain.EventReason) {
 		pending := create()
 		denied := create()
-		_, status := handler.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, *denied.Metadata.Name, domain.EnrollmentRequestApproval{Approved: false})
-		Expect(status.Code).To(Equal(int32(200)))
+		_, _, _, err := requests.Mutate(suite.Ctx, suite.OrgID, *denied.Metadata.Name, denied, func(mutation *enrollmentstore.EnrollmentRequestMutation) error {
+			domain.SetStatusCondition(&mutation.EnrollmentRequest.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestDenied, Status: domain.ConditionStatusTrue, Reason: "ManuallyDenied"})
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
 		otherCredential, status := suite.CertificateSigningRequest.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, CreateTestCSR())
 		Expect(status.Code).To(Equal(int32(201)))
 		otherRequest := CreateTestER()

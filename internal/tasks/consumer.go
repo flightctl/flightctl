@@ -35,26 +35,25 @@ import (
 )
 
 type TaskConsumer struct {
-	FleetSvc              fleetservice.Service
-	TemplateversionSvc    templateversionservice.Service
-	DeviceSvc             deviceservice.Service
-	DependencyrefSvc      dependencyrefservice.Service
-	RepositorySvc         repositoryservice.Service
-	CatalogSvc            catalogservice.Service
-	EventSvc              eventservice.Service
-	EnrollmentRequestSvc  enrollmentrequestservice.Service
-	EnrollmentReevaluator EnrollmentReevaluator
-	CSRService            certificatesigningrequestservice.Service
-	NotifySecretsStore    enrollmenthooknotifysecrets.Store
-	K8sClient             k8sclient.K8SClient
-	KVStore               kvstore.KVStore
-	Cfg                   *config.Config
-	WorkerMetrics         *worker.WorkerCollector
-	EncryptionMigrator    *EncryptionMigrator
-	QueuePublisher        queues.QueueProducer
-	WorkerClient          worker_client.WorkerClient
-	DeviceRenderer        *DeviceRenderLogic
-	LabelSyncMappingSvc   labelsyncmappingservice.Service
+	FleetSvc             fleetservice.Service
+	TemplateversionSvc   templateversionservice.Service
+	DeviceSvc            deviceservice.Service
+	DependencyrefSvc     dependencyrefservice.Service
+	RepositorySvc        repositoryservice.Service
+	CatalogSvc           catalogservice.Service
+	EventSvc             eventservice.Service
+	EnrollmentRequestSvc enrollmentrequestservice.Service
+	CSRService           certificatesigningrequestservice.Service
+	NotifySecretsStore   enrollmenthooknotifysecrets.Store
+	K8sClient            k8sclient.K8SClient
+	KVStore              kvstore.KVStore
+	Cfg                  *config.Config
+	WorkerMetrics        *worker.WorkerCollector
+	EncryptionMigrator   *EncryptionMigrator
+	QueuePublisher       queues.QueueProducer
+	WorkerClient         worker_client.WorkerClient
+	DeviceRenderer       *DeviceRenderLogic
+	LabelSyncMappingSvc  labelsyncmappingservice.Service
 }
 
 func (d TaskConsumer) dispatch() queues.ConsumeHandler {
@@ -199,10 +198,10 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
-		if d.EnrollmentReevaluator != nil && shouldReevaluateEnrollment(eventWithOrgId.Event) {
+		if d.EnrollmentRequestSvc != nil && shouldReevaluateEnrollment(eventWithOrgId.Event) {
 			taskName = "enrollmentAdmission"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return d.EnrollmentReevaluator.ReevaluateEnrollment(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event)
+				return d.EnrollmentRequestSvc.ReevaluateEnrollment(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}

@@ -160,6 +160,34 @@ func (mr *MockServiceMockRecorder) PatchEnrollmentRequest(ctx, orgId, name, patc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchEnrollmentRequest", reflect.TypeOf((*MockService)(nil).PatchEnrollmentRequest), ctx, orgId, name, patch)
 }
 
+// RecoverAdmissions mocks base method.
+func (m *MockService) RecoverAdmissions(ctx context.Context, orgID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecoverAdmissions", ctx, orgID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecoverAdmissions indicates an expected call of RecoverAdmissions.
+func (mr *MockServiceMockRecorder) RecoverAdmissions(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverAdmissions", reflect.TypeOf((*MockService)(nil).RecoverAdmissions), ctx, orgID)
+}
+
+// ReevaluateEnrollment mocks base method.
+func (m *MockService) ReevaluateEnrollment(ctx context.Context, orgID uuid.UUID, event domain.Event) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReevaluateEnrollment", ctx, orgID, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReevaluateEnrollment indicates an expected call of ReevaluateEnrollment.
+func (mr *MockServiceMockRecorder) ReevaluateEnrollment(ctx, orgID, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReevaluateEnrollment", reflect.TypeOf((*MockService)(nil).ReevaluateEnrollment), ctx, orgID, event)
+}
+
 // ReplaceEnrollmentRequest mocks base method.
 func (m *MockService) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()

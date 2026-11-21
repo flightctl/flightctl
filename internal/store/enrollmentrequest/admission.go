@@ -32,9 +32,11 @@ type AdmissionDecision struct {
 type AdmissionApply func(context.Context, *AdmissionSnapshot) (*AdmissionDecision, error)
 
 var ErrAdmissionBindingUnavailable = errors.New("enrollment credential binding is unavailable")
+var ErrAdmissionOutcomeUnknown = errors.New("enrollment admission outcome is unknown")
 
 type AdmissionStore interface {
 	Admit(context.Context, uuid.UUID, string, AdmissionApply) (*domain.EnrollmentRequest, error)
+	AdmitManual(context.Context, uuid.UUID, string, AdmissionApply) (*domain.EnrollmentRequest, error)
 	PendingNames(context.Context, uuid.UUID, string, string, int) ([]string, error)
 	PolicyCertificate(context.Context, uuid.UUID, string) (string, error)
 	PublishAdmissions(context.Context, uuid.UUID, func(context.Context, uuid.UUID, *domain.Event) error) error
@@ -48,38 +50,119 @@ func Pending(request *domain.EnrollmentRequest) bool {
 }
 
 func (s *EnrollmentRequestStore) Admit(ctx context.Context, orgID uuid.UUID, name string, apply AdmissionApply) (*domain.EnrollmentRequest, error) {
+	return s.admit(ctx, orgID, name, false, apply)
+}
+
+func (s *EnrollmentRequestStore) AdmitManual(ctx context.Context, orgID uuid.UUID, name string, apply AdmissionApply) (*domain.EnrollmentRequest, error) {
+	result, err := s.admit(ctx, orgID, name, true, apply)
+	var uncertain *admissionCommitError
+	if !errors.As(err, &uncertain) {
+		return result, err
+	}
+	resolved, resolveErr := s.resolveAdmission(ctx, uncertain)
+	if resolveErr != nil {
+		return nil, errors.Join(ErrAdmissionOutcomeUnknown, err, resolveErr)
+	}
+	if resolved != nil {
+		return resolved, nil
+	}
+	return nil, uncertain.cause
+}
+
+type admissionCommitError struct {
+	cause           error
+	request         model.EnrollmentRequest
+	certificateName string
+}
+
+func (err *admissionCommitError) Error() string { return err.cause.Error() }
+func (err *admissionCommitError) Unwrap() error { return err.cause }
+
+func (s *EnrollmentRequestStore) resolveAdmission(ctx context.Context, attempt *admissionCommitError) (*domain.EnrollmentRequest, error) {
+	if attempt.request.AdmissionID == nil {
+		return nil, ErrAdmissionOutcomeUnknown
+	}
+	var result *domain.EnrollmentRequest
+	err := store.WithTransaction(ctx, s.dbHandler, func(txCtx context.Context) error {
+		tx := s.getDB(txCtx)
+		if attempt.certificateName != "" {
+			var credential model.CertificateSigningRequest
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", attempt.request.OrgID, attempt.certificateName).Find(&credential).Error; err != nil {
+				return err
+			}
+			var policies []model.EnrollmentApprovalPolicy
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND certificate_name = ?", attempt.request.OrgID, attempt.certificateName).Order("name").Find(&policies).Error; err != nil {
+				return err
+			}
+		}
+		var current model.EnrollmentRequest
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", attempt.request.OrgID, attempt.request.Name).Find(&current).Error; err != nil {
+			return err
+		}
+		var prior model.EnrollmentAdmission
+		err := tx.Where("org_id = ? AND name = ? AND admission_id = ?", attempt.request.OrgID, attempt.request.Name, *attempt.request.AdmissionID).Take(&prior).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) && current.CreatedAt.Equal(attempt.request.CreatedAt) && current.AdmissionID == nil {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result, err = admissionResult(&prior, &attempt.request, attempt.certificateName)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *EnrollmentRequestStore) admit(ctx context.Context, orgID uuid.UUID, name string, manual bool, apply AdmissionApply) (*domain.EnrollmentRequest, error) {
 	if store.InTransaction(ctx) {
 		return nil, errors.New("admission requires ownership of the commit boundary")
 	}
 	var result *domain.EnrollmentRequest
-	err := store.WithTransaction(ctx, s.dbHandler, func(txCtx context.Context) error {
+	attempt := &admissionCommitError{}
+	bodySucceeded := false
+	err := store.WithTransaction(ctx, s.dbHandler, func(txCtx context.Context) (transactionErr error) {
+		defer func() { bodySucceeded = transactionErr == nil }()
 		tx := s.getDB(txCtx)
 		var initial model.EnrollmentRequest
 		if err := tx.Where("org_id = ? AND name = ?", orgID, name).Take(&initial).Error; err != nil {
 			return store.ErrorFromGormError(err)
 		}
-		if initial.Status == nil || lo.FromPtr(initial.Status.Data.EnrollmentCertificateName) == "" {
+		certificateName := ""
+		if initial.Status != nil {
+			certificateName = lo.FromPtr(initial.Status.Data.EnrollmentCertificateName)
+		}
+		if certificateName == "" && !manual {
 			return ErrAdmissionBindingUnavailable
 		}
-		certificateName := *initial.Status.Data.EnrollmentCertificateName
 		var credential model.CertificateSigningRequest
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgID, certificateName).Take(&credential).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrAdmissionBindingUnavailable
-			}
-			return store.ErrorFromGormError(err)
-		}
 		var policies []model.EnrollmentApprovalPolicy
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND certificate_name = ?", orgID, certificateName).Order("name").Find(&policies).Error; err != nil {
-			return err
+		if certificateName != "" {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgID, certificateName).Take(&credential).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrAdmissionBindingUnavailable
+				}
+				return store.ErrorFromGormError(err)
+			}
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND certificate_name = ?", orgID, certificateName).Order("name").Find(&policies).Error; err != nil {
+				return err
+			}
 		}
 		var request model.EnrollmentRequest
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("org_id = ? AND name = ?", orgID, name).Take(&request).Error; err != nil {
 			return store.ErrorFromGormError(err)
 		}
-		if request.Status == nil || lo.FromPtr(request.Status.Data.EnrollmentCertificateName) != certificateName {
+		currentBinding := ""
+		if request.Status != nil {
+			currentBinding = lo.FromPtr(request.Status.Data.EnrollmentCertificateName)
+		}
+		if currentBinding != certificateName || !request.CreatedAt.Equal(initial.CreatedAt) {
 			return flterrors.ErrResourceVersionConflict
 		}
+		attempt.certificateName = certificateName
+		defer func() { attempt.request = request }()
 		if request.AdmissionID != nil {
 			var err error
 			result, err = committedAdmission(tx, &request, certificateName)
@@ -89,13 +172,16 @@ func (s *EnrollmentRequestStore) Admit(ctx context.Context, orgID uuid.UUID, nam
 		if err != nil {
 			return err
 		}
-		if !Pending(resource) {
+		if !Pending(resource) && (!manual || !manuallyDenied(resource)) {
 			result = resource
 			return nil
 		}
-		credentialResource, err := credential.ToApiResource()
-		if err != nil {
-			return err
+		var credentialResource *domain.CertificateSigningRequest
+		if certificateName != "" {
+			credentialResource, err = credential.ToApiResource()
+			if err != nil {
+				return err
+			}
 		}
 		snapshot := &AdmissionSnapshot{Credential: credentialResource, Request: resource, PolicyRevision: credential.PolicySetRevision}
 		for _, policy := range policies {
@@ -113,9 +199,22 @@ func (s *EnrollmentRequestStore) Admit(ctx context.Context, orgID uuid.UUID, nam
 		return err
 	})
 	if err != nil {
+		if manual && bodySucceeded {
+			attempt.cause = err
+			return nil, attempt
+		}
 		return nil, store.ErrorFromGormError(err)
 	}
 	return result, nil
+}
+
+func manuallyDenied(request *domain.EnrollmentRequest) bool {
+	status := request.Status
+	if status == nil || status.Certificate != nil || (status.Approval != nil && status.Approval.Approved) {
+		return false
+	}
+	denied := domain.FindStatusCondition(status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	return denied != nil && denied.Status == domain.ConditionStatusTrue && denied.Reason == "ManuallyDenied"
 }
 
 func committedAdmission(tx *gorm.DB, request *model.EnrollmentRequest, certificateName string) (*domain.EnrollmentRequest, error) {
@@ -126,6 +225,10 @@ func committedAdmission(tx *gorm.DB, request *model.EnrollmentRequest, certifica
 		}
 		return nil, err
 	}
+	return admissionResult(&prior, request, certificateName)
+}
+
+func admissionResult(prior *model.EnrollmentAdmission, request *model.EnrollmentRequest, certificateName string) (*domain.EnrollmentRequest, error) {
 	if prior.EnrollmentRequest == nil {
 		return nil, errors.New("committed admission result is unavailable")
 	}

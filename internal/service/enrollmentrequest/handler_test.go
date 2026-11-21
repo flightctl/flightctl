@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
@@ -45,11 +46,84 @@ const (
 // fakeEnrollmentRequestStore is a small in-memory implementation of
 // internal/store/enrollmentrequest.Store.
 type fakeEnrollmentRequestStore struct {
-	items map[string]*domain.EnrollmentRequest
+	items       map[string]*domain.EnrollmentRequest
+	credentials *fakeCSRService
+	devices     *fakeDeviceStore
+	admitted    map[string]*domain.EnrollmentRequest
+	outbox      map[string][]domain.Event
 }
 
 func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
-	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}}
+	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}, admitted: map[string]*domain.EnrollmentRequest{}, outbox: map[string][]domain.Event{}}
+}
+
+func (f *fakeEnrollmentRequestStore) Admit(ctx context.Context, orgID uuid.UUID, name string, apply enrollmentrequeststore.AdmissionApply) (*domain.EnrollmentRequest, error) {
+	return f.AdmitManual(ctx, orgID, name, apply)
+}
+
+func (f *fakeEnrollmentRequestStore) AdmitManual(ctx context.Context, orgID uuid.UUID, name string, apply enrollmentrequeststore.AdmissionApply) (*domain.EnrollmentRequest, error) {
+	if prior := f.admitted[name]; prior != nil {
+		return store.CloneJSON(prior)
+	}
+	request, err := f.Get(ctx, orgID, name)
+	if err != nil {
+		return nil, err
+	}
+	request, err = store.CloneJSON(request)
+	if err != nil {
+		return nil, err
+	}
+	if !enrollmentrequeststore.Pending(request) {
+		return request, nil
+	}
+	var credential *domain.CertificateSigningRequest
+	if request.Status != nil && request.Status.EnrollmentCertificateName != nil {
+		credential, err = store.CloneJSON(f.credentials.items[*request.Status.EnrollmentCertificateName])
+		if err != nil {
+			return nil, err
+		}
+		if credential == nil {
+			return nil, enrollmentrequeststore.ErrAdmissionBindingUnavailable
+		}
+	}
+	devices, err := store.CloneJSON(&f.devices.items)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := apply(ctx, &enrollmentrequeststore.AdmissionSnapshot{Request: request, Credential: credential})
+	if err != nil {
+		f.devices.items = *devices
+		return nil, err
+	}
+	f.items[name] = request
+	if decision != nil {
+		f.admitted[name], err = store.CloneJSON(request)
+		if err != nil {
+			return nil, err
+		}
+		f.outbox[name] = decision.Events
+	}
+	return store.CloneJSON(request)
+}
+
+func (f *fakeEnrollmentRequestStore) PendingNames(context.Context, uuid.UUID, string, string, int) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeEnrollmentRequestStore) PolicyCertificate(context.Context, uuid.UUID, string) (string, error) {
+	return "", flterrors.ErrResourceNotFound
+}
+
+func (f *fakeEnrollmentRequestStore) PublishAdmissions(ctx context.Context, orgID uuid.UUID, publish func(context.Context, uuid.UUID, *domain.Event) error) error {
+	for name, events := range f.outbox {
+		for _, event := range events {
+			if err := publish(ctx, orgID, &event); err != nil {
+				return err
+			}
+		}
+		delete(f.outbox, name)
+	}
+	return nil
 }
 
 type fakeCSRService struct {
@@ -330,6 +404,15 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 	f.createdEventHasDeadlines = append(f.createdEventHasDeadlines, hasDeadline)
 }
 
+func (f *fakeEventsService) PersistEvent(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
+}
+
+func (f *fakeEventsService) PublishEvent(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	f.CreateEvent(ctx, orgID, event)
+	return nil
+}
+
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	f.deleted = append(f.deleted, name)
 }
@@ -362,6 +445,7 @@ func newTestHandlerWithCSR(t *testing.T) (*ServiceHandler, *fakeEnrollmentReques
 	kv := &fakeKVStore{}
 	ev := &fakeEventsService{}
 	csrSvc := newFakeCSRService()
+	erStore.credentials, erStore.devices = csrSvc, devStore
 	caClient := newTestCA(t)
 	logger := logrus.New()
 	return NewServiceHandler(erStore, devStore, csrSvc, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev, csrSvc
@@ -699,12 +783,58 @@ func TestGetEnrollmentRequestStatus(t *testing.T) {
 }
 
 func TestApproveEnrollmentRequest(t *testing.T) {
-	t.Run("When atomic admission is unavailable it should fail closed even for an approved request", func(t *testing.T) {
+	t.Run("When a false action precedes approval it should preserve manual enrollment and labels", func(t *testing.T) {
+		handler, requests, devices, _, events := newTestHandler(t)
+		name := "manual-false-then-approve"
+		request := domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: &name}, Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, name), Labels: lo.ToPtr(map[string]string{"reported": "value", "shared": "reported"})}, Status: &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}}
+		requests.items[name] = &request
+		orgID := uuid.New()
+		_, status := handler.ApproveEnrollmentRequest(context.Background(), orgID, name, domain.EnrollmentRequestApproval{Approved: false})
+		require.Equal(t, int32(200), status.Code)
+		require.True(t, enrollmentrequeststore.Pending(requests.items[name]))
+		require.Empty(t, devices.items)
+		result, status := handler.ApproveEnrollmentRequest(adminContext(), orgID, name, domain.EnrollmentRequestApproval{Approved: true, Labels: lo.ToPtr(map[string]string{"shared": "administrator"})})
+		require.Equal(t, int32(200), status.Code, status.Message)
+		require.Equal(t, map[string]string{"reported": "value", "shared": "administrator"}, *result.Labels)
+		replay, status := handler.ApproveEnrollmentRequest(adminContext(), orgID, name, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, int32(200), status.Code)
+		require.Equal(t, result, replay)
+		_, status = handler.ApproveEnrollmentRequest(adminContext(), orgID, name, domain.EnrollmentRequestApproval{Approved: false})
+		require.Equal(t, int32(409), status.Code)
+		require.Len(t, devices.items, 1)
+		require.Len(t, events.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
+		require.Empty(t, events.createdWithReason(domain.EventReasonEnrollmentRequestApprovalFailed))
+	})
+	t.Run("When signing rejects the request it should report failure without publishing approval", func(t *testing.T) {
+		handler, requests, devices, _, events := newTestHandler(t)
+		name := "manual-invalid-signature"
+		requests.items[name] = &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: &name}, Spec: domain.EnrollmentRequestSpec{Csr: "invalid"}, Status: &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}}
+		_, status := handler.ApproveEnrollmentRequest(adminContext(), uuid.New(), name, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, int32(500), status.Code)
+		require.Empty(t, devices.items)
+		require.Nil(t, requests.items[name].Status.Certificate)
+		require.Empty(t, events.createdWithReason(domain.EventReasonEnrollmentRequestApproved))
+		require.Len(t, events.createdWithReason(domain.EventReasonEnrollmentRequestApprovalFailed), 1)
+	})
+	t.Run("When approving an unbound request it should use the public admission path", func(t *testing.T) {
+		handler, requests, devices, _, events := newTestHandler(t)
+		request := domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("legacy-enrollment-device")}, Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, "legacy-enrollment-device")}, Status: &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}}
+		requests.items["legacy-enrollment-device"] = &request
+		result, status := handler.ApproveEnrollmentRequest(adminContext(), uuid.New(), "legacy-enrollment-device", domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, int32(200), status.Code, status.Message)
+		require.True(t, result.Approved)
+		require.NotNil(t, requests.items["legacy-enrollment-device"].Status.Certificate)
+		require.Len(t, devices.items, 1)
+		require.Len(t, events.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
+	})
+	t.Run("When approval is already committed it should return the existing result without events", func(t *testing.T) {
 		h, fakeStore, _, _, fakeEvents := newTestHandler(t)
 		er := domain.EnrollmentRequest{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR"},
 			Status: &domain.EnrollmentRequestStatus{
+				Approval:    &domain.EnrollmentRequestApprovalStatus{Approved: true, ApprovedBy: "original"},
+				Certificate: lo.ToPtr("persisted-certificate"),
 				Conditions: []domain.Condition{{
 					Type:    domain.ConditionTypeEnrollmentRequestApproved,
 					Status:  domain.ConditionStatusTrue,
@@ -716,11 +846,11 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items["foo"] = &er
 
 		_, status := h.ApproveEnrollmentRequest(adminContext(), uuid.New(), "foo", domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, int32(503), status.Code)
+		require.Equal(t, int32(200), status.Code)
 		require.Empty(t, fakeEvents.createdEvents)
 	})
 
-	t.Run("When atomic admission is unavailable it should not emit an approval event", func(t *testing.T) {
+	t.Run("When approval identity is absent it should report approval failure", func(t *testing.T) {
 		h, fakeStore, _, _, fakeEvents := newTestHandler(t)
 		cn := "test-device-noidentity"
 		er := domain.EnrollmentRequest{
@@ -731,8 +861,8 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		_, status := h.ApproveEnrollmentRequest(context.Background(), uuid.New(), cn, domain.EnrollmentRequestApproval{Approved: true})
-		require.Equal(t, int32(503), status.Code)
-		require.Empty(t, fakeEvents.createdEvents)
+		require.Equal(t, int32(500), status.Code)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApprovalFailed), 1)
 	})
 
 	t.Run("When creating a non-TPM device it should report unsupported integrity", func(t *testing.T) {
@@ -746,14 +876,46 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		fakeStore.items[cn] = &er
 
 		orgId := uuid.New()
-		require.NoError(t, h.createDeviceFromEnrollmentRequest(adminContext(), orgId, &er))
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, int32(200), status.Code)
 
 		device, err := fakeDevices.Get(context.Background(), orgId, cn)
 		require.NoError(t, err)
 		require.NotNil(t, device)
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
-		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved))
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
+	for _, scenario := range []string{"missing", "unissued", "revoked", "invalid", "valid"} {
+		t.Run("When a bound manual credential is "+scenario+" it should enforce its current validity", func(t *testing.T) {
+			handler, requests, devices, _, _, credentials := newTestHandlerWithCSR(t)
+			request := projectionRequest(t, "bound-enrollment-device")
+			requests.items["bound-enrollment-device"] = &request
+			if scenario != "missing" {
+				credential := validEnrollmentCredential(t, handler.ca.Cfg.DeviceEnrollmentSignerName, "commissioning-credential")
+				switch scenario {
+				case "unissued":
+					credential.Status.Certificate = nil
+				case "revoked":
+					credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{}
+				case "invalid":
+					credential.Spec.SignerName = "different-signer"
+				}
+				credentials.items["commissioning-credential"] = credential
+			}
+			_, status := handler.ApproveEnrollmentRequest(adminContext(), uuid.New(), "bound-enrollment-device", domain.EnrollmentRequestApproval{Approved: true})
+			if scenario == "valid" {
+				require.Equal(t, int32(200), status.Code, status.Message)
+				require.NotNil(t, devices.items["bound-enrollment-device"].Status.EnrollmentCredential)
+			} else {
+				require.Equal(t, int32(409), status.Code)
+				require.Empty(t, devices.items)
+				require.Nil(t, requests.items["bound-enrollment-device"].Status.Certificate)
+			}
+		})
+	}
+}
+
+func TestEnrollmentCredentialProjection(t *testing.T) {
 
 	t.Run("When an enrollment credential is referenced it should project the credential onto the device", func(t *testing.T) {
 		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
@@ -1381,5 +1543,22 @@ func issuedEnrollmentCredential(name string) *domain.CertificateSigningRequest {
 				Status: domain.ConditionStatusTrue,
 			}},
 		},
+	}
+}
+
+func validEnrollmentCredential(t *testing.T, signerName, name string) *domain.CertificateSigningRequest {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: name}}, key)
+	require.NoError(t, err)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return &domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: &name},
+		Spec:     domain.CertificateSigningRequestSpec{SignerName: signerName, Request: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})},
+		Status:   &domain.CertificateSigningRequestStatus{Certificate: &certificate},
 	}
 }

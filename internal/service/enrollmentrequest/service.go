@@ -8,6 +8,8 @@ import (
 )
 
 type Service interface {
+	ReevaluateEnrollment(ctx context.Context, orgID uuid.UUID, event domain.Event) error
+	RecoverAdmissions(ctx context.Context, orgID uuid.UUID) error
 	CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status)
 	ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentRequestsParams) (*domain.EnrollmentRequestList, domain.Status)
 	GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status)

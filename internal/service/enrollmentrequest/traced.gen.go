@@ -108,6 +108,30 @@ func (_d *TracedService) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 	return ep1, s1
 }
 
+func (_d *TracedService) RecoverAdmissions(ctx context.Context, orgID uuid.UUID) (err error) {
+	ctx, span := startSpan(ctx, "RecoverAdmissions")
+
+	err = _d.inner.RecoverAdmissions(ctx, orgID)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
+func (_d *TracedService) ReevaluateEnrollment(ctx context.Context, orgID uuid.UUID, event domain.Event) (err error) {
+	ctx, span := startSpan(ctx, "ReevaluateEnrollment")
+
+	err = _d.inner.ReevaluateEnrollment(ctx, orgID, event)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
 func (_d *TracedService) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (ep1 *domain.EnrollmentRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceEnrollmentRequest")
 

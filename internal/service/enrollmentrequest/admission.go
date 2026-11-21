@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
 	enrollmentstore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/crypto"
@@ -79,6 +80,7 @@ func policyEligibilityGate(policy *domain.EnrollmentApprovalPolicy, credential *
 
 func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, snapshot *enrollmentstore.AdmissionSnapshot, approval *domain.EnrollmentRequestApprovalStatus) (*enrollmentstore.AdmissionDecision, error) {
 	request := snapshot.Request
+	addStatusIfNeeded(request)
 	automatic := approval == nil
 	var selected *domain.EnrollmentApprovalPolicy
 	if automatic {
@@ -109,7 +111,8 @@ func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, sn
 		pendingAdmission(request, "AdmissionPersistenceUnavailable")
 		return nil, nil
 	}
-	if reason := credentialAdmissionGate(snapshot.Credential, request, h.ca.Cfg.DeviceEnrollmentSignerName, time.Now()); reason != "" {
+	bound := request.Status.EnrollmentCertificateName != nil
+	if reason := credentialAdmissionGate(snapshot.Credential, request, h.ca.Cfg.DeviceEnrollmentSignerName, time.Now()); (automatic || bound) && reason != "" {
 		pendingAdmission(request, reason)
 		return nil, nil
 	}
@@ -137,13 +140,11 @@ func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, sn
 	if err := approveAndSignEnrollmentRequest(ctx, h.ca, request, approval); err != nil {
 		return nil, err
 	}
-	if automatic {
-		domain.SetStatusCondition(&request.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusTrue, Reason: "PolicyApproved"})
-	}
+	setAdmissionConditions(request, automatic)
 	if err := h.createDeviceFromEnrollmentRequest(ctx, orgID, request); err != nil {
 		return nil, err
 	}
-	if reason := credentialAdmissionGate(snapshot.Credential, request, h.ca.Cfg.DeviceEnrollmentSignerName, time.Now()); reason != "" {
+	if reason := credentialAdmissionGate(snapshot.Credential, request, h.ca.Cfg.DeviceEnrollmentSignerName, time.Now()); (automatic || bound) && reason != "" {
 		return nil, errors.New(reason)
 	}
 	if automatic {
@@ -162,6 +163,16 @@ func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, sn
 		}
 	}
 	return decision, nil
+}
+
+func setAdmissionConditions(request *domain.EnrollmentRequest, automatic bool) {
+	if automatic {
+		domain.SetStatusCondition(&request.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestApproved, Status: domain.ConditionStatusTrue, Reason: "PolicyApproved"})
+		return
+	}
+	if denied := domain.FindStatusCondition(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied); denied != nil && denied.Reason == "ManuallyDenied" {
+		domain.SetStatusCondition(&request.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestDenied, Status: domain.ConditionStatusFalse, Reason: "ManuallyApproved"})
+	}
 }
 
 func approvalForPolicy(policy *domain.EnrollmentApprovalPolicy, request *domain.EnrollmentRequest) *domain.EnrollmentRequestApprovalStatus {
@@ -183,34 +194,42 @@ func (h *ServiceHandler) approveAdmission(ctx context.Context, orgID uuid.UUID, 
 	if errs := approval.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
+	if store.InTransaction(ctx) {
+		return nil, domain.StatusInternalServerError("admission requires ownership of the commit boundary")
+	}
+	if !approval.Approved {
+		request, err := h.store.Get(ctx, orgID, name)
+		if err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+		}
+		addStatusIfNeeded(request)
+		if request.Status.Approval != nil && request.Status.Approval.Approved {
+			return nil, domain.StatusConflict("enrollment admission conflicts with a committed decision")
+		}
+		return request.Status.Approval, domain.StatusOK()
+	}
 	identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
+		h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgID, name, nil, nil, false, errors.New("approval identity is unavailable"))
 		return nil, domain.StatusInternalServerError("approval identity is unavailable")
 	}
 	actor := "unknown"
 	if identity != nil && identity.GetUsername() != "" {
 		actor = identity.GetUsername()
 	}
-	admissions := h.store.(enrollmentstore.AdmissionStore)
-	result, err := admissions.Admit(ctx, orgID, name, func(txCtx context.Context, snapshot *enrollmentstore.AdmissionSnapshot) (*enrollmentstore.AdmissionDecision, error) {
-		if !approval.Approved {
-			addStatusIfNeeded(snapshot.Request)
-			snapshot.Request.Status.Approval = &domain.EnrollmentRequestApprovalStatus{Approved: false, ApprovedAt: time.Now(), ApprovedBy: actor}
-			domain.SetStatusCondition(&snapshot.Request.Status.Conditions, domain.Condition{Type: domain.ConditionTypeEnrollmentRequestDenied, Status: domain.ConditionStatusTrue, Reason: "ManuallyDenied", Message: "Enrollment was denied by an administrator"})
-			return nil, nil
-		}
+	result, err := h.store.AdmitManual(ctx, orgID, name, func(txCtx context.Context, snapshot *enrollmentstore.AdmissionSnapshot) (*enrollmentstore.AdmissionDecision, error) {
 		return h.applyAdmission(txCtx, orgID, snapshot, &domain.EnrollmentRequestApprovalStatus{Approved: true, ApprovedAt: time.Now(), ApprovedBy: actor, Labels: approval.Labels, ReplaceLabels: approval.ReplaceLabels})
 	})
 	if err != nil {
+		if !errors.Is(err, enrollmentstore.ErrAdmissionOutcomeUnknown) && !store.InTransaction(ctx) {
+			h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgID, name, nil, nil, false, err)
+		}
 		if errors.Is(err, enrollmentstore.ErrAdmissionBindingUnavailable) {
 			return nil, domain.StatusConflict("Enrollment credential binding is unavailable")
 		}
 		return nil, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 	}
 	if result == nil || result.Status == nil || result.Status.Approval == nil || result.Status.Approval.Approved != approval.Approved {
-		if !approval.Approved && result != nil && enrollmentstore.Pending(result) {
-			return nil, domain.StatusOK()
-		}
 		return nil, domain.StatusConflict("enrollment admission is unavailable or conflicts with a committed decision")
 	}
 	if err := h.publishAdmissions(ctx, orgID); err != nil {
@@ -220,10 +239,7 @@ func (h *ServiceHandler) approveAdmission(ctx context.Context, orgID uuid.UUID, 
 }
 
 func (h *ServiceHandler) ReevaluateEnrollment(ctx context.Context, orgID uuid.UUID, event domain.Event) error {
-	admissions, ok := h.store.(enrollmentstore.AdmissionStore)
-	if !ok {
-		return errors.New("enrollment admission store is unavailable")
-	}
+	admissions := h.store
 	if err := h.publishAdmissions(ctx, orgID); err != nil {
 		return err
 	}
@@ -278,7 +294,7 @@ func (h *ServiceHandler) ReevaluateEnrollment(ctx context.Context, orgID uuid.UU
 }
 
 func (h *ServiceHandler) publishAdmissions(ctx context.Context, orgID uuid.UUID) error {
-	return h.store.(enrollmentstore.AdmissionStore).PublishAdmissions(ctx, orgID, func(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	return h.store.PublishAdmissions(ctx, orgID, func(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
 		if event.InvolvedObject.Kind == domain.DeviceKind && h.kvStore != nil {
 			device, err := h.deviceStore.Get(ctx, orgID, event.InvolvedObject.Name)
 			if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {

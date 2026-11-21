@@ -16,6 +16,7 @@ import (
 )
 
 type Store interface {
+	AdmissionStore
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)

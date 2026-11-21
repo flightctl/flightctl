@@ -208,7 +208,7 @@ func (s *Server) Run(ctx context.Context) error {
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
 		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc)
 	enrollmentHandler := enrollmentrequestservice.NewServiceHandler(enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log), deviceStore, nil, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, nil)
-	periodicTaskExecutors[PeriodicTaskTypeEnrollmentAdmission] = &EnrollmentAdmissionExecutor{recover: enrollmentHandler.RecoverAdmissions}
+	periodicTaskExecutors[PeriodicTaskTypeEnrollmentAdmission] = &EnrollmentAdmissionExecutor{service: enrollmentrequestservice.WrapWithTracing(enrollmentHandler)}
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

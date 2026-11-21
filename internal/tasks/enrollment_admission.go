@@ -1,15 +1,6 @@
 package tasks
 
-import (
-	"context"
-
-	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/google/uuid"
-)
-
-type EnrollmentReevaluator interface {
-	ReevaluateEnrollment(context.Context, uuid.UUID, domain.Event) error
-}
+import "github.com/flightctl/flightctl/internal/domain"
 
 func shouldReevaluateEnrollment(event domain.Event) bool {
 	switch event.InvolvedObject.Kind {
