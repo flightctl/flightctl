@@ -160,20 +160,52 @@ func TestPolicyUnavailableRejectsExistingDraftMutationsWithoutEvents(t *testing.
 }
 
 func TestPolicyValidationErrorMapping(t *testing.T) {
+	var decoded any
+	jsonError := json.Unmarshal([]byte(`{"enabled":`), &decoded)
+	var syntaxError *json.SyntaxError
+	require.ErrorAs(t, jsonError, &syntaxError)
+	sentinel := errors.New("validation cause")
+	cause := errors.Join(sentinel, jsonError)
 	for _, testCase := range []struct {
-		err    error
-		code   int32
-		reason string
+		name    string
+		err     error
+		target  any
+		code    int32
+		reason  string
+		message string
 	}{
-		{policyservice.InvalidPolicyError{Message: "unsupported expression"}, 400, "InvalidPolicy"},
-		{policyservice.PolicyOverlapError{PolicyName: "other"}, 409, "PolicyOverlap"},
+		{"semantic value", policyservice.InvalidPolicyError{Message: "unsupported expression", Cause: cause}, new(policyservice.InvalidPolicyError), 400, "InvalidPolicy", "unsupported expression"},
+		{"semantic pointer", &policyservice.InvalidPolicyError{Message: "unsupported expression", Cause: cause}, new(*policyservice.InvalidPolicyError), 400, "InvalidPolicy", "unsupported expression"},
+		{"input value", policyservice.InvalidPolicyInputError{Cause: cause}, new(policyservice.InvalidPolicyInputError), 400, "Bad Request", cause.Error()},
+		{"input pointer", &policyservice.InvalidPolicyInputError{Cause: cause}, new(*policyservice.InvalidPolicyInputError), 400, "Bad Request", cause.Error()},
+		{"overlap value", policyservice.PolicyOverlapError{PolicyName: "other"}, new(policyservice.PolicyOverlapError), 409, "PolicyOverlap", "enabled policy overlaps or cannot be proved disjoint from policy other"},
+		{"overlap pointer", &policyservice.PolicyOverlapError{PolicyName: "other"}, new(*policyservice.PolicyOverlapError), 409, "PolicyOverlap", "enabled policy overlaps or cannot be proved disjoint from policy other"},
 	} {
-		memory, policy := policyFixture(t)
-		service := policyservice.NewServiceHandler(memory, &testPolicyValidator{err: testCase.err}, "enrollment", nil, logrus.New())
-		_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
-		require.Equal(t, testCase.code, status.Code)
-		require.Equal(t, testCase.reason, status.Reason)
-		require.Zero(t, memory.writes)
+		for _, form := range []string{"direct", "wrapped"} {
+			t.Run("When a "+form+" "+testCase.name+" is returned it should preserve classification and causes", func(t *testing.T) {
+				injected := testCase.err
+				if form == "wrapped" {
+					injected = fmt.Errorf("validate: %w", injected)
+				}
+				memory, policy := policyFixture(t)
+				service := policyservice.NewServiceHandler(memory, &testPolicyValidator{err: injected}, "enrollment", nil, logrus.New())
+				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				require.Nil(t, result)
+				require.Zero(t, memory.writes)
+				require.ErrorIs(t, memory.lastError, injected)
+				require.ErrorIs(t, memory.lastError, testCase.err)
+				require.ErrorAs(t, memory.lastError, testCase.target)
+				if testCase.reason != "PolicyOverlap" {
+					require.ErrorIs(t, memory.lastError, sentinel)
+					var actual *json.SyntaxError
+					require.ErrorAs(t, memory.lastError, &actual)
+					require.Same(t, syntaxError, actual)
+				}
+				require.Equal(t, testCase.code, status.Code)
+				require.Equal(t, testCase.reason, status.Reason)
+				require.Equal(t, testCase.message, status.Message)
+			})
+		}
 	}
 }
 
@@ -352,11 +384,41 @@ func TestPolicyPatchCauseAndClassification(t *testing.T) {
 }
 
 func TestPolicySemanticCauseTakesPrecedence(t *testing.T) {
-	memory, policy := policyFixture(t)
-	validator := &testPolicyValidator{err: policyservice.InvalidPolicyError{Message: "invalid binding", Cause: flterrors.ErrResourceNotFound}}
-	service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
-	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
-	require.Equal(t, int32(400), status.Code)
-	require.Equal(t, "InvalidPolicy", status.Reason)
-	require.Zero(t, memory.writes)
+	for _, storageCause := range []struct {
+		name string
+		err  error
+	}{
+		{"notfound", flterrors.ErrResourceNotFound},
+		{"conflict", flterrors.ErrResourceVersionConflict},
+	} {
+		semantic := policyservice.InvalidPolicyError{Message: "invalid binding", Cause: storageCause.err}
+		for _, testCase := range []struct {
+			name    string
+			err     error
+			reason  string
+			message string
+		}{
+			{"semantic value", semantic, "InvalidPolicy", "invalid binding"},
+			{"semantic pointer", &semantic, "InvalidPolicy", "invalid binding"},
+			{"input value", policyservice.InvalidPolicyInputError{Cause: storageCause.err}, "Bad Request", storageCause.err.Error()},
+			{"input pointer", &policyservice.InvalidPolicyInputError{Cause: storageCause.err}, "Bad Request", storageCause.err.Error()},
+			{"input value wrapping semantic pointer", policyservice.InvalidPolicyInputError{Cause: &semantic}, "InvalidPolicy", "invalid binding"},
+			{"input pointer wrapping semantic value", &policyservice.InvalidPolicyInputError{Cause: semantic}, "InvalidPolicy", "invalid binding"},
+		} {
+			t.Run("When a wrapped "+testCase.name+" contains "+storageCause.name+" it should preserve policy classification", func(t *testing.T) {
+				memory, policy := policyFixture(t)
+				injected := fmt.Errorf("validate: %w", testCase.err)
+				validator := &testPolicyValidator{err: injected}
+				service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				require.Nil(t, result)
+				require.Zero(t, memory.writes)
+				require.ErrorIs(t, memory.lastError, injected)
+				require.ErrorIs(t, memory.lastError, storageCause.err)
+				require.Equal(t, int32(400), status.Code)
+				require.Equal(t, testCase.reason, status.Reason)
+				require.Equal(t, testCase.message, status.Message)
+			})
+		}
+	}
 }

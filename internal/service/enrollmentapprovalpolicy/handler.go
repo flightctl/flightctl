@@ -38,18 +38,27 @@ func NewServiceHandler(policies policystore.Store, validator PolicySetValidator,
 
 func policyErrorToAPIStatus(err error, name string, created bool) domain.Status {
 	var overlap PolicyOverlapError
+	var overlapPointer *PolicyOverlapError
 	var invalidPolicy InvalidPolicyError
+	var invalidPolicyPointer *InvalidPolicyError
 	var selectorFailure *selector.SelectorError
 	var input InvalidPolicyInputError
+	var inputPointer *InvalidPolicyInputError
 	switch {
 	case errors.As(err, &invalidPolicy):
 		return domain.NewFailureStatus(400, "InvalidPolicy", invalidPolicy.Error())
+	case errors.As(err, &invalidPolicyPointer):
+		return domain.NewFailureStatus(400, "InvalidPolicy", invalidPolicyPointer.Error())
 	case errors.As(err, &input):
 		return domain.StatusBadRequest(input.Error())
+	case errors.As(err, &inputPointer):
+		return domain.StatusBadRequest(inputPointer.Error())
 	case errors.Is(err, ErrValidationUnavailable):
 		return domain.NewFailureStatus(503, "PolicyValidationUnavailable", err.Error())
 	case errors.As(err, &overlap):
 		return domain.NewFailureStatus(409, "PolicyOverlap", overlap.Error())
+	case errors.As(err, &overlapPointer):
+		return domain.NewFailureStatus(409, "PolicyOverlap", overlapPointer.Error())
 	case errors.Is(err, flterrors.ErrImmutableCertificateBinding):
 		return domain.NewFailureStatus(409, "ImmutableCertificateBinding", err.Error())
 	case errors.Is(err, flterrors.ErrResourceVersionConflict):
