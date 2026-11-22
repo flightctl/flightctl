@@ -57,6 +57,7 @@ type phaseIdentity struct {
 	ConfigDigest       string          `json:"configDigest"`
 	IntentDigest       string          `json:"intentDigest"`
 	PlanDigest         string          `json:"planDigest,omitempty"`
+	ObservationDigest  string          `json:"observationDigest,omitempty"`
 	Schemas            ManifestSchemas `json:"schemas"`
 	GrantDigest        string          `json:"grantDigest"`
 	CheckpointDigest   string          `json:"checkpointDigest,omitempty"`
@@ -72,9 +73,10 @@ type phaseCheckpoint struct {
 }
 
 type phaseRequest struct {
-	Identity   phaseIdentity    `json:"identity"`
-	Config     []byte           `json:"config"`
-	Checkpoint *phaseCheckpoint `json:"checkpoint,omitempty"`
+	Identity    phaseIdentity    `json:"identity"`
+	Config      []byte           `json:"config"`
+	Checkpoint  *phaseCheckpoint `json:"checkpoint,omitempty"`
+	Observation []byte           `json:"observation,omitempty"`
 }
 
 type phaseTargetKind string
@@ -172,6 +174,15 @@ func newPhaseValidationContext(manifest *Manifest, descriptor *policy.ReleaseDes
 		*schema.target = compiled
 	}
 	ctx.request.Config = bytes.Clone(req.Config)
+	ctx.request.Observation = bytes.Clone(req.Observation)
+	if req.Identity.Action == phaseVerify {
+		if len(req.Observation) == 0 || policy.Hash(req.Observation) != req.Identity.ObservationDigest ||
+			validatePhaseJSON(req.Observation, ctx.observation) != nil {
+			return phaseValidationContext{}, errors.New("phase observation input differs from its approved identity or schema")
+		}
+	} else if len(req.Observation) != 0 || req.Identity.ObservationDigest != "" {
+		return phaseValidationContext{}, errors.New("observation input is only allowed for verify")
+	}
 	if req.Checkpoint != nil {
 		checkpoint := *req.Checkpoint
 		if int64(len(checkpoint.Bytes)) > limits.MaxCheckpointBytes {
@@ -204,6 +215,9 @@ func validatePhaseIdentity(id phaseIdentity, manifest *Manifest, descriptor *pol
 	}
 	if id.PlanDigest != "" && !schemaDigestPattern.MatchString(id.PlanDigest) {
 		return errors.New("invalid phase plan digest")
+	}
+	if id.ObservationDigest != "" && !schemaDigestPattern.MatchString(id.ObservationDigest) {
+		return errors.New("invalid phase observation digest")
 	}
 	return nil
 }
@@ -251,6 +265,14 @@ func (c phaseValidationContext) encodeRequest() ([]byte, error) {
 	}
 	if err := validatePhaseJSON(req.Config, c.configSchema); err != nil {
 		return nil, fmt.Errorf("invalid phase config: %w", err)
+	}
+	if req.Identity.Action == phaseVerify {
+		if len(req.Observation) == 0 || policy.Hash(req.Observation) != req.Identity.ObservationDigest ||
+			validatePhaseJSON(req.Observation, c.observation) != nil {
+			return nil, errors.New("phase observation input differs from its approved identity or schema")
+		}
+	} else if len(req.Observation) != 0 || req.Identity.ObservationDigest != "" {
+		return nil, errors.New("observation input is only allowed for verify")
 	}
 	if req.Checkpoint == nil {
 		if req.Identity.CheckpointDigest != "" || req.Identity.CheckpointRevision != 0 || req.Identity.CheckpointFormat != "" {
@@ -342,6 +364,9 @@ func boundedPhaseCheckpoint(doc any, maxBytes int64) bool {
 func (c phaseValidationContext) validateResult(result phaseResult) error {
 	if !result.Kind.validFor(c.request.Identity.Action) {
 		return errors.New("phase result kind is not admitted for the dispatched action")
+	}
+	if result.Kind != phaseVerified && len(result.Observations) != 0 {
+		return errors.New("observations are only allowed on a verified result")
 	}
 	if result.Checkpoint != nil {
 		if result.Kind != phaseCheckpointResult && result.Kind != phasePrepared {

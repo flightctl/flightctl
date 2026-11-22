@@ -3,8 +3,10 @@
 package firmware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +26,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "--internal-phase-launcher" {
+		if executer.RunPhaseLauncher(os.Args[1:]) != nil {
+			os.Exit(20)
+		}
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--protocol" {
 		os.Exit(checkPhaseHelper())
 	}
@@ -46,6 +54,14 @@ func checkPhaseHelper() int {
 	var req phaseRequest
 	if json.Unmarshal(raw, &req) != nil || string(req.Config) != `{"value":1.25}` ||
 		req.Checkpoint == nil || string(req.Checkpoint.Bytes) != `{ "step": 1 }` {
+		return 12
+	}
+	if action == "prepare" {
+		source, err := io.ReadAll(os.Stdin)
+		if err != nil || string(source) != "synthetic-artifact" {
+			return 12
+		}
+	} else if !bytes.Equal(req.Observation, []byte(`{"boot":"active"}`)) {
 		return 12
 	}
 	result := phaseResult{Identity: req.Identity}
@@ -111,7 +127,10 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 	d.Limits.MaxProcesses = 32
 	d.Limits.MaxMemoryBytes = 128 << 20
 	d.Limits.MaxScratchBytes = 32 << 10
-	d.Access = &policy.PhaseAccess{Prepare: &policy.AccessGrant{WorkspaceWrite: true}, Apply: &policy.AccessGrant{}, Verify: &policy.AccessGrant{}}
+	d.Access = &policy.PhaseAccess{
+		Prepare: &policy.AccessGrant{WorkspaceWrite: true, NetworkRepositories: []string{"fixture-source"}},
+		Apply:   &policy.AccessGrant{}, Verify: &policy.AccessGrant{},
+	}
 	cfg, err := firmwarecatalog.New()
 	require.NoError(t, err)
 	raw, err := json.Marshal(cfg.Releases[0].Publisher)
@@ -146,19 +165,30 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 	leaseOpen = false
 	require.NoError(t, err)
 	req.Identity.ManifestDigest = pin.ManifestDigest
-	require.NoError(t, (phaseRecordStore{dir: cache.firmware}).save(phaseRecord{AttemptID: req.Identity.AttemptID, Checkpoint: req.Checkpoint}))
+	recordStore := phaseRecordStore{dir: cache.firmware, attemptID: req.Identity.AttemptID}
+	require.NoError(t, recordStore.save(phaseRecord{AttemptID: req.Identity.AttemptID, Checkpoint: req.Checkpoint}))
 
 	gate := newPhaseBoundaryApproval(t, dataDir, rw, binding)
 	runner := phaseRunner{
 		approval: gate, retention: retention, executor: &executer.LinuxPhaseExecutor{},
+		launcherPath:             stagePhaseLauncher(t),
 		selfContainedCheckpoints: true,
 	}
 	invocation := phaseInvocation{
 		binding: binding, pin: pin, request: req, targets: []phaseTarget{{Kind: phaseComponent, Name: "system"}},
 		attempts: 1, dispatchCeiling: 4,
 	}
+	observation := bytes.Clone(req.Observation)
+	sourceReader, sourceWriter, err := os.Pipe()
+	require.NoError(t, err)
+	_, err = sourceWriter.Write([]byte("synthetic-artifact"))
+	require.NoError(t, err)
+	require.NoError(t, sourceWriter.Close())
+	t.Cleanup(func() { require.NoError(t, sourceReader.Close()) })
+	invocation.source = &phaseSource{repository: "fixture-source", file: sourceReader}
 	prepare := invocation.request.Identity
-	prepare.Action, prepare.PlanDigest, prepare.CallID = phasePrepare, "", phaseCallID(1)
+	prepare.Action, prepare.PlanDigest, prepare.ObservationDigest, prepare.CallID = phasePrepare, "", "", phaseCallID(1)
+	invocation.request.Observation = nil
 	grant, err := json.Marshal(d.Access.Prepare)
 	require.NoError(t, err)
 	prepare.GrantDigest = policy.Hash(grant)
@@ -171,6 +201,8 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 
 	verify := req.Identity
 	verify.CallID, verify.PlanDigest = phaseCallID(2), got.Prepared.SelectionDigest
+	invocation.source = nil
+	invocation.request.Observation = observation
 	grant, err = json.Marshal(d.Access.Verify)
 	require.NoError(t, err)
 	verify.GrantDigest = policy.Hash(grant)
@@ -179,29 +211,37 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 	require.NoError(t, err)
 	require.Equal(t, phaseVerified, got.Kind)
 	require.Equal(t, verify, got.Identity)
-	record, err := (phaseRecordStore{dir: cache.firmware}).load()
+	record, err := recordStore.load()
 	require.NoError(t, err)
 	require.EqualValues(t, 2, record.Dispatches)
 	require.Equal(t, req.Checkpoint, record.Checkpoint)
 	require.Nil(t, record.Pending)
 	if releaseCompleted {
 		require.NoError(t, retention.Release(pin.AttemptID))
-		retired, err := (phaseRecordStore{dir: cache.firmware}).load()
+		retired, err := recordStore.load()
 		require.NoError(t, err)
-		require.Empty(t, retired.AttemptID)
+		require.Equal(t, req.Identity.AttemptID, retired.AttemptID)
+		require.ErrorIs(t, retention.Pin(pin), ErrPinConflict, "a completed attempt ID cannot be pinned again")
 		newAttempt := "next-attempt"
 		invocation.pin.AttemptID = newAttempt
 		require.NoError(t, retention.Pin(invocation.pin))
 		invocation.request.Identity.AttemptID = newAttempt
 		invocation.request.Identity.CallID = phaseCallID(1)
 		invocation.targets = []phaseTarget{fixturePhaseTarget()}
-		require.NoError(t, (phaseRecordStore{dir: cache.firmware}).save(phaseRecord{
+		newStore := phaseRecordStore{dir: cache.firmware, attemptID: newAttempt}
+		require.NoError(t, newStore.save(phaseRecord{
 			AttemptID: newAttempt, Checkpoint: invocation.request.Checkpoint,
 		}))
 		got, err := runner.runPhase(t.Context(), invocation)
 		require.NoError(t, err)
 		require.Equal(t, phaseVerified, got.Kind)
 		require.Equal(t, newAttempt, got.Identity.AttemptID)
+		stale, err := recordStore.load()
+		require.NoError(t, err)
+		require.Equal(t, req.Identity.AttemptID, stale.AttemptID)
+		current, err := newStore.load()
+		require.NoError(t, err)
+		require.Equal(t, newAttempt, current.AttemptID)
 		return
 	}
 	if !omitMember {
@@ -215,23 +255,42 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 		require.ErrorIs(t, err, receiver.ErrUnavailable)
 	}
 	require.Empty(t, got.Kind)
-	record, err = (phaseRecordStore{dir: cache.firmware}).load()
+	record, err = recordStore.load()
 	require.NoError(t, err)
 	require.EqualValues(t, 3, record.Dispatches)
 	require.Equal(t, &invocation.request.Identity, record.Pending)
-	require.Equal(t, verify, record.Accepted.Identity)
+	require.Equal(t, verify, storedPhaseResult(t, record).Identity)
 	require.Equal(t, req.Checkpoint, record.Checkpoint)
 	require.EqualValues(t, 1, record.AcceptedReceipt.Revision)
 
 	restarted := NewRetention(dataDir, rw, log.NewPrefixLogger("phase-restart"))
 	require.ErrorIs(t, restarted.Release(pin.AttemptID), ErrPinConflict)
-	next := phaseRunner{approval: gate, retention: restarted, executor: &executer.LinuxPhaseExecutor{}, selfContainedCheckpoints: true}
+	next := phaseRunner{
+		approval: gate, retention: restarted, executor: &executer.LinuxPhaseExecutor{},
+		launcherPath: runner.launcherPath, selfContainedCheckpoints: true,
+	}
 	invocation.request.Identity.CallID = phaseCallID(4)
 	_, err = next.runPhase(t.Context(), invocation)
 	require.ErrorIs(t, err, errPhasePending)
-	reopened, err := (phaseRecordStore{dir: cache.firmware}).load()
+	reopened, err := recordStore.load()
 	require.NoError(t, err)
 	require.EqualValues(t, 3, reopened.Dispatches)
+}
+
+func stagePhaseLauncher(t *testing.T) string {
+	t.Helper()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	data, err := os.ReadFile(executable)
+	require.NoError(t, err)
+	dir, err := os.MkdirTemp("/usr/libexec", "flightctl-phase-launcher-")
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(dir, 0o755))
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+	path := filepath.Join(dir, "phase-launcher")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	require.NoError(t, os.Chmod(path, 0o555))
+	return path
 }
 
 type phaseBoundaryApproval struct {

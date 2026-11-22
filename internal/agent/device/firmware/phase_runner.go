@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -34,15 +36,28 @@ func executeRecordedPhase(ctx context.Context, store phaseRecordStore, approval 
 	if id.Action != phasePrepare && id.Action != phaseVerify {
 		return phaseResult{}, errors.New("firmware phase is disabled")
 	}
+	if store.attemptID != id.AttemptID {
+		return phaseResult{}, errors.New("firmware runner record is scoped to a different attempt")
+	}
 	record, err := store.load()
 	if err != nil {
 		return phaseResult{}, err
+	}
+	if record.Retired {
+		return phaseResult{}, errPhaseRetired
 	}
 	if record.Pending != nil {
 		return phaseResult{}, errPhasePending
 	}
 	if record.AttemptID == "" {
 		record.AttemptID = id.AttemptID
+	}
+	if len(record.Accepted) == 0 && len(record.CheckpointRaw) == 0 && validation.request.Checkpoint != nil {
+		record.Checkpoint = validation.request.Checkpoint
+		record.CheckpointRaw, err = json.Marshal(validation.request.Checkpoint)
+		if err != nil {
+			return phaseResult{}, fmt.Errorf("encode initial firmware checkpoint: %w", err)
+		}
 	}
 	if err := checkRecordedPhase(record, validation, ceiling); err != nil {
 		return phaseResult{}, err
@@ -79,16 +94,31 @@ func executeRecordedPhase(ctx context.Context, store phaseRecordStore, approval 
 	if err != nil {
 		return phaseResult{}, err
 	}
+	var checkpointRaw, selectedRaw json.RawMessage
+	if accepted.Checkpoint != nil {
+		checkpointRaw, err = phaseResultRawField(out.Result, "checkpoint")
+		if err != nil || len(checkpointRaw) == 0 {
+			return phaseResult{}, errors.New("accepted phase checkpoint is missing its wire value")
+		}
+	}
+	if accepted.Prepared != nil {
+		selectedRaw, err = phaseResultRawField(out.Result, "prepared")
+		if err != nil || len(selectedRaw) == 0 {
+			return phaseResult{}, errors.New("accepted phase selection is missing its wire value")
+		}
+	}
 	err = approval.WithApprovedRelease(ctx, id.Name, id.Version, id.DescriptorDigest, func(receipt policy.Receipt) error {
 		record.Pending = nil
 		record.PendingReceipt = nil
-		record.Accepted = &accepted
+		record.Accepted = bytes.Clone(out.Result)
 		record.AcceptedReceipt = &receipt
 		if accepted.Checkpoint != nil {
 			record.Checkpoint = accepted.Checkpoint
+			record.CheckpointRaw = checkpointRaw
 		}
 		if accepted.Prepared != nil {
 			record.Selected = accepted.Prepared
+			record.SelectedRaw = selectedRaw
 		}
 		return store.save(record)
 	})
@@ -100,6 +130,9 @@ func executeRecordedPhase(ctx context.Context, store phaseRecordStore, approval 
 
 func checkRecordedPhase(record phaseRecord, validation phaseValidationContext, ceiling int64) error {
 	id := validation.request.Identity
+	if record.Retired {
+		return errPhaseRetired
+	}
 	if record.AttemptID != id.AttemptID || !samePhaseCheckpoint(record.Checkpoint, validation.request.Checkpoint) ||
 		(record.Dispatches > 0 && record.Binding != phaseBinding(id)) {
 		return errors.New("firmware phase differs from durable runner input")
@@ -140,15 +173,22 @@ type phaseInvocation struct {
 	pin             Pin
 	request         phaseRequest
 	targets         []phaseTarget
+	source          *phaseSource
 	dispatchCeiling int64
 	attempts        int64
 	reboots         int64
+}
+
+type phaseSource struct {
+	repository string
+	file       *os.File
 }
 
 type phaseRunner struct {
 	approval                 phaseApproval
 	retention                *Retention
 	executor                 *executer.LinuxPhaseExecutor
+	launcherPath             string
 	selfContainedCheckpoints bool
 }
 
@@ -170,7 +210,7 @@ func (r *phaseRunner) runPhase(ctx context.Context, invocation phaseInvocation) 
 		return phaseResult{}, ErrPinConflict
 	}
 	req := invocation.request
-	grant, err := minimalPhaseGrant(descriptor, req.Identity.Action)
+	grant, err := minimalPhaseGrant(descriptor, req.Identity.Action, invocation.source)
 	if err != nil {
 		return phaseResult{}, err
 	}
@@ -195,10 +235,13 @@ func (r *phaseRunner) runPhase(ctx context.Context, invocation phaseInvocation) 
 	if err != nil {
 		return phaseResult{}, err
 	}
-	store := phaseRecordStore{dir: payload.state}
+	store := phaseRecordStore{dir: payload.state, attemptID: req.Identity.AttemptID}
 	record, err := store.load()
 	if err != nil {
 		return phaseResult{}, err
+	}
+	if record.Retired {
+		return phaseResult{}, errPhaseRetired
 	}
 	if record.Pending != nil {
 		return phaseResult{}, errPhasePending
@@ -206,14 +249,18 @@ func (r *phaseRunner) runPhase(ctx context.Context, invocation phaseInvocation) 
 	if err := payload.project(ctx, req.Identity.AttemptID, requestBytes); err != nil {
 		return phaseResult{}, err
 	}
-	job, err := r.executor.PreparePhase(ctx, phaseExecutionSpec(payload.root.Path(), payload.manifest.Entrypoint, req.Identity.Action, grant, descriptor.Limits))
+	spec, err := phaseExecutionSpec(payload.root.Path(), payload.manifest.Entrypoint, req.Identity.Action, grant, invocation.source, r.launcherPath, descriptor.Limits)
+	if err != nil {
+		return phaseResult{}, err
+	}
+	job, err := r.executor.PreparePhase(ctx, spec)
 	if err != nil {
 		return phaseResult{}, err
 	}
 	return executeRecordedPhase(ctx, store, r.approval, job, validation, invocation.dispatchCeiling)
 }
 
-func minimalPhaseGrant(d *policy.ReleaseDescriptor, action phaseAction) (*policy.AccessGrant, error) {
+func minimalPhaseGrant(d *policy.ReleaseDescriptor, action phaseAction, source *phaseSource) (*policy.AccessGrant, error) {
 	var grant *policy.AccessGrant
 	switch action {
 	case phasePrepare:
@@ -223,8 +270,20 @@ func minimalPhaseGrant(d *policy.ReleaseDescriptor, action phaseAction) (*policy
 	default:
 		return nil, errors.New("firmware phase is disabled")
 	}
-	if grant == nil || len(grant.NetworkRepositories)+len(grant.CredentialRepositories)+len(grant.ReadPaths)+len(grant.WritePaths)+len(grant.ReadDevices)+len(grant.WriteDevices) != 0 {
+	if grant == nil || len(grant.CredentialRepositories)+len(grant.ReadPaths)+len(grant.WritePaths)+len(grant.ReadDevices)+len(grant.WriteDevices) != 0 {
 		return nil, fmt.Errorf("%w: firmware access grant exceeds the minimal Linux profile", executer.ErrPhaseUnsupported)
+	}
+	switch action {
+	case phasePrepare:
+		if len(grant.NetworkRepositories) > 1 ||
+			(len(grant.NetworkRepositories) == 0 && source != nil) ||
+			(len(grant.NetworkRepositories) == 1 && (source == nil || source.file == nil || source.repository != grant.NetworkRepositories[0])) {
+			return nil, fmt.Errorf("%w: prepare source does not match its admitted repository grant", executer.ErrPhaseUnsupported)
+		}
+	case phaseVerify:
+		if source != nil || len(grant.NetworkRepositories) != 0 || grant.WorkspaceWrite {
+			return nil, fmt.Errorf("%w: verify cannot receive source access or workspace writes", executer.ErrPhaseUnsupported)
+		}
 	}
 	return grant, nil
 }
@@ -250,11 +309,30 @@ func checkInvocation(input phaseInvocation, grant *policy.AccessGrant, limits po
 	return nil
 }
 
-func phaseExecutionSpec(root, entrypoint string, action phaseAction, grant *policy.AccessGrant, limits policy.ExecutionLimits) executer.PhaseExecSpec {
-	return executer.PhaseExecSpec{
+func phaseExecutionSpec(root, entrypoint string, action phaseAction, grant *policy.AccessGrant, source *phaseSource, launcher string, limits policy.ExecutionLimits) (executer.PhaseExecSpec, error) {
+	if launcher == "" {
+		launcher = executer.DefaultPhaseLauncherPath
+	}
+	launcher, err := filepath.EvalSymlinks(launcher)
+	if err != nil {
+		return executer.PhaseExecSpec{}, fmt.Errorf("resolve phase launcher path: %w", err)
+	}
+	namespaces, err := executer.CurrentPhaseNamespaceIdentity()
+	if err != nil {
+		return executer.PhaseExecSpec{}, err
+	}
+	hostNamespaces, err := executer.CurrentHostPhaseNamespaceIdentity()
+	if err != nil {
+		return executer.PhaseExecSpec{}, err
+	}
+	if namespaces != hostNamespaces {
+		return executer.PhaseExecSpec{}, fmt.Errorf("%w: agent is not in the PID 1 system-manager namespace baseline", executer.ErrPhaseUnsupported)
+	}
+	spec := executer.PhaseExecSpec{
 		RootDir: root, Entrypoint: "/" + entrypoint,
 		Args:         []string{"--protocol", "1", "--action", string(action), "--request", "/request.json"},
 		WritableWork: grant.WorkspaceWrite,
+		LauncherPath: launcher, HostNamespaces: hostNamespaces,
 		Limits: executer.PhaseExecLimits{
 			ResultBytes: limits.MaxResultBytes, StderrBytes: limits.MaxStderrBytes,
 			ScratchBytes: limits.MaxScratchBytes, MemoryBytes: limits.MaxMemoryBytes, Processes: limits.MaxProcesses,
@@ -262,4 +340,8 @@ func phaseExecutionSpec(root, entrypoint string, action phaseAction, grant *poli
 			Cleanup:    5 * time.Second,
 		},
 	}
+	if source != nil {
+		spec.SourceFD = source.file
+	}
+	return spec, nil
 }

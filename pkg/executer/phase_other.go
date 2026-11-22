@@ -25,3 +25,16 @@ func (*PhaseJob) Wait(context.Context) (PhaseExecOutput, error) {
 
 // Close releases the unsupported job.
 func (*PhaseJob) Close() error { return nil }
+
+// CurrentPhaseNamespaceIdentity reports that Linux namespace proof is unavailable.
+func CurrentPhaseNamespaceIdentity() (PhaseNamespaceIdentity, error) {
+	return PhaseNamespaceIdentity{}, ErrPhaseUnsupported
+}
+
+// CurrentHostPhaseNamespaceIdentity reports that the Linux namespace baseline is unavailable.
+func CurrentHostPhaseNamespaceIdentity() (PhaseNamespaceIdentity, error) {
+	return PhaseNamespaceIdentity{}, ErrPhaseUnsupported
+}
+
+// RunPhaseLauncher reports that the Linux namespace proof is unavailable.
+func RunPhaseLauncher([]string) error { return ErrPhaseUnsupported }
