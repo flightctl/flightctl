@@ -12,13 +12,14 @@ import (
 func phaseProtocolFixture(t *testing.T) (*Manifest, *policy.ReleaseDescriptor, phaseRequest) {
 	t.Helper()
 	objectSchema := phaseSchemaFixture(`{"type":"object"}`)
+	requestSchema := phaseSchemaFixture(`{"type":"object","additionalProperties":false,"required":["identity","config"],"properties":{"identity":{"type":"object"},"config":{"type":"string"},"checkpoint":{"type":"object"},"observation":{"type":"string"}}}`)
 	configSchema := phaseSchemaFixture(`{"type":"object","required":["value"],"additionalProperties":false,"properties":{"value":{"type":"number"}}}`)
 	checkpointSchema := phaseSchemaFixture(`{"type":"object","required":["step"],"additionalProperties":false,"properties":{"step":{"type":"integer"}}}`)
 	d := &policy.ReleaseDescriptor{
 		Name: "test-updater", Version: "1.0.0", Protocol: SupportedProtocol,
 		PackageDigest: policy.Hash([]byte("package")),
 		Schemas: policy.SchemaBundle{
-			Request: objectSchema, Result: objectSchema, Observation: objectSchema,
+			Request: requestSchema, Result: objectSchema, Observation: objectSchema,
 			Config: configSchema, Checkpoint: checkpointSchema,
 		},
 		Limits: policy.ExecutionLimits{
@@ -30,10 +31,11 @@ func phaseProtocolFixture(t *testing.T) (*Manifest, *policy.ReleaseDescriptor, p
 	m := &Manifest{Name: d.Name, Version: d.Version, Protocol: d.Protocol,
 		Schemas: ManifestSchemas{
 			Config: configSchema.Digest, Checkpoint: checkpointSchema.Digest,
-			Observation: objectSchema.Digest, Request: objectSchema.Digest, Result: objectSchema.Digest,
+			Observation: objectSchema.Digest, Request: requestSchema.Digest, Result: objectSchema.Digest,
 		},
 	}
 	cfg := []byte(`{"value":1.25}`)
+	observation := []byte(`{"boot":"active"}`)
 	checkpointBytes := []byte(`{ "step": 1 }`)
 	input := &phaseCheckpoint{Format: "test/v1", Revision: 1, Bytes: checkpointBytes, Digest: policy.Hash(checkpointBytes)}
 	req := phaseRequest{
@@ -42,11 +44,11 @@ func phaseProtocolFixture(t *testing.T) (*Manifest, *policy.ReleaseDescriptor, p
 			Name: d.Name, Version: d.Version, DescriptorDigest: policy.Hash([]byte("descriptor")),
 			PackageDigest: d.PackageDigest, ManifestDigest: policy.Hash([]byte("manifest")),
 			ConfigDigest: policy.Hash(cfg), IntentDigest: policy.Hash([]byte("intent")),
-			PlanDigest: policy.Hash([]byte("plan")), Schemas: m.Schemas,
+			PlanDigest: policy.Hash([]byte("plan")), ObservationDigest: policy.Hash(observation), Schemas: m.Schemas,
 			GrantDigest: policy.Hash([]byte("grant")), CheckpointDigest: input.Digest,
 			CheckpointFormat: input.Format, CheckpointRevision: input.Revision,
 		},
-		Config: cfg, Checkpoint: input,
+		Config: cfg, Checkpoint: input, Observation: observation,
 	}
 	return m, d, req
 }
@@ -66,6 +68,7 @@ func TestPhaseProtocolRequest(t *testing.T) {
 		require.NoError(t, json.Unmarshal(data, &received))
 		require.Equal(t, req.Config, received.Config)
 		require.Equal(t, req.Checkpoint.Bytes, received.Checkpoint.Bytes)
+		require.Equal(t, req.Observation, received.Observation)
 	})
 
 	for _, tc := range []struct {
@@ -74,6 +77,12 @@ func TestPhaseProtocolRequest(t *testing.T) {
 	}{
 		{"When normalized config differs from its digest it should reject", func(_ *Manifest, _ *policy.ReleaseDescriptor, r *phaseRequest) {
 			r.Config = []byte(`{"value":3}`)
+		}},
+		{"When verify observation bytes differ from their call digest it should reject", func(_ *Manifest, _ *policy.ReleaseDescriptor, r *phaseRequest) {
+			r.Observation = []byte(`{"boot":"unknown"}`)
+		}},
+		{"When verify observation input has no digest it should reject", func(_ *Manifest, _ *policy.ReleaseDescriptor, r *phaseRequest) {
+			r.Identity.ObservationDigest = ""
 		}},
 		{"When checkpoint identity is absent it should reject", func(_ *Manifest, _ *policy.ReleaseDescriptor, r *phaseRequest) {
 			r.Identity.CheckpointRevision = 0
@@ -125,7 +134,10 @@ func TestPhaseProtocolResult(t *testing.T) {
 		{name: "When observed artifact differs from the plan it should reject", edit: func(r *phaseResult) { r.Observations[0].Digest = policy.Hash(nil) }},
 		{name: "When a call identity differs it should reject", edit: func(r *phaseResult) { r.Identity.CallID = "previous" }},
 		{name: "When a result is for a different action it should reject", edit: func(r *phaseResult) { r.Kind = phasePrepared }},
-		{name: "When pending includes observations it should not imply success", edit: func(r *phaseResult) { r.Kind = phasePending }, valid: true},
+		{name: "When a Pending result carries sparse observations it should reject before durable expansion", edit: func(r *phaseResult) {
+			r.Kind = phasePending
+			r.Observations = []phaseObservation{{}}
+		}},
 		{name: "When an object contains repeated keys it should reject", wire: func(data []byte) []byte { return append([]byte(`{"kind":"Pending",`), data[1:]...) }},
 		{name: "When a case-insensitive alias could override the result kind it should reject", wire: func(data []byte) []byte {
 			return append(data[:len(data)-1], []byte(`,"Kind":"Pending"}`)...)
@@ -183,6 +195,8 @@ func TestPhaseProtocolPrepare(t *testing.T) {
 	m, d, req := phaseProtocolFixture(t)
 	req.Identity.Action = phasePrepare
 	req.Identity.PlanDigest = ""
+	req.Identity.ObservationDigest = ""
+	req.Observation = nil
 	d.Schemas.Result = phaseSchemaFixture(`{
 		"type":"object","additionalProperties":false,
 		"required":["identity","kind","osReadiness","prepared"],

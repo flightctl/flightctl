@@ -36,6 +36,9 @@ jobs:
           mv bin/flightctl-agent flightctl-agent-linux-armv7
           SHA=$(shasum -a 256 flightctl-agent-linux-armv7 | cut -d' ' -f1)
           echo "${SHA}" > flightctl-agent-linux-armv7-sha256.txt
+          mv bin/flightctl-phase-launcher flightctl-phase-launcher-linux-armv7
+          SHA=$(shasum -a 256 flightctl-phase-launcher-linux-armv7 | cut -d' ' -f1)
+          echo "${SHA}" > flightctl-phase-launcher-linux-armv7-sha256.txt
 
       - name: Save binary
         uses: actions/upload-artifact@v4
@@ -49,6 +52,18 @@ jobs:
           path: flightctl-agent-linux-armv7-sha256.txt
           name: flightctl-agent-linux-armv7-sha256.txt
 
+      - name: Save phase launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-phase-launcher-linux-armv7
+          path: flightctl-phase-launcher-linux-armv7
+
+      - name: Save phase launcher checksum
+        uses: actions/upload-artifact@v4
+        with:
+          path: flightctl-phase-launcher-linux-armv7-sha256.txt
+          name: flightctl-phase-launcher-linux-armv7-sha256.txt
+
   verify:
     name: Verify Binaries on linux
     runs-on: ubuntu-24.04
@@ -60,8 +75,13 @@ jobs:
         with:
           name: flightctl-agent-linux-armv7
 
+      - name: Load phase launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-phase-launcher-linux-armv7
+
       - name: Make Executable
-        run: chmod +x flightctl-agent-linux-armv7
+        run: chmod +x flightctl-agent-linux-armv7 flightctl-phase-launcher-linux-armv7
 
       # the binary is static (CGO_ENABLED=0), so user-mode QEMU on the runner is enough, no privileged container
       - name: Setup QEMU
@@ -73,6 +93,13 @@ jobs:
         run: |
           # Verify version output
           qemu-arm-static ./flightctl-agent-linux-armv7 version
+          # The private launcher must execute and reject an invalid invocation.
+          if qemu-arm-static ./flightctl-phase-launcher-linux-armv7; then
+            echo "phase launcher accepted an invalid invocation"
+            exit 1
+          else
+            test "$?" -eq 125
+          fi
 
   publish:
     name: Publish Binaries

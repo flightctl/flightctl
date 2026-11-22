@@ -3,7 +3,10 @@ package executer
 import (
 	"bytes"
 	"errors"
+	"os"
 	"time"
+
+	"github.com/flightctl/flightctl/pkg/phasebootstrap"
 )
 
 var (
@@ -26,18 +29,31 @@ type PhaseExecLimits struct {
 	Cleanup      time.Duration
 }
 
+// PhaseNamespaceID identifies one namespace by its procfs device and inode.
+type PhaseNamespaceID = phasebootstrap.NamespaceID
+
+// PhaseNamespaceIdentity records the system-manager host namespace baseline.
+type PhaseNamespaceIdentity = phasebootstrap.Identity
+
+// DefaultPhaseLauncherPath names the small static launcher installed with the
+// agent package.
+const DefaultPhaseLauncherPath = "/usr/libexec/flightctl/phase-launcher"
+
 // PhaseExecSpec describes a caller-owned, verified execution root kept stable
 // until cleanup. Args excludes argv[0]. All paths inside the root are agent-owned
-// inputs except the optional ephemeral /work mount. SourceSocket permits only
-// Unix sockets in an otherwise isolated network namespace. The caller must mount
-// only the explicitly admitted source socket in the root.
+// inputs except the optional ephemeral /work mount. SourceFD is a read-only pipe
+// inherited as stdin for one admitted prepare source. LauncherPath is a trusted
+// static host executable staged into the root; it proves namespaces and then
+// replaces itself with the updater under the same systemd invocation.
 type PhaseExecSpec struct {
-	RootDir      string
-	Entrypoint   string
-	Args         []string
-	WritableWork bool
-	SourceSocket bool
-	Limits       PhaseExecLimits
+	RootDir        string
+	Entrypoint     string
+	Args           []string
+	WritableWork   bool
+	SourceFD       *os.File
+	LauncherPath   string
+	HostNamespaces PhaseNamespaceIdentity
+	Limits         PhaseExecLimits
 }
 
 // PhaseExecOutput contains independently bounded result and diagnostic bytes.
