@@ -2320,7 +2320,7 @@ The following example defines a one-time window without a recurring schedule:
 ```yaml
 updatePolicy:
   updateSchedule:
-    timeZone: "Europe/Jerusalem"
+    timeZone: "Asia/Jerusalem"
     oneTimeWindows:
       - date: "2026-11-15"
         at: "22:00"
