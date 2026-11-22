@@ -89,9 +89,10 @@ func (p *PublishedPayload) Pin(attemptID string, role PinRole) Pin {
 // lease protects the payload of one Extract result until the result is pinned
 // or released.
 type lease struct {
-	owner    *retentionCache
-	digest   string
-	released bool
+	owner     *retentionCache
+	digest    string
+	released  bool
+	attemptID string
 }
 
 // identity returns p without the lease of the result it was made from.
@@ -135,7 +136,9 @@ type Retention struct {
 // that address the same configured cache directory.
 type retentionCache struct {
 	gate         chan struct{}
+	phaseGate    chan struct{}
 	leases       map[string]int
+	phaseLeases  map[string]int
 	cleanupAfter string
 }
 
@@ -143,7 +146,7 @@ var retentionCaches sync.Map // physical path to weak.Pointer[retentionCache]
 
 func sharedRetentionCache(path string) *retentionCache {
 	for {
-		cache := &retentionCache{gate: make(chan struct{}, 1), leases: make(map[string]int)}
+		cache := &retentionCache{gate: make(chan struct{}, 1), phaseGate: make(chan struct{}, 1), leases: make(map[string]int), phaseLeases: make(map[string]int)}
 		pointer := weak.Make(cache)
 		existing, loaded := retentionCaches.LoadOrStore(path, pointer)
 		if !loaded {
@@ -410,6 +413,9 @@ func (r *Retention) Pin(p Pin) error {
 func (r *Retention) Release(attemptID string) error {
 	r.cache.gate <- struct{}{}
 	defer func() { <-r.cache.gate }()
+	if r.cache.phaseLeases[attemptID] != 0 {
+		return fmt.Errorf("attempt %q has an active execution lease: %w", attemptID, ErrPinConflict)
+	}
 	c, err := r.openCache(false)
 	if err != nil {
 		return err
@@ -418,6 +424,13 @@ func (r *Retention) Release(attemptID string) error {
 	pins, err := readRegistry(c.firmware)
 	if err != nil {
 		return err
+	}
+	held, err := phaseHeldPin(c.firmware, attemptID)
+	if err != nil {
+		return err
+	}
+	if held {
+		return fmt.Errorf("attempt %q has unresolved runner state: %w", attemptID, ErrPinConflict)
 	}
 	kept := make([]Pin, 0, len(pins))
 	for _, p := range pins {
@@ -456,6 +469,11 @@ func (r *Retention) endLease(l *lease) {
 		return
 	}
 	l.released = true
+	if l.attemptID != "" {
+		if r.cache.phaseLeases[l.attemptID]--; r.cache.phaseLeases[l.attemptID] <= 0 {
+			delete(r.cache.phaseLeases, l.attemptID)
+		}
+	}
 	if r.cache.leases[l.digest]--; r.cache.leases[l.digest] <= 0 {
 		delete(r.cache.leases, l.digest)
 	}

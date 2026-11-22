@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -382,4 +383,47 @@ func TestPolicyReceiveSerializesDurableAcceptance(t *testing.T) {
 	current, err := m.Current()
 	require.NoError(t, err)
 	require.Equal(t, two, *current)
+}
+
+func TestPolicyGuardOrdersDurableResultAgainstRevocation(t *testing.T) {
+	approved, revoked, binding := views(t)
+	n := newNetwork(t)
+	m := manager(t, t.TempDir(), fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()), n)
+	_, err := m.Receive(t.Context(), approved)
+	require.NoError(t, err)
+
+	started := make(chan policy.Receipt, 1)
+	finish := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(finish) }) }
+	defer release()
+	accepted := make(chan error, 1)
+	go func() {
+		accepted <- m.WithApprovedRelease(t.Context(), binding.Name, binding.Version, binding.DescriptorDigest, func(receipt policy.Receipt) error {
+			started <- receipt
+			<-finish
+			return nil
+		})
+	}()
+	select {
+	case receipt := <-started:
+		require.Equal(t, approved.Revision, receipt.Revision)
+	case <-time.After(time.Second):
+		t.Fatal("approval callback did not start")
+	}
+
+	received := make(chan error, 1)
+	go func() {
+		_, err := m.Receive(t.Context(), revoked)
+		received <- err
+	}()
+	require.Never(t, func() bool { return len(received) != 0 }, 25*time.Millisecond, time.Millisecond)
+	release()
+	require.NoError(t, <-accepted)
+	require.NoError(t, <-received)
+	err = m.WithApprovedRelease(t.Context(), binding.Name, binding.Version, binding.DescriptorDigest, func(policy.Receipt) error {
+		t.Fatal("revoked release reached result acceptance")
+		return nil
+	})
+	require.Error(t, err)
 }
