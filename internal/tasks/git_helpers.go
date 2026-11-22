@@ -410,8 +410,15 @@ func getRepoHTTPSOptions(ctx context.Context, httpConfig domain.HttpConfig) (*gi
 	return options, nil
 }
 
+// buildKnownHostsCallback loads the deployed SSH known_hosts file.
 func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
-	cb, err := knownhosts.New("/etc/flightctl/ssh/known_hosts")
+	cb, err := buildKnownHostsCallbackFromFile("/etc/flightctl/ssh/known_hosts")
+	return cb, err
+}
+
+// buildKnownHostsCallbackFromFile creates a host-key callback from a known_hosts file.
+func buildKnownHostsCallbackFromFile(path string) (ssh.HostKeyCallback, error) {
+	cb, err := knownhosts.New(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load SSH known_hosts: %w", err)
 	}
