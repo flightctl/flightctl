@@ -40,7 +40,7 @@ func (memory *replacePolicyRaceStore) Get(ctx context.Context, orgID uuid.UUID, 
 	if memory.advance {
 		memory.advance = false
 		memory.policy.Metadata.ResourceVersion = lo.ToPtr("2")
-		memory.policy.Spec.ApprovalLimit = lo.ToPtr(int64(20))
+		memory.policy.Spec.ApprovalLimit = lo.ToPtr(int32(20))
 	}
 	return result, err
 }
@@ -56,27 +56,27 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 		name         string
 		version      string
 		limit        string
-		initialLimit *int64
+		initialLimit *int32
 		race         bool
 		quotaCheck   bool
 		allowQuota   bool
 		unavailable  bool
 		wantStatus   int
 	}{
-		{"When the submitted version was not authorized it should reject", `"2"`, "10", lo.ToPtr(int64(10)), true, false, false, false, 409},
-		{"When the authorized version changes it should conflict under lock", `"1"`, "10", lo.ToPtr(int64(10)), true, false, false, false, 409},
-		{"When quota is authorized but version changes it should still conflict", `"1"`, "30", lo.ToPtr(int64(10)), true, true, true, false, 409},
-		{"When quota is unchanged it should not require extra permission", `"1"`, "10", lo.ToPtr(int64(10)), false, false, false, false, 200},
-		{"When quota is changed without permission it should reject", `"1"`, "20", lo.ToPtr(int64(10)), false, true, false, false, 403},
-		{"When quota is changed with permission it should replace", `"1"`, "20", lo.ToPtr(int64(10)), false, true, true, false, 200},
+		{"When the submitted version was not authorized it should reject", `"2"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
+		{"When the authorized version changes it should conflict under lock", `"1"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
+		{"When quota is authorized but version changes it should still conflict", `"1"`, "30", lo.ToPtr(int32(10)), true, true, true, false, 409},
+		{"When quota is unchanged it should not require extra permission", `"1"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 200},
+		{"When quota is changed without permission it should reject", `"1"`, "20", lo.ToPtr(int32(10)), false, true, false, false, 403},
+		{"When quota is changed with permission it should replace", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, false, 200},
 		{"When nil becomes zero without permission it should reject", `"1"`, "0", nil, false, true, false, false, 403},
 		{"When nil becomes zero with permission it should replace", `"1"`, "0", nil, false, true, true, false, 200},
-		{"When zero becomes nil without permission it should reject", `"1"`, "null", lo.ToPtr(int64(0)), false, true, false, false, 403},
+		{"When zero becomes nil without permission it should reject", `"1"`, "null", lo.ToPtr(int32(0)), false, true, false, false, 403},
 		{"When nil remains nil it should not require permission", `"1"`, "null", nil, false, false, false, false, 200},
-		{"When version is missing it should conflict", "null", "10", lo.ToPtr(int64(10)), false, false, false, false, 409},
-		{"When version is stale it should conflict", `"0"`, "10", lo.ToPtr(int64(10)), false, false, false, false, 409},
-		{"When version is not a string it should reject input", "1", "10", lo.ToPtr(int64(10)), false, false, false, false, 400},
-		{"When validation is unavailable it should remain fail closed", `"1"`, "20", lo.ToPtr(int64(10)), false, true, true, true, 503},
+		{"When version is missing it should conflict", "null", "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
+		{"When version is stale it should conflict", `"0"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
+		{"When version is not a string it should reject input", "1", "10", lo.ToPtr(int32(10)), false, false, false, false, 400},
+		{"When validation is unavailable it should remain fail closed", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, true, 503},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory := &replacePolicyRaceStore{routePolicyStore: &routePolicyStore{
@@ -117,7 +117,7 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 				require.Zero(t, memory.writes)
 			}
 			if testCase.race {
-				require.Equal(t, int64(20), *memory.policy.Spec.ApprovalLimit)
+				require.Equal(t, int32(20), *memory.policy.Spec.ApprovalLimit)
 			}
 			if testCase.unavailable {
 				require.Contains(t, response.Body.String(), "PolicyValidationUnavailable")

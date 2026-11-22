@@ -107,7 +107,7 @@ var _ = Describe("CSR missing-row concurrency", func() {
 							if createErr != nil || !bound {
 								return createErr
 							}
-							_, _, createErr = policystore.NewStore(suite.DB, suite.Log).Mutate(otherCtx, suite.OrgID, "bound", name, policystore.Create, func(_ *domain.EnrollmentApprovalPolicy, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
+							_, _, createErr = mutatePolicy(otherCtx, policystore.NewStore(suite.DB, suite.Log), suite.OrgID, "bound", name, func(_ *domain.EnrollmentApprovalPolicy, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
 								return &domain.EnrollmentApprovalPolicy{Metadata: domain.ObjectMeta{Name: lo.ToPtr("bound")}, Spec: domain.EnrollmentApprovalPolicySpec{CertificateName: name, MatchExpression: "true"}}, nil
 							})
 							return createErr

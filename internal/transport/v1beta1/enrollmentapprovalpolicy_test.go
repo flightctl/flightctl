@@ -87,8 +87,8 @@ func TestApprovalPolicyDecodeErrorReasons(t *testing.T) {
 		reason string
 	}{
 		{`{"status":null}`, "ProtectedField"},
-		{`{"spec":{"unknown":true}}`, "InvalidPolicy"},
-		{`{} {}`, "InvalidPolicy"},
+		{`{"spec":{"unknown":true}}`, "Bad Request"},
+		{`{} {}`, "Bad Request"},
 	} {
 		t.Run(testCase.body, func(t *testing.T) {
 			handler := &TransportHandler{converter: convert.NewConverter()}

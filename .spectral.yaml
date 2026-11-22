@@ -9,6 +9,8 @@ aliases:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
   PathToEnrollmentApprovalPolicyCollection:
     - '$.paths[?(@property == "/enrollmentapprovalpolicies")]'
+  PathToEnrollmentApprovalPolicyResource:
+    - '$.paths[?(@property == "/enrollmentapprovalpolicies/{name}")]'
   PathToLabelSyncMappingCollection:
     - '$.paths[?(@property == "/labelsyncmappings")]'
   PathToLabelSyncMappingResource:
@@ -384,13 +386,58 @@ rules:
         values: ["200", "400", "401", "403", "404", "409", "429", "503"]
 
   responses-enrollmentapprovalpolicy-post-allowed:
-    description: Policy creation can return 404 for an unknown issuing credential.
+    description: Policy POST operations may return 500 for persistence failures.
     severity: error
     given: "#PathToEnrollmentApprovalPolicyCollection.post.responses.*~"
     then:
       function: enumeration
       functionOptions:
-        values: ["201", "400", "401", "403", "404", "409", "429", "503"]
+        values: ["201", "400", "401", "403", "404", "409", "429", "500", "503"]
+
+  responses-enrollmentapprovalpolicy-collection-get-allowed:
+    description: Policy GET operations may return 500 for persistence failures.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyCollection.get.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "429", "500", "503"]
+
+  responses-enrollmentapprovalpolicy-resource-get-allowed:
+    description: Policy GET operations may return 500 for persistence failures.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyResource.get.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "429", "500", "503"]
+
+  responses-enrollmentapprovalpolicy-resource-put-allowed:
+    description: Policy PUT operations may return 500 for persistence failures.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyResource.put.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["200", "201", "400", "401", "403", "404", "409", "429", "500", "503"]
+
+  responses-enrollmentapprovalpolicy-resource-patch-allowed:
+    description: Policy PATCH operations may return 500 for persistence failures.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyResource.patch.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "409", "429", "500", "503"]
+
+  responses-enrollmentapprovalpolicy-resource-delete-allowed:
+    description: Policy DELETE operations may return 500 for persistence failures.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyResource.delete.responses.*~"
+    then:
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "409", "429", "500", "503"]
 
   responses-labelsyncmapping-post-allowed:
     description: POST on LabelSyncMapping collections may also return 422 for expression validation failures.
@@ -563,6 +610,14 @@ overrides:
       - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies"
     rules:
       responses-collection-post-allowed: off
+      responses-collection-get-allowed: off
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies~1%7Bname%7D"
+    rules:
+      responses-resource-get-allowed: off
+      responses-resource-put-allowed: off
+      responses-resource-patch-allowed: off
+      responses-resource-delete-allowed: off
   - files:
       - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies~1%7Bname%7D~1status"
     rules:

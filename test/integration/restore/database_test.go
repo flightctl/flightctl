@@ -3,6 +3,7 @@ package restore_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -164,7 +165,7 @@ var _ = Describe("RestoreDatabase", func() {
 						MatchExpression: "true",
 						DeviceLabels:    map[string]string{},
 					}),
-					Status: model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: 9}),
+					Status: model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}),
 				}
 				Expect(s.DB.Create(&record).Error).To(Succeed())
 				if name == "retained-policy" {
@@ -187,22 +188,25 @@ var _ = Describe("RestoreDatabase", func() {
 			active, err := policies.Get(s.Ctx, s.OrgID, "active-policy")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(active.Spec.CertificateName).To(Equal(credential.Name))
-			Expect(active.Status.EnrollmentCount).To(Equal(int64(9)))
+			Expect(active.Status.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
 			_, err = policies.Get(s.Ctx, s.OrgID, "retained-policy")
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 			var retained model.EnrollmentApprovalPolicy
 			Expect(freshDB.Unscoped().Where("org_id = ? AND name = ?", s.OrgID, "retained-policy").Take(&retained).Error).To(Succeed())
 			Expect(retained.DeletedAt.Valid).To(BeTrue())
 			Expect(retained.CertificateName).To(Equal(credential.Name))
-			Expect(retained.Status.Data.EnrollmentCount).To(Equal(int64(9)))
+			Expect(retained.Status.Data.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
 			var restoredCredential model.CertificateSigningRequest
 			Expect(freshDB.Where("org_id = ? AND name = ?", s.OrgID, credential.Name).Take(&restoredCredential).Error).To(Succeed())
 			Expect(restoredCredential.PolicySetRevision).To(Equal(int64(2)))
 			_, err = csrstore.NewCertificateSigningRequestStore(freshDB, s.Log, s.cfg.CA.DeviceEnrollmentSignerName).Delete(s.Ctx, s.OrgID, credential.Name)
 			Expect(err).To(MatchError(flterrors.ErrEnrollmentCredentialRetained))
-			_, _, err = policies.Mutate(s.Ctx, s.OrgID, "retained-policy", credential.Name, policystore.Create, func(*domain.EnrollmentApprovalPolicy, *domain.CertificateSigningRequest, []domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
-				Fail("a restored tombstone must reserve its name before validation")
-				return nil, nil
+			err = policies.WithPolicySetTransaction(s.Ctx, s.OrgID, credential.Name, "retained-policy", func(txCtx context.Context, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) error {
+				_, _, _, err := policies.Mutate(txCtx, s.OrgID, "retained-policy", func(store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
+					Fail("a restored tombstone must reserve its name before validation")
+					return nil
+				})
+				return err
 			})
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})

@@ -72,16 +72,16 @@ func TestEditApprovalPolicyPreservesApprovalLimit(t *testing.T) {
 	for _, format := range []string{"json", "yaml"} {
 		for _, limits := range []struct {
 			name     string
-			original *int64
-			edited   *int64
+			original *int32
+			edited   *int32
 		}{
-			{"increase", lo.ToPtr(int64(9223372036854775806)), lo.ToPtr(int64(9223372036854775807))},
-			{"decrease", lo.ToPtr(int64(9223372036854775807)), lo.ToPtr(int64(9223372036854775806))},
-			{"unchanged", lo.ToPtr(int64(9223372036854775807)), lo.ToPtr(int64(9223372036854775807))},
-			{"add", nil, lo.ToPtr(int64(9223372036854775807))},
-			{"remove", lo.ToPtr(int64(9223372036854775807)), nil},
+			{"increase", lo.ToPtr(int32(2147483646)), lo.ToPtr(int32(2147483647))},
+			{"decrease", lo.ToPtr(int32(2147483647)), lo.ToPtr(int32(2147483646))},
+			{"unchanged", lo.ToPtr(int32(2147483647)), lo.ToPtr(int32(2147483647))},
+			{"add", nil, lo.ToPtr(int32(2147483647))},
+			{"remove", lo.ToPtr(int32(2147483647)), nil},
 		} {
-			t.Run(format+"/"+limits.name, func(t *testing.T) {
+			t.Run("When editing "+format+" with "+limits.name+" it should preserve the limit", func(t *testing.T) {
 				original := &api.EnrollmentApprovalPolicy{Kind: api.EnrollmentApprovalPolicyKind, ApiVersion: "flightctl.io/v1beta1", Metadata: api.ObjectMeta{Name: lo.ToPtr("west"), ResourceVersion: lo.ToPtr("1")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: limits.original}}
 				response := &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: original, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}
 				opts := DefaultEditOptions()

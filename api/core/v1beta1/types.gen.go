@@ -2065,13 +2065,16 @@ type EnrollmentApprovalPolicyList struct {
 	Metadata ListMeta `json:"metadata"`
 }
 
+// EnrollmentApprovalPolicyPatchRequest Policy patch operations, including null values for optional limits.
+type EnrollmentApprovalPolicyPatchRequest = PatchRequest
+
 // EnrollmentApprovalPolicySpec Administrative enrollment policy configuration.
 type EnrollmentApprovalPolicySpec struct {
 	// AllowedIncomingLabels Exact incoming label keys permitted to supplement static device labels.
 	AllowedIncomingLabels *[]string `json:"allowedIncomingLabels,omitempty"`
 
 	// ApprovalLimit Lifetime automatic approval cap; absent or null is unlimited and zero blocks approvals.
-	ApprovalLimit *int64 `json:"approvalLimit,omitempty"`
+	ApprovalLimit *int32 `json:"approvalLimit,omitempty"`
 
 	// AutoApprovalWindowDays Optional issuance-relative window in whole days; requires authoritative credential issuance time.
 	AutoApprovalWindowDays *int32 `json:"autoApprovalWindowDays,omitempty"`
@@ -4736,7 +4739,7 @@ type ReplaceDeviceStatusJSONRequestBody = Device
 type CreateEnrollmentApprovalPolicyJSONRequestBody = EnrollmentApprovalPolicy
 
 // PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentApprovalPolicy for application/json-patch+json ContentType.
-type PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+type PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody = EnrollmentApprovalPolicyPatchRequest
 
 // ReplaceEnrollmentApprovalPolicyJSONRequestBody defines body for ReplaceEnrollmentApprovalPolicy for application/json ContentType.
 type ReplaceEnrollmentApprovalPolicyJSONRequestBody = EnrollmentApprovalPolicy

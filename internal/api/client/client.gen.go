@@ -8938,6 +8938,7 @@ type ListEnrollmentApprovalPoliciesResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -8975,6 +8976,7 @@ type CreateEnrollmentApprovalPolicyResponse struct {
 	JSON404      *Status
 	JSON409      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -9011,6 +9013,7 @@ type DeleteEnrollmentApprovalPolicyResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -9047,6 +9050,7 @@ type GetEnrollmentApprovalPolicyResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -9084,6 +9088,7 @@ type PatchEnrollmentApprovalPolicyResponse struct {
 	JSON404      *Status
 	JSON409      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -9122,6 +9127,7 @@ type ReplaceEnrollmentApprovalPolicyResponse struct {
 	JSON404      *Status
 	JSON409      *Status
 	JSON429      *Status
+	JSON500      *Status
 	JSON503      *Status
 }
 
@@ -15129,6 +15135,13 @@ func ParseListEnrollmentApprovalPoliciesResponse(rsp *http.Response) (*ListEnrol
 		}
 		response.JSON429 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -15204,6 +15217,13 @@ func ParseCreateEnrollmentApprovalPolicyResponse(rsp *http.Response) (*CreateEnr
 		}
 		response.JSON429 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -15272,6 +15292,13 @@ func ParseDeleteEnrollmentApprovalPolicyResponse(rsp *http.Response) (*DeleteEnr
 		}
 		response.JSON429 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -15339,6 +15366,13 @@ func ParseGetEnrollmentApprovalPolicyResponse(rsp *http.Response) (*GetEnrollmen
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -15414,6 +15448,13 @@ func ParsePatchEnrollmentApprovalPolicyResponse(rsp *http.Response) (*PatchEnrol
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -15496,6 +15537,13 @@ func ParseReplaceEnrollmentApprovalPolicyResponse(rsp *http.Response) (*ReplaceE
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

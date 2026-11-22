@@ -221,18 +221,11 @@ func applyFromReader(ctx context.Context, c *client.Client, ibClient *client.Ima
 
 	var err error
 	for {
-		var document json.RawMessage
-		err = decoder.Decode(&document)
+		var resource genericResource
+		err = decoder.Decode(&resource)
 		if err != nil {
 			break
 		}
-		var resource genericResource
-		resourceDecoder := json.NewDecoder(bytes.NewReader(document))
-		resourceDecoder.UseNumber()
-		if err = resourceDecoder.Decode(&resource); err != nil {
-			break
-		}
-		normalizeIntegralJSONNumbers(resource)
 		resources = append(resources, resource)
 	}
 	if !errors.Is(err, io.EOF) {
@@ -390,9 +383,7 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 
 func applyEnrollmentApprovalPolicy(ctx context.Context, apiClient *client.Client, resourceName string, buf []byte) applyResult {
 	var document genericResource
-	decoder := json.NewDecoder(bytes.NewReader(buf))
-	decoder.UseNumber()
-	if err := decoder.Decode(&document); err != nil {
+	if err := json.Unmarshal(buf, &document); err != nil {
 		return applyResult{err: err}
 	}
 	delete(document, "status")

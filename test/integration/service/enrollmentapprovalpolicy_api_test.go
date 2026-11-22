@@ -9,9 +9,14 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -23,16 +28,19 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	policyservice "github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	policystore "github.com/flightctl/flightctl/internal/store/enrollmentapprovalpolicy"
 	"github.com/flightctl/flightctl/internal/store/model"
 	transport "github.com/flightctl/flightctl/internal/transport/v1beta1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 type policyAPIValidator struct{}
@@ -53,6 +61,27 @@ func (authorizer policyAPIAuthorizer) CheckPermission(ctx context.Context, resou
 	}
 	return authorizer.static.CheckPermission(ctx, resource, operation)
 }
+
+type blockedPolicyValidator struct {
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (v blockedPolicyValidator) ValidatePolicySet(ctx context.Context, _ *domain.EnrollmentApprovalPolicy, _ []domain.EnrollmentApprovalPolicy) error {
+	select {
+	case v.entered <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-v.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type policyReadRaceKey struct{}
 
 var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 	var suite *ServiceTestSuite
@@ -91,6 +120,253 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		return response
 	}
 	policyJSON := []byte(`{"apiVersion":"v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{}}}`)
+	It("When credential revocation races service validation it should wait for the policy transaction", func() {
+		ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
+		defer cancel()
+		entered, release := make(chan struct{}, 1), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		service := policyservice.NewServiceHandler(policystore.NewStore(suite.DB, suite.Log), blockedPolicyValidator{entered, release}, suite.cfg.CA.DeviceEnrollmentSignerName, nil, suite.Log)
+		var policy domain.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+		created, createDone := make(chan domain.Status, 1), make(chan struct{})
+		go func() {
+			defer close(createDone)
+			_, status := service.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
+			created <- status
+		}()
+		defer func() { cancel(); unblock(); Eventually(createDone, 5*time.Second).Should(BeClosed()) }()
+		Eventually(entered, 5*time.Second).Should(Receive())
+		var locked model.CertificateSigningRequest
+		lockErr := suite.DB.WithContext(ctx).Raw("SELECT * FROM certificate_signing_requests WHERE org_id = ? AND name = ? FOR UPDATE NOWAIT", suite.OrgID, "commissioning").Scan(&locked).Error
+		var pgErr *pgconn.PgError
+		Expect(errors.As(lockErr, &pgErr)).To(BeTrue())
+		Expect(pgErr.Code).To(Equal("55P03"))
+		revoked, revokeDone := make(chan error, 1), make(chan struct{})
+		credentials := csrstore.NewCertificateSigningRequestStore(suite.DB, suite.Log, suite.cfg.CA.DeviceEnrollmentSignerName)
+		go func() {
+			defer close(revokeDone)
+			_, _, _, err := credentials.Mutate(ctx, suite.OrgID, "commissioning", nil, func(m *csrstore.CertificateSigningRequestMutation) error {
+				return m.ApplyRevocation(domain.EnrollmentCertificateRevocation{Reason: "retired", RevokedAt: time.Now(), RevokedBy: "test"})
+			})
+			revoked <- err
+		}()
+		defer func() { cancel(); unblock(); Eventually(revokeDone, 5*time.Second).Should(BeClosed()) }()
+		Consistently(revokeDone, 100*time.Millisecond).ShouldNot(BeClosed())
+		unblock()
+		var status domain.Status
+		Eventually(created, 5*time.Second).Should(Receive(&status))
+		Expect(status.Code).To(Equal(int32(201)), status.Message)
+		var err error
+		Eventually(revoked, 5*time.Second).Should(Receive(&err))
+		Expect(err).NotTo(HaveOccurred())
+		credential, err := credentials.Get(ctx, suite.OrgID, "commissioning")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(credential.Status.HasRevocation()).To(BeTrue())
+	})
+	It("When accounting changes after policy load it should preserve the count and reject a stale write", func() {
+		ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
+		defer cancel()
+		policies := policystore.NewStore(suite.DB, suite.Log)
+		service := policyservice.NewServiceHandler(policies, policyAPIValidator{}, suite.cfg.CA.DeviceEnrollmentSignerName, nil, suite.Log)
+		var policy domain.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+		current, status := service.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
+		Expect(status.Code).To(Equal(int32(201)))
+		entered, release := make(chan struct{}, 1), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		service = policyservice.NewServiceHandler(policies, blockedPolicyValidator{entered, release}, suite.cfg.CA.DeviceEnrollmentSignerName, nil, suite.Log)
+		current.Status = nil
+		current.Spec.Enabled = true
+		results, done := make(chan domain.Status, 1), make(chan struct{})
+		go func() {
+			defer close(done)
+			_, status := service.ReplaceEnrollmentApprovalPolicy(ctx, suite.OrgID, "west", *current)
+			results <- status
+		}()
+		defer func() { cancel(); unblock(); Eventually(done, 5*time.Second).Should(BeClosed()) }()
+		Eventually(entered, 5*time.Second).Should(Receive())
+		Expect(suite.DB.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", suite.OrgID, "west").Updates(map[string]interface{}{"status": model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}), "resource_version": 2}).Error).To(Succeed())
+		unblock()
+		Eventually(results, 5*time.Second).Should(Receive(&status))
+		Expect(status.Code).To(Equal(int32(409)), status.Message)
+		preserved, err := policies.Get(ctx, suite.OrgID, "west")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(preserved.Status.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
+		Expect(preserved.Metadata.ResourceVersion).To(Equal(lo.ToPtr("2")))
+		Expect(preserved.Spec.Enabled).To(BeFalse())
+	})
+	for _, method := range []string{"PUT", "PATCH"} {
+		It("When deletion races "+method+" after its initial read it should report the policy missing", func() {
+			ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
+			defer cancel()
+			policies := policystore.NewStore(suite.DB, suite.Log)
+			service := policyservice.NewServiceHandler(policies, policyAPIValidator{}, suite.cfg.CA.DeviceEnrollmentSignerName, nil, suite.Log)
+			var policy domain.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+			current, status := service.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
+			Expect(status.Code).To(Equal(int32(201)))
+			var fired atomic.Bool
+			callbackName := "test:policy_delete_between_read_and_lock"
+			Expect(suite.DB.Callback().Query().After("gorm:after_query").Register(callbackName, func(query *gorm.DB) {
+				if query.Statement.Context.Value(policyReadRaceKey{}) == nil || query.Statement.Table != "enrollment_approval_policies" || query.Error != nil || !fired.CompareAndSwap(false, true) {
+					return
+				}
+				Expect(policies.WithPolicySetTransaction(ctx, suite.OrgID, "commissioning", "west", func(txCtx context.Context, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) error {
+					return policies.Delete(txCtx, suite.OrgID, "west")
+				})).To(Succeed())
+			})).To(Succeed())
+			defer func() { Expect(suite.DB.Callback().Query().Remove(callbackName)).To(Succeed()) }()
+			marked := context.WithValue(ctx, policyReadRaceKey{}, true)
+			if method == "PUT" {
+				current.Status = nil
+				_, status = service.ReplaceEnrollmentApprovalPolicy(marked, suite.OrgID, "west", *current)
+			} else {
+				_, status = service.PatchEnrollmentApprovalPolicy(marked, suite.OrgID, "west", domain.PatchRequest{{Op: "test", Path: "/metadata/resourceVersion", Value: *current.Metadata.ResourceVersion}, {Op: "replace", Path: "/spec/enabled", Value: true}})
+			}
+			Expect(fired.Load()).To(BeTrue())
+			Expect(status.Code).To(Equal(int32(404)), status.Message)
+		})
+	}
+
+	for _, method := range []string{"PUT", "PATCH", "DELETE"} {
+		It("When an existing policy loses its credential it should reject "+method+" as an invalid binding", func() {
+			ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
+			defer cancel()
+			policies := policystore.NewStore(suite.DB, suite.Log)
+			service := policyservice.NewServiceHandler(policies, policyAPIValidator{}, suite.cfg.CA.DeviceEnrollmentSignerName, nil, suite.Log)
+			var policy domain.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+			current, status := service.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
+			Expect(status.Code).To(Equal(int32(201)))
+			// Simulate missing credential data without altering the guarded CSR API.
+			Expect(suite.DB.WithContext(ctx).Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", suite.OrgID, "commissioning").UpdateColumn("spec", nil).Error).To(Succeed())
+			switch method {
+			case "PUT":
+				current.Status = nil
+				_, status = service.ReplaceEnrollmentApprovalPolicy(ctx, suite.OrgID, "west", *current)
+			case "PATCH":
+				_, status = service.PatchEnrollmentApprovalPolicy(ctx, suite.OrgID, "west", domain.PatchRequest{{Op: "test", Path: "/metadata/resourceVersion", Value: *current.Metadata.ResourceVersion}, {Op: "replace", Path: "/spec/enabled", Value: true}})
+			case "DELETE":
+				status = service.DeleteEnrollmentApprovalPolicy(ctx, suite.OrgID, "west")
+			}
+			Expect(status.Code).To(Equal(int32(400)), status.Message)
+			Expect(status.Reason).To(Equal("InvalidPolicy"))
+			Expect(status.Message).To(ContainSubstring("spec.certificateName"))
+			Expect(status.Message).To(ContainSubstring("commissioning"))
+			retained, err := policies.Get(ctx, suite.OrgID, "west")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(retained.Metadata.ResourceVersion).To(Equal(lo.ToPtr("1")))
+			Expect(retained.Spec.Enabled).To(BeFalse())
+		})
+	}
+
+	for _, field := range []string{"enabled", "requireTPMVerification"} {
+		It("When a patch sets "+field+" to null it should reject without changing the policy", func() {
+			handler := makeHandler(policyAPIValidator{})
+			var policy api.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+			policy.Spec.Enabled, policy.Spec.RequireTPMVerification = true, true
+			body, err := json.Marshal(policy)
+			Expect(err).NotTo(HaveOccurred())
+			created := request(handler, http.MethodPost, "", body, suite.Ctx)
+			Expect(created.Code).To(Equal(201), created.Body.String())
+			Expect(json.Unmarshal(created.Body.Bytes(), &policy)).To(Succeed())
+			body = []byte(fmt.Sprintf(`[{"op":"test","path":"/metadata/resourceVersion","value":%q},{"op":"replace","path":"/spec/%s","value":null}]`, *policy.Metadata.ResourceVersion, field))
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/enrollmentapprovalpolicies/west", bytes.NewReader(body)).WithContext(suite.Ctx)
+			req.Header.Set("Content-Type", "application/json-patch+json")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			Expect(response.Code).To(Equal(400), response.Body.String())
+			retained := request(handler, http.MethodGet, "/west", nil, suite.Ctx)
+			Expect(retained.Code).To(Equal(200))
+			Expect(retained.Body.String()).To(MatchJSON(created.Body.String()))
+		})
+	}
+
+	DescribeTable("When policy numeric inputs cross the API it should enforce nullable int32 limits", func(value string, valid bool) {
+		handler := makeHandler(policyAPIValidator{})
+		var document map[string]interface{}
+		Expect(json.Unmarshal(policyJSON, &document)).To(Succeed())
+		spec := document["spec"].(map[string]interface{})
+		if value != "omitted" {
+			var limit interface{}
+			Expect(json.Unmarshal([]byte(value), &limit)).To(Succeed())
+			spec["approvalLimit"] = limit
+		}
+		body, err := json.Marshal(document)
+		Expect(err).NotTo(HaveOccurred())
+		response := request(handler, http.MethodPost, "", body, suite.Ctx)
+		if !valid {
+			Expect(response.Code).To(Equal(400), response.Body.String())
+			response = request(handler, http.MethodPost, "", policyJSON, suite.Ctx)
+		}
+		Expect(response.Code).To(Equal(201), response.Body.String())
+		var current api.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(response.Body.Bytes(), &current)).To(Succeed())
+		document["metadata"].(map[string]interface{})["resourceVersion"] = *current.Metadata.ResourceVersion
+		body, err = json.Marshal(document)
+		Expect(err).NotTo(HaveOccurred())
+		response = request(handler, http.MethodPut, "/west", body, suite.Ctx)
+		if valid {
+			Expect(response.Code).To(Equal(200), response.Body.String())
+		} else {
+			Expect(response.Code).To(Equal(400), response.Body.String())
+		}
+		response = request(handler, http.MethodGet, "/west", nil, suite.Ctx)
+		Expect(response.Code).To(Equal(200))
+		Expect(json.Unmarshal(response.Body.Bytes(), &current)).To(Succeed())
+		if value == "null" || value == "omitted" {
+			current.Status = nil
+			current.Spec.ApprovalLimit = lo.ToPtr(int32(1))
+			body, err = json.Marshal(current)
+			Expect(err).NotTo(HaveOccurred())
+			response = request(handler, http.MethodPut, "/west", body, suite.Ctx)
+			Expect(response.Code).To(Equal(200), response.Body.String())
+			Expect(json.Unmarshal(response.Body.Bytes(), &current)).To(Succeed())
+		}
+		patchValue := value
+		if value == "omitted" {
+			patchValue = "null"
+		}
+		body = []byte(fmt.Sprintf(`[{"op":"test","path":"/metadata/resourceVersion","value":%q},{"op":"add","path":"/spec/approvalLimit","value":%s}]`, *current.Metadata.ResourceVersion, patchValue))
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/enrollmentapprovalpolicies/west", bytes.NewReader(body)).WithContext(suite.Ctx)
+		req.Header.Set("Content-Type", "application/json-patch+json")
+		patched := httptest.NewRecorder()
+		handler.ServeHTTP(patched, req)
+		if valid {
+			Expect(patched.Code).To(Equal(200), patched.Body.String())
+			var patchedPolicy api.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(patched.Body.Bytes(), &patchedPolicy)).To(Succeed())
+			if value == "null" || value == "omitted" {
+				Expect(patchedPolicy.Spec.ApprovalLimit).To(BeNil())
+			}
+		} else {
+			Expect(patched.Code).To(Equal(400), patched.Body.String())
+		}
+	},
+		Entry("When omitted it should remain unlimited", "omitted", true),
+		Entry("When null it should remain unlimited", "null", true),
+		Entry("When zero it should remain explicit", "0", true),
+		Entry("When maximal it should remain exact", "2147483647", true),
+		Entry("When negative it should reject", "-1", false),
+		Entry("When overflowing it should reject", "2147483648", false),
+		Entry("When fractional it should reject", "0.5", false),
+		Entry("When wrong type it should reject", `"bad"`, false),
+	)
+	It("When the issuing credential is missing it should identify the spec field", func() {
+		handler := makeHandler(policyAPIValidator{})
+		body := bytes.ReplaceAll(policyJSON, []byte("commissioning"), []byte("unknown-credential"))
+		response := request(handler, http.MethodPost, "", body, suite.Ctx)
+		Expect(response.Code).To(Equal(400), response.Body.String())
+		var status api.Status
+		Expect(json.Unmarshal(response.Body.Bytes(), &status)).To(Succeed())
+		Expect(status.Reason).To(Equal("InvalidPolicy"))
+		Expect(status.Message).To(ContainSubstring("spec.certificateName"))
+		Expect(status.Message).To(ContainSubstring("unknown-credential"))
+	})
+
 	DescribeTable("When a credential becomes invalid it should preserve cleanup boundaries", func(state, method string, unavailable bool) {
 		handler := makeHandler(policyAPIValidator{})
 		var candidate api.EnrollmentApprovalPolicy
@@ -217,11 +493,11 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		response = patch(limited, `{"op":"add","path":"/spec/autoApprovalWindowDays","value":10}`)
 		Expect(response.Code).To(Equal(200), response.Body.String())
 		Expect(json.Unmarshal(response.Body.Bytes(), &created)).To(Succeed())
-		Expect(*created.Spec.ApprovalLimit).To(Equal(int64(10)))
-		response = patch(privileged, `{"op":"replace","path":"/spec/approvalLimit","value":9223372036854775807}`)
+		Expect(*created.Spec.ApprovalLimit).To(Equal(int32(10)))
+		response = patch(privileged, `{"op":"replace","path":"/spec/approvalLimit","value":2147483647}`)
 		Expect(response.Code).To(Equal(200), response.Body.String())
 		Expect(json.Unmarshal(response.Body.Bytes(), &created)).To(Succeed())
-		Expect(*created.Spec.ApprovalLimit).To(Equal(int64(9223372036854775807)))
+		Expect(*created.Spec.ApprovalLimit).To(Equal(int32(2147483647)))
 		before = request(privileged, http.MethodGet, "/west", nil, suite.Ctx).Body.String()
 		for _, operation := range []string{
 			`{"op":"replace","path":"/spec/approvalLimit","value":9223372036854775808}`,

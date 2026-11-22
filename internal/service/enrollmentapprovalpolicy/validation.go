@@ -19,7 +19,17 @@ func (UnavailablePolicySetValidator) ValidatePolicySet(context.Context, *domain.
 	return ErrValidationUnavailable
 }
 
-type InvalidPolicyError struct{ Message string }
+type InvalidPolicyError struct {
+	Message string
+	Cause   error
+}
+
+func (failure InvalidPolicyError) Unwrap() error { return failure.Cause }
+
+type InvalidPolicyInputError struct{ Cause error }
+
+func (failure InvalidPolicyInputError) Error() string { return failure.Cause.Error() }
+func (failure InvalidPolicyInputError) Unwrap() error { return failure.Cause }
 
 func (failure InvalidPolicyError) Error() string { return failure.Message }
 

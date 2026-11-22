@@ -35,8 +35,8 @@ func TestApplyRepositoryDevicePullAccess(t *testing.T) {
 
 func TestApplyApprovalPolicyPreservesApprovalLimit(t *testing.T) {
 	for _, format := range []string{"direct", "json", "yaml"} {
-		t.Run(format, func(t *testing.T) {
-			var received int64
+		t.Run("When applying "+format+" it should preserve the limit", func(t *testing.T) {
+			var received int32
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				var body api.EnrollmentApprovalPolicy
 				require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
@@ -50,24 +50,24 @@ func TestApplyApprovalPolicyPreservesApprovalLimit(t *testing.T) {
 			generated, err := apiclient.NewClientWithResponses(server.URL)
 			require.NoError(t, err)
 			testClient := client.NewTestClient(generated)
-			document := `{"apiVersion":"flightctl.io/v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"approvalLimit":9223372036854775807}}`
+			document := `{"apiVersion":"flightctl.io/v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"approvalLimit":2147483647}}`
 			if format == "direct" {
 				result := applyResourceByKind(t.Context(), testClient, nil, EnrollmentApprovalPolicyKind, "west", []byte(document))
 				require.NoError(t, result.err)
 			} else {
 				if format == "yaml" {
-					document = "apiVersion: flightctl.io/v1beta1\nkind: EnrollmentApprovalPolicy\nmetadata:\n  name: west\nspec:\n  approvalLimit: 9223372036854775807\n"
+					document = "apiVersion: flightctl.io/v1beta1\nkind: EnrollmentApprovalPolicy\nmetadata:\n  name: west\nspec:\n  approvalLimit: 2147483647\n"
 				}
 				require.Empty(t, applyFromReader(t.Context(), testClient, nil, "policy", strings.NewReader(document), false))
 			}
-			require.Equal(t, int64(9223372036854775807), received)
+			require.Equal(t, int32(2147483647), received)
 		})
 	}
 }
 
 func TestApplyApprovalPolicyUsesResourceVersionAndOmitsStatus(t *testing.T) {
 	for _, suppliedVersion := range []string{"", "2"} {
-		t.Run(suppliedVersion, func(t *testing.T) {
+		t.Run("When version is "+suppliedVersion+" it should preserve resourceVersion and omit status", func(t *testing.T) {
 			var methods []string
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				methods = append(methods, request.Method)
@@ -205,7 +205,7 @@ func TestApplySingleResourceEmptyName(t *testing.T) {
 
 func TestApplyApprovalPolicyPreservesNonDuplicateConflict(t *testing.T) {
 	for _, reason := range []string{"PolicyOverlap", "ImmutableCertificateBinding", "ResourceVersionConflict"} {
-		t.Run(reason, func(t *testing.T) {
+		t.Run("When conflict is "+reason+" it should preserve the response", func(t *testing.T) {
 			var methods []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				methods = append(methods, r.Method)

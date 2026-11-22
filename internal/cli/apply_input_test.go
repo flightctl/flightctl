@@ -92,77 +92,60 @@ func TestApplyPolicyPreservesStaleVersionConflict(t *testing.T) {
 	require.Equal(t, []string{"POST", "PUT"}, methods)
 }
 
-func TestApplyExactIntegralNumbers(t *testing.T) {
-	for _, testCase := range []struct {
-		number  string
-		want    int64
-		invalid bool
-	}{
-		{"3.0", 3, false}, {"3e0", 3, false}, {"30e-1", 3, false},
-		{"3.00E+0", 3, false}, {"-0.0", 0, false},
-		{"0e999999999999999999", 0, false},
-		{"-0e-999999999999999999", 0, false},
-		{"9007199254740993", 9007199254740993, false},
-		{"9007199254740993.0", 9007199254740993, false},
-		{"9.223372036854775807e18", 9223372036854775807, false},
-		{"-9.223372036854775808e18", -9223372036854775808, false},
-		{"9223372036854775807", 9223372036854775807, false},
-		{"-9223372036854775808", -9223372036854775808, false},
-		{"3.5", 0, true}, {"9223372036854775808", 0, true},
-		{"1e2147483647", 0, true}, {"1e-2147483648", 0, true}, {"1e999999999999999999999", 0, true},
-	} {
-		t.Run("When JSON contains "+testCase.number+" it should preserve typed decoding", func(t *testing.T) {
-			requests := 0
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				requests++
-				var device api.Device
-				err := json.NewDecoder(request.Body).Decode(&device)
-				writer.Header().Set("Content-Type", "application/json")
-				if testCase.invalid {
-					require.Error(t, err)
-					writer.WriteHeader(http.StatusBadRequest)
-					_, _ = io.WriteString(writer, `{"message":"invalid numeric encoding"}`)
-					return
-				}
+func TestApplyPolicyLimitInputs(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		for _, tc := range []struct {
+			value   string
+			invalid bool
+		}{
+			{"", false}, {"null", false}, {"0", false}, {"2147483647", false},
+			{"-1", true}, {"2147483648", true}, {"0.5", true}, {`"bad"`, true},
+		} {
+			t.Run("When "+format+" has limit "+tc.value+" it should enforce the policy range", func(t *testing.T) {
+				requests := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests++
+					var policy api.EnrollmentApprovalPolicy
+					err := json.NewDecoder(r.Body).Decode(&policy)
+					w.Header().Set("Content-Type", "application/json")
+					if tc.invalid {
+						require.True(t, err != nil || len(policy.Validate()) > 0)
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = io.WriteString(w, `{"message":"invalid policy limit"}`)
+						return
+					}
+					require.NoError(t, err)
+					require.Empty(t, policy.Validate())
+					if tc.value == "" || tc.value == "null" {
+						require.Nil(t, policy.Spec.ApprovalLimit)
+					} else {
+						require.Equal(t, tc.value, fmt.Sprint(*policy.Spec.ApprovalLimit))
+					}
+					w.WriteHeader(http.StatusCreated)
+					_, _ = io.WriteString(w, `{}`)
+				}))
+				defer server.Close()
+				generated, err := apiclient.NewClientWithResponses(server.URL)
 				require.NoError(t, err)
-				require.Equal(t, testCase.want, *device.Spec.Firmware.RetryGeneration)
-				_, _ = io.WriteString(writer, `{}`)
-			}))
-			defer server.Close()
-			generated, err := apiclient.NewClientWithResponses(server.URL)
-			require.NoError(t, err)
-			document := fmt.Sprintf(`{"apiVersion":"flightctl.io/v1beta1","kind":"Device","metadata":{"name":"device"},"spec":{"firmware":{"retryGeneration":%s}}}`, testCase.number)
-			failures := applyFromReader(t.Context(), client.NewTestClient(generated), nil, "device", strings.NewReader(document), false)
-			if testCase.invalid {
-				require.NotEmpty(t, failures)
-			} else {
-				require.Empty(t, failures)
-			}
-			require.Equal(t, 1, requests)
-		})
-	}
-	for _, number := range []string{"3.0", "3e0", "9223372036854775807"} {
-		t.Run("When YAML contains "+number+" it should remain compatible", func(t *testing.T) {
-			requests := 0
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				requests++
-				var policy api.EnrollmentApprovalPolicy
-				require.NoError(t, json.NewDecoder(request.Body).Decode(&policy))
-				want := int64(3)
-				if number == "9223372036854775807" {
-					want = 9223372036854775807
+				limit := ""
+				if tc.value != "" {
+					limit = `,"approvalLimit":` + tc.value
 				}
-				require.Equal(t, want, *policy.Spec.ApprovalLimit)
-				writer.Header().Set("Content-Type", "application/json")
-				writer.WriteHeader(http.StatusCreated)
-				_, _ = io.WriteString(writer, `{}`)
-			}))
-			defer server.Close()
-			generated, err := apiclient.NewClientWithResponses(server.URL)
-			require.NoError(t, err)
-			document := "apiVersion: flightctl.io/v1beta1\nkind: EnrollmentApprovalPolicy\nmetadata:\n  name: west\nspec:\n  approvalLimit: " + number + "\n"
-			require.Empty(t, applyFromReader(t.Context(), client.NewTestClient(generated), nil, "policy", strings.NewReader(document), false))
-			require.Equal(t, 1, requests)
-		})
+				document := `{"apiVersion":"flightctl.io/v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"certificateName":"credential","matchExpression":"true","deviceLabels":{}` + limit + `}}`
+				if format == "yaml" {
+					document = "apiVersion: flightctl.io/v1beta1\nkind: EnrollmentApprovalPolicy\nmetadata:\n  name: west\nspec:\n  certificateName: credential\n  matchExpression: 'true'\n  deviceLabels: {}\n"
+					if tc.value != "" {
+						document += "  approvalLimit: " + tc.value + "\n"
+					}
+				}
+				failures := applyFromReader(t.Context(), client.NewTestClient(generated), nil, "policy", strings.NewReader(document), false)
+				if tc.invalid {
+					require.NotEmpty(t, failures)
+				} else {
+					require.Empty(t, failures)
+				}
+				require.Equal(t, 1, requests)
+			})
+		}
 	}
 }

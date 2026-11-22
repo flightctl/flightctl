@@ -3286,6 +3286,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3359,6 +3365,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3412,6 +3424,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
           content:
             application/json:
               schema:
@@ -3489,6 +3507,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3544,6 +3568,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3566,7 +3596,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: '#/components/schemas/EnrollmentApprovalPolicyPatchRequest'
         required: true
       responses:
         "200":
@@ -3607,6 +3637,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
           content:
             application/json:
               schema:
@@ -6692,6 +6728,31 @@ components:
             type: string
           value:
             description: The value to add or replace.
+          op:
+            description: The operation to perform.
+            type: string
+            enum:
+              - add
+              - replace
+              - remove
+              - test
+    EnrollmentApprovalPolicyPatchRequest:
+      description: Policy patch operations, including null values for optional limits.
+      x-go-type: PatchRequest
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - op
+          - path
+        properties:
+          path:
+            description: A JSON Pointer path.
+            type: string
+          value:
+            description: The value to add or replace.
+            nullable: true
           op:
             description: The operation to perform.
             type: string
@@ -11763,8 +11824,9 @@ components:
         approvalLimit:
           description: Lifetime automatic approval cap; absent or null is unlimited and zero blocks approvals.
           type: integer
-          format: int64
+          format: int32
           minimum: 0
+          maximum: 2147483647
           nullable: true
         autoApprovalWindowDays:
           description: Optional issuance-relative window in whole days; requires authoritative credential issuance time.

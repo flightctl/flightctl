@@ -301,9 +301,6 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JSON patch: %w", err)
 	}
-	if originalMap, ok := originalResource.(map[string]interface{}); ok && originalMap["kind"] == "EnrollmentApprovalPolicy" {
-		patch = preservePolicyApprovalLimit(patch, originalMap, editedResource)
-	}
 
 	// 3. Filter the patch to protect immutable fields
 	var filteredOps []jsonpatchcreate.JsonPatchOperation
@@ -363,36 +360,6 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 	return json.Marshal(filteredOps)
 }
 
-func preservePolicyApprovalLimit(patch []jsonpatchcreate.JsonPatchOperation, original map[string]interface{}, edited interface{}) []jsonpatchcreate.JsonPatchOperation {
-	originalSpec, originalOK := original["spec"].(map[string]interface{})
-	editedMap, editedOK := edited.(map[string]interface{})
-	if !originalOK || !editedOK {
-		return patch
-	}
-	editedSpec, editedOK := editedMap["spec"].(map[string]interface{})
-	if !editedOK {
-		return patch
-	}
-	filtered := make([]jsonpatchcreate.JsonPatchOperation, 0, len(patch)+1)
-	for _, operation := range patch {
-		if operation.Path != "/spec/approvalLimit" {
-			filtered = append(filtered, operation)
-		}
-	}
-	originalLimit, hadLimit := originalSpec["approvalLimit"]
-	editedLimit, hasLimit := editedSpec["approvalLimit"]
-	if hadLimit == hasLimit && reflect.DeepEqual(originalLimit, editedLimit) {
-		return filtered
-	}
-	operation := "replace"
-	if !hasLimit {
-		operation = "remove"
-	} else if !hadLimit {
-		operation = "add"
-	}
-	return append(filtered, jsonpatchcreate.JsonPatchOperation{Operation: operation, Path: "/spec/approvalLimit", Value: editedLimit})
-}
-
 func (o *EditOptions) applyChanges(ctx context.Context, client *apiclient.ClientWithResponses, content []byte, kind ResourceKind, name string, originalResource interface{}) error {
 	// Parse and validate the edited content
 	resource, err := o.parseEditedContent(content)
@@ -425,16 +392,12 @@ func (o *EditOptions) parseEditedContent(content []byte) (map[string]interface{}
 
 	switch o.Output {
 	case string(display.YAMLFormat):
-		err = yaml.Unmarshal(content, &resource, func(decoder *json.Decoder) *json.Decoder {
-			decoder.UseNumber()
-			return decoder
-		})
+		err = yaml.Unmarshal(content, &resource)
 		if err != nil {
 			return nil, fmt.Errorf("parsing edited YAML: %w", err)
 		}
 	case string(display.JSONFormat):
 		decoder := json.NewDecoder(bytes.NewReader(content))
-		decoder.UseNumber()
 		err = decoder.Decode(&resource)
 		if err == nil {
 			if trailingErr := decoder.Decode(new(any)); trailingErr != io.EOF {
@@ -491,9 +454,7 @@ func (o *EditOptions) calculatePatch(originalResource interface{}, editedResourc
 	}
 
 	var originalMap map[string]interface{}
-	decoder := json.NewDecoder(bytes.NewReader(originalJSONBytes))
-	decoder.UseNumber()
-	if err := decoder.Decode(&originalMap); err != nil {
+	if err := json.Unmarshal(originalJSONBytes, &originalMap); err != nil {
 		return nil, fmt.Errorf("unmarshaling original resource to map: %w", err)
 	}
 

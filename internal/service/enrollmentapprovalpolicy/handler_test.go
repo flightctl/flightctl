@@ -34,11 +34,16 @@ type policyMemoryStore struct {
 	orgID      uuid.UUID
 	writes     int
 	listError  error
+	getError   error
+	lastError  error
 }
 
 func (*policyMemoryStore) InitialMigration(context.Context) error { return nil }
-func (memory *policyMemoryStore) Get(_ context.Context, orgID uuid.UUID, _ string) (*domain.EnrollmentApprovalPolicy, error) {
-	if orgID != memory.orgID || memory.policy == nil {
+func (memory *policyMemoryStore) Get(_ context.Context, orgID uuid.UUID, name string) (*domain.EnrollmentApprovalPolicy, error) {
+	if memory.getError != nil {
+		return nil, memory.getError
+	}
+	if orgID != memory.orgID || memory.policy == nil || lo.FromPtr(memory.policy.Metadata.Name) != name {
 		return nil, flterrors.ErrResourceNotFound
 	}
 	encoded, _ := json.Marshal(memory.policy)
@@ -57,35 +62,39 @@ func TestPolicyListSelectorFailure(t *testing.T) {
 	_, status := service.ListEnrollmentApprovalPolicies(t.Context(), memory.orgID, domain.ListEnrollmentApprovalPoliciesParams{})
 	require.Equal(t, int32(400), status.Code)
 }
-func (memory *policyMemoryStore) Mutate(ctx context.Context, orgID uuid.UUID, name, _ string, operation policystore.Operation, apply policystore.ApplyFunc) (*domain.EnrollmentApprovalPolicy, *domain.EnrollmentApprovalPolicy, error) {
-	if orgID != memory.orgID {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
+func (memory *policyMemoryStore) WithPolicySetTransaction(ctx context.Context, _ uuid.UUID, _, _ string, fn func(context.Context, *domain.CertificateSigningRequest, []domain.EnrollmentApprovalPolicy) error) error {
+	return fn(ctx, memory.credential, nil)
+}
+func (memory *policyMemoryStore) Delete(context.Context, uuid.UUID, string) error {
+	memory.policy = nil
+	memory.writes++
+	return nil
+}
+func (memory *policyMemoryStore) Mutate(ctx context.Context, orgID uuid.UUID, name string, apply policystore.ApplyFunc) (*domain.EnrollmentApprovalPolicy, *domain.EnrollmentApprovalPolicy, bool, error) {
 	current, _ := memory.Get(ctx, orgID, name)
 	previous, err := store.CloneJSON(current)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	var existingStatus *domain.EnrollmentApprovalPolicyStatus
+	var status *domain.EnrollmentApprovalPolicyStatus
 	if current != nil {
-		existingStatus = current.Status
+		status = current.Status
 	}
-	candidate, err := apply(current, memory.credential, nil)
-	if err != nil {
-		return nil, nil, err
+	m := &store.Mutation[domain.EnrollmentApprovalPolicy]{}
+	m.SetResource(current)
+	if err := apply(m); err != nil {
+		memory.lastError = err
+		return nil, nil, false, err
 	}
-	memory.writes++
-	if operation == policystore.Delete {
-		memory.policy = nil
-		return nil, previous, nil
-	}
+	candidate := m.Resource()
 	candidate.Status = &domain.EnrollmentApprovalPolicyStatus{}
-	if current != nil {
-		candidate.Status = existingStatus
+	if status != nil {
+		candidate.Status = status
 	}
 	candidate.Metadata.ResourceVersion = lo.ToPtr("1")
 	memory.policy = candidate
-	return candidate, previous, nil
+	memory.writes++
+	return candidate, previous, previous == nil, nil
 }
 
 type testPolicyValidator struct {
@@ -118,7 +127,7 @@ func policyFixture(t *testing.T) (*policyMemoryStore, domain.EnrollmentApprovalP
 
 func TestPolicyUnavailableDoesNotWrite(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
-		t.Run(map[bool]string{false: "disabled", true: "enabled"}[enabled], func(t *testing.T) {
+		t.Run(map[bool]string{false: "When disabled it should fail closed", true: "When enabled it should fail closed"}[enabled], func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = enabled
 			service := policyservice.NewServiceHandler(memory, policyservice.UnavailablePolicySetValidator{}, "enrollment", nil, logrus.New())
@@ -249,7 +258,7 @@ func TestPolicyCredentialValidation(t *testing.T) {
 
 func TestPolicyPatchProtectsStatusAndMetadata(t *testing.T) {
 	for _, path := range []string{"/status", "/status/enrollmentCount", "/metadata", "/metadata/name", "/metadata/resourceVersion", "/metadata/annotations", "/metadata/annotations/flightctl.io~1server-note", "/kind", "/apiVersion", ""} {
-		t.Run(path, func(t *testing.T) {
+		t.Run("When patching "+path+" it should reject protected fields", func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Metadata.ResourceVersion = lo.ToPtr("1")
 			policy.Status = &domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: 9}
@@ -285,9 +294,69 @@ func TestPolicyReplacementPreservesOmittedMetadata(t *testing.T) {
 }
 
 func TestPolicyUnexpectedStorageFailureUsesInternalServerError(t *testing.T) {
+	for _, operation := range []string{"list", "get"} {
+		t.Run("When storage fails during "+operation+" it should hide internal details", func(t *testing.T) {
+			memory, _ := policyFixture(t)
+			cause := errors.New("internal database connection detail")
+			memory.listError, memory.getError = cause, cause
+			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			var status domain.Status
+			if operation == "list" {
+				_, status = service.ListEnrollmentApprovalPolicies(t.Context(), memory.orgID, domain.ListEnrollmentApprovalPoliciesParams{})
+			} else {
+				_, status = service.GetEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west")
+			}
+			require.Equal(t, int32(500), status.Code)
+			require.Equal(t, "Internal Server Error", status.Reason)
+			require.NotContains(t, status.Message, cause.Error())
+		})
+	}
+}
+
+func TestPolicyServiceDependencies(t *testing.T) {
 	memory, _ := policyFixture(t)
-	memory.listError = errors.New("database unavailable")
+	t.Run("When the logger is nil it should panic", func(t *testing.T) {
+		require.Panics(t, func() { policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, nil) })
+	})
+	t.Run("When events are absent it should construct", func(t *testing.T) {
+		require.NotNil(t, policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New()))
+	})
+}
+
+func TestPolicyUnknownCredential(t *testing.T) {
+	memory, policy := policyFixture(t)
+	memory.credential = nil
 	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
-	_, status := service.ListEnrollmentApprovalPolicies(t.Context(), memory.orgID, domain.ListEnrollmentApprovalPoliciesParams{})
-	require.Equal(t, int32(500), status.Code)
+	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+	require.Equal(t, int32(400), status.Code)
+	require.Equal(t, "InvalidPolicy", status.Reason)
+	require.Contains(t, status.Message, "spec.certificateName")
+	require.Contains(t, status.Message, policy.Spec.CertificateName)
+	require.Zero(t, memory.writes)
+}
+
+func TestPolicyPatchCauseAndClassification(t *testing.T) {
+	memory, policy := policyFixture(t)
+	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+	require.Equal(t, int32(201), status.Code)
+	_, status = service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", domain.PatchRequest{
+		{Op: "test", Path: "/metadata/resourceVersion", Value: "1"},
+		{Op: "add", Path: "/spec/approvalLimit", Value: "wrong type"},
+	})
+	require.Equal(t, int32(400), status.Code)
+	require.Equal(t, "Bad Request", status.Reason)
+	var cause *json.UnmarshalTypeError
+	require.ErrorAs(t, memory.lastError, &cause)
+	require.Equal(t, 1, memory.writes)
+}
+
+func TestPolicySemanticCauseTakesPrecedence(t *testing.T) {
+	memory, policy := policyFixture(t)
+	validator := &testPolicyValidator{err: policyservice.InvalidPolicyError{Message: "invalid binding", Cause: flterrors.ErrResourceNotFound}}
+	service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+	require.Equal(t, int32(400), status.Code)
+	require.Equal(t, "InvalidPolicy", status.Reason)
+	require.Zero(t, memory.writes)
 }

@@ -46,7 +46,7 @@ func TestPolicyCleanupAfterCredentialInvalidation(t *testing.T) {
 	for _, state := range []string{"revoked", "expired"} {
 		for _, operation := range []string{"put", "patch", "delete"} {
 			for _, unavailable := range []bool{false, true} {
-				t.Run(state+"/"+operation+"/unavailable="+lo.Ternary(unavailable, "true", "false"), func(t *testing.T) {
+				t.Run("When "+state+" and "+operation+" with unavailable="+lo.Ternary(unavailable, "true", "false")+" it should preserve cleanup boundaries", func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
 						memory, policy := policyFixture(t)
 						policy.Spec.Enabled = true
@@ -88,7 +88,7 @@ func TestPolicyCleanupAfterCredentialInvalidation(t *testing.T) {
 func TestPolicyInvalidCredentialRejectsNonCleanup(t *testing.T) {
 	for _, state := range []string{"revoked", "expired"} {
 		for _, operation := range []string{"create-disabled", "create-enabled", "enable", "edit-disabled"} {
-			t.Run(state+"/"+operation, func(t *testing.T) {
+			t.Run("When "+state+" and "+operation+" it should reject non-cleanup writes", func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					memory, policy := policyFixture(t)
 					service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())

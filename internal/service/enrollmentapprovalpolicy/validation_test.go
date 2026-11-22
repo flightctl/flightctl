@@ -2,6 +2,9 @@ package enrollmentapprovalpolicy_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -17,4 +20,15 @@ func TestUnavailableValidator(t *testing.T) {
 		})
 	}
 	require.ErrorIs(t, policyservice.UnavailablePolicySetValidator{}.ValidatePolicySet(context.Background(), nil, nil), policyservice.ErrValidationUnavailable)
+}
+
+func TestPolicyErrorCauses(t *testing.T) {
+	cause := errors.New("cause")
+	semantic := policyservice.InvalidPolicyError{Message: "invalid expression", Cause: cause}
+	require.ErrorIs(t, semantic, cause)
+	syntax := &json.SyntaxError{Offset: 12}
+	input := policyservice.InvalidPolicyInputError{Cause: fmt.Errorf("apply patch: %w", syntax)}
+	var recovered *json.SyntaxError
+	require.ErrorAs(t, input, &recovered)
+	require.Same(t, syntax, recovered)
 }

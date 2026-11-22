@@ -62,7 +62,7 @@ func (handler *TransportHandler) CreateEnrollmentApprovalPolicy(w http.ResponseW
 		if errors.Is(err, errPolicyStatusProtected) {
 			handler.SetResponse(w, nil, domain.NewFailureStatus(400, "ProtectedField", err.Error()))
 		} else {
-			handler.SetResponse(w, nil, domain.NewFailureStatus(400, "InvalidPolicy", err.Error()))
+			handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		}
 		return
 	}
@@ -94,7 +94,7 @@ func (handler *TransportHandler) ReplaceEnrollmentApprovalPolicy(w http.Response
 		if errors.Is(err, errPolicyStatusProtected) {
 			handler.SetResponse(w, nil, domain.NewFailureStatus(400, "ProtectedField", err.Error()))
 		} else {
-			handler.SetResponse(w, nil, domain.NewFailureStatus(400, "InvalidPolicy", err.Error()))
+			handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		}
 		return
 	}
@@ -120,11 +120,11 @@ func (handler *TransportHandler) PatchEnrollmentApprovalPolicy(w http.ResponseWr
 	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&patch); err != nil {
-		handler.SetResponse(w, nil, domain.NewFailureStatus(400, "InvalidPolicy", err.Error()))
+		handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		handler.SetResponse(w, nil, domain.NewFailureStatus(400, "InvalidPolicy", "exactly one JSON document is required"))
+		handler.SetResponse(w, nil, domain.StatusBadRequest("exactly one JSON document is required"))
 		return
 	}
 	for _, operation := range patch {
