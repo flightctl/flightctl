@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -67,6 +68,11 @@ type fakeFleetStore struct {
 	getRepositoryRefsErr       error
 	overwriteRepositoryRefsErr error
 	lastOverwrittenRepoNames   []string
+	replaceRepositoryRefsErr   error
+	replaceRepositoryRefsStale bool
+	replacedRepoNames          []string
+	replacedGeneration         int64
+	replaceRepositoryRefsCalls int
 }
 
 func newFakeFleetStore() *fakeFleetStore {
@@ -214,6 +220,19 @@ func (f *fakeFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid
 	}
 	f.lastOverwrittenRepoNames = repositoryNames
 	return nil
+}
+
+func (f *fakeFleetStore) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	f.replaceRepositoryRefsCalls++
+	if f.replaceRepositoryRefsErr != nil {
+		return false, f.replaceRepositoryRefsErr
+	}
+	if f.replaceRepositoryRefsStale {
+		return false, nil
+	}
+	f.replacedRepoNames = append([]string{}, repositoryNames...)
+	f.replacedGeneration = generation
+	return true, nil
 }
 
 func (f *fakeFleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
@@ -935,20 +954,97 @@ func TestSetDeltaPrepareIdentity(t *testing.T) {
 	})
 }
 
-func TestOverwriteFleetRepositoryRefs(t *testing.T) {
-	t.Run("When the store succeeds it should overwrite the refs", func(t *testing.T) {
+// stubFirmwareDescriptors is a test stub of the approved descriptor
+// provider that serves one release.
+type stubFirmwareDescriptors struct {
+	descriptor *common.ApprovedDescriptor
+}
+
+func (s stubFirmwareDescriptors) LookupRelease(context.Context, string, string) (*common.ApprovedDescriptor, error) {
+	return s.descriptor, nil
+}
+
+func (s stubFirmwareDescriptors) LookupSchemaByDigest(context.Context, string, string) (*common.RetainedSchemaEvidence, error) {
+	return nil, common.ErrApprovedDescriptorsUnavailable
+}
+
+func testTemplateSpec(t *testing.T, withFirmware bool) *domain.DeviceSpec {
+	t.Helper()
+	var config []domain.ConfigProviderSpec
+	require.NoError(t, json.Unmarshal([]byte(`[{"name": "git", "gitRef": {"repository": "repo-b", "targetRevision": "main", "path": "/etc"}},
+		{"name": "http", "httpRef": {"repository": "repo-a", "filePath": "/etc/http.conf"}}]`), &config))
+	spec := &domain.DeviceSpec{Config: &config}
+	if withFirmware {
+		var firmware domain.FirmwareSpec
+		require.NoError(t, json.Unmarshal([]byte(`{"profile": "p", "updater": {"name": "nvidia-orin", "version": "0.1.0",
+			"config": {"releases": [{"artifact": {"source": {"repository": "{{ .metadata.labels.repo }}"}}}, {"artifact": {"source": {"repository": "repo-fw"}}}]}},
+			"components": [{"name": "system", "version": {"latest": true}}], "overlays": []}`), &firmware))
+		spec.Firmware = &firmware
+	}
+	return spec
+}
+
+func TestReplaceFleetRepositoryRefsIfCurrent(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("When the template has no firmware it should store the configuration references at the given generation", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 
-		status := h.OverwriteFleetRepositoryRefs(context.Background(), uuid.New(), "f1", "repo-a", "repo-b")
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.Equal(t, []string{"repo-a", "repo-b"}, fakeStore.lastOverwrittenRepoNames)
+		outcome, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, false))
+		require.Equal(t, statusSuccessCode, status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsReplaced, outcome)
+		assert.Equal(t, []string{"repo-a", "repo-b"}, fakeStore.replacedRepoNames)
+		assert.Equal(t, int64(7), fakeStore.replacedGeneration)
+	})
+
+	t.Run("When the template's firmware release is known it should add its literal references and skip templated ones", func(t *testing.T) {
+		fakeStore := newFakeFleetStore()
+		descriptor := &common.ApprovedDescriptor{Name: "nvidia-orin", Version: "0.1.0", Approved: true,
+			ConfigSchema:   json.RawMessage(`{"type": "object"}`),
+			ReferencePaths: []common.FirmwareReferencePath{{Path: "releases[].artifact.source.repository", Kind: common.FirmwareReferenceArtifact}}}
+		h := NewServiceHandler(fakeStore, nil, &fakeEventsService{}, logrus.New(), WithApprovedDescriptorProvider(stubFirmwareDescriptors{descriptor: descriptor}))
+
+		outcome, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, true))
+		require.Equal(t, statusSuccessCode, status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsReplaced, outcome)
+		assert.Equal(t, []string{"repo-a", "repo-b", "repo-fw"}, fakeStore.replacedRepoNames)
+	})
+
+	t.Run("When the template's firmware references cannot be known it should not write", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+
+		outcome, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, true))
+		require.Equal(t, statusSuccessCode, status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsIncomplete, outcome)
+		assert.Zero(t, fakeStore.replaceRepositoryRefsCalls)
+	})
+
+	t.Run("When the release descriptor has a malformed reference path it should report an internal error and not write", func(t *testing.T) {
+		fakeStore := newFakeFleetStore()
+		descriptor := &common.ApprovedDescriptor{Name: "nvidia-orin", Version: "0.1.0", Approved: true,
+			ConfigSchema:   json.RawMessage(`{"type": "object"}`),
+			ReferencePaths: []common.FirmwareReferencePath{{Path: "releases[].[]", Kind: common.FirmwareReferenceArtifact}}}
+		h := NewServiceHandler(fakeStore, nil, &fakeEventsService{}, logrus.New(), WithApprovedDescriptorProvider(stubFirmwareDescriptors{descriptor: descriptor}))
+
+		_, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, true))
+		require.Equal(t, int32(http.StatusInternalServerError), status.Code, status.Message)
+		assert.Zero(t, fakeStore.replaceRepositoryRefsCalls)
+	})
+
+	t.Run("When the fleet changed since it was read it should report a stale outcome", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.replaceRepositoryRefsStale = true
+
+		outcome, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, false))
+		require.Equal(t, statusSuccessCode, status.Code, status.Message)
+		assert.Equal(t, common.RepositoryRefsStale, outcome)
 	})
 
 	t.Run("When the store errors it should return an internal-server-error status", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
-		fakeStore.overwriteRepositoryRefsErr = errors.New("db down")
+		fakeStore.replaceRepositoryRefsErr = errors.New("db down")
 
-		status := h.OverwriteFleetRepositoryRefs(context.Background(), uuid.New(), "f1", "repo-a")
+		_, status := h.ReplaceFleetRepositoryRefsIfCurrent(ctx, uuid.New(), "f1", 7, testTemplateSpec(t, false))
 		require.Equal(t, statusInternalErrCode, status.Code)
 	})
 }

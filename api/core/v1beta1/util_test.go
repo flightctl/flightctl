@@ -1,8 +1,11 @@
 package v1beta1
 
 import (
+	"bytes"
 	"encoding/json"
+	"sync"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/samber/lo"
@@ -1264,6 +1267,230 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 			err := newAP.PreserveSensitiveData(existing)
 			require.NoError(t, err)
 			tt.checkPreserved(t, newAP)
+		})
+	}
+}
+
+const osImageGuardTemplate = `{{ if deviceHasImageMode }}applicable{{ else }}not-applicable{{ end }}`
+
+func deviceWithLabels(labels *map[string]string) *Device {
+	return &Device{
+		Metadata: ObjectMeta{
+			Name:   lo.ToPtr("dev"),
+			Labels: labels,
+		},
+	}
+}
+
+func parseWithFuncMap(t *testing.T, text string) *template.Template {
+	t.Helper()
+	parsed, err := template.New("t").Option("missingkey=error").Funcs(GetGoTemplateFuncMap()).Parse(text)
+	require.NoError(t, err)
+	return parsed
+}
+
+func TestDeviceLabelOsMode(t *testing.T) {
+	assert.Equal(t, "feature.flightctl.io/os.mode", DeviceLabelOsMode)
+}
+
+func TestDeviceHasImageMode(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels *map[string]string
+		want   string
+	}{
+		{
+			name:   "When the device has no labels it should be applicable",
+			labels: nil,
+			want:   "applicable",
+		},
+		{
+			name:   "When the device labels point to a nil map it should be applicable",
+			labels: lo.ToPtr(map[string]string(nil)),
+			want:   "applicable",
+		},
+		{
+			name:   "When the device has an empty label map it should be applicable",
+			labels: &map[string]string{},
+			want:   "applicable",
+		},
+		{
+			name:   "When the device has labels but no OS mode it should be applicable",
+			labels: &map[string]string{"region": "eu"},
+			want:   "applicable",
+		},
+		{
+			name:   "When the OS mode label is empty it should be applicable",
+			labels: &map[string]string{DeviceLabelOsMode: ""},
+			want:   "applicable",
+		},
+		{
+			name:   "When the OS mode label is unrecognized it should be applicable",
+			labels: &map[string]string{DeviceLabelOsMode: "hybrid"},
+			want:   "applicable",
+		},
+		{
+			name:   "When the OS mode label is image it should be applicable",
+			labels: &map[string]string{DeviceLabelOsMode: string(OsModeImage)},
+			want:   "applicable",
+		},
+		{
+			name:   "When the OS mode label is package it should not be applicable",
+			labels: &map[string]string{DeviceLabelOsMode: string(OsModePackage)},
+			want:   "not-applicable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := ExecuteGoTemplateOnDevice(parseWithFuncMap(t, osImageGuardTemplate), deviceWithLabels(tt.labels))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, output)
+		})
+	}
+}
+
+func TestDeviceHasImageModeWithoutDevice(t *testing.T) {
+	parsed, err := template.New("t").Funcs(GetGoTemplateFuncMap()).Parse(osImageGuardTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, parsed.Execute(&buf, nil))
+	assert.Equal(t, "applicable", buf.String())
+}
+
+func TestExecuteGoTemplateOnDeviceRebindsDeviceHasImageMode(t *testing.T) {
+	parsed := parseWithFuncMap(t, osImageGuardTemplate)
+	packaged := deviceWithLabels(&map[string]string{DeviceLabelOsMode: string(OsModePackage)})
+	imaged := deviceWithLabels(&map[string]string{DeviceLabelOsMode: string(OsModeImage)})
+
+	renders := []struct {
+		device *Device
+		want   string
+	}{
+		{device: packaged, want: "not-applicable"},
+		{device: imaged, want: "applicable"},
+		{device: packaged, want: "not-applicable"},
+	}
+	for _, render := range renders {
+		output, err := ExecuteGoTemplateOnDevice(parsed, render.device)
+		require.NoError(t, err)
+		assert.Equal(t, render.want, output)
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, parsed.Execute(&buf, nil))
+	assert.Equal(t, "applicable", buf.String(), "rendering a device must leave the parsed template unbound")
+}
+
+func TestExecuteGoTemplateOnDeviceConcurrentDevices(t *testing.T) {
+	parsed := parseWithFuncMap(t, osImageGuardTemplate)
+
+	const renders = 16
+	outputs := make([]string, renders)
+	errs := make([]error, renders)
+
+	var wg sync.WaitGroup
+	for i := range renders {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			mode := string(OsModeImage)
+			if i%2 == 0 {
+				mode = string(OsModePackage)
+			}
+			outputs[i], errs[i] = ExecuteGoTemplateOnDevice(parsed, deviceWithLabels(&map[string]string{DeviceLabelOsMode: mode}))
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range renders {
+		require.NoError(t, errs[i])
+		if i%2 == 0 {
+			assert.Equal(t, "not-applicable", outputs[i])
+		} else {
+			assert.Equal(t, "applicable", outputs[i])
+		}
+	}
+}
+
+func TestExecuteGoTemplateOnDeviceWithoutDeviceHasImageMode(t *testing.T) {
+	parsed := parseWithFuncMap(t, `{{ getOrDefault .metadata.labels "region" "none" }}-{{ upper .metadata.name }}`)
+
+	output, err := ExecuteGoTemplateOnDevice(parsed, deviceWithLabels(&map[string]string{"region": "eu"}))
+	require.NoError(t, err)
+	assert.Equal(t, "eu-DEV", output)
+
+	output, err = ExecuteGoTemplateOnDevice(parsed, deviceWithLabels(nil))
+	require.NoError(t, err)
+	assert.Equal(t, "none-DEV", output)
+}
+
+func TestExecuteGoTemplateOnDeviceMissingKeyOptions(t *testing.T) {
+	tests := []struct {
+		name            string
+		option          string
+		text            string
+		labels          *map[string]string
+		wantOutput      string
+		wantErrContains string
+	}{
+		{
+			name:            "When missingkey=error and a template reads a missing label it should fail",
+			option:          "missingkey=error",
+			text:            `v={{ .metadata.labels.version }}`,
+			labels:          &map[string]string{},
+			wantErrContains: `map has no entry for key "version"`,
+		},
+		{
+			name:            "When missingkey=error and an applicable guard reads a missing label it should fail",
+			option:          "missingkey=error",
+			text:            `{{ if deviceHasImageMode }}v={{ .metadata.labels.version }}{{ end }}`,
+			labels:          &map[string]string{},
+			wantErrContains: `map has no entry for key "version"`,
+		},
+		{
+			name:       "When missingkey=error and a package device skips the guard it should not read the missing label",
+			option:     "missingkey=error",
+			text:       `{{ if deviceHasImageMode }}v={{ .metadata.labels.version }}{{ end }}`,
+			labels:     &map[string]string{DeviceLabelOsMode: string(OsModePackage)},
+			wantOutput: "",
+		},
+		{
+			name:            "When a guarded body hits a rendering error it should report that error",
+			option:          "missingkey=error",
+			text:            `{{ if deviceHasImageMode }}v={{ .metadata.name.foo }}{{ end }}`,
+			labels:          &map[string]string{},
+			wantErrContains: "can't evaluate field foo",
+		},
+		{
+			name:       "When missingkey=zero and a template reads a missing label it should render an empty value",
+			option:     "missingkey=zero",
+			text:       `v={{ .metadata.labels.version }}`,
+			labels:     &map[string]string{},
+			wantOutput: "v=",
+		},
+		{
+			name:       "When missingkey=zero and an applicable guard reads a missing label it should render an empty value",
+			option:     "missingkey=zero",
+			text:       `{{ if deviceHasImageMode }}v={{ .metadata.labels.version }}{{ end }}`,
+			labels:     &map[string]string{},
+			wantOutput: "v=",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := template.New("t").Option(tt.option).Funcs(GetGoTemplateFuncMap()).Parse(tt.text)
+			require.NoError(t, err)
+
+			output, err := ExecuteGoTemplateOnDevice(parsed, deviceWithLabels(tt.labels))
+			if tt.wantErrContains != "" {
+				require.ErrorContains(t, err, tt.wantErrContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOutput, output)
 		})
 	}
 }

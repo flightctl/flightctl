@@ -440,12 +440,12 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			}
 		}
 
-		httpClient := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: tlsConfig,
-				Proxy:           http.ProxyFromEnvironment,
-			},
+		transport := &http.Transport{
+			TLSClientConfig:   tlsConfig,
+			Proxy:             http.ProxyFromEnvironment,
+			ForceAttemptHTTP2: true,
 		}
+		httpClient := &http.Client{Transport: transport}
 
 		for _, opt := range configCopy.HTTPOptions {
 			if err := opt(httpClient); err != nil {

@@ -44,6 +44,11 @@ const (
 	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
 	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
 
+	// DeviceLabelOsMode carries the device's OS management mode, one of the
+	// OsModeType values. Devices whose agent does not report a mode carry no
+	// such label.
+	DeviceLabelOsMode = "feature.flightctl.io/os.mode"
+
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
 	DeviceDisconnectedTimeout = 5 * time.Minute
@@ -218,6 +223,16 @@ const (
 	EnrollmentHooksReasonSucceeded      = "Succeeded"
 	EnrollmentHooksReasonContinued      = "Continued"
 	EnrollmentHooksReasonManualOverride = "ManualOverride"
+
+	// FleetValidReasonFirmwareRenderingUnsupported is the reason of a false
+	// Valid condition of a fleet whose template carries firmware, from which
+	// no template version is created while rendering does not support it.
+	FleetValidReasonFirmwareRenderingUnsupported = "FirmwareRenderingUnsupported"
+	// DeviceSpecValidReasonFirmwareUnsupported is the reason of an unknown
+	// SpecValid condition of a device whose desired firmware, outstanding
+	// firmware attempt or source template firmware holds its spec and
+	// rendered output unchanged while rendering does not support firmware.
+	DeviceSpecValidReasonFirmwareUnsupported = "FirmwareUnsupported"
 )
 
 const (

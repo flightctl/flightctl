@@ -22,6 +22,11 @@ const (
 	// webhookdelivery.DefaultDeadline so delivery is not canceled or reclaimed
 	// by the shared EventProcessingTimeout.
 	EnrollmentHookNotifyProcessingTimeout = 10 * time.Minute
+
+	// EnrollmentCredentialRevocationProcessingTimeout bounds the revocation
+	// consequence task. It is longer than EventProcessingTimeout because the
+	// dispatcher excludes that limit for this task.
+	EnrollmentCredentialRevocationProcessingTimeout = 5 * time.Minute
 )
 
 var (

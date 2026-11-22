@@ -42,6 +42,7 @@ rules:
       - catalogs/items
       - certificatesigningrequests
       - certificatesigningrequests/approval
+      - certificatesigningrequests/revocation
       - devices
       - devices/applications/lifecycle
       - devices/decommission
@@ -134,6 +135,7 @@ rules:
       - catalogs/items
       - certificatesigningrequests
       - certificatesigningrequests/approval
+      - certificatesigningrequests/revocation
       - devices/applications/console
       - devices/console
       - devices/decommission

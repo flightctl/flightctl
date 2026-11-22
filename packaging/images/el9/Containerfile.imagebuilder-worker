@@ -1,10 +1,24 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.10-1793621864 as build
+FROM registry.access.redhat.com/ubi9/go-toolset:1.27.3-1793884566 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs openssl-libs tzdata
+# The rolling UBI9 repository currently pairs Netavark epoch 3 with Aardvark
+# epoch 2. Keep the matching epoch-2 Netavark until that package set is repaired.
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) NETAVARK_SHA256=1bf196b5daa0aa92bd1408418773d70eadbc15442ec8b7f4b91a7be0b41cf693 ;; \
+        aarch64) NETAVARK_SHA256=3654267c61b30546c8b230e797e4a0dc40968651aff10b53a1d86dce62ca0131 ;; \
+        *) echo "Unsupported Netavark architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 -o /tmp/netavark.rpm \
+        "https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/$(uname -m)/appstream/os/Packages/n/netavark-1.17.2-1.el9.$(uname -m).rpm"; \
+    echo "${NETAVARK_SHA256}  /tmp/netavark.rpm" | sha256sum -c -; \
+    dnf install -y --installroot=/runtime-root --releasever=9 \
+        --setopt=install_weak_deps=False --nodocs \
+        /tmp/netavark.rpm podman fuse-overlayfs openssl-libs tzdata; \
+    rm -f /tmp/netavark.rpm
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./

@@ -15,6 +15,8 @@ import (
 	time "time"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	firmwarepolicy "github.com/flightctl/flightctl/internal/firmwarepolicy"
+	common "github.com/flightctl/flightctl/internal/service/common"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"
@@ -42,6 +44,20 @@ func NewMockService(ctrl *gomock.Controller) *MockService {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
+}
+
+// AcknowledgeFirmwarePolicy mocks base method.
+func (m *MockService) AcknowledgeFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, receipt firmwarepolicy.Receipt) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcknowledgeFirmwarePolicy", ctx, orgId, name, receipt)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// AcknowledgeFirmwarePolicy indicates an expected call of AcknowledgeFirmwarePolicy.
+func (mr *MockServiceMockRecorder) AcknowledgeFirmwarePolicy(ctx, orgId, name, receipt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcknowledgeFirmwarePolicy", reflect.TypeOf((*MockService)(nil).AcknowledgeFirmwarePolicy), ctx, orgId, name, receipt)
 }
 
 // ClearDeltaPreparingIfCurrent mocks base method.
@@ -131,6 +147,21 @@ func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name st
 func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
+}
+
+// FlagDevicesForRevokedEnrollmentCredential mocks base method.
+func (m *MockService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FlagDevicesForRevokedEnrollmentCredential", ctx, orgId, credentialName, limit)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// FlagDevicesForRevokedEnrollmentCredential indicates an expected call of FlagDevicesForRevokedEnrollmentCredential.
+func (mr *MockServiceMockRecorder) FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlagDevicesForRevokedEnrollmentCredential", reflect.TypeOf((*MockService)(nil).FlagDevicesForRevokedEnrollmentCredential), ctx, orgId, credentialName, limit)
 }
 
 // ForceUpdateServerSideDeviceStatus mocks base method.
@@ -237,6 +268,21 @@ func (mr *MockServiceMockRecorder) GetDevicesSummary(ctx, orgId, params, annotat
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesSummary", reflect.TypeOf((*MockService)(nil).GetDevicesSummary), ctx, orgId, params, annotationSelector)
 }
 
+// GetFirmwarePolicy mocks base method.
+func (m *MockService) GetFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, knownRevision int64, knownDigest string) (*firmwarepolicy.View, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirmwarePolicy", ctx, orgId, name, knownRevision, knownDigest)
+	ret0, _ := ret[0].(*firmwarepolicy.View)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetFirmwarePolicy indicates an expected call of GetFirmwarePolicy.
+func (mr *MockServiceMockRecorder) GetFirmwarePolicy(ctx, orgId, name, knownRevision, knownDigest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwarePolicy", reflect.TypeOf((*MockService)(nil).GetFirmwarePolicy), ctx, orgId, name, knownRevision, knownDigest)
+}
+
 // GetRenderedDevice mocks base method.
 func (m *MockService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
@@ -264,6 +310,21 @@ func (m *MockService) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, n
 func (mr *MockServiceMockRecorder) HealthcheckDevices(ctx, orgId, names any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HealthcheckDevices", reflect.TypeOf((*MockService)(nil).HealthcheckDevices), ctx, orgId, names)
+}
+
+// HoldDeviceForFirmware mocks base method.
+func (m *MockService) HoldDeviceForFirmware(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, sourceHasFirmware bool) (bool, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HoldDeviceForFirmware", ctx, orgId, name, expectedOwner, sourceHasFirmware)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// HoldDeviceForFirmware indicates an expected call of HoldDeviceForFirmware.
+func (mr *MockServiceMockRecorder) HoldDeviceForFirmware(ctx, orgId, name, expectedOwner, sourceHasFirmware any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HoldDeviceForFirmware", reflect.TypeOf((*MockService)(nil).HoldDeviceForFirmware), ctx, orgId, name, expectedOwner, sourceHasFirmware)
 }
 
 // ListConnectivityChangedDevices mocks base method.
@@ -355,25 +416,6 @@ func (mr *MockServiceMockRecorder) OverrideDeviceEnrollmentHook(ctx, orgId, name
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverrideDeviceEnrollmentHook", reflect.TypeOf((*MockService)(nil).OverrideDeviceEnrollmentHook), ctx, orgId, name)
 }
 
-// OverwriteDeviceRepositoryRefs mocks base method.
-func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name}
-	for _, a := range repositoryNames {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "OverwriteDeviceRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// OverwriteDeviceRepositoryRefs indicates an expected call of OverwriteDeviceRepositoryRefs.
-func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, name any, repositoryNames ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name}, repositoryNames...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteDeviceRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteDeviceRepositoryRefs), varargs...)
-}
-
 // PatchDevice mocks base method.
 func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
@@ -419,19 +461,39 @@ func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, field
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
-// ReplaceDeviceSpec mocks base method.
-func (m *MockService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status) {
+// ReplaceDeviceRepositoryRefsIfCurrent mocks base method.
+func (m *MockService) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDeviceSpec", ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	ret := m.ctrl.Call(m, "ReplaceDeviceRepositoryRefsIfCurrent", ctx, orgId, name, generation, spec)
+	ret0, _ := ret[0].(common.RepositoryRefsOutcome)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceDeviceRepositoryRefsIfCurrent indicates an expected call of ReplaceDeviceRepositoryRefsIfCurrent.
+func (mr *MockServiceMockRecorder) ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, name, generation, spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceRepositoryRefsIfCurrent", reflect.TypeOf((*MockService)(nil).ReplaceDeviceRepositoryRefsIfCurrent), ctx, orgId, name, generation, spec)
+}
+
+// ReplaceDeviceSpec mocks base method.
+func (m *MockService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string, options ...SpecUpdateOptions) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ReplaceDeviceSpec", varargs...)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDeviceSpec indicates an expected call of ReplaceDeviceSpec.
-func (mr *MockServiceMockRecorder) ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceSpec", reflect.TypeOf((*MockService)(nil).ReplaceDeviceSpec), ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	varargs := append([]any{ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceSpec", reflect.TypeOf((*MockService)(nil).ReplaceDeviceSpec), varargs...)
 }
 
 // ReplaceDeviceStatus mocks base method.
@@ -611,17 +673,22 @@ func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, orgId, name, ann
 }
 
 // UpdateRenderedDevice mocks base method.
-func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) domain.Status {
+func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+	varargs := []any{ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateRenderedDevice", varargs...)
 	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UpdateRenderedDevice indicates an expected call of UpdateRenderedDevice.
-func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+	varargs := append([]any{ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), varargs...)
 }
 
 // UpdateServerSideDeviceStatus mocks base method.

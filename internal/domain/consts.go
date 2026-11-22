@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"fmt"
+
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
@@ -275,6 +277,9 @@ const (
 	EnrollmentHooksReasonSucceeded      = v1beta1.EnrollmentHooksReasonSucceeded
 	EnrollmentHooksReasonContinued      = v1beta1.EnrollmentHooksReasonContinued
 	EnrollmentHooksReasonManualOverride = v1beta1.EnrollmentHooksReasonManualOverride
+
+	FleetValidReasonFirmwareRenderingUnsupported = v1beta1.FleetValidReasonFirmwareRenderingUnsupported
+	DeviceSpecValidReasonFirmwareUnsupported     = v1beta1.DeviceSpecValidReasonFirmwareUnsupported
 )
 
 // ========== Device Text ==========
@@ -286,7 +291,19 @@ const (
 
 // ========== Condition Reasons ==========
 
-const DeviceConditionBootstrapReason = v1beta1.DeviceConditionBootstrapReason
+const (
+	DeviceConditionBootstrapReason     = v1beta1.DeviceConditionBootstrapReason
+	EnrollmentCredentialRevokedReason  = v1beta1.EnrollmentCredentialRevokedReason
+	EnrollmentCredentialRevokedMessage = "The enrollment credential that admitted this device was revoked"
+)
+
+// EnrollmentCredentialRevocationBatchSize bounds how many enrollment requests
+// or devices a single revocation bulk update may touch.
+const EnrollmentCredentialRevocationBatchSize = 1000
+
+func EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName string) string {
+	return fmt.Sprintf("Enrollment credential %q was revoked; enrollment request rejected", credentialName)
+}
 
 // ========== Template Functions ==========
 

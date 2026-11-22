@@ -136,10 +136,16 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 			if shouldEnrollmentHookNotify(originalEvent) && idle < EnrollmentHookNotifyProcessingTimeout {
 				return queues.ErrMessageNotTimedOut
 			}
+			if shouldProcessEnrollmentCredentialRevocation(originalEvent) && idle < EnrollmentCredentialRevocationProcessingTimeout {
+				return queues.ErrMessageNotTimedOut
+			}
 
 			timeoutMsg := timeout
 			if shouldEnrollmentHookNotify(originalEvent) {
 				timeoutMsg = EnrollmentHookNotifyProcessingTimeout
+			}
+			if shouldProcessEnrollmentCredentialRevocation(originalEvent) {
+				timeoutMsg = EnrollmentCredentialRevocationProcessingTimeout
 			}
 			if queueName == consts.DeltaGenerationTaskQueue {
 				processingTimeout, hasDeltaTimeout := t.deltaGenerationProcessingTimeout(originalEvent)

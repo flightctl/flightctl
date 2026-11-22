@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -48,6 +49,44 @@ type fakeEnrollmentRequestStore struct {
 
 func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}}
+}
+
+type fakeCSRService struct {
+	csrservice.Service
+	items               map[string]*domain.CertificateSigningRequest
+	status              domain.Status
+	getCalls            int
+	revokeAfterFirstGet *domain.EnrollmentCertificateRevocation
+	statusAfterFirstGet *domain.Status
+}
+
+func newFakeCSRService() *fakeCSRService {
+	return &fakeCSRService{items: map[string]*domain.CertificateSigningRequest{}}
+}
+
+func (f *fakeCSRService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
+	if f.status.Code != 0 {
+		return nil, f.status
+	}
+	csr, ok := f.items[name]
+	if !ok {
+		return nil, domain.StatusResourceNotFound(domain.CertificateSigningRequestKind, name)
+	}
+	result, err := store.CloneJSON(csr)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	f.getCalls++
+	if f.getCalls > 1 && f.statusAfterFirstGet != nil {
+		return nil, *f.statusAfterFirstGet
+	}
+	if f.getCalls == 1 && f.revokeAfterFirstGet != nil {
+		if csr.Status == nil {
+			csr.Status = &domain.CertificateSigningRequestStatus{}
+		}
+		csr.Status.Revocation = f.revokeAfterFirstGet
+	}
+	return result, domain.StatusOK()
 }
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
@@ -141,15 +180,72 @@ func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID
 	return true, nil
 }
 
+func (f *fakeEnrollmentRequestStore) DenyEnrollmentRequestsForRevokedCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
+	var count int64
+	for name, request := range f.items {
+		if request.Status == nil || lo.FromPtr(request.Status.EnrollmentCertificateName) != credentialName {
+			continue
+		}
+		if domain.IsStatusConditionTrue(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) ||
+			domain.IsStatusConditionTrue(request.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied) ||
+			(request.Status.Approval != nil && request.Status.Approval.Approved) {
+			continue
+		}
+		updated := *request
+		domain.SetStatusCondition(&updated.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeEnrollmentRequestDenied,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedEnrollmentRequestMessage(credentialName),
+		})
+		f.items[name] = &updated
+		count++
+	}
+	return count, nil
+}
+
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
 // used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
 	devicestore.Store
-	items map[string]*domain.Device
+	items       map[string]*domain.Device
+	credentials map[string]string
 }
 
 func newFakeDeviceStore() *fakeDeviceStore {
-	return &fakeDeviceStore{items: map[string]*domain.Device{}}
+	return &fakeDeviceStore{
+		items:       map[string]*domain.Device{},
+		credentials: map[string]string{},
+	}
+}
+
+func (f *fakeDeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, _ int) (int64, error) {
+	var count int64
+	for name, device := range f.items {
+		if f.credentials[name] != credentialName {
+			continue
+		}
+		if device.Status != nil && device.Status.EnrollmentCredential != nil && device.Status.EnrollmentCredential.Revoked {
+			if condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked); condition != nil && condition.Status == domain.ConditionStatusTrue {
+				continue
+			}
+		}
+		if device.Status == nil {
+			device.Status = &domain.DeviceStatus{}
+		}
+		if device.Status.EnrollmentCredential == nil {
+			device.Status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{}
+		}
+		device.Status.EnrollmentCredential.Revoked = true
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{
+			Type:    domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  domain.EnrollmentCredentialRevokedReason,
+			Message: domain.EnrollmentCredentialRevokedMessage,
+		})
+		count++
+	}
+	return count, nil
 }
 
 func (f *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
@@ -217,8 +313,10 @@ func (f *fakeKVStore) SetNX(ctx context.Context, key string, value []byte) (bool
 // resource-specific callbacks that no longer exist on the slimmed events.Service interface.
 type fakeEventsService struct {
 	events.Service
-	createdEvents []*domain.Event
-	deleted       []string
+	createdEvents            []*domain.Event
+	createdEventCtxErrs      []error
+	createdEventHasDeadlines []bool
+	deleted                  []string
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
@@ -226,6 +324,9 @@ func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, ev
 		return
 	}
 	f.createdEvents = append(f.createdEvents, event)
+	f.createdEventCtxErrs = append(f.createdEventCtxErrs, ctx.Err())
+	_, hasDeadline := ctx.Deadline()
+	f.createdEventHasDeadlines = append(f.createdEventHasDeadlines, hasDeadline)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -250,13 +351,19 @@ func newTestCA(t *testing.T) *crypto.CAClient {
 }
 
 func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService) {
+	handler, erStore, devStore, kv, ev, _ := newTestHandlerWithCSR(t)
+	return handler, erStore, devStore, kv, ev
+}
+
+func newTestHandlerWithCSR(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService, *fakeCSRService) {
 	erStore := newFakeEnrollmentRequestStore()
 	devStore := newFakeDeviceStore()
 	kv := &fakeKVStore{}
 	ev := &fakeEventsService{}
+	csrSvc := newFakeCSRService()
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, csrSvc, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev, csrSvc
 }
 
 func adminContext() context.Context {
@@ -649,6 +756,156 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
+
+	t.Run("When an enrollment credential is referenced it should project the credential onto the device", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-automatic-projection"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
+			Revoked: false,
+		}, *device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the referenced enrollment credential is revoked it should project the revoked state", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-revoked-projection"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		credential := issuedEnrollmentCredential("commissioning-credential")
+		credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{Reason: "Compromised", RevokedBy: "security-officer"}
+		csrs.items["commissioning-credential"] = credential
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceEnrollmentCredentialStatus{
+			Revoked: true,
+		}, *device.Status.EnrollmentCredential)
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		require.NotNil(t, condition)
+		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+		require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	})
+
+	t.Run("When the credential is revoked after the device is created it should reconcile the new device", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-revocation-race"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
+		csrs.revokeAfterFirstGet = &domain.EnrollmentCertificateRevocation{Reason: "Compromised", RevokedBy: "security-officer"}
+		fakeDevices.credentials[cn] = "commissioning-credential"
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.NotNil(t, device.Status.EnrollmentCredential)
+		require.True(t, device.Status.EnrollmentCredential.Revoked)
+		condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentCredentialRevoked)
+		require.NotNil(t, condition)
+		require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+		require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	})
+
+	t.Run("When revocation reconciliation fails it should enqueue a retry event", func(t *testing.T) {
+		h, fakeStore, _, _, fakeEvents, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-reconciliation-failure"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = issuedEnrollmentCredential("commissioning-credential")
+		failure := domain.StatusInternalServerError("boom")
+		csrs.statusAfterFirstGet = &failure
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		events := fakeEvents.createdWithReason(domain.EventReasonEnrollmentCredentialRevoked)
+		require.Len(t, events, 1)
+		require.Contains(t, events[0].Message, "reconciliation requested")
+		require.Equal(t, string(domain.CertificateSigningRequestKind), events[0].InvolvedObject.Kind)
+		require.Equal(t, "commissioning-credential", events[0].InvolvedObject.Name)
+	})
+
+	t.Run("When the request context is cancelled it should still persist the retry event", func(t *testing.T) {
+		h, _, _, _, fakeEvents, _ := newTestHandlerWithCSR(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		h.enqueueEnrollmentCredentialRevocationReconciliation(ctx, uuid.New(), "commissioning-credential")
+
+		events := fakeEvents.createdWithReason(domain.EventReasonEnrollmentCredentialRevoked)
+		require.Len(t, events, 1)
+		require.Len(t, fakeEvents.createdEventCtxErrs, 1)
+		require.NoError(t, fakeEvents.createdEventCtxErrs[0])
+		require.True(t, fakeEvents.createdEventHasDeadlines[0])
+	})
+
+	t.Run("When the referenced enrollment credential is missing it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, _ := newTestHandlerWithCSR(t)
+		cn := "test-device-missing-credential"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the referenced enrollment credential is unissued it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, csrs := newTestHandlerWithCSR(t)
+		cn := "test-device-unissued-credential"
+		er := projectionRequest(t, cn)
+		fakeStore.items[cn] = &er
+		csrs.items["commissioning-credential"] = &domain.CertificateSigningRequest{Metadata: domain.ObjectMeta{Name: lo.ToPtr("commissioning-credential")}, Status: &domain.CertificateSigningRequestStatus{}}
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
+	})
+
+	t.Run("When the enrollment request has no credential reference it should not project provenance", func(t *testing.T) {
+		h, fakeStore, fakeDevices, _, _, _ := newTestHandlerWithCSR(t)
+		cn := "test-device-historical-projection"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+			Status:   &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}},
+		}
+		fakeStore.items[cn] = &er
+
+		orgId := uuid.New()
+		_, status := h.ApproveEnrollmentRequest(adminContext(), orgId, cn, domain.EnrollmentRequestApproval{Approved: true})
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		device, err := fakeDevices.Get(context.Background(), orgId, cn)
+		require.NoError(t, err)
+		require.Nil(t, device.Status.EnrollmentCredential)
+	})
 }
 
 func TestEnrollmentRequestSnapshots(testingT *testing.T) {
@@ -694,6 +951,71 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 
 	_, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), "missing", er)
 	require.Equal(t, statusNotFoundCode, status.Code)
+}
+
+func TestDenyEnrollmentRequestsForRevokedCredential(t *testing.T) {
+	h, store, _, _, _ := newTestHandler(t)
+	orgId := uuid.New()
+	credentialName := "credential-1"
+	store.items["pending"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("pending")},
+		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr(credentialName)},
+	}
+	store.items["approved"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("approved")},
+		Status: &domain.EnrollmentRequestStatus{
+			EnrollmentCertificateName: lo.ToPtr(credentialName),
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeEnrollmentRequestApproved,
+				Status: domain.ConditionStatusTrue,
+			}},
+		},
+	}
+	store.items["other-credential"] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("other-credential")},
+		Status:   &domain.EnrollmentRequestStatus{EnrollmentCertificateName: lo.ToPtr("credential-2")},
+	}
+
+	count, status := h.DenyEnrollmentRequestsForRevokedCredential(context.Background(), orgId, credentialName, domain.EnrollmentCredentialRevocationBatchSize)
+
+	require.Equal(t, statusSuccessCode, status.Code)
+	require.Equal(t, int64(1), count)
+	condition := domain.FindStatusCondition(store.items["pending"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	require.NotNil(t, condition)
+	require.Equal(t, domain.ConditionStatusTrue, condition.Status)
+	require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
+	require.Nil(t, domain.FindStatusCondition(store.items["approved"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied))
+	require.Nil(t, domain.FindStatusCondition(store.items["other-credential"].Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied))
+}
+
+func TestReplaceEnrollmentRequestStatusPreservesRevocationDenial(t *testing.T) {
+	h, store, _, _, _ := newTestHandler(t)
+	name := "revoked-pending"
+	credentialName := "credential-1"
+	store.items[name] = &domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status: &domain.EnrollmentRequestStatus{
+			EnrollmentCertificateName: lo.ToPtr(credentialName),
+			Conditions: []domain.Condition{{
+				Type:    domain.ConditionTypeEnrollmentRequestDenied,
+				Status:  domain.ConditionStatusTrue,
+				Reason:  domain.EnrollmentCredentialRevokedReason,
+				Message: "Enrollment credential was revoked",
+			}},
+		},
+	}
+
+	result, status := h.ReplaceEnrollmentRequestStatus(context.Background(), uuid.New(), name, domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status:   &domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}},
+	})
+
+	require.Equal(t, statusSuccessCode, status.Code)
+	require.NotNil(t, result)
+	require.Equal(t, &credentialName, result.Status.EnrollmentCertificateName)
+	condition := domain.FindStatusCondition(result.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	require.NotNil(t, condition)
+	require.Equal(t, domain.EnrollmentCredentialRevokedReason, condition.Reason)
 }
 
 func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
@@ -1019,5 +1341,30 @@ func TestGetEnrollmentConfigRestored(t *testing.T) {
 			require.NotEmpty(t, result.EnrollmentService.Service.CertificateAuthorityData)
 			require.Empty(t, result.EnrollmentService.Authentication.ClientCertificateData)
 		})
+	}
+}
+
+func projectionRequest(t *testing.T, name string) domain.EnrollmentRequest {
+	return domain.EnrollmentRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, name), DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		Status: &domain.EnrollmentRequestStatus{
+			Conditions:                []domain.Condition{},
+			EnrollmentCertificateName: lo.ToPtr("commissioning-credential"),
+		},
+	}
+}
+
+func issuedEnrollmentCredential(name string) *domain.CertificateSigningRequest {
+	certificate := []byte("issued-enrollment-certificate")
+	return &domain.CertificateSigningRequest{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Status: &domain.CertificateSigningRequestStatus{
+			Certificate: &certificate,
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeCertificateSigningRequestApproved,
+				Status: domain.ConditionStatusTrue,
+			}},
+		},
 	}
 }

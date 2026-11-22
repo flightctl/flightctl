@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -45,6 +47,14 @@ func endSpan(span trace.Span, st domain.Status) {
 	}
 
 	span.End()
+}
+
+func (_d *TracedDeviceService) AcknowledgeFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, receipt firmwarepolicy.Receipt) (s1 domain.Status) {
+	ctx, span := startSpan(ctx, "AcknowledgeFirmwarePolicy")
+
+	s1 = _d.inner.AcknowledgeFirmwarePolicy(ctx, orgId, name, receipt)
+	endSpan(span, s1)
+	return s1
 }
 
 func (_d *TracedDeviceService) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (b1 bool, s1 domain.Status) {
@@ -93,6 +103,14 @@ func (_d *TracedDeviceService) DeleteDevice(ctx context.Context, orgId uuid.UUID
 	s1 = _d.inner.DeleteDevice(ctx, orgId, name)
 	endSpan(span, s1)
 	return s1
+}
+
+func (_d *TracedDeviceService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (i1 int64, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "FlagDevicesForRevokedEnrollmentCredential")
+
+	i1, s1 = _d.inner.FlagDevicesForRevokedEnrollmentCredential(ctx, orgId, credentialName, limit)
+	endSpan(span, s1)
+	return i1, s1
 }
 
 func (_d *TracedDeviceService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (err error) {
@@ -155,6 +173,14 @@ func (_d *TracedDeviceService) GetDevicesSummary(ctx context.Context, orgId uuid
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) GetFirmwarePolicy(ctx context.Context, orgId uuid.UUID, name string, knownRevision int64, knownDigest string) (vp1 *firmwarepolicy.View, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "GetFirmwarePolicy")
+
+	vp1, s1 = _d.inner.GetFirmwarePolicy(ctx, orgId, name, knownRevision, knownDigest)
+	endSpan(span, s1)
+	return vp1, s1
+}
+
 func (_d *TracedDeviceService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetRenderedDevice")
 
@@ -173,6 +199,14 @@ func (_d *TracedDeviceService) HealthcheckDevices(ctx context.Context, orgId uui
 	}
 	endSpan(span, st)
 	return err
+}
+
+func (_d *TracedDeviceService) HoldDeviceForFirmware(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, sourceHasFirmware bool) (b1 bool, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "HoldDeviceForFirmware")
+
+	b1, s1 = _d.inner.HoldDeviceForFirmware(ctx, orgId, name, expectedOwner, sourceHasFirmware)
+	endSpan(span, s1)
+	return b1, s1
 }
 
 func (_d *TracedDeviceService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (dp1 *domain.DeviceList, s1 domain.Status) {
@@ -223,14 +257,6 @@ func (_d *TracedDeviceService) OverrideDeviceEnrollmentHook(ctx context.Context,
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) (s1 domain.Status) {
-	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
-
-	s1 = _d.inner.OverwriteDeviceRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	endSpan(span, s1)
-	return s1
-}
-
 func (_d *TracedDeviceService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchDevice")
 
@@ -255,10 +281,18 @@ func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (r1 common.RepositoryRefsOutcome, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceDeviceRepositoryRefsIfCurrent")
+
+	r1, s1 = _d.inner.ReplaceDeviceRepositoryRefsIfCurrent(ctx, orgId, name, generation, spec)
+	endSpan(span, s1)
+	return r1, s1
+}
+
+func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string, options ...SpecUpdateOptions) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceSpec")
 
-	dp1, s1 = _d.inner.ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	dp1, s1 = _d.inner.ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations, options...)
 	endSpan(span, s1)
 	return dp1, s1
 }
@@ -367,10 +401,10 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return s1
 }
 
-func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) (s1 domain.Status) {
+func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
 
-	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints, options...)
 	endSpan(span, s1)
 	return s1
 }

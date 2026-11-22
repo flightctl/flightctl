@@ -32,7 +32,10 @@ RUN --mount=type=cache,target=/var/cache/dnf \
 # Base services and tooling that don't depend on our RPMs
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    # Temporary: use --nobest for greenboot packages while CS10 AppStream
+    # greenboot and greenboot-default-health-checks versions may differ.
+    dnf install -y --nobest greenboot greenboot-default-health-checks && \
+    dnf install -y podman-compose && \
     # install_weak_deps=False prevents iptables-nft (a Recommends: of firewalld) from being
     # installed. On CS10 kernel 6.12.0-243+, xtables modules were dropped from the default
     # kernel set, so iptables-nft's kmod(xt_nat) requirement resolves to kernel-debug-modules
@@ -40,6 +43,8 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     # bootc install-to-filesystem. CS10 e2e tests use the nftables backend so iptables-nft
     # is not needed.
     dnf install -y --setopt=install_weak_deps=False firewalld && \
+    dnf distro-sync -y nftables libnftnl && \
+    nft --version && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
 

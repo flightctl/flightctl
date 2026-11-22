@@ -14,14 +14,21 @@ import (
 type selectorToTypeMap map[selector.SelectorName]selector.SelectorType
 
 var (
+	deviceEnrollmentCredentialSelectors = selectorToTypeMap{
+		selector.NewSelectorName("status.enrollmentCredential.revoked"): selector.Bool,
+	}
+	deviceDerivedSelectors = selectorToTypeMap{
+		selector.NewSelectorName("enrollmentCertificateName"): selector.String,
+	}
 	deviceStatusSelectors = selectorToTypeMap{
-		selector.NewSelectorName("status.summary.status"):             selector.String,
-		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
-		selector.NewSelectorName("status.updated.status"):             selector.String,
-		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
-		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
-		selector.NewSelectorName("status.systemInfo.osMode"):          selector.String,
-		selector.NewSelectorName("status.systemInfo.deltaEligible"):   selector.Bool,
+		selector.NewSelectorName("status.summary.status"):               selector.String,
+		selector.NewSelectorName("status.applicationsSummary.status"):   selector.String,
+		selector.NewSelectorName("status.updated.status"):               selector.String,
+		selector.NewSelectorName("status.lifecycle.status"):             selector.String,
+		selector.NewSelectorName("status.capabilities.osMode"):          selector.String,
+		selector.NewSelectorName("status.systemInfo.osMode"):            selector.String,
+		selector.NewSelectorName("status.systemInfo.deltaEligible"):     selector.Bool,
+		selector.NewSelectorName("status.enrollmentCredential.revoked"): selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
@@ -62,6 +69,19 @@ func (m *Device) MapSelectorName(name selector.SelectorName) []selector.Selector
 }
 
 func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if name.String() == "enrollmentCertificateName" {
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "(SELECT er.status->>'enrollmentCertificateName' FROM enrollment_requests er WHERE er.org_id = devices.org_id AND er.name = devices.name AND er.deleted_at IS NULL)",
+		}, nil
+	}
+	if typ, exists := deviceEnrollmentCredentialSelectors[name]; exists {
+		return &selector.SelectorField{
+			Type:      typ,
+			FieldName: fmt.Sprintf("service_conditions -> 'enrollmentCredential' ->> '%s'", strings.Split(name.String(), ".")[2]),
+			FieldType: "jsonb",
+		}, nil
+	}
 	if typ, exists := deviceStatusSelectors[name]; exists {
 		return makeJSONBSelectorField(name, typ)
 	}
@@ -69,8 +89,11 @@ func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.Selector
 }
 
 func (m *Device) ListSelectors() selector.SelectorNameSet {
-	keys := make([]selector.SelectorName, 0, len(deviceStatusSelectors))
+	keys := make([]selector.SelectorName, 0, len(deviceStatusSelectors)+len(deviceDerivedSelectors))
 	for sn := range deviceStatusSelectors {
+		keys = append(keys, sn)
+	}
+	for sn := range deviceDerivedSelectors {
 		keys = append(keys, sn)
 	}
 	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameOrAlias")).Add(keys...)

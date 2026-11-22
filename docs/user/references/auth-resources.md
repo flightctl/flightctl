@@ -13,6 +13,7 @@ The table below contains the routes, names, resource names, and verbs for Flight
 |`PATCH /api/v1/certificatesigningrequests/{name}`|`PatchCertificateSigningRequest`|`certificatesigningrequests`|`patch`|
 |`PUT /api/v1/certificatesigningrequests/{name}`|`ReplaceCertificateSigningRequest`|`certificatesigningrequests`|`update`|
 |`DELETE /api/v1/certificatesigningrequests/{name}/approval`|`DenyCertificateSigningRequest`|`certificatesigningrequests/approval`|`delete`|
+|`POST /api/v1/certificatesigningrequests/{name}/revocation`|`RevokeCertificateSigningRequest`|`certificatesigningrequests/revocation`|`create`|
 |`POST /api/v1/devices`|`CreateDevice`|`devices`|`create`|
 |`GET /api/v1/devices`|`ListDevices`|`devices`|`list`|
 |`GET /api/v1/devices/{name}`|`ReadDevice`|`devices`|`get`|

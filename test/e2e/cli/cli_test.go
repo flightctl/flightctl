@@ -546,19 +546,19 @@ var _ = Describe("cli operation", func() {
 
 			harness := e2e.GetWorkerHarness()
 
-			By("Checking that OpenSSL symbols are loaded when running with FIPS environment variables")
-			// Run flightctl version with FIPS environment and capture stderr for symbol loading info
-			fipsEnv := map[string]string{
-				"GOLANG_FIPS":             "1",
-				"OPENSSL_FORCE_FIPS_MODE": "1",
-				"LD_DEBUG":                "symbols",
+			By("Checking that the native FIPS module is active")
+			fipsEnv := map[string]string{"GODEBUG": "fips140=on"}
+			output, err := harness.CLIWithEnvAndShell(fipsEnv, fmt.Sprintf("%s version -o json", harness.GetFlightctlPath()))
+			Expect(err).ToNot(HaveOccurred())
+			var result struct {
+				ClientVersion struct {
+					FIPSMode   bool   `json:"fipsMode"`
+					FIPSModule string `json:"fipsModule"`
+				} `json:"clientVersion"`
 			}
-			flightctlPath := harness.GetFlightctlPath()
-			openSSLOutput, err := harness.CLIWithEnvAndShell(fipsEnv, fmt.Sprintf("%s version 2>&1 | grep OPENSSL", flightctlPath))
-			Expect(err).ToNot(HaveOccurred(), "Failed to run flightctl with FIPS environment")
-			Expect(openSSLOutput).ToNot(BeEmpty(), "No OpenSSL symbols found in output")
-			Expect(openSSLOutput).To(ContainSubstring("OPENSSL"), "OpenSSL symbols should be loaded")
-			GinkgoWriter.Printf("OpenSSL symbol loading output: %s\n", openSSLOutput)
+			Expect(json.Unmarshal([]byte(output), &result)).To(Succeed())
+			Expect(result.ClientVersion.FIPSMode).To(BeTrue())
+			Expect(result.ClientVersion.FIPSModule).To(Equal("v1.0.0"))
 
 			By("Checking that version YAML output contains strictfipsruntime")
 			yamlOut, err := harness.CLI("version", "-o", "yaml")

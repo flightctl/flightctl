@@ -102,7 +102,7 @@ func extractVmToQuadletBinary(ctx context.Context) (string, func(), error) {
 		Started:          true,
 	})
 	if err != nil {
-		return "", nil, fmt.Errorf("start vm-to-quadlet container: %w", err)
+		return "", nil, fmt.Errorf("start vm-to-quadlet container from %s (image setup: test/integration/tasks/vmrender/README.md): %w", vmToQuadletImage, err)
 	}
 	cleanup := func() {
 		termCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

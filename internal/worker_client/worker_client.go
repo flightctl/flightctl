@@ -168,6 +168,7 @@ func (t *workerClient) enqueueWithError(ctx context.Context, orgId uuid.UUID, ev
 }
 
 var eventReasons = map[domain.EventReason]struct{}{
+	domain.EventReasonEnrollmentCredentialRevoked:        {},
 	domain.EventReasonResourceCreated:                    {},
 	domain.EventReasonResourceUpdated:                    {},
 	domain.EventReasonDeviceLabelReconciliationRequested: {},

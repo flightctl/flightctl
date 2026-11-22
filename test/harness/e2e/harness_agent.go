@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -88,6 +89,10 @@ func (h *Harness) ResetAgentEnrollmentState() error {
 		return fmt.Errorf("harness VM is nil")
 	}
 
+	return resetAgentEnrollmentState(h.RunScriptOnVM, time.Sleep)
+}
+
+func resetAgentEnrollmentState(run func(string) (*bytes.Buffer, error), pause func(time.Duration)) error {
 	script := `
 set -e
 systemctl stop flightctl-agent || true
@@ -95,11 +100,19 @@ rm -rf /var/lib/flightctl/*
 journalctl --rotate || true
 systemctl reset-failed flightctl-agent || true
 `
-	_, err := h.RunScriptOnVM(script)
-	if err != nil {
-		return fmt.Errorf("resetting agent enrollment state: %w", err)
+	// Decommission may reboot the VM while SSH is executing this idempotent reset.
+	// Retry transport failures only; remote script errors must remain visible.
+	for attempt := 0; ; attempt++ {
+		_, err := run(script)
+		if err == nil {
+			return nil
+		}
+		var exitErr *exec.ExitError
+		if attempt == 2 || !errors.As(err, &exitErr) || exitErr.ExitCode() != 255 {
+			return fmt.Errorf("resetting agent enrollment state: %w", err)
+		}
+		pause(5 * time.Second)
 	}
-	return nil
 }
 
 // GetVMHostname returns the current hostname of the agent VM as seen by the kernel.

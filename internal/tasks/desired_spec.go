@@ -8,6 +8,11 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 )
 
+// errFirmwareHold reports that a device was held instead of rolled out,
+// because rendering does not support its firmware state or the firmware of
+// the template version.
+var errFirmwareHold = errors.New("device is held because rendering does not support its firmware")
+
 func DesiredSpecFromTemplate(device *domain.Device, tv *domain.TemplateVersion) (*domain.DeviceSpec, error) {
 	spec, _, errs := assembleDesiredSpec(device, tv)
 	if len(errs) > 0 {
@@ -29,7 +34,7 @@ func assembleDesiredSpec(device *domain.Device, tv *domain.TemplateVersion) (*do
 
 	var osSpec *domain.DeviceOsSpec
 	if tv.Status != nil && tv.Status.Os != nil {
-		osSpec = &domain.DeviceOsSpec{}
+		osSpec = &domain.DeviceOsSpec{CatalogItemRef: tv.Status.Os.CatalogItemRef}
 		img, err := ReplaceParametersInString(tv.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))

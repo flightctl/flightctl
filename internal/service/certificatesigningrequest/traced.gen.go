@@ -77,6 +77,14 @@ func (_d *TracedService) ListCertificateSigningRequests(ctx context.Context, org
 	return cp1, s1
 }
 
+func (_d *TracedService) MarkEnrollmentCredentialFlaggingCompleted(ctx context.Context, orgId uuid.UUID, name string) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "MarkEnrollmentCredentialFlaggingCompleted")
+
+	cp1, s1 = _d.inner.MarkEnrollmentCredentialFlaggingCompleted(ctx, orgId, name)
+	endSpan(span, s1)
+	return cp1, s1
+}
+
 func (_d *TracedService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchCertificateSigningRequest")
 
@@ -89,6 +97,14 @@ func (_d *TracedService) ReplaceCertificateSigningRequest(ctx context.Context, o
 	ctx, span := startSpan(ctx, "ReplaceCertificateSigningRequest")
 
 	cp1, s1 = _d.inner.ReplaceCertificateSigningRequest(ctx, orgId, name, csr)
+	endSpan(span, s1)
+	return cp1, s1
+}
+
+func (_d *TracedService) RevokeCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, request domain.EnrollmentCertificateRevocationRequest) (cp1 *domain.CertificateSigningRequest, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "RevokeCertificateSigningRequest")
+
+	cp1, s1 = _d.inner.RevokeCertificateSigningRequest(ctx, orgId, name, request)
 	endSpan(span, s1)
 	return cp1, s1
 }

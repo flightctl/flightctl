@@ -145,3 +145,24 @@ func validateContents(file *os.File, isDir bool) error {
 	}
 	return nil
 }
+
+func (r *reader) ReadFileLimited(filePath string, limit int64) ([]byte, error) {
+	if limit <= 0 || limit == int64(^uint64(0)>>1) {
+		return nil, fmt.Errorf("invalid file read limit")
+	}
+	f, err := os.Open(r.PathFor(filePath))
+	if err != nil {
+		return nil, err
+	}
+	// This file is read-only: read errors are returned below, and closing it
+	// cannot lose buffered writes or change the bytes already read.
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("file exceeds read limit")
+	}
+	return data, nil
+}

@@ -92,6 +92,7 @@ We also provide some helper functions:
 * `lower`: Change to lower case. For example, `{{ lower .metadata.labels.key }}`.
 * `replace`: Replace all occurrences of a substring with another string. For example, `{{ replace "old" "new" .metadata.labels.key }}`.
 * `getOrDefault`: Return a default value if accessing a missing label. For example, `{{ getOrDefault .metadata.labels "key" "default" }}`.
+* `deviceHasImageMode`: Report whether the device can apply an OS image. It takes no arguments and returns false only for a device labeled `feature.flightctl.io/os.mode: package`. For example, `{{ if deviceHasImageMode }}quay.io/org/os:v2{{ end }}`.
 
 You can also combine helpers in pipelines, for example `{{ getOrDefault .metadata.labels "key" "default" | upper | replace " " "-" }}`.
 

@@ -51,7 +51,7 @@ func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain
 func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	return nil, nil, false, nil
 }
-func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device, opts ...devicestore.UpdateStatusOption) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
 func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
@@ -59,6 +59,10 @@ func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.U
 }
 func (m *MockDevice) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	return false, nil
+}
+
+func (m *MockDevice) FlagDevicesForRevokedEnrollmentCredential(context.Context, uuid.UUID, string, int) (int64, error) {
+	return 0, nil
 }
 
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
@@ -93,6 +97,9 @@ func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 }
 func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
+}
+func (m *MockDevice) ReplaceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, repositoryNames ...string) (bool, error) {
+	return false, nil
 }
 func (m *MockDevice) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil

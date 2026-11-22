@@ -25,6 +25,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 tracecov.schemathesis.install()
 
+if os.environ.get("CI"):
+    from common.hypothesis_settings import install
+    install()
+
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
@@ -209,6 +213,7 @@ _RESOURCE_NAME_PATH_PARAMS = {"name", "catalog", "fleet", "providername"}
 
 @schemathesis.hook
 def before_init_operation(context, operation):
+
     for parameter in operation.iter_parameters():
         schema = parameter.definition.get("schema")
         if schema is not None:

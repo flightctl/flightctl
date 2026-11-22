@@ -70,6 +70,13 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "When an org admin creates a revocation it should be allowed",
+			roles:    []string{v1beta1.RoleOrgAdmin},
+			resource: "certificatesigningrequests/revocation",
+			op:       "create",
+			expected: true,
+		},
+		{
 			name:     "operator can create devices",
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "devices",
@@ -123,6 +130,13 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "catalogitems",
 			op:       "delete",
+			expected: false,
+		},
+		{
+			name:     "When an operator creates a revocation it should be denied",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "certificatesigningrequests/revocation",
+			op:       "create",
 			expected: false,
 		},
 		{
@@ -326,6 +340,13 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			roles:    []string{v1beta1.RoleInstaller},
 			resource: "catalogitems",
 			op:       "delete",
+			expected: false,
+		},
+		{
+			name:     "When an installer creates a revocation it should be denied",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "certificatesigningrequests/revocation",
+			op:       "create",
 			expected: false,
 		},
 		// Enrollment hook override RBAC

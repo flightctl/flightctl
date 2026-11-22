@@ -67,6 +67,7 @@ const (
 	EventReasonDeviceVulnerabilityCVEWarning      = v1beta1.EventReasonDeviceVulnerabilityCVEWarning
 	EventReasonDeviceOSImageChanged               = v1beta1.EventReasonDeviceOSImageChanged
 	EventReasonDeviceLabelReconciliationRequested = v1beta1.EventReasonDeviceLabelReconciliationRequested
+	EventReasonEnrollmentCredentialRevoked        = v1beta1.EventReasonEnrollmentCredentialRevoked
 	EventReasonEnrollmentRequestApprovalFailed    = v1beta1.EventReasonEnrollmentRequestApprovalFailed
 	EventReasonEnrollmentRequestApproved          = v1beta1.EventReasonEnrollmentRequestApproved
 	EventReasonFleetInvalid                       = v1beta1.EventReasonFleetInvalid
@@ -170,13 +171,15 @@ const (
 	UpdatedFieldSpecSelector             = v1beta1.SpecSelector
 	UpdatedFieldSpecTemplate             = v1beta1.SpecTemplate
 	UpdatedFieldEnrollmentHooksCondition = v1beta1.StatusConditionsEnrollmentHooks
+	UpdatedFieldStatusFirmware           = v1beta1.StatusFirmware
 
 	// Direct aliases for compatibility
-	Labels       = v1beta1.Labels
-	Owner        = v1beta1.Owner
-	Spec         = v1beta1.Spec
-	SpecSelector = v1beta1.SpecSelector
-	SpecTemplate = v1beta1.SpecTemplate
+	Labels         = v1beta1.Labels
+	Owner          = v1beta1.Owner
+	Spec           = v1beta1.Spec
+	SpecSelector   = v1beta1.SpecSelector
+	SpecTemplate   = v1beta1.SpecTemplate
+	StatusFirmware = v1beta1.StatusFirmware
 )
 
 // ========== Utility Functions ==========

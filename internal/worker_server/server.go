@@ -2,6 +2,7 @@ package workerserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -26,8 +28,10 @@ import (
 	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	updatercatalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -126,7 +130,14 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
 	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
 
+	updaterProvider, err := updatercatalogservice.Bootstrap(ctx, s.db, s.cfg.FirmwareUpdaterCatalogFile)
+	if err != nil {
+		return fmt.Errorf("initialize approved updater catalog: %w", err)
+	}
+
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
+	csrSvc := certificatesigningrequestservice.WrapWithTracing(certificatesigningrequestservice.NewServiceHandler(csrStore, nil, nil, eventsSvc, s.log, "", ""))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
 	if err != nil {
@@ -140,9 +151,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	labelSyncMappingSvc := labelsyncmappingservice.WrapWithTracing(labelSyncMappingHandler)
 
-	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log))
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log, fleetservice.WithApprovedDescriptorProvider(updaterProvider)))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
-	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catStore, fleetStore, eventsSvc, kvStore, "", s.log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catStore, fleetStore, eventsSvc, kvStore, "", s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider)))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
@@ -186,6 +197,7 @@ func (s *Server) Run(ctx context.Context) error {
 		CatalogSvc:           catalogSvc,
 		EventSvc:             eventSvc,
 		EnrollmentRequestSvc: enrollmentRequestSvc,
+		CSRService:           csrSvc,
 		NotifySecretsStore:   notifySecretsStore,
 		K8sClient:            s.k8sClient,
 		KVStore:              kvStore,
@@ -200,9 +212,19 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
+	policyNotifier, err := rendered.NewFirmwarePolicyNotifier(s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	policyRefresh, err := tasks.NewUpdaterCatalogRefresh(updaterProvider, policyNotifier, s.log)
+	if err != nil {
+		return err
+	}
 	enqueueCtx, cancelEnqueue := context.WithCancel(ctx)
 	var enqueueWG sync.WaitGroup
-	enqueueWG.Add(1)
+	enqueueWG.Add(2)
+	go func() { defer enqueueWG.Done(); policyRefresh.Run(enqueueCtx) }()
+
 	go func() {
 		defer enqueueWG.Done()
 		if err := tasks.EnqueueEncryptionMigrationIfNeeded(enqueueCtx, publisher, encryptionMigrator, s.log); err != nil {
