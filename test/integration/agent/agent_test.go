@@ -557,7 +557,7 @@ var _ = Describe("Device Agent behavior", func() {
 					OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 						Date:               start.Format("2006-01-02"),
 						At:                 start.Format("15:04"),
-						StartGraceDuration: v1beta1.Duration(duration),
+						StartGraceDuration: duration,
 					}}),
 				}
 			}
