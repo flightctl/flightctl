@@ -274,7 +274,7 @@ func (s phaseRecordStore) isRetired() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	data, err := s.dir.ReadFile(name, 512)
+	data, err := s.dir.ReadFile(name, 2048)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}

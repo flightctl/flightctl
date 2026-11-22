@@ -95,7 +95,7 @@ func Run(args []string) error {
 	}
 	argv := append([]string{args[8]}, args[9:]...)
 	// #nosec G204 -- the executable comes from the verified manifest; the remaining arguments are agent-generated protocol arguments.
-	if err := syscall.Exec(args[8], argv, os.Environ()); err != nil {
+	if err := syscall.Exec(args[8], argv, nil); err != nil {
 		return fmt.Errorf("exec pinned phase entrypoint: %w", err)
 	}
 	return nil

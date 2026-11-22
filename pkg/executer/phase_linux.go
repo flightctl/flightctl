@@ -233,6 +233,7 @@ func (j *PhaseJob) properties() []systemd.Property {
 		systemd.PropType("exec"), phaseProperty("AddRef", true),
 		phaseProperty("CollectMode", "inactive-or-failed"),
 		systemd.PropExecStart(launcherCommand, false),
+		phaseProperty("Environment", []string{}),
 		systemd.PropSlice("system.slice"),
 		phaseProperty("ExitType", "cgroup"), phaseProperty("Restart", "no"),
 		phaseProperty("RootDirectory", spec.RootDir), phaseProperty("WorkingDirectory", "/"),
