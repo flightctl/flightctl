@@ -179,6 +179,29 @@ var _ = Describe("Rollout batch sequence test", func() {
 		})
 		Expect(err).ToNot(HaveOccurred())
 	}
+	setLongOneTimeWindow := func(deviceName string) {
+		windowStart := time.Now().UTC().Add(-time.Minute)
+		spec := &api.DeviceSpec{
+			UpdatePolicy: &api.DeviceUpdatePolicySpec{
+				UpdateSchedule: &api.UpdateSchedule{
+					TimeZone: lo.ToPtr(api.TimeZone("UTC")),
+					OneTimeWindows: lo.ToPtr([]api.OneTimeWindow{{
+						Date:               windowStart.Format("2006-01-02"),
+						At:                 windowStart.Format("15:04"),
+						StartGraceDuration: "1h",
+					}}),
+				},
+			},
+		}
+		_, _, _, err := deviceStore.Mutate(ctx, store.NullOrgId, deviceName, nil, func(m *devicestore.DeviceMutation) error {
+			if err := m.RequireExisting(); err != nil {
+				return err
+			}
+			m.Device.Spec = spec
+			return nil
+		})
+		Expect(err).ToNot(HaveOccurred())
+	}
 	setRolledOut := func(deviceName string) {
 		annotations := map[string]string{
 			api.DeviceAnnotationTemplateVersion: tvName,
@@ -475,7 +498,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			processBatch(selector, 0, nil)
 			Expect(selector.HasMoreSelections(ctx)).To(BeFalse())
 		})
-		It("update timeout", func() {
+		It("update timeout remains independent of a long device policy window", func() {
 			selector := initTest(singleElementBatchSequence, 6, lo.ToPtr("20s"))
 			Expect(selector.HasMoreSelections(ctx)).To(BeTrue())
 			Expect(selector.Advance(ctx)).ToNot(HaveOccurred())
@@ -487,6 +510,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devices.Items).To(HaveLen(6))
 			for _, d := range devices.Items {
+				setLongOneTimeWindow(lo.FromPtr(d.Metadata.Name))
 				setRolledOut(lo.FromPtr(d.Metadata.Name))
 				setRendered(lo.FromPtr(d.Metadata.Name))
 			}
