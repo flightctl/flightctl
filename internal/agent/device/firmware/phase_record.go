@@ -1,11 +1,13 @@
 package firmware
 
 import (
+	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
@@ -51,6 +53,25 @@ type phaseRecordStore struct {
 	dir fileio.Anchor
 }
 
+func (record phaseRecord) checkResultCapacity(maxResultBytes int64) error {
+	// Each accepted field is drawn from the response. JSON escaping can expand
+	// a byte to six, and the accepted response may also supply the standalone
+	// selection and checkpoint. Keep the entire pending record as headroom
+	// for any previous state carried into the next commit.
+	const maxResultExpansion = 12
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	// Allow for fields introduced when committing the result and receipt.
+	const commitOverhead = 1024
+	available := maxPhaseRecordBytes - len(data) - commitOverhead
+	if available < 0 || maxResultBytes > int64(available/maxResultExpansion) {
+		return errors.New("firmware phase result allowance exceeds durable runner storage")
+	}
+	return nil
+}
+
 func (s phaseRecordStore) load() (phaseRecord, error) {
 	data, err := s.dir.ReadFile(phaseRecordName, maxPhaseRecordBytes)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -85,6 +106,28 @@ func (s phaseRecordStore) save(record phaseRecord) error {
 		return fmt.Errorf("%w: %w", errPhaseDurabilityUncertain, err)
 	}
 	return nil
+}
+
+func (s phaseRecordStore) retire(attemptID string) error {
+	if s.dir == nil {
+		return nil
+	}
+	record, err := s.load()
+	if err != nil {
+		return err
+	}
+	if record.AttemptID == "" || record.AttemptID != attemptID {
+		return nil
+	}
+	if record.Pending != nil {
+		return errPhasePending
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := s.dir.RemoveTree(ctx, phaseRecordName, cleanupBounds()); err != nil {
+		return err
+	}
+	return s.dir.Sync()
 }
 
 func phaseHeldPin(dir fileio.Anchor, attemptID string) (bool, error) {

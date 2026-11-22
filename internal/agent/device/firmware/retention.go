@@ -408,8 +408,7 @@ func (r *Retention) Pin(p Pin) error {
 	return nil
 }
 
-// Release removes every pin of an attempt. Releasing an unknown attempt only
-// makes the registry durable.
+// Release removes every pin and completed runner state of an attempt.
 func (r *Retention) Release(attemptID string) error {
 	r.cache.gate <- struct{}{}
 	defer func() { <-r.cache.gate }()
@@ -438,16 +437,19 @@ func (r *Retention) Release(attemptID string) error {
 			kept = append(kept, p)
 		}
 	}
-	if len(kept) == len(pins) {
+	if len(kept) != len(pins) {
+		if err := writeRegistry(c.firmware, kept); err != nil {
+			return fmt.Errorf("persist retention registry: %w", err)
+		}
+	} else {
 		if c.firmware != nil {
 			if err := c.firmware.Sync(); err != nil {
 				return fmt.Errorf("persist retention registry: %w", err)
 			}
 		}
-		return nil
 	}
-	if err := writeRegistry(c.firmware, kept); err != nil {
-		return fmt.Errorf("persist retention registry: %w", err)
+	if err := (phaseRecordStore{dir: c.firmware}).retire(attemptID); err != nil {
+		return fmt.Errorf("retire firmware runner state: %w", err)
 	}
 	return nil
 }

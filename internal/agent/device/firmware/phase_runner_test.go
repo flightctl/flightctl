@@ -47,18 +47,24 @@ func (j *phaseTestJob) Close() error { return j.cleanupError }
 
 func TestPhaseRunnerDurableAcceptance(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		revoke  bool
-		lost    bool
-		cleanup bool
+		name       string
+		revoke     bool
+		lost       bool
+		cleanup    bool
+		largeLimit bool
 	}{
 		{name: "When a verified result is approved it should accept it after recording dispatch"},
 		{name: "When policy revokes the release during execution it should hold the call", revoke: true},
 		{name: "When a dispatch loses its result restart should keep the spent budget", lost: true},
 		{name: "When cleanup cannot be proven a valid result should remain pending", cleanup: true},
+		{name: "When the approved result might exceed durable storage it should refuse dispatch", largeLimit: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, d, req := phaseProtocolFixture(t)
+			if tc.largeLimit {
+				d.Limits.MaxResultBytes = 3 << 20
+				d.Limits.MaxCheckpointBytes = 2 << 20
+			}
 			req.Identity.CallID = phaseCallID(1)
 			member := phaseTarget{Kind: phaseComponent, Name: "system", Version: "2", Digest: policy.Hash([]byte("artifact"))}
 			validation, err := newPhaseValidationContext(m, d, req, []phaseTarget{member})
@@ -100,6 +106,14 @@ func TestPhaseRunnerDurableAcceptance(t *testing.T) {
 			result, err := executeRecordedPhase(t.Context(), store, p, job, validation, 2)
 			current, readErr := store.load()
 			require.NoError(t, readErr)
+			if tc.largeLimit {
+				require.ErrorContains(t, err, "exceeds durable runner storage")
+				require.Equal(t, 0, job.starts)
+				require.EqualValues(t, 0, current.Dispatches)
+				require.Nil(t, current.Pending)
+				require.Equal(t, previous.Checkpoint, current.Checkpoint)
+				return
+			}
 			require.EqualValues(t, 1, current.Dispatches)
 			require.Equal(t, previous.Checkpoint, current.Checkpoint)
 			if tc.revoke || tc.lost || tc.cleanup {
