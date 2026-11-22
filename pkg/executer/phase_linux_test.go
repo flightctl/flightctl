@@ -60,6 +60,28 @@ func TestPhaseControllers(t *testing.T) {
 	require.NoError(t, checkPhaseControllers(path))
 }
 
+func TestLinuxPhaseSetupHonorsDeadline(t *testing.T) {
+	if os.Getenv("FLIGHTCTL_TEST_PHASE_BOUNDARY") != "1" {
+		t.Skip("requires an explicit privileged Linux profile test")
+	}
+	require.NoError(t, checkPhaseHost())
+	root, err := os.MkdirTemp("/var/lib", "flightctl-phase-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(root)) })
+	socket := filepath.Join(root, "bus")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	// The socket accepts the connection but never answers authentication.
+	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+socket)
+	_, err = (&LinuxPhaseExecutor{}).PreparePhase(t.Context(), PhaseExecSpec{
+		RootDir: root, Entrypoint: "/updater",
+		Limits: PhaseExecLimits{ResultBytes: 1, StderrBytes: 1, ScratchBytes: 1,
+			MemoryBytes: 1, Processes: 1, Invocation: 100 * time.Millisecond, Cleanup: time.Second},
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 func TestLinuxPhaseBoundary(t *testing.T) {
 	if os.Getenv("FLIGHTCTL_TEST_PHASE_BOUNDARY") != "1" {
 		t.Skip("requires an explicit privileged Linux profile test")

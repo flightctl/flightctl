@@ -26,9 +26,10 @@ type LinuxPhaseExecutor struct{}
 
 // PhaseJob owns the supervisor connection and the output streams for one invocation.
 type PhaseJob struct {
-	spec PhaseExecSpec
-	bus  *systemd.Conn
-	unit string
+	spec      PhaseExecSpec
+	bus       *systemd.Conn
+	cancelBus context.CancelFunc
+	unit      string
 
 	stdout, stderr     *os.File
 	result, diagnostic *os.File
@@ -49,23 +50,38 @@ func (*LinuxPhaseExecutor) PreparePhase(ctx context.Context, spec PhaseExecSpec)
 	if err := validatePhaseSpec(spec); err != nil {
 		return nil, err
 	}
-	bus, err := systemd.NewSystemConnectionContext(context.WithoutCancel(ctx))
+	// The setup timeout can close a stalled connection. Once setup succeeds,
+	// the job owns the connection until it can prove cleanup.
+	setupCtx, cancelSetup := context.WithTimeout(ctx, spec.Limits.Invocation)
+	defer cancelSetup()
+	busCtx, cancelBus := context.WithCancel(context.WithoutCancel(ctx))
+	stopSetup := context.AfterFunc(setupCtx, cancelBus)
+	defer stopSetup()
+	bus, err := systemd.NewSystemConnectionContext(busCtx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: connect to system manager: %w", ErrPhaseUnsupported, err)
+		cancelBus()
+		return nil, fmt.Errorf("%w: connect to system manager: %w", ErrPhaseUnsupported, errors.Join(err, setupCtx.Err()))
 	}
 	features, err := bus.GetManagerProperty("Features")
+	if !stopSetup() || setupCtx.Err() != nil {
+		cancelBus()
+		bus.Close()
+		return nil, fmt.Errorf("%w: probe system manager: %w", ErrPhaseUnsupported, setupCtx.Err())
+	}
 	if err != nil || !strings.Contains(features, "+SECCOMP ") {
+		cancelBus()
 		bus.Close()
 		return nil, fmt.Errorf("%w: system manager must support seccomp", ErrPhaseUnsupported)
 	}
 	token := make([]byte, 16)
 	if _, err := rand.Read(token); err != nil {
+		cancelBus()
 		bus.Close()
 		return nil, err
 	}
 	spec.Args = slices.Clone(spec.Args)
 	return &PhaseJob{
-		spec: spec, bus: bus, unit: "flightctl-updater-" + hex.EncodeToString(token) + ".service",
+		spec: spec, bus: bus, cancelBus: cancelBus, unit: "flightctl-updater-" + hex.EncodeToString(token) + ".service",
 	}, nil
 }
 
@@ -333,6 +349,7 @@ func (j *PhaseJob) release() {
 
 func (j *PhaseJob) disconnect() {
 	if j.bus != nil {
+		j.cancelBus()
 		j.bus.Close()
 		j.bus = nil
 	}

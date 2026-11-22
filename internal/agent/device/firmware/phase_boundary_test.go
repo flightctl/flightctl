@@ -86,14 +86,17 @@ func TestPhaseRunnerHelperInputs(t *testing.T) {
 	}
 	require.Equal(t, 0, os.Geteuid())
 	t.Run("When revocation arrives before acceptance it should retain the previous result", func(t *testing.T) {
-		testPhaseRunnerHelperInputs(t, false)
+		testPhaseRunnerHelperInputs(t, false, false)
 	})
 	t.Run("When the helper omits the required member it should retain the previous result", func(t *testing.T) {
-		testPhaseRunnerHelperInputs(t, true)
+		testPhaseRunnerHelperInputs(t, true, false)
+	})
+	t.Run("When a completed attempt is released it should admit a new attempt", func(t *testing.T) {
+		testPhaseRunnerHelperInputs(t, false, true)
 	})
 }
 
-func testPhaseRunnerHelperInputs(t *testing.T, omitMember bool) {
+func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool) {
 	t.Helper()
 	// A fixture beneath libexec inherits an executable SELinux label without
 	// changing host enforcement or relabeling the deployment's cache.
@@ -181,6 +184,26 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember bool) {
 	require.EqualValues(t, 2, record.Dispatches)
 	require.Equal(t, req.Checkpoint, record.Checkpoint)
 	require.Nil(t, record.Pending)
+	if releaseCompleted {
+		require.NoError(t, retention.Release(pin.AttemptID))
+		retired, err := (phaseRecordStore{dir: cache.firmware}).load()
+		require.NoError(t, err)
+		require.Empty(t, retired.AttemptID)
+		newAttempt := "next-attempt"
+		invocation.pin.AttemptID = newAttempt
+		require.NoError(t, retention.Pin(invocation.pin))
+		invocation.request.Identity.AttemptID = newAttempt
+		invocation.request.Identity.CallID = phaseCallID(1)
+		invocation.targets = []phaseTarget{fixturePhaseTarget()}
+		require.NoError(t, (phaseRecordStore{dir: cache.firmware}).save(phaseRecord{
+			AttemptID: newAttempt, Checkpoint: invocation.request.Checkpoint,
+		}))
+		got, err := runner.runPhase(t.Context(), invocation)
+		require.NoError(t, err)
+		require.Equal(t, phaseVerified, got.Kind)
+		require.Equal(t, newAttempt, got.Identity.AttemptID)
+		return
+	}
 	if !omitMember {
 		gate.revokeAt = gate.calls + 2
 	}

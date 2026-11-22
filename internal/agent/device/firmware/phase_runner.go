@@ -55,6 +55,9 @@ func executeRecordedPhase(ctx context.Context, store phaseRecordStore, approval 
 		record.Binding = phaseBinding(id)
 		record.Dispatches++
 		record.PendingReceipt = &receipt
+		if err := record.checkResultCapacity(validation.limits.MaxResultBytes); err != nil {
+			return err
+		}
 		if err := store.save(record); err != nil {
 			return err
 		}
