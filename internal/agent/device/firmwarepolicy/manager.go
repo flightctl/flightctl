@@ -128,6 +128,20 @@ func (m *Manager) IsApproved(name, version, digest string) bool {
 	s := m.state.Load()
 	return s.err == nil && s.view != nil && digest != "" && s.approved[identity(name, version)] == digest
 }
+
+// WithApprovedRelease runs a bounded operation ordered against policy acceptance.
+func (m *Manager) WithApprovedRelease(ctx context.Context, name, version, digest string, fn func(policy.Receipt) error) error {
+	m.acceptMu.Lock()
+	defer m.acceptMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !m.IsApproved(name, version, digest) {
+		return fmt.Errorf("%w: release %s/%s is not approved", ErrUnavailable, name, version)
+	}
+	return fn(m.receipt())
+}
+
 func (m *Manager) receipt() policy.Receipt {
 	s := m.state.Load()
 	if s.view == nil {
