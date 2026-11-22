@@ -628,7 +628,9 @@ compares it with the agent ceilings (1 MiB manifest, 4096 files, 1 GiB per file,
 2 GiB in total, 3 GiB scratch, 1800 seconds and a path depth of 16 components),
 checks the manifest file count, sizes and depth against the budget, and checks
 the current approval of the release. A budget above a ceiling is rejected, not
-clamped. It then checks the retention registry and the free space of the cache.
+clamped. The caller can cancel while waiting for the updater cache. After
+acquiring the cache, the extractor rechecks approval before accessing the
+retention registry or mounting the image.
 
 ### Extraction and publication
 
@@ -641,7 +643,8 @@ match the verified manifest exactly. Each file is copied in bounded chunks into
 an exclusive `.staging-*` directory with its size and SHA-256 checked; files get
 mode `0400`, executables `0500` and directories `0700`. Executables must be
 static ELF binaries for the device architecture with the System V or Linux OS
-ABI and an entry point inside an executable load segment. Native overlay mounts
+ABI and an entry point inside the file-backed portion of an executable load
+segment. An executable can have at most one dynamic segment. Native overlay mounts
 are read-only and fuse-overlayfs mounts are writable;
 the agent records which one it saw as an observation only, and integrity comes
 from hashing the bytes copied.
@@ -689,7 +692,8 @@ holds a lease; leases end with the agent process.
 
 A pinned payload is only verified and reused. Verification checks the exact
 entries, modes, owner, single links, sizes and digests within the pinned limits
-capped by the ceilings, and that no retained regular file, including the
+capped by the ceilings, including the verification time budget. It also checks
+that no retained regular file, including the
 manifest, carries file capabilities. A missing pinned payload reports
 `ErrRetainedPayloadMissing` and a changed one `ErrRetainedPayloadChanged`, both
 without mounting, extracting again or repairing anything, also after a restart.
@@ -701,7 +705,8 @@ verified is left in place and the call fails.
 
 Image pruning treats the image references of pinned payloads as required root
 podman references and records them with the other references; a registry read
-failure skips that pruning cycle. Cleanup removes only `.staging-*` and
+failure skips that pruning cycle. Cleanup syncs the registry directory before
+removing any payload or evidence. It removes only `.staging-*` and
 `.quarantine-*` directories, unpinned and unleased version directories and
 evidence records of removed versions. It removes at most four trees per pass;
 each removal is a bounded postorder walk that never follows links or crosses

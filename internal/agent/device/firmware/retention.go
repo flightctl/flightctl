@@ -11,7 +11,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -113,13 +112,13 @@ type registryDocument struct {
 
 // Retention keeps the durable registry of pinned updater payloads, verifies
 // retained payloads before reuse and removes only unreferenced owned cache
-// entries. One mutex serializes every operation on the updater cache; a
+// entries. One gate serializes every operation on the updater cache; a
 // single agent process is assumed.
 type Retention struct {
 	dataDir  string
 	rw       fileio.ReadWriter
 	log      *log.PrefixLogger
-	mu       sync.Mutex
+	gate     chan struct{}
 	ceilings policy.ExtractionLimits
 	leases   map[string]int
 	now      func() time.Time
@@ -148,6 +147,7 @@ func WithCleanupLimits(trees, listing, passWork int) RetentionOption {
 func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, opts ...RetentionOption) *Retention {
 	r := &Retention{
 		dataDir:      dataDir,
+		gate:         make(chan struct{}, 1),
 		rw:           rw,
 		log:          log,
 		ceilings:     DefaultExtractionCeilings(),
@@ -161,6 +161,19 @@ func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, o
 		opt(r)
 	}
 	return r
+}
+
+func (r *Retention) acquire(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case r.gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-r.gate
+			return err
+		}
+		return nil
+	}
 }
 
 type cacheDirs struct {
@@ -317,8 +330,8 @@ func writeRegistry(fw fileio.Anchor, pins []Pin) error {
 // of the Extract result the pin was made from. The version directory must exist; pinning the same attempt and role
 // again only makes the registry durable before succeeding.
 func (r *Retention) Pin(p Pin) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	if err := validatePin(p); err != nil {
 		return err
 	}
@@ -365,8 +378,8 @@ func (r *Retention) Pin(p Pin) error {
 // Release removes every pin of an attempt. Releasing an unknown attempt only
 // makes the registry durable.
 func (r *Retention) Release(attemptID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return err
@@ -403,8 +416,8 @@ func (r *Retention) ReleaseLease(payload *PublishedPayload) {
 	if payload == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	r.endLease(payload.lease)
 }
 
@@ -420,8 +433,8 @@ func (r *Retention) endLease(l *lease) {
 
 // Pins returns the registered pins.
 func (r *Retention) Pins() ([]Pin, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -436,8 +449,8 @@ func (r *Retention) Pins() ([]Pin, error) {
 
 // PinFor returns a pin of the package digest, if any.
 func (r *Retention) PinFor(packageDigest string) (*Pin, bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, false, err
@@ -484,8 +497,10 @@ func capLimits(limits, ceilings policy.ExtractionLimits) policy.ExtractionLimits
 // unreadable capability metadata ErrRetainedVerificationIncomplete; nothing is
 // repaired or extracted again.
 func (r *Retention) VerifyPublished(ctx context.Context, pin Pin) (VerifyResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return VerifyResult{}, retainedFailure(ctx, pin.Reference, err)
+	}
+	defer func() { <-r.gate }()
 	if err := validatePin(pin); err != nil {
 		return VerifyResult{}, unavailable(pin.Reference, false, err)
 	}
@@ -497,7 +512,10 @@ func (r *Retention) VerifyPublished(ctx context.Context, pin Pin) (VerifyResult,
 	if c.updaters == nil {
 		return VerifyResult{}, unavailable(pin.Reference, false, ErrRetainedPayloadMissing)
 	}
-	m, err := verifyPublishedTree(ctx, c.updaters, pin.PayloadDir, pin.ManifestDigest, capLimits(pin.Limits, r.ceilings))
+	limits := capLimits(pin.Limits, r.ceilings)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(limits.MaxExtractionSeconds)*time.Second)
+	defer cancel()
+	m, err := verifyPublishedTree(ctx, c.updaters, pin.PayloadDir, pin.ManifestDigest, limits)
 	if err != nil {
 		return VerifyResult{}, retainedFailure(ctx, pin.Reference, err)
 	}
@@ -523,8 +541,8 @@ func (r *Retention) observeAndRecord(c *cacheDirs, id evidenceIdentity, event st
 
 // Evidence returns a copy of the host evidence record of a package.
 func (r *Retention) Evidence(packageDigest string) (*HostEvidence, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.gate <- struct{}{}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -608,6 +626,9 @@ func verifyPublishedTree(ctx context.Context, updaters fileio.Anchor, dir, manif
 		return nil, err
 	}
 	if err := verifyPublishedDigests(ctx, final, m); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -720,8 +741,10 @@ func verifyPublishedDigests(ctx context.Context, final fileio.Anchor, m *Manifes
 // RetainedImageReferences returns the digest-pinned image references of every
 // pinned payload.
 func (r *Retention) RetainedImageReferences(ctx context.Context) ([]string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -751,8 +774,10 @@ var errPassWork = errors.New("cleanup pass work limit reached")
 // never removes foreign names, and a malformed registry removes nothing. A
 // pass that stops early reports an error; the next pass continues.
 func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-r.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -764,6 +789,10 @@ func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
 	}
 	if c.updaters == nil {
 		return nil, nil
+	}
+	// A failed registry replacement can leave a visible rename that is not yet durable.
+	if err := c.firmware.Sync(); err != nil {
+		return nil, fmt.Errorf("sync retention registry before cleanup: %w", err)
 	}
 	retained := map[string]bool{}
 	for _, p := range pins {

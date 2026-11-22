@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 )
 
 // maxDynamicSegmentBytes bounds the dynamic segment read from an untrusted
@@ -31,8 +32,9 @@ var nativeTargets = map[string]nativeTarget{
 }
 
 // CheckNativeExecutable verifies that r holds a Linux (System V or Linux OS
-// ABI) ELF executable for goarch whose entry point lies in an executable load
-// segment and that runs without a program interpreter or shared libraries.
+// ABI) ELF executable for goarch whose entry point lies in the file-backed
+// portion of an executable load segment and that runs without a program
+// interpreter or shared libraries.
 // Static and static position-independent executables are accepted.
 func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	target, ok := nativeTargets[goarch]
@@ -53,17 +55,19 @@ func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 	if f.Type != elf.ET_EXEC && f.Type != elf.ET_DYN {
 		return fmt.Errorf("%w: ELF type %s is not an executable", errNotNativeExecutable, f.Type)
 	}
-	loadable, entryExecutable := false, false
+	var loadable, entryExecutable, dynamicSeen bool
 	for _, p := range f.Progs {
 		switch p.Type {
 		case elf.PT_LOAD:
 			loadable = true
-			if p.Flags&elf.PF_X != 0 && f.Entry >= p.Vaddr && f.Entry-p.Vaddr < p.Memsz {
-				entryExecutable = true
-			}
+			entryExecutable = entryExecutable || fileBackedEntry(r, p, f.Entry)
 		case elf.PT_INTERP:
 			return fmt.Errorf("%w: requires a program interpreter", errNotNativeExecutable)
 		case elf.PT_DYNAMIC:
+			if dynamicSeen {
+				return fmt.Errorf("%w: multiple dynamic segments", errNotNativeExecutable)
+			}
+			dynamicSeen = true
 			needs, err := needsSharedLibraries(f, p)
 			if err != nil {
 				return fmt.Errorf("%w: unreadable dynamic segment: %w", errNotNativeExecutable, err)
@@ -80,6 +84,20 @@ func CheckNativeExecutable(r io.ReaderAt, goarch string) error {
 		return fmt.Errorf("%w: entry point %#x is not in an executable load segment", errNotNativeExecutable, f.Entry)
 	}
 	return nil
+}
+
+// fileBackedEntry checks both the virtual entry address and whether the
+// segment's declared file range exists.
+func fileBackedEntry(r io.ReaderAt, p *elf.Prog, entry uint64) bool {
+	if p.Flags&elf.PF_X == 0 || entry < p.Vaddr || entry-p.Vaddr >= p.Filesz || p.Filesz > p.Memsz {
+		return false
+	}
+	if p.Off > math.MaxInt64 || p.Filesz-1 > math.MaxInt64-p.Off {
+		return false
+	}
+	var last [1]byte
+	_, err := r.ReadAt(last[:], int64(p.Off+p.Filesz-1))
+	return err == nil
 }
 
 // needsSharedLibraries reports whether the dynamic segment lists a DT_NEEDED
