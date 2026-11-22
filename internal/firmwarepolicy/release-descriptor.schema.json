@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "name": true,
+    "version": true,
+    "packageDigest": true,
+    "publisher": {
+      "$ref": "#/definitions/PublisherBinding"
+    },
+    "protocol": true,
+    "schemas": {
+      "$ref": "#/definitions/SchemaBundle"
+    },
+    "dependencies": {
+      "items": {
+        "$ref": "#/definitions/RuntimeDependency"
+      }
+    },
+    "access": {
+      "$ref": "#/definitions/PhaseAccess"
+    },
+    "limits": {
+      "$ref": "#/definitions/ExecutionLimits"
+    },
+    "budgetKeySet": true,
+    "referencePaths": {
+      "items": {
+        "$ref": "#/definitions/ReferencePath"
+      }
+    },
+    "guidPaths": true,
+    "templatablePaths": true
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "PublisherBinding": {
+      "properties": {
+        "identity": true,
+        "policyDigest": true,
+        "policy": {
+          "$ref": "#/definitions/PublisherPolicy"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PublisherPolicy": {
+      "properties": {
+        "version": true,
+        "type": true,
+        "keyData": true,
+        "signedIdentity": {
+          "$ref": "#/definitions/PublisherIdentity"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PublisherIdentity": {
+      "properties": {
+        "type": true,
+        "dockerRepository": true
+      },
+      "additionalProperties": false
+    },
+    "SchemaBundle": {
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/SchemaDocument"
+        },
+        "observation": {
+          "$ref": "#/definitions/SchemaDocument"
+        },
+        "request": {
+          "$ref": "#/definitions/SchemaDocument"
+        },
+        "result": {
+          "$ref": "#/definitions/SchemaDocument"
+        },
+        "checkpoint": {
+          "$ref": "#/definitions/SchemaDocument"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SchemaDocument": {
+      "properties": {
+        "digest": true,
+        "bytes": true
+      },
+      "additionalProperties": false
+    },
+    "RuntimeDependency": {
+      "properties": {
+        "name": true,
+        "constraint": true
+      },
+      "additionalProperties": false
+    },
+    "PhaseAccess": {
+      "properties": {
+        "prepare": {
+          "$ref": "#/definitions/AccessGrant"
+        },
+        "apply": {
+          "$ref": "#/definitions/AccessGrant"
+        },
+        "verify": {
+          "$ref": "#/definitions/AccessGrant"
+        }
+      },
+      "additionalProperties": false
+    },
+    "AccessGrant": {
+      "properties": {
+        "networkRepositories": true,
+        "credentialRepositories": true,
+        "readPaths": true,
+        "writePaths": true,
+        "readDevices": true,
+        "writeDevices": true,
+        "workspaceWrite": true
+      },
+      "additionalProperties": false
+    },
+    "ExecutionLimits": {
+      "properties": {
+        "maxRequestBytes": true,
+        "maxResultBytes": true,
+        "maxStderrBytes": true,
+        "maxCheckpointBytes": true,
+        "maxScratchBytes": true,
+        "maxMemoryBytes": true,
+        "maxProcesses": true,
+        "maxInvocationSeconds": true,
+        "maxCycles": true,
+        "maxReboots": true,
+        "maxAttempts": true
+      },
+      "additionalProperties": false
+    },
+    "ReferencePath": {
+      "properties": {
+        "path": true,
+        "kind": true
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -2,16 +2,18 @@ package firmwarepolicy
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
-	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/distribution/reference"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // ReleaseDescriptor is the closed approved-release descriptor carried as exact
@@ -122,7 +124,7 @@ func DecodeDescriptor(b Binding) (*ReleaseDescriptor, error) {
 		return nil, errors.New("release descriptor digest differs from its policy binding")
 	}
 	var d ReleaseDescriptor
-	if err := decodeStrict(b.Descriptor, &d); err != nil {
+	if err := decodeDescriptorJSON(b.Descriptor, &d); err != nil {
 		return nil, fmt.Errorf("decode release descriptor: %w", err)
 	}
 	if d.Name != b.Name || d.Version != b.Version {
@@ -259,71 +261,42 @@ func canonicalDigest(value any) (string, error) {
 	return Hash(data), nil
 }
 
-// decodeStrict rejects duplicate keys, trailing content and any object key
-// that is not exactly a field name of the target type.
-func decodeStrict(data []byte, v any) error {
+//go:embed release-descriptor.schema.json
+var descriptorSchemaJSON string
+
+var descriptorSchema, descriptorSchemaErr = compileDescriptorSchema()
+
+func compileDescriptorSchema() (*jsonschema.Schema, error) {
+	const name = "release-descriptor.schema.json"
+	compiler := jsonschema.NewCompiler()
+	compiler.LoadURL = func(string) (io.ReadCloser, error) {
+		return nil, errors.New("external schema references are not allowed")
+	}
+	if err := compiler.AddResource(name, strings.NewReader(descriptorSchemaJSON)); err != nil {
+		return nil, err
+	}
+	return compiler.Compile(name)
+}
+
+// The schema enforces exact field names, including in nested objects. Typed
+// decoding still defines value types and preserves their existing null behavior.
+func decodeDescriptorJSON(data []byte, d *ReleaseDescriptor) error {
+	if descriptorSchemaErr != nil {
+		return fmt.Errorf("compile release descriptor schema: %w", descriptorSchemaErr)
+	}
 	if err := uniqueJSON(data); err != nil {
 		return err
 	}
-	if err := exactKeys(data, reflect.TypeOf(v).Elem()); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
 		return err
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := descriptorSchema.Validate(doc); err != nil {
+		return fmt.Errorf("validate release descriptor schema: %w", err)
+	}
+	dec = json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	return dec.Decode(v)
-}
-
-// exactKeys enforces case-sensitive field names, which encoding/json matches
-// case-insensitively. Values of the wrong JSON type are left to the decoder.
-func exactKeys(data []byte, t reflect.Type) error {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	switch t.Kind() {
-	case reflect.Struct:
-		var members map[string]json.RawMessage
-		if json.Unmarshal(data, &members) != nil {
-			return nil
-		}
-		fields := jsonFields(t)
-		for name, raw := range members {
-			field, ok := fields[name]
-			if !ok {
-				return fmt.Errorf("unknown field %q", name)
-			}
-			if err := exactKeys(raw, field); err != nil {
-				return err
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		var elems []json.RawMessage
-		if json.Unmarshal(data, &elems) != nil {
-			return nil
-		}
-		for _, elem := range elems {
-			if err := exactKeys(elem, t.Elem()); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func jsonFields(t reflect.Type) map[string]reflect.Type {
-	fields := make(map[string]reflect.Type, t.NumField())
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if name == "-" {
-			continue
-		}
-		if name == "" {
-			name = f.Name
-		}
-		fields[name] = f.Type
-	}
-	return fields
+	return dec.Decode(d)
 }
