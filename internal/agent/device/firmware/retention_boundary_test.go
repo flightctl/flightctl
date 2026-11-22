@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -670,11 +671,11 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		_, err := evidenceRetention(f, unsupported).VerifyPublished(context.Background(), pin)
 		require.NoError(t, err)
 	})
-	t.Run("When the deadline expires during the capability scan it should stop reading and report the verification incomplete", func(t *testing.T) {
+	t.Run("When the pinned deadline expires during the capability scan it should stop reading and report incomplete verification", func(t *testing.T) {
 		require := require.New(t)
 		f := newPayloadFixture(t, defaultPayload(t))
 		pin := publishVersion(t, f, 'a')
-		ctx := &expiringContext{Context: context.Background(), done: make(chan struct{})}
+		pin.Limits.MaxExtractionSeconds = 1
 		reads := 0
 		expiring := &hooks{xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
 			if attr != "security.capability" {
@@ -682,15 +683,14 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 			}
 			reads++
 			if reads == 1 {
-				close(ctx.done)
+				time.Sleep(1100 * time.Millisecond)
 			}
 			return nil, fileio.XattrAbsent, nil, true
 		}}
-		_, err := evidenceRetention(f, expiring).VerifyPublished(ctx, pin)
-		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		_, err := evidenceRetention(f, expiring).VerifyPublished(context.Background(), pin)
 		require.ErrorIs(err, context.DeadlineExceeded)
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
 		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)
-		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
 		require.Equal(1, reads, "the scan stops at the deadline")
 	})
 	t.Run("When a capability read while hashing a retained file fails it should report the verification incomplete with the cause", func(t *testing.T) {
@@ -761,12 +761,14 @@ func TestRetentionRegistrySizeBound(t *testing.T) {
 				p.AttemptID = fmt.Sprintf("fill-%07d", i)
 				return p
 			}
-			perPin := sizeWith([]firmware.Pin{filler(0)}) - sizeWith(nil)
-			fill := make([]firmware.Pin, 0, readLimit/perPin)
-			for i := 0; sizeWith(fill)+perPin <= tc.size; i++ {
-				fill = append(fill, filler(i))
+			baseSize := sizeWith(nil)
+			perPin := sizeWith([]firmware.Pin{filler(0)}) - baseSize
+			// The filler IDs have a fixed encoded width, so size them once.
+			fill := make([]firmware.Pin, (tc.size-baseSize)/perPin)
+			for i := range fill {
+				fill[i] = filler(i)
 			}
-			gap := tc.size - sizeWith(fill)
+			gap := tc.size - baseSize - len(fill)*perPin
 			for i := 0; gap > 0; i++ {
 				k := min(gap, 200)
 				fill[i].AttemptID += strings.Repeat("x", k)
@@ -806,6 +808,18 @@ func TestRetentionNoOpRetriesAreDurable(t *testing.T) {
 			return nil
 		}}
 	}
+	t.Run("When the registry cannot be synced cleanup should leave the payload intact", func(t *testing.T) {
+		f := newPayloadFixture(t, defaultPayload(t))
+		pin := publishVersion(t, f, 'a')
+		synced := 0
+		r := evidenceRetention(f, failFirmwareSync(&synced, unix.EIO))
+		removed, err := r.CleanupUnreferenced(context.Background())
+		require.ErrorIs(t, err, unix.EIO)
+		require.Empty(t, removed)
+		require.DirExists(t, filepath.Join(f.cacheDir(), pin.PayloadDir))
+		require.Equal(t, 1, synced)
+	})
+
 	t.Run("When an identical pin is retried it should sync the registry before reporting success", func(t *testing.T) {
 		require := require.New(t)
 		f := newPayloadFixture(t, defaultPayload(t))

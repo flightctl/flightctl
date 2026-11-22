@@ -461,11 +461,16 @@ func nativeELF() []byte {
 	ident := [16]byte{0x7f, 'E', 'L', 'F', byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)}
 	buf.Write(ident[:])
 	for _, v := range []any{
-		uint16(elf.ET_EXEC), uint16(machine), uint32(elf.EV_CURRENT), uint64(0x401000), uint64(64), uint64(0), uint32(0),
+		uint16(elf.ET_EXEC), uint16(machine), uint32(elf.EV_CURRENT), uint64(0x400078), uint64(64), uint64(0), uint32(0),
 		uint16(64), uint16(56), uint16(1), uint16(64), uint16(0), uint16(0),
-		uint32(elf.PT_LOAD), uint32(elf.PF_R | elf.PF_X), uint64(0), uint64(0x400000), uint64(0x400000), uint64(120), uint64(0x2000), uint64(0x1000),
+		uint32(elf.PT_LOAD), uint32(elf.PF_R | elf.PF_X), uint64(0), uint64(0x400000), uint64(0x400000), uint64(124), uint64(0x2000), uint64(0x1000),
 	} {
 		Expect(binary.Write(&buf, binary.LittleEndian, v)).To(Succeed())
+	}
+	if machine == elf.EM_AARCH64 {
+		buf.Write([]byte{0xc0, 0x03, 0x5f, 0xd6})
+	} else {
+		buf.Write([]byte{0xc3, 0, 0, 0})
 	}
 	return buf.Bytes()
 }
