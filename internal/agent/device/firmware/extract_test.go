@@ -722,6 +722,36 @@ func TestExtractEEXISTSequence(t *testing.T) {
 		require.False(errors.As(err, &fetchErr), "caller cancellation has no firmware reason")
 		require.Equal([]string{x.finalName()}, x.entries())
 	})
+	t.Run("When the caller cancels during the rename retry it should return cancellation without a firmware reason", func(t *testing.T) {
+		x := newExtractHarness(t, defaultPayload(t))
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		plantOnFirstPublish(x, func() {
+			require.NoError(t, os.MkdirAll(x.cacheDir(x.finalName(), "junk"), 0o700))
+		})
+		rename := x.hooks.rename
+		publishes := 0
+		x.hooks.rename = func(old, new string) error {
+			if strings.HasPrefix(old, ".staging-") {
+				publishes++
+				if publishes == 2 {
+					cancel()
+					return unix.EIO
+				}
+			}
+			return rename(old, new)
+		}
+		_, err := x.extractor().Extract(ctx, x.pkg)
+		require.ErrorIs(t, err, context.Canceled)
+		requirePublishError(t, err, firmware.PublishNotVisible, "rename-retry")
+		var fetchErr *firmware.FetchError
+		require.False(t, errors.As(err, &fetchErr))
+		require.Equal(t, 2, publishes)
+		for _, entry := range x.entries() {
+			require.NotContains(t, entry, ".staging-")
+		}
+	})
+
 	t.Run("When an invalid winner is pinned it should fail closed and leave it", func(t *testing.T) {
 		require := require.New(t)
 		x := newExtractHarness(t, defaultPayload(t))
@@ -887,6 +917,32 @@ func TestExtractInvalidatesStaleCachedManifest(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestExtractPreservesCachedRecordWhenInvalidationFails(t *testing.T) {
+	x := newExtractHarness(t, defaultPayload(t))
+	ctx := context.Background()
+	x.editRecord(func(r map[string]any) {
+		r["manifestDigest"] = policy.Hash([]byte("stale manifest"))
+	})
+	recordPath := x.recordPath()
+	before, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	x.fetchHarness.rw = hookedRW{ReadWriter: x.fetchHarness.rw, h: &hooks{removeTree: func(name string) (fileio.RemoveResult, error, bool) {
+		return fileio.RemoveResult{}, unix.EIO, name == filepath.Base(recordPath)
+	}}}
+	x.podman.existsResult = 0
+	stale, err := x.fetcher().Fetch(ctx, x.pkg.Name, x.pkg.Version)
+	require.NoError(t, err)
+	require.True(t, stale.Cached)
+
+	_, err = x.extractor().Extract(ctx, stale)
+	require.ErrorContains(t, err, "invalidate stale verified record")
+	require.ErrorIs(t, err, unix.EIO)
+	require.Empty(t, x.entries())
+	after, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }
 
 func TestExtractPreservesPayloadAfterTransientReadError(t *testing.T) {
