@@ -15,6 +15,7 @@ import (
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/firmware"
+	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 	catalog "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -717,6 +718,8 @@ func TestExtractEEXISTSequence(t *testing.T) {
 		_, err := x.extractor().Extract(ctx, x.pkg)
 		require.ErrorIs(err, context.Canceled)
 		requirePublishError(t, err, firmware.PublishNotVisible, "classify")
+		var fetchErr *firmware.FetchError
+		require.False(errors.As(err, &fetchErr), "caller cancellation has no firmware reason")
 		require.Equal([]string{x.finalName()}, x.entries())
 	})
 	t.Run("When an invalid winner is pinned it should fail closed and leave it", func(t *testing.T) {
@@ -824,14 +827,81 @@ func TestExtractLeases(t *testing.T) {
 		require.NoError(err)
 		require.Contains(removed, payload.Dir)
 	})
-	t.Run("When the agent restarts leases are gone", func(t *testing.T) {
+	t.Run("When another retention handle cleans the cache it should preserve live leases", func(t *testing.T) {
 		require := require.New(t)
 		x := newExtractHarness(t, defaultPayload(t))
 		payload, err := x.extractor().Extract(context.Background(), x.pkg)
 		require.NoError(err)
-		restarted := firmware.NewRetention(testDataDir, x.rw(), x.logger)
-		removed, err := restarted.CleanupUnreferenced(context.Background())
+		other := firmware.NewRetention(testDataDir, x.rw(), x.logger)
+		removed, err := other.CleanupUnreferenced(context.Background())
+		require.NoError(err)
+		require.Empty(removed)
+		other.ReleaseLease(payload)
+		removed, err = other.CleanupUnreferenced(context.Background())
 		require.NoError(err)
 		require.Contains(removed, payload.Dir)
 	})
+}
+
+func TestExtractInvalidatesStaleCachedManifest(t *testing.T) {
+	for _, refresh := range []bool{false, true} {
+		name := "When the cached digest is stale it should require a verified fetch"
+		if refresh {
+			name = "When a verified refresh replaced the stale record it should preserve the new record"
+		}
+		t.Run(name, func(t *testing.T) {
+			x := newExtractHarness(t, defaultPayload(t))
+			ctx := context.Background()
+			fetcher := x.fetcher()
+			if refresh {
+				published, err := x.extractor().Extract(ctx, x.pkg)
+				require.NoError(t, err)
+				x.retention.ReleaseLease(published)
+			}
+			x.editRecord(func(r map[string]any) {
+				r["manifestDigest"] = policy.Hash([]byte("stale manifest"))
+			})
+			x.podman.existsResult = 0
+			stale, err := fetcher.Fetch(ctx, x.pkg.Name, x.pkg.Version)
+			require.NoError(t, err)
+			require.True(t, stale.Cached)
+			if refresh {
+				x.podman.existsResult = 1
+				_, err := x.fetcher().Fetch(ctx, x.pkg.Name, x.pkg.Version)
+				require.NoError(t, err)
+				x.podman.existsResult = 0
+			}
+			_, err = x.extractor().Extract(ctx, stale)
+			require.ErrorContains(t, err, "fetch the approved package again")
+			if refresh {
+				require.Equal(t, []string{x.finalName()}, x.entries())
+			} else {
+				require.Empty(t, x.entries())
+				require.NoFileExists(t, x.recordPath())
+			}
+			current, err := fetcher.Fetch(ctx, x.pkg.Name, x.pkg.Version)
+			require.NoError(t, err)
+			require.Equal(t, refresh, current.Cached)
+			require.Equal(t, x.pkg.ManifestDigest, current.ManifestDigest)
+			_, err = x.extractor().Extract(ctx, current)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestExtractPreservesPayloadAfterTransientReadError(t *testing.T) {
+	x := newExtractHarness(t, defaultPayload(t))
+	ctx := context.Background()
+	published, err := x.extractor().Extract(ctx, x.pkg)
+	require.NoError(t, err)
+	x.retention.ReleaseLease(published)
+	x.resetCounts()
+	x.hooks.hash = func(_, _ string) (fileio.FileDigest, error, bool) {
+		return fileio.FileDigest{}, unix.EIO, true
+	}
+	_, err = x.extractor().Extract(ctx, x.pkg)
+	require.ErrorIs(t, err, firmware.ErrRetainedVerificationIncomplete)
+	require.ErrorIs(t, err, unix.EIO)
+	require.Equal(t, []string{published.Dir}, x.entries())
+	x.requireCounts(t, 0, 0, 0, 0)
 }

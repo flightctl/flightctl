@@ -938,13 +938,13 @@ func TestFetchReusesAVerifiedRecordWhileStillValid(t *testing.T) {
 	h.podman.calls = nil
 	cached, err := fetcher.Fetch(context.Background(), h.release.Name, h.release.Version)
 	require.NoError(err)
-	require.Equal(&expected, cached)
+	require.EqualExportedValues(&expected, cached)
 	require.Equal([][]string{{"image", "exists", h.reference()}}, h.podman.calls)
 
 	h.podman.calls = nil
 	restarted, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
 	require.NoError(err, "a new fetcher on the same data directory must reuse the record")
-	require.Equal(&expected, restarted)
+	require.EqualExportedValues(&expected, restarted)
 	require.Equal([][]string{{"image", "exists", h.reference()}}, h.podman.calls)
 
 	view, err := policy.New(2, []policy.Binding{h.binding}, nil)

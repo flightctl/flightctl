@@ -48,6 +48,7 @@ type VerifiedPackage struct {
 	Cached bool
 
 	extraction boundExtraction
+	cachedBy   *Fetcher
 }
 
 // Fetcher obtains and authenticates approved updater code without executing

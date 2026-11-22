@@ -586,7 +586,9 @@ Otherwise the fetcher pulls and verifies the package again and rewrites the
 record, so a corrupt record is ignored. Approval and local access are checked
 before a record is used. A revoked release or an access request that the local
 policy no longer admits is refused even when a record exists. A new agent
-process reuses valid records after a restart.
+process reuses valid records after a restart. If fresh extraction reads a
+manifest that differs from the cached record, it invalidates the stale record
+and requires a fresh verified fetch. A concurrently refreshed record is kept.
 
 Images that fail checks after the pull are kept as evidence and never recorded
 as verified. Image pruning protects verified updater images only while a
@@ -688,7 +690,8 @@ other inspection failure; a refused pin records nothing. An unreadable or
 malformed registry fails closed for every operation. Each usable result of
 `Extract` holds its own lease in memory until that result is pinned or its
 lease is released, and cleanup does not remove a payload while any result still
-holds a lease; leases end with the agent process.
+holds a lease. Retention handles for the same configured cache share a lock
+and the leases, which end with the agent process.
 
 A pinned payload is only verified and reused. Verification checks the exact
 entries, modes, owner, single links, sizes and digests within the pinned limits
@@ -697,8 +700,7 @@ that no retained regular file, including the
 manifest, carries file capabilities. A missing pinned payload reports
 `ErrRetainedPayloadMissing` and a changed one `ErrRetainedPayloadChanged`, both
 without mounting, extracting again or repairing anything, also after a restart.
-Capability metadata that cannot be read, or an expired verification deadline,
-reports `ErrRetainedVerificationIncomplete`; only the deadline is retryable. An
+An inconclusive read or an expired verification deadline reports `ErrRetainedVerificationIncomplete`; only the deadline is retryable. An
 unpinned verified copy is reused, an unpinned copy proven changed is
 quarantined before a fresh extraction, and an unpinned copy that cannot be
 verified is left in place and the call fails.
@@ -713,7 +715,8 @@ each removal is a bounded postorder walk that never follows links or crosses
 devices, holds at most 16 directory handles and stops with a reported reason
 when it reaches its limits on removed entries, total work, detached deep
 directories or retries. Listing is capped at 8192 entries per directory and a
-pass has a separate work cap; the next pass continues where it stopped.
+pass has a separate work cap. Each pass resumes after the last candidate
+attempted, including a failed removal, and wraps to the start of the listing.
 
 ### Host SELinux evidence
 

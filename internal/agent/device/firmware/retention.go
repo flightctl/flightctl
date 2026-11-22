@@ -9,10 +9,14 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
+	"weak"
 
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -85,7 +89,7 @@ func (p *PublishedPayload) Pin(attemptID string, role PinRole) Pin {
 // lease protects the payload of one Extract result until the result is pinned
 // or released.
 type lease struct {
-	owner    *Retention
+	owner    *retentionCache
 	digest   string
 	released bool
 }
@@ -118,14 +122,41 @@ type Retention struct {
 	dataDir  string
 	rw       fileio.ReadWriter
 	log      *log.PrefixLogger
-	gate     chan struct{}
+	cache    *retentionCache
 	ceilings policy.ExtractionLimits
-	leases   map[string]int
 	now      func() time.Time
 
 	treesPerPass int
 	listingCap   int
 	passWork     int
+}
+
+// retentionCache shares in-process serialization and leases across handles
+// that address the same configured cache directory.
+type retentionCache struct {
+	gate         chan struct{}
+	leases       map[string]int
+	cleanupAfter string
+}
+
+var retentionCaches sync.Map // physical path to weak.Pointer[retentionCache]
+
+func sharedRetentionCache(path string) *retentionCache {
+	for {
+		cache := &retentionCache{gate: make(chan struct{}, 1), leases: make(map[string]int)}
+		pointer := weak.Make(cache)
+		existing, loaded := retentionCaches.LoadOrStore(path, pointer)
+		if !loaded {
+			runtime.AddCleanup(cache, func(path string) {
+				retentionCaches.CompareAndDelete(path, pointer)
+			}, path)
+			return cache
+		}
+		if cache := existing.(weak.Pointer[retentionCache]).Value(); cache != nil {
+			return cache
+		}
+		retentionCaches.CompareAndDelete(path, existing)
+	}
 }
 
 // RetentionOption configures a Retention.
@@ -147,11 +178,10 @@ func WithCleanupLimits(trees, listing, passWork int) RetentionOption {
 func NewRetention(dataDir string, rw fileio.ReadWriter, log *log.PrefixLogger, opts ...RetentionOption) *Retention {
 	r := &Retention{
 		dataDir:      dataDir,
-		gate:         make(chan struct{}, 1),
+		cache:        sharedRetentionCache(filepath.Clean(rw.PathFor(dataDir))),
 		rw:           rw,
 		log:          log,
 		ceilings:     DefaultExtractionCeilings(),
-		leases:       map[string]int{},
 		now:          time.Now,
 		treesPerPass: CleanupTreesPerPass,
 		listingCap:   MaxCacheListingEntries,
@@ -167,9 +197,9 @@ func (r *Retention) acquire(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.gate <- struct{}{}:
+	case r.cache.gate <- struct{}{}:
 		if err := ctx.Err(); err != nil {
-			<-r.gate
+			<-r.cache.gate
 			return err
 		}
 		return nil
@@ -330,8 +360,8 @@ func writeRegistry(fw fileio.Anchor, pins []Pin) error {
 // of the Extract result the pin was made from. The version directory must exist; pinning the same attempt and role
 // again only makes the registry durable before succeeding.
 func (r *Retention) Pin(p Pin) error {
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	if err := validatePin(p); err != nil {
 		return err
 	}
@@ -378,8 +408,8 @@ func (r *Retention) Pin(p Pin) error {
 // Release removes every pin of an attempt. Releasing an unknown attempt only
 // makes the registry durable.
 func (r *Retention) Release(attemptID string) error {
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return err
@@ -416,25 +446,25 @@ func (r *Retention) ReleaseLease(payload *PublishedPayload) {
 	if payload == nil {
 		return
 	}
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	r.endLease(payload.lease)
 }
 
 func (r *Retention) endLease(l *lease) {
-	if l == nil || l.owner != r || l.released {
+	if l == nil || l.owner != r.cache || l.released {
 		return
 	}
 	l.released = true
-	if r.leases[l.digest]--; r.leases[l.digest] <= 0 {
-		delete(r.leases, l.digest)
+	if r.cache.leases[l.digest]--; r.cache.leases[l.digest] <= 0 {
+		delete(r.cache.leases, l.digest)
 	}
 }
 
 // Pins returns the registered pins.
 func (r *Retention) Pins() ([]Pin, error) {
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -449,8 +479,8 @@ func (r *Retention) Pins() ([]Pin, error) {
 
 // PinFor returns a pin of the package digest, if any.
 func (r *Retention) PinFor(packageDigest string) (*Pin, bool, error) {
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, false, err
@@ -500,7 +530,7 @@ func (r *Retention) VerifyPublished(ctx context.Context, pin Pin) (VerifyResult,
 	if err := r.acquire(ctx); err != nil {
 		return VerifyResult{}, retainedFailure(ctx, pin.Reference, err)
 	}
-	defer func() { <-r.gate }()
+	defer func() { <-r.cache.gate }()
 	if err := validatePin(pin); err != nil {
 		return VerifyResult{}, unavailable(pin.Reference, false, err)
 	}
@@ -541,8 +571,8 @@ func (r *Retention) observeAndRecord(c *cacheDirs, id evidenceIdentity, event st
 
 // Evidence returns a copy of the host evidence record of a package.
 func (r *Retention) Evidence(packageDigest string) (*HostEvidence, error) {
-	r.gate <- struct{}{}
-	defer func() { <-r.gate }()
+	r.cache.gate <- struct{}{}
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -580,6 +610,8 @@ func retainedFailure(ctx context.Context, release string, err error) error {
 	}
 }
 
+var errRetainedManifestDigest = fmt.Errorf("%w: manifest digest differs", ErrRetainedPayloadChanged)
+
 // verifyPublishedTree checks that dir in updaters is exactly the published
 // payload whose manifest hashes to manifestDigest: published modes, owner and
 // single links, no extra or missing entries, and listed sizes and digests,
@@ -594,22 +626,22 @@ func verifyPublishedTree(ctx context.Context, updaters fileio.Anchor, dir, manif
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, ErrRetainedPayloadMissing
 		}
-		return nil, retainedChanged("version directory: %v", err)
+		return nil, retainedReadFailure("stat version directory", err)
 	}
 	if !e.IsDir() || e.Perm != publishedDirMode || int64(e.UID) != int64(owner) {
 		return nil, retainedChanged("version directory has type %s, mode %s, owner %d", e.Type, e.Perm, e.UID)
 	}
 	final, err := updaters.OpenDir(dir, fileio.DirOptions{ReadOnly: true})
 	if err != nil {
-		return nil, retainedChanged("open version directory: %v", err)
+		return nil, retainedReadFailure("open version directory", err)
 	}
 	defer final.Close()
 	data, err := final.ReadFile(manifestFileName, limits.MaxExtractedManifestBytes)
 	if err != nil {
-		return nil, retainedChanged("read manifest: %v", err)
+		return nil, retainedReadFailure("read manifest", err)
 	}
 	if policy.Hash(data) != manifestDigest {
-		return nil, retainedChanged("manifest digest differs")
+		return nil, errRetainedManifestDigest
 	}
 	m, err := ParseManifest(data)
 	if err != nil {
@@ -638,6 +670,18 @@ func retainedChanged(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrRetainedPayloadChanged, fmt.Sprintf(format, args...))
 }
 
+// retainedReadFailure distinguishes confirmed structural violations from
+// inconclusive reads. Both keep the underlying cause.
+func retainedReadFailure(op string, err error) error {
+	for _, violation := range []error{fs.ErrNotExist, deviceerrors.ErrUnsafeFileType, deviceerrors.ErrFileLimitExceeded,
+		deviceerrors.ErrWalkLimitExceeded, deviceerrors.ErrCrossDevice, deviceerrors.ErrFileCapability} {
+		if errors.Is(err, violation) {
+			return fmt.Errorf("%w: %s: %w", ErrRetainedPayloadChanged, op, err)
+		}
+	}
+	return fmt.Errorf("%w: %s: %w", ErrRetainedVerificationIncomplete, op, err)
+}
+
 // verifyPublishedEntries walks the version directory and requires exactly the
 // planned entries with published types, modes, owner, links and sizes.
 func verifyPublishedEntries(ctx context.Context, final fileio.Anchor, plan *payloadPlan, owner int) error {
@@ -660,7 +704,7 @@ func verifyPublishedEntries(ctx context.Context, final fileio.Anchor, plan *payl
 		if errors.Is(walkErr, ErrRetainedPayloadChanged) {
 			return walkErr
 		}
-		return retainedChanged("%v", walkErr)
+		return retainedReadFailure("walk retained payload", walkErr)
 	}
 	for rel := range plan.expected {
 		if !seen[rel] {
@@ -726,10 +770,7 @@ func verifyPublishedDigests(ctx context.Context, final fileio.Anchor, m *Manifes
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if errors.Is(err, deviceerrors.ErrFileCapabilityUnknown) {
-				return fmt.Errorf("%w: file %q: %w", ErrRetainedVerificationIncomplete, f.Path, err)
-			}
-			return retainedChanged("file %q: %v", f.Path, err)
+			return retainedReadFailure(fmt.Sprintf("hash file %q", f.Path), err)
 		}
 		if d.Size != f.Size || d.SHA256 != f.SHA256 {
 			return retainedChanged("file %q content differs", f.Path)
@@ -744,7 +785,7 @@ func (r *Retention) RetainedImageReferences(ctx context.Context) ([]string, erro
 	if err := r.acquire(ctx); err != nil {
 		return nil, err
 	}
-	defer func() { <-r.gate }()
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -777,7 +818,7 @@ func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
 	if err := r.acquire(ctx); err != nil {
 		return nil, err
 	}
-	defer func() { <-r.gate }()
+	defer func() { <-r.cache.gate }()
 	c, err := r.openCache(false)
 	if err != nil {
 		return nil, err
@@ -798,7 +839,7 @@ func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
 	for _, p := range pins {
 		retained[p.PayloadDir] = true
 	}
-	for digest := range r.leases {
+	for digest := range r.cache.leases {
 		retained[strings.TrimPrefix(digest, "sha256:")] = true
 	}
 	work := 0
@@ -826,10 +867,11 @@ func (r *Retention) CleanupUnreferenced(ctx context.Context) ([]string, error) {
 		errs = append(errs, fmt.Errorf("list updater cache: %w", listErr))
 	}
 	var removed []string
-	for i, name := range candidates {
-		if i >= r.treesPerPass {
-			break
-		}
+	sort.Strings(candidates)
+	start := sort.Search(len(candidates), func(i int) bool { return candidates[i] > r.cache.cleanupAfter })
+	for i := range min(r.treesPerPass, len(candidates)) {
+		name := candidates[(start+i)%len(candidates)]
+		r.cache.cleanupAfter = name
 		res, err := c.updaters.RemoveTree(ctx, name, cleanupBounds())
 		if err != nil {
 			errs = append(errs, fmt.Errorf("remove %s (%s): %w", name, res.Stop, err))
