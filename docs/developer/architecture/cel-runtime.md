@@ -65,6 +65,30 @@ scalar or map output, sanitizes label values, validates label keys, and limits
 map entries. Missing keys, nulls, empty optionals, and empty strings retain their
 existing no-value behavior, including removal of previously mapped labels.
 
-A future enrollment consumer must construct a separate restricted environment
-and enforce boolean output and its policy-specific validation. Extracting the
-runtime does not install an enrollment evaluator or enable automatic approval.
+## Enrollment approval policy expressions
+
+`internal/enrollmentpolicy` uses a dedicated CEL environment.
+`Matcher.Compile` validates each `spec.matchExpression` independently and
+returns a reusable expression. The matcher accepts only these
+operands from an EnrollmentRequest's `spec.deviceStatus.systemInfo`.
+
+| Operand | CEL type |
+| --- | --- |
+| `systemInfo.productSerial` | String |
+| `systemInfo.productUuid` | String |
+| `systemInfo.customInfo["key"]` | String from a string-to-string map, selected by a literal key |
+
+Expressions can use `==` with a string literal on the right, `in` with a
+literal list of strings, `&&` to combine predicates, parentheses for grouping,
+and the boolean literals `true` and `false`. An empty membership list matches
+no values.
+
+```cel
+systemInfo.productUuid == "c42b5585-53dc-434a-9f25-24d078e1f9e1" &&
+  systemInfo.customInfo["site"] in ["east", "west"]
+```
+
+Certificate identity and TPM verification are separate policy checks. The
+matcher exposes only the reported system identifiers. An attempted lookup of
+an unreported identifier or custom key can return an evaluation error. An
+expression that returns an error does not match.
