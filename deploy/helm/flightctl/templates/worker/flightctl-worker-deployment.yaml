@@ -61,6 +61,18 @@ spec:
             {{- end }}
           volumeMounts:
             {{- include "flightctl.firmwareUpdaterCatalogMount" . | nindent 12 }}
+            - mountPath: /root/.flightctl/certs/client-signer.crt
+              name: flightctl-client-signer
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.key
+              name: flightctl-client-signer
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
               subPath: config.yaml
@@ -75,6 +87,12 @@ spec:
       restartPolicy: Always
       volumes:
         {{- include "flightctl.firmwareUpdaterCatalogVolume" . | nindent 8 }}
+        - name: flightctl-client-signer
+          secret:
+            secretName: flightctl-client-signer-ca
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config

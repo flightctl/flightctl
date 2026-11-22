@@ -19,6 +19,10 @@ Volume=/etc/flightctl/flightctl-worker/registries.conf.d:/etc/containers/registr
 Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
 Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
+Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z
 
 [Service]
 Restart=always

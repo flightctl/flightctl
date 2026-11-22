@@ -23,7 +23,14 @@ database:
 kv:
   hostname: flightctl-kv
   port: 6379
-service: {}
+service:
+  {{- if and .service .service.tpmCAPaths }}
+  tpmCAPaths:
+  {{- range .service.tpmCAPaths }}
+    - {{ . }}
+  {{- end }}
+  {{- else }} {}
+  {{- end }}
 worker:
   {{- if and .worker .worker.renderTimeout }}
   renderTimeout: {{.worker.renderTimeout}}

@@ -58,3 +58,9 @@ jobs:
           path: reports/junit_integration_test.xml
           if-no-files-found: ignore
 
+      - name: Running worker enrollment integration tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: make integration-test GOFLAGS=-tags=integration TEST_DIR=./internal/worker_server INTEGRATION_PROCS=1
+        env:
+          DISABLE_FIPS: true
+

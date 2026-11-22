@@ -35,6 +35,21 @@
 
 ## Prerequisites
 
+### Worker signing material
+
+The API and worker use the same client-signing CA. Both require the existing
+`flightctl-client-signer-ca` secret (`tls.crt` and `tls.key`) and
+`flightctl-ca-bundle` secret (`ca-bundle.crt`) in their respective namespaces.
+Certificate generation copies this material to `global.internalNamespace` when
+it differs from the release namespace. With `global.generateCertificates=none`,
+provision these secrets in both namespaces before starting the services.
+
+The worker mounts these files read-only under `/root/.flightctl/certs` and fails
+startup if the signing certificate or key cannot be loaded. It does not generate
+a CA or require the API server TLS key. File-based CA serial allocation
+(`ca.internalConfig.serialFile`) is unsupported in the worker because it cannot
+coordinate with other signing processes; the default uses random serials.
+
 ### Pod Security Standards
 
 The `flightctl-imagebuilder-worker` component requires elevated privileges to build OS images using osbuild/bootc. It needs:

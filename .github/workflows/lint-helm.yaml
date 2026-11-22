@@ -41,6 +41,10 @@ jobs:
           set -euo pipefail
           make lint-helm
 
+      - name: Running main chart render tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: make unit-test GO_UNITTEST_DIRS=./deploy/helm/flightctl
+
       # "helm lint" can only prove that a given value set renders. The render
       # tests assert the other half of the catalog collector chart's contract:
       # the value combinations that must *fail*, and the objects the ones that

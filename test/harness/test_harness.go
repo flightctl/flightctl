@@ -45,13 +45,31 @@ import (
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
+
+func newRenderedKVStore(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, provider queues.Provider) (kvstore.KVStore, error) {
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KV store: %w", err)
+	}
+	// Use a short rendered wait timeout so the ConflictPaused test is stable: when the agent is
+	// already in GetRenderedDevice (blocked in WaitForNewVersion) as the test sets the KV key,
+	// that request returns after this timeout; the agent's next poll (minPollDelay 5s later) then
+	// sees the key and gets 200+ConflictPaused. With 2s we get 2+5+2 ≤ 10s within the test timeout.
+	if err := rendered.Bus.Initialize(ctx, kvStore, provider, 2*time.Second, log); err != nil {
+		kvStore.Close()
+		return nil, fmt.Errorf("failed to initialize rendered bus: %w", err)
+	}
+	return kvStore, nil
+}
 
 type TestHarness struct {
 	// internals for agent
@@ -274,19 +292,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	provider := testutil.NewTestProvider(serverLog)
 
 	// Create KV store using Redis params from options (ephemeral per-suite Redis)
-	kvStore, err := kvstore.NewKVStore(ctx, serverLog, serverCfg.KV.Hostname, serverCfg.KV.Port, serverCfg.KV.Password)
+	kvStore, err := newRenderedKVStore(ctx, serverLog, &serverCfg, provider)
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("NewTestHarness: failed to create KV store: %w", err)
-	}
-	// Use a short rendered wait timeout so the ConflictPaused test is stable: when the agent is
-	// already in GetRenderedDevice (blocked in WaitForNewVersion) as the test sets the KV key,
-	// that request returns after this timeout; the agent's next poll (minPollDelay 5s later) then
-	// sees the key and gets 200+ConflictPaused. With 2s we get 2+5+2 ≤ 10s within the test timeout.
-	if err := rendered.Bus.Initialize(ctx, kvStore, provider, 2*time.Second, serverLog); err != nil {
-		kvStore.Close()
-		cancel()
-		return nil, fmt.Errorf("NewTestHarness: failed to initialize rendered bus: %w", err)
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	// create server
@@ -298,7 +307,13 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, db, provider, mockK8sClient, nil)
+	workerServer, err := workerserver.New(&serverCfg, serverLog, db, provider, mockK8sClient, nil)
+	if err != nil {
+		cancel()
+		_ = listener.Close()
+		kvStore.Close()
+		return nil, fmt.Errorf("NewTestHarness: initializing worker: %w", err)
+	}
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, db, ca, serverCerts, provider)
 	if err != nil {

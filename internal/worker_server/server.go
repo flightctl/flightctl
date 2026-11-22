@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/crypto"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
@@ -21,6 +22,7 @@ import (
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -36,6 +38,7 @@ import (
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -52,6 +55,7 @@ import (
 
 type Server struct {
 	cfg            *config.Config
+	ca             *crypto.CAClient
 	log            logrus.FieldLogger
 	db             *gorm.DB
 	queuesProvider queues.Provider
@@ -67,15 +71,34 @@ func New(
 	queuesProvider queues.Provider,
 	k8sClient k8sclient.K8SClient,
 	workerMetrics *worker.WorkerCollector,
-) *Server {
+) (*Server, error) {
+	if cfg == nil || cfg.CA == nil || cfg.CA.InternalConfig == nil {
+		return nil, fmt.Errorf("worker signing configuration is required")
+	}
+	if cfg.CA.InternalConfig.SerialFile != "" {
+		return nil, fmt.Errorf("worker signing does not support ca.internalConfig.serialFile: file serial allocation cannot be shared with other signing processes")
+	}
+	ca, err := crypto.LoadInternalCA(cfg.CA)
+	if err != nil {
+		return nil, fmt.Errorf("loading client-signer certificates: %w", err)
+	}
 	return &Server{
 		cfg:            cfg,
+		ca:             crypto.NewCAClient(cfg.CA, ca),
 		log:            log,
 		db:             db,
 		queuesProvider: queuesProvider,
 		k8sClient:      k8sClient,
 		workerMetrics:  workerMetrics,
-	}
+	}, nil
+}
+
+func (s *Server) newEnrollmentService(deviceStore devicestore.Store, csrSvc certificatesigningrequestservice.Service, kvStore kvstore.KVStore, eventsSvc events.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *enrollmentrequestservice.ServiceHandler {
+	enrollmentStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
+	hookStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
+	hookService := enrollmenthookpolicyservice.WrapWithTracing(enrollmenthookpolicyservice.NewServiceHandler(hookStore, eventsSvc, s.log))
+	return enrollmentrequestservice.NewServiceHandler(enrollmentStore, deviceStore, csrSvc, s.ca, kvStore, eventsSvc, s.log,
+		s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, hookService, notifySecretsStore)
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -127,7 +150,6 @@ func (s *Server) Run(ctx context.Context) error {
 	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	deltaStore := deltastore.NewStore(s.db, s.log.WithField("pkg", "delta-store"))
 
-	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
 	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
 
 	updaterProvider, err := updatercatalogservice.Bootstrap(ctx, s.db, s.cfg.FirmwareUpdaterCatalogFile)
@@ -158,9 +180,7 @@ func (s *Server) Run(ctx context.Context) error {
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
-	enrollmentRequestHandler := enrollmentrequestservice.NewServiceHandler(
-		enrollmentRequestStore, deviceStore, csrSvc, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, notifySecretsStore,
-	)
+	enrollmentRequestHandler := s.newEnrollmentService(deviceStore, csrSvc, kvStore, eventsSvc, notifySecretsStore)
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(enrollmentRequestHandler)
 
 	encryptionMigrator := tasks.NewEncryptionMigrator(

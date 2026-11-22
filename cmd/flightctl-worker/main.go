@@ -128,7 +128,10 @@ func main() {
 		}
 	}
 
-	server := workerserver.New(cfg, log, db, provider, k8sClient, workerCollector)
+	server, err := workerserver.New(cfg, log, db, provider, k8sClient, workerCollector)
+	if err != nil {
+		log.Fatalf("initializing worker: %v", err)
+	}
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
