@@ -1174,3 +1174,35 @@ func fdLimitChild(t *testing.T) {
 	}
 	fmt.Println("fd-limit-child-ok")
 }
+
+func TestAnchorPreservesOpenedEntryStatFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(Anchor) error
+	}{
+		{"When walking a directory it should preserve the stat error", func(a Anchor) error {
+			return a.Walk(context.Background(), ".", WalkBounds{MaxEntries: 4, MaxDepth: 2, MaxNameBytes: 128}, func(string, EntryInfo) error { return nil })
+		}},
+		{"When reading an attribute it should preserve the stat error", func(a Anchor) error {
+			_, _, err := a.GetXattr("child", "user.test", 64)
+			return err
+		}},
+		{"When removing a directory it should preserve the stat error", func(a Anchor) error {
+			_, err := a.RemoveTree(context.Background(), "child", validRemoveBounds())
+			return err
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rw, root := anchorFixture(t)
+			child := filepath.Join(root, "data", "child")
+			require.NoError(t, os.Mkdir(child, 0o700))
+			sys := *defaultSysOps
+			sys.fstat = func(int, *unix.Stat_t) error { return unix.EIO }
+			err := tc.run(openWithSys(t, rw, "/data", &sys))
+			require.ErrorIs(t, err, unix.EIO)
+			require.NotErrorIs(t, err, errors.ErrUnsafeFileType)
+			require.DirExists(t, child)
+		})
+	}
+}

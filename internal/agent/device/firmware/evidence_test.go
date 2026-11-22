@@ -85,12 +85,12 @@ func labelHooks(root, entry fileio.XattrState, value string) *hooks {
 	}}
 }
 
-func evidenceRetention(f *payloadFixture, h *hooks) *firmware.Retention {
+func evidenceRetention(f *payloadFixture, h *hooks, opts ...firmware.RetentionOption) *firmware.Retention {
 	var rw fileio.ReadWriter = f.rw
 	if h != nil {
 		rw = hookedRW{ReadWriter: f.rw, h: h}
 	}
-	return firmware.NewRetention(cacheData, rw, log.NewPrefixLogger("evidence-test"))
+	return firmware.NewRetention(cacheData, rw, log.NewPrefixLogger("evidence-test"), opts...)
 }
 
 func evidencePath(f *payloadFixture, pin firmware.Pin) string {

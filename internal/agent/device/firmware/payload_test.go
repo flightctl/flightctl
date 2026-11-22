@@ -205,6 +205,7 @@ func inode(t *testing.T, p string) uint64 {
 
 // hooks inject failures around a real cache anchor.
 type hooks struct {
+	walk       func(context.Context)
 	openDir    func(parent, name string) error
 	write      func(parent, name string) error
 	copy       func(parent, name string) error
@@ -223,6 +224,13 @@ type hooks struct {
 type hooked struct {
 	fileio.Anchor
 	h *hooks
+}
+
+func (a hooked) Walk(ctx context.Context, rel string, bounds fileio.WalkBounds, fn func(string, fileio.EntryInfo) error) error {
+	if a.h.walk != nil {
+		a.h.walk(ctx)
+	}
+	return a.Anchor.Walk(ctx, rel, bounds, fn)
 }
 
 func (a hooked) Unwrap() fileio.Anchor { return a.Anchor }
