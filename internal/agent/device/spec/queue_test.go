@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	deviceErrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -379,6 +380,85 @@ func TestPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPolicyRetryUsesTheExistingRetryablePath(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockPolicyManager := policy.NewMockManager(ctrl)
+	gomock.InOrder(
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true),
+	)
+
+	log := log.NewPrefixLogger("test")
+	q := newQueueManager(1, 0, poll.Config{}, mockPolicyManager, newCache(log), log)
+	item := newVersionedDevice("1")
+
+	q.Add(ctx, item)
+	require.ErrorIs(q.CheckPolicy(ctx, policy.Download, item.Version()), deviceErrors.ErrDownloadPolicyNotReady)
+	require.ErrorIs(q.CheckPolicy(ctx, policy.Update, item.Version()), deviceErrors.ErrUpdatePolicyNotReady)
+
+	_, ok := q.Next(ctx)
+	require.False(ok, "a blocked item should remain queued for retry")
+
+	result, ok := q.Next(ctx)
+	require.True(ok, "the item should be admitted after policy readiness changes")
+	require.Equal(item.Version(), result.Version())
+	require.NoError(q.CheckPolicy(ctx, policy.Download, item.Version()))
+	require.NoError(q.CheckPolicy(ctx, policy.Update, item.Version()))
+}
+
+func TestPolicySatisfactionPersistsAfterQueueChanges(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockPolicyManager := policy.NewMockManager(ctrl)
+	gomock.InOrder(
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false),
+		mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false),
+	)
+
+	log := log.NewPrefixLogger("test")
+	q := newQueueManager(1, 0, poll.Config{}, mockPolicyManager, newCache(log), log)
+	satisfied := newVersionedDevice("1")
+
+	q.Add(ctx, satisfied)
+	result, ok := q.Next(ctx)
+	require.True(ok)
+	require.Equal(satisfied.Version(), result.Version())
+	require.NoError(q.CheckPolicy(ctx, policy.Download, satisfied.Version()))
+	require.ErrorIs(q.CheckPolicy(ctx, policy.Update, satisfied.Version()), deviceErrors.ErrUpdatePolicyNotReady)
+
+	q.Add(ctx, satisfied)
+	result, ok = q.Next(ctx)
+	require.True(ok)
+	require.Equal(satisfied.Version(), result.Version())
+	require.NoError(q.CheckPolicy(ctx, policy.Download, satisfied.Version()))
+	require.NoError(q.CheckPolicy(ctx, policy.Update, satisfied.Version()))
+
+	waiting := newVersionedDevice("2")
+	q.Add(ctx, waiting)
+	q.Remove(2)
+	q.Add(ctx, satisfied)
+	result, ok = q.Next(ctx)
+	require.True(ok, "removing waiting work must not revoke a satisfied version")
+	require.Equal(satisfied.Version(), result.Version())
+	require.NoError(q.CheckPolicy(ctx, policy.Download, satisfied.Version()))
+	require.NoError(q.CheckPolicy(ctx, policy.Update, satisfied.Version()))
 }
 
 func TestCalculateBackoffDelay(t *testing.T) {
