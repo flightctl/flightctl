@@ -252,7 +252,7 @@ func decodeManifestJSON(data []byte) (any, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	doc, err := decodeValue(dec, 0)
+	doc, err := decodeValue(dec, 0, maxManifestDepth, validateManifestNumber)
 	if err != nil {
 		return nil, fmt.Errorf("decode updater manifest: %w", err)
 	}
@@ -262,16 +262,25 @@ func decodeManifestJSON(data []byte) (any, error) {
 	return doc, nil
 }
 
-func decodeValue(dec *json.Decoder, depth int) (any, error) {
-	if depth > maxManifestDepth {
+func validateManifestNumber(number json.Number) error {
+	if !integerToken.MatchString(string(number)) {
+		return fmt.Errorf("number %s must be a non-negative integer in canonical decimal form", number)
+	}
+	return nil
+}
+
+func decodeValue(dec *json.Decoder, depth, maxDepth int, validateNumber func(json.Number) error) (any, error) {
+	if depth > maxDepth {
 		return nil, errors.New("nesting exceeds limit")
 	}
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
-	if number, ok := tok.(json.Number); ok && !integerToken.MatchString(string(number)) {
-		return nil, fmt.Errorf("number %s must be a non-negative integer in canonical decimal form", number)
+	if number, ok := tok.(json.Number); ok {
+		if err := validateNumber(number); err != nil {
+			return nil, err
+		}
 	}
 	delim, ok := tok.(json.Delim)
 	if !ok {
@@ -292,7 +301,7 @@ func decodeValue(dec *json.Decoder, depth int) (any, error) {
 			if _, dup := obj[key]; dup {
 				return nil, fmt.Errorf("duplicate key %q", key)
 			}
-			if obj[key], err = decodeValue(dec, depth+1); err != nil {
+			if obj[key], err = decodeValue(dec, depth+1, maxDepth, validateNumber); err != nil {
 				return nil, err
 			}
 		}
@@ -303,7 +312,7 @@ func decodeValue(dec *json.Decoder, depth int) (any, error) {
 	case '[':
 		arr := []any{}
 		for dec.More() {
-			value, err := decodeValue(dec, depth+1)
+			value, err := decodeValue(dec, depth+1, maxDepth, validateNumber)
 			if err != nil {
 				return nil, err
 			}
