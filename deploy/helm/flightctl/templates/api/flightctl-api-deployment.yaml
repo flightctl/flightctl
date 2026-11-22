@@ -89,6 +89,7 @@ spec:
             failureThreshold: 10
             successThreshold: 1
           volumeMounts:
+            {{- include "flightctl.tpmCAMount" . | nindent 12 }}
             {{- include "flightctl.firmwareUpdaterCatalogMount" . | nindent 12 }}
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-api-config
@@ -134,6 +135,7 @@ spec:
 
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.tpmCAVolume" . | nindent 8 }}
         {{- include "flightctl.firmwareUpdaterCatalogVolume" . | nindent 8 }}
         - name: flightctl-api-config
           configMap:

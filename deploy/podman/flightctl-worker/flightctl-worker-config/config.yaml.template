@@ -20,6 +20,9 @@ database:
   port: 5432
   name: flightctl
 {{- end}}
+ca:
+  internalConfig:
+    certStore: /root/.flightctl/certs/enrollment
 kv:
   hostname: flightctl-kv
   port: 6379

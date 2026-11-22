@@ -64,6 +64,17 @@ func LoadInternalCA(cfg *ca.Config) (CABackend, error) {
 	return GetCA(caCertFile, caKeyFile, caSerialFile)
 }
 
+func ValidateSigningCA(certificate *x509.Certificate) error {
+	if certificate == nil || !certificate.BasicConstraintsValid || !certificate.IsCA || (certificate.KeyUsage != 0 && certificate.KeyUsage&x509.KeyUsageCertSign == 0) {
+		return errors.New("enrollment signing certificate is not a certificate authority")
+	}
+	now := time.Now()
+	if now.Before(certificate.NotBefore) || !now.Before(certificate.NotAfter) {
+		return errors.New("enrollment signing certificate is outside its validity period")
+	}
+	return nil
+}
+
 func GetCA(certFile, keyFile, serialFile string) (*internalCA, error) {
 	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
 	if err != nil {

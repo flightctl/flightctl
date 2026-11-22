@@ -28,6 +28,7 @@ func NewStandaloneCommand() *cobra.Command {
 
 	cmd.AddCommand(NewRenderCommand())
 	cmd.AddCommand(NewAAPCommand())
+	cmd.AddCommand(NewPrepareWorkerEnrollmentCommand())
 
 	return cmd
 }

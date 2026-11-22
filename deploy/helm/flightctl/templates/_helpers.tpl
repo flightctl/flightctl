@@ -1048,6 +1048,37 @@ firmwareUpdaterCatalogFile: /etc/flightctl/firmware/updaters.yaml
 {{- end -}}
 {{- end -}}
 
+{{- define "flightctl.tpmCAConfig" -}}
+{{- if .Values.global.tpmCA.configMapName -}}
+tpmCAPaths:
+{{- range .Values.global.tpmCA.keys }}
+  - {{ printf "/etc/flightctl/tpm-cas/%s" . | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+{{- define "flightctl.tpmCAMount" -}}
+{{- if .Values.global.tpmCA.configMapName -}}
+- name: tpm-ca
+  mountPath: /etc/flightctl/tpm-cas
+  readOnly: true
+{{- end -}}
+{{- end -}}
+
+{{- define "flightctl.tpmCAVolume" -}}
+{{- if .Values.global.tpmCA.configMapName -}}
+- name: tpm-ca
+  configMap:
+    name: {{ .Values.global.tpmCA.configMapName | quote }}
+    optional: true
+    items:
+    {{- range .Values.global.tpmCA.keys }}
+      - key: {{ . | quote }}
+        path: {{ . | quote }}
+    {{- end }}
+{{- end -}}
+{{- end -}}
+
 {{- define "flightctl.firmwareUpdaterCatalogMount" -}}
 {{- if .Values.global.firmwareUpdaterCatalog.configMapName -}}
 - name: firmware-updater-catalog

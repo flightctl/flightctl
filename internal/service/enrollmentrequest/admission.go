@@ -82,6 +82,10 @@ func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, sn
 	request := snapshot.Request
 	addStatusIfNeeded(request)
 	automatic := approval == nil
+	if h.ca == nil || h.ca.Cfg == nil {
+		pendingAdmission(request, "EnrollmentSignerUnavailable")
+		return nil, nil
+	}
 	var selected *domain.EnrollmentApprovalPolicy
 	if automatic {
 		var reason string
@@ -102,10 +106,6 @@ func (h *ServiceHandler) applyAdmission(ctx context.Context, orgID uuid.UUID, sn
 			pendingAdmission(request, reason)
 			return nil, nil
 		}
-	}
-	if h.ca == nil || h.ca.Cfg == nil {
-		pendingAdmission(request, "EnrollmentSignerUnavailable")
-		return nil, nil
 	}
 	if h.events == nil || h.csrService == nil || h.deviceStore == nil {
 		pendingAdmission(request, "AdmissionPersistenceUnavailable")

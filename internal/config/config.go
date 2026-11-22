@@ -1312,17 +1312,40 @@ func NewDefault(opts ...ConfigOption) *Config {
 }
 
 func NewFromFile(cfgFile string) (*Config, error) {
+	return newFromFile(cfgFile, Validate)
+}
+
+func newFromFile(cfgFile string, validate func(*Config) error) (*Config, error) {
 	cfg, err := Load(cfgFile)
 	if err != nil {
 		return nil, err
 	}
-	if err := Validate(cfg); err != nil {
+	if err := validate(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
 func LoadOrGenerate(cfgFile string) (*Config, error) {
+	return loadOrGenerate(cfgFile, Validate)
+}
+
+func LoadOrGenerateWorker(cfgFile string) (*Config, error) {
+	return loadOrGenerate(cfgFile, validateWorker)
+}
+
+func NewWorkerFromFile(cfgFile string) (*Config, error) {
+	return newFromFile(cfgFile, validateWorker)
+}
+
+func validateWorker(cfg *Config) error {
+	if cfg.Service == nil || cfg.KV == nil || cfg.Database == nil || cfg.Worker == nil {
+		return fmt.Errorf("worker service, database, KV and worker configuration are required")
+	}
+	return validateCommon(cfg)
+}
+
+func loadOrGenerate(cfgFile string, validate func(*Config) error) (*Config, error) {
 	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(cfgFile), os.FileMode(0755)); err != nil {
 			return nil, fmt.Errorf("creating directory for config file: %v", err)
@@ -1331,7 +1354,7 @@ func LoadOrGenerate(cfgFile string) (*Config, error) {
 			return nil, err
 		}
 	}
-	return NewFromFile(cfgFile)
+	return newFromFile(cfgFile, validate)
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -1763,6 +1786,10 @@ func Validate(cfg *Config) error {
 	if cfg.CA != nil && cfg.CA.DeviceEnrollmentSignerName == "" {
 		return fmt.Errorf("ca.deviceEnrollmentSignerName must be non-empty")
 	}
+	return validateCommon(cfg)
+}
+
+func validateCommon(cfg *Config) error {
 	allowedGitOpsIgnoreResourceUpdates := map[string]struct{}{
 		"/metadata/resourceVersion": {},
 	}

@@ -27,6 +27,7 @@ data:
         {{- end }}
         {{- end }}
     service:
+        {{- include "flightctl.tpmCAConfig" . | nindent 8 }}
         address: :3443
         agentEndpointAddress: :7443
         httpReadTimeout: {{ .Values.api.httpReadTimeout | default "5m" | quote }}

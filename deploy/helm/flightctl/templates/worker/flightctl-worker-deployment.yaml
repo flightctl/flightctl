@@ -60,18 +60,10 @@ spec:
             {{- end }}
             {{- end }}
           volumeMounts:
+            {{- include "flightctl.tpmCAMount" . | nindent 12 }}
             {{- include "flightctl.firmwareUpdaterCatalogMount" . | nindent 12 }}
-            - mountPath: /root/.flightctl/certs/client-signer.crt
-              name: flightctl-client-signer
-              subPath: tls.crt
-              readOnly: true
-            - mountPath: /root/.flightctl/certs/client-signer.key
-              name: flightctl-client-signer
-              subPath: tls.key
-              readOnly: true
-            - mountPath: /root/.flightctl/certs/ca-bundle.crt
-              name: flightctl-ca-bundle
-              subPath: ca-bundle.crt
+            - mountPath: /root/.flightctl/certs/enrollment
+              name: enrollment-signing
               readOnly: true
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
@@ -86,13 +78,25 @@ spec:
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.tpmCAVolume" . | nindent 8 }}
         {{- include "flightctl.firmwareUpdaterCatalogVolume" . | nindent 8 }}
-        - name: flightctl-client-signer
-          secret:
-            secretName: flightctl-client-signer-ca
-        - name: flightctl-ca-bundle
-          secret:
-            secretName: flightctl-ca-bundle
+        - name: enrollment-signing
+          projected:
+            sources:
+              - secret:
+                  name: flightctl-client-signer-ca
+                  optional: true
+                  items:
+                    - key: tls.crt
+                      path: client-signer.crt
+                    - key: tls.key
+                      path: client-signer.key
+              - secret:
+                  name: flightctl-ca-bundle
+                  optional: true
+                  items:
+                    - key: ca-bundle.crt
+                      path: ca-bundle.crt
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config

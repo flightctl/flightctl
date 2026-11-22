@@ -26,7 +26,14 @@ data:
         sslcert: /etc/ssl/postgres/client-cert.pem
         {{- end }}
         {{- end }}
-    service: {}
+    ca:
+        internalConfig:
+            certStore: /root/.flightctl/certs/enrollment
+    service:
+        {{- if .Values.global.tpmCA.configMapName }}
+        {{- include "flightctl.tpmCAConfig" . | nindent 8 }}
+        {{- else }} {}
+        {{- end }}
     worker:
         {{- if .Values.worker.renderTimeout }}
         renderTimeout: {{ .Values.worker.renderTimeout | quote }}

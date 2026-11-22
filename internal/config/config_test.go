@@ -50,6 +50,33 @@ func TestEnrollmentSignerConfiguration(t *testing.T) {
 	})
 }
 
+func TestWorkerConfiguration(t *testing.T) {
+	for _, scenario := range []struct {
+		name, content string
+		invalid       bool
+	}{
+		{"missing CA", "ca: null", false},
+		{"empty signer", "ca:\n  deviceEnrollmentSignerName: ''", false},
+		{"missing internal config", "ca:\n  internalConfig: null", false},
+		{"unsupported backend", "ca:\n  type: 99", false},
+		{"invalid health check", "ca:\n  deviceEnrollmentSignerName: ''\nservice:\n  healthChecks:\n    enabled: true\n    readinessPath: bad", true},
+		{"invalid YAML", "ca: [", true},
+	} {
+		t.Run("When worker configuration has "+scenario.name+" it should preserve unrelated validation", func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(scenario.content), 0600))
+			cfg, err := LoadOrGenerateWorker(path)
+			if scenario.invalid {
+				require.Error(t, err)
+				require.Nil(t, cfg)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, cfg)
+			}
+		})
+	}
+}
+
 func TestConfig_String_ObfuscatesSensitiveData(t *testing.T) {
 	cfg := &Config{
 		Database: &dbConfig{

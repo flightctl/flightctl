@@ -8,15 +8,19 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
@@ -26,6 +30,7 @@ import (
 	hookstore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	erstore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
@@ -33,6 +38,7 @@ import (
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -110,13 +116,17 @@ func reevaluateQueuedEnrollment(t *testing.T, ctx context.Context, orgID uuid.UU
 func TestWorkerEnrollmentAssembly(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, integrationstack.EnsureRunning(ctx))
-	for _, scenario := range []string{"hooks", "no policy", "foreign policy", "unavailable matcher", "rollback", "manual unbound", "manual bound", "TPM required", "revoked"} {
+	for _, scenario := range []string{"hooks", "no policy", "foreign policy", "unavailable matcher", "rollback", "manual unbound", "manual bound", "manual serial", "TPM required", "revoked"} {
 		t.Run("When worker enrollment uses "+scenario+" it should preserve admission contracts", func(t *testing.T) {
 			log := logrus.New()
 			dbCfg, dbName, database, err := testdb.CreateTestDB(ctx, log, "worker_admission", store.InitDB)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, testdb.DeleteTestDB(ctx, log, dbCfg, database, dbName)) })
 			cfg := workerSigningConfig(t)
+			if scenario == "manual serial" {
+				cfg.CA.InternalConfig.SerialFile = filepath.Join(t.TempDir(), "serial")
+				require.NoError(t, os.WriteFile(cfg.CA.InternalConfig.SerialFile, []byte("02\n"), 0600))
+			}
 			cfg.Service.TPMCAPaths = []string{t.TempDir() + "/unavailable-root.pem"}
 			server, err := New(cfg, log, database, nil, nil, nil)
 			require.NoError(t, err)
@@ -137,6 +147,10 @@ func TestWorkerEnrollmentAssembly(t *testing.T) {
 			}
 			backend, err := crypto.LoadInternalCA(cfg.CA)
 			require.NoError(t, err)
+			if scenario == "manual serial" {
+				hookSvc := enrollmenthookpolicyservice.NewServiceHandler(hookstore.NewStore(database, log), eventSvc, log)
+				handler = enrollmentrequest.NewServiceHandler(requests, devices, reader, crypto.NewCAClient(cfg.CA, backend), nil, eventSvc, log, nil, "", "", hookSvc, secrets)
+			}
 			issuer := csrservice.NewServiceHandler(csrs, nil, crypto.NewCAClient(cfg.CA, backend), eventSvc, log, "", "")
 			credentialRequest := workerRequest(t)
 			credential, status := issuer.CreateCertificateSigningRequest(ctx, orgID, domain.CertificateSigningRequest{
@@ -263,7 +277,10 @@ func TestWorkerEnrollmentAssembly(t *testing.T) {
 			}
 			require.Equal(t, expectedSource, ledger.Source)
 			original := *loaded.Status.Certificate
-			cfg.CA.DeviceManagementSignerName = "unavailable-on-replay"
+			cfg.CA = nil
+			unavailable, err := New(cfg, log, database, nil, nil, nil)
+			require.NoError(t, err)
+			handler = unavailable.newEnrollmentService(devices, reader, nil, eventSvc, secrets)
 			_, status = handler.ApproveEnrollmentRequest(ctx, orgID, name, domain.EnrollmentRequestApproval{Approved: true})
 			require.EqualValues(t, 200, status.Code, status.Message)
 			require.NoError(t, handler.ReevaluateEnrollment(ctx, orgID, event))
@@ -277,6 +294,117 @@ func TestWorkerEnrollmentAssembly(t *testing.T) {
 				expectedCount = 0
 			}
 			require.Equal(t, expectedCount, policy.Status.Data.EnrollmentCount)
+		})
+	}
+}
+
+func TestWorkerUnavailableSignerRunsFleetTasks(t *testing.T) {
+	for _, defect := range []string{"missing", "unsupported", "serial", "invalid catalog"} {
+		t.Run("When enrollment signing is "+defect+" it should still reconcile fleet ownership", func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			log := logrus.New()
+			dbCfg, dbName, database, err := testdb.CreateTestDB(ctx, log, "worker_nonfatal", store.InitDB)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, testdb.DeleteTestDB(context.Background(), log, dbCfg, database, dbName)) }()
+			host, port, password, cleanup, err := testdb.CreateTestRedis(ctx, log)
+			require.NoError(t, err)
+			defer cleanup()
+			cfg := workerSigningConfig(t)
+			cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password = host, port, password
+			provider, err := queues.NewRedisProvider(ctx, log, "worker-nonfatal-"+defect, host, port, password, queues.DefaultRetryConfig())
+			require.NoError(t, err)
+			defer func() { provider.Stop(); provider.Wait() }()
+			orgID := store.NullOrgId
+			requests := erstore.NewEnrollmentRequestStore(database, log)
+			csrs := csrstore.NewCertificateSigningRequestStore(database, log, cfg.CA.DeviceEnrollmentSignerName)
+			backend, err := crypto.LoadInternalCA(cfg.CA)
+			require.NoError(t, err)
+			eventSvc := events.NewServiceHandler(eventstore.NewEventStore(database, log), nil, log)
+			issuer := csrservice.NewServiceHandler(csrs, nil, crypto.NewCAClient(cfg.CA, backend), eventSvc, log, "", "")
+			credentialRequest := workerRequest(t)
+			credential, status := issuer.CreateCertificateSigningRequest(ctx, orgID, domain.CertificateSigningRequest{Metadata: credentialRequest.Metadata, Spec: domain.CertificateSigningRequestSpec{Request: []byte(credentialRequest.Spec.Csr), SignerName: cfg.CA.DeviceEnrollmentSignerName, Usages: &[]string{"clientAuth", "CA:false"}}})
+			require.EqualValues(t, 201, status.Code, status.Message)
+			request := workerRequest(t)
+			request.Status = &domain.EnrollmentRequestStatus{EnrollmentCertificateName: credential.Metadata.Name, Conditions: []domain.Condition{}}
+			_, err = requests.Create(ctx, orgID, &request)
+			require.NoError(t, err)
+			policy, err := model.NewEnrollmentApprovalPolicyFromApiResource(&domain.EnrollmentApprovalPolicy{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("nonfatal-policy")},
+				Spec:     domain.EnrollmentApprovalPolicySpec{CertificateName: *credential.Metadata.Name, Enabled: true, MatchExpression: "true"},
+				Status:   &domain.EnrollmentApprovalPolicyStatus{},
+			})
+			require.NoError(t, err)
+			policy.OrgID, policy.ResourceVersion, policy.Generation = orgID, lo.ToPtr(int64(1)), lo.ToPtr(int64(1))
+			require.NoError(t, database.Create(policy).Error)
+			devices := devicestore.NewDeviceStore(database, log)
+			fleets := fleetstore.NewFleetStore(database, log)
+			labels := map[string]string{"env": "worker-test"}
+			_, err = fleets.Create(ctx, orgID, &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr("worker-fleet")}, Spec: domain.FleetSpec{Selector: &domain.LabelSelector{MatchLabels: &labels}}})
+			require.NoError(t, err)
+			device := testutil.ReturnTestDevice(orgID, "worker-device", nil, nil, &labels)
+			device.Spec.Config = nil
+			_, err = devices.Create(ctx, orgID, &device, nil)
+			require.NoError(t, err)
+			switch defect {
+			case "invalid catalog":
+				cfg.CA = nil
+				cfg.FirmwareUpdaterCatalogFile = filepath.Join(t.TempDir(), "missing-catalog.yaml")
+			case "missing":
+				cfg.CA = nil
+			case "unsupported":
+				cfg.CA.CAType = ca.AsyncInternalCA
+			case "serial":
+				cfg.CA.InternalConfig.SerialFile = filepath.Join(t.TempDir(), "serial")
+			}
+			server, err := New(cfg, log, database, provider, nil, nil)
+			require.NoError(t, err)
+			if defect == "invalid catalog" {
+				require.ErrorContains(t, server.Run(ctx), "initialize approved updater catalog")
+				return
+			}
+			finished := make(chan error, 1)
+			go func() { finished <- server.Run(ctx) }()
+			defer func() {
+				cancel()
+				provider.Stop()
+				select {
+				case err := <-finished:
+					require.NoError(t, err)
+				case <-time.After(20 * time.Second):
+					t.Error("worker did not stop")
+				}
+			}()
+			publisher, err := worker_client.QueuePublisher(ctx, provider)
+			require.NoError(t, err)
+			defer publisher.Close()
+			for _, object := range []domain.ObjectReference{{Kind: domain.DeviceKind, Name: "worker-device"}, {Kind: domain.EnrollmentRequestKind, Name: *request.Metadata.Name}} {
+				payload, err := json.Marshal(worker_client.EventWithOrgId{OrgId: orgID, Event: domain.Event{InvolvedObject: object, Reason: domain.EventReasonResourceCreated}})
+				require.NoError(t, err)
+				require.NoError(t, publisher.Enqueue(ctx, payload, 0))
+			}
+			require.Eventually(t, func() bool {
+				current, err := devices.Get(ctx, orgID, "worker-device")
+				return err == nil && lo.FromPtr(current.Metadata.Owner) == "Fleet/worker-fleet"
+			}, 20*time.Second, 50*time.Millisecond)
+			require.Eventually(t, func() bool {
+				current, err := requests.Get(ctx, orgID, *request.Metadata.Name)
+				if err != nil || current.Status == nil {
+					return false
+				}
+				condition := domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved)
+				return condition != nil && condition.Reason == "EnrollmentSignerUnavailable" && current.Status.Certificate == nil && erstore.Pending(current)
+			}, 20*time.Second, 50*time.Millisecond)
+			for _, record := range []any{&model.Device{}, &model.EnrollmentAdmission{}} {
+				var count int64
+				require.NoError(t, database.Model(record).Where("org_id = ? AND name = ?", orgID, *request.Metadata.Name).Count(&count).Error)
+				require.Zero(t, count)
+			}
+			require.NoError(t, database.Where("org_id = ? AND name = ?", orgID, "nonfatal-policy").Take(policy).Error)
+			require.Zero(t, policy.Status.Data.EnrollmentCount)
+			var approvedEvents int64
+			require.NoError(t, database.Model(&model.Event{}).Where("org_id = ? AND involved_object_name = ? AND reason = ?", orgID, *request.Metadata.Name, domain.EventReasonEnrollmentRequestApproved).Count(&approvedEvents).Error)
+			require.Zero(t, approvedEvents)
 		})
 	}
 }

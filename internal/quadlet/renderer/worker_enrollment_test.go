@@ -39,10 +39,11 @@ func TestWorkerEnrollmentRendering(t *testing.T) {
 	require.NoError(t, template.RenderWithData(map[string]any{"Worker": map[string]any{"Image": "worker", "Tag": "test"}}, input, output))
 	contents, err := os.ReadFile(output)
 	require.NoError(t, err)
-	for _, path := range []string{"client-signer.crt", "client-signer.key"} {
-		require.Contains(t, string(contents), "Volume=/etc/flightctl/pki/flightctl-api/"+path+":/root/.flightctl/certs/"+path+":ro,z")
-	}
-	require.Contains(t, string(contents), "Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z")
+	require.Contains(t, string(contents), "Volume=/run/flightctl-worker-enrollment/signing:/root/.flightctl/certs/enrollment:ro,z")
+	require.Contains(t, string(contents), "ExecStartPre=/usr/bin/flightctl-standalone prepare-worker-enrollment")
+	require.Contains(t, string(contents), "RuntimeDirectory=flightctl-worker-enrollment")
+	require.Contains(t, string(contents), "RuntimeDirectoryMode=0700")
+	require.NotContains(t, string(contents), "Volume=/etc/flightctl/pki/flightctl-api")
 	require.Contains(t, string(contents), "Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z")
 	require.Contains(t, string(contents), "After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-certs-init.service")
 	require.Contains(t, string(contents), "Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-certs-init.service")

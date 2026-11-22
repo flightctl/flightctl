@@ -3,6 +3,12 @@
 # This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
 
 global:
+  # -- Public TPM manufacturer CA certificates shared by API verification and worker admission.
+  tpmCA:
+    # -- Existing ConfigMap with the same content in each runtime namespace. Empty disables configured TPM trust.
+    configMapName: ""
+    # -- Selected safe filenames, one PEM CA certificate per key. Missing or invalid trust cannot satisfy a required TPM gate.
+    keys: []
   # -- Administrator-owned firmware updater catalog input. This is independent of the application Catalog API.
   firmwareUpdaterCatalog:
     # -- Existing ConfigMap name in each runtime namespace. Empty uses retained database state. Use a new immutable ConfigMap name for each higher revision.

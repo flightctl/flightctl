@@ -1,7 +1,10 @@
 package workerserver
 
 import (
+	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/crypto"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
@@ -72,25 +76,67 @@ func New(
 	k8sClient k8sclient.K8SClient,
 	workerMetrics *worker.WorkerCollector,
 ) (*Server, error) {
-	if cfg == nil || cfg.CA == nil || cfg.CA.InternalConfig == nil {
-		return nil, fmt.Errorf("worker signing configuration is required")
+	if cfg == nil || cfg.Service == nil {
+		return nil, fmt.Errorf("worker service configuration is required")
 	}
-	if cfg.CA.InternalConfig.SerialFile != "" {
-		return nil, fmt.Errorf("worker signing does not support ca.internalConfig.serialFile: file serial allocation cannot be shared with other signing processes")
-	}
-	ca, err := crypto.LoadInternalCA(cfg.CA)
+	client, err := enrollmentSigner(cfg.CA)
 	if err != nil {
-		return nil, fmt.Errorf("loading client-signer certificates: %w", err)
+		log.WithError(err).Warn("automatic enrollment disabled; correct signing configuration and restart worker")
 	}
 	return &Server{
 		cfg:            cfg,
-		ca:             crypto.NewCAClient(cfg.CA, ca),
+		ca:             client,
 		log:            log,
 		db:             db,
 		queuesProvider: queuesProvider,
 		k8sClient:      k8sClient,
 		workerMetrics:  workerMetrics,
 	}, nil
+}
+
+func enrollmentSigner(cfg *ca.Config) (*crypto.CAClient, error) {
+	if cfg == nil || cfg.InternalConfig == nil || cfg.DeviceEnrollmentSignerName == "" {
+		return nil, fmt.Errorf("enrollment signing configuration is incomplete")
+	}
+	if cfg.CAType != ca.InternalCA {
+		return nil, fmt.Errorf("enrollment signing backend is unsupported")
+	}
+	if cfg.InternalConfig.SerialFile != "" {
+		return nil, fmt.Errorf("ca.internalConfig.serialFile is unsupported for worker enrollment; use random serial allocation")
+	}
+	backend, err := crypto.LoadInternalCA(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("enrollment signing certificate or key is missing, unreadable or invalid")
+	}
+	certificates := backend.GetCABundleX509()
+	if len(certificates) == 0 {
+		return nil, fmt.Errorf("enrollment signing certificate is unavailable")
+	}
+	if err := crypto.ValidateSigningCA(certificates[0]); err != nil {
+		return nil, err
+	}
+	client := crypto.NewCAClient(cfg, backend)
+	if cfg.InternalConfig.CABundleFile != "" {
+		bundle, err := client.GetCABundle()
+		if err != nil || len(bytes.TrimSpace(bundle)) == 0 {
+			return nil, fmt.Errorf("enrollment CA bundle is missing or unreadable")
+		}
+		for len(bytes.TrimSpace(bundle)) > 0 {
+			bundle = bytes.TrimSpace(bundle)
+			if !bytes.HasPrefix(bundle, []byte("-----BEGIN CERTIFICATE-----")) {
+				return nil, fmt.Errorf("enrollment CA bundle is invalid")
+			}
+			block, rest := pem.Decode(bundle)
+			if block == nil || block.Type != "CERTIFICATE" {
+				return nil, fmt.Errorf("enrollment CA bundle is invalid")
+			}
+			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+				return nil, fmt.Errorf("enrollment CA bundle is invalid")
+			}
+			bundle = rest
+		}
+	}
+	return client, nil
 }
 
 func (s *Server) newEnrollmentService(deviceStore devicestore.Store, csrSvc certificatesigningrequestservice.Service, kvStore kvstore.KVStore, eventsSvc events.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *enrollmentrequestservice.ServiceHandler {
@@ -127,6 +173,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
+	defer kvStore.Close()
 
 	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher), worker_client.WithLabelSyncPublisher(labelSyncPublisher))
 	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
@@ -158,7 +205,11 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), s.cfg.CA.DeviceEnrollmentSignerName)
+	signerName := ""
+	if s.cfg.CA != nil {
+		signerName = s.cfg.CA.DeviceEnrollmentSignerName
+	}
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"), signerName)
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(certificatesigningrequestservice.NewServiceHandler(csrStore, nil, nil, eventsSvc, s.log, "", ""))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
@@ -255,13 +306,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sigShutdown)
+	stopped := make(chan struct{})
+	defer close(stopped)
 	go func() {
-		<-sigShutdown
+		select {
+		case <-sigShutdown:
+		case <-ctx.Done():
+		case <-stopped:
+			return
+		}
 		s.log.Println("Shutdown signal received")
 		cancelEnqueue()
 		enqueueWG.Wait()
 		s.queuesProvider.Stop()
-		kvStore.Close()
 	}()
 	s.queuesProvider.Wait()
 	cancelEnqueue()

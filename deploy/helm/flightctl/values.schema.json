@@ -9,6 +9,26 @@
       "description": "Global parameters common to all components and subcharts",
       "additionalProperties": true,
       "properties": {
+        "tpmCA": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["configMapName", "keys"],
+          "properties": {
+            "configMapName": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+            },
+            "keys": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"type": "string", "maxLength": 253, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+            }
+          },
+          "if": {"properties": {"configMapName": {"minLength": 1}}},
+          "then": {"properties": {"keys": {"minItems": 1}}},
+          "else": {"properties": {"keys": {"maxItems": 0}}}
+        },
         "firmwareUpdaterCatalog": {
           "type": "object",
           "additionalProperties": false,

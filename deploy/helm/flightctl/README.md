@@ -4,23 +4,53 @@
 
 A helm chart for FlightControl
 
+## Worker enrollment signing and TPM trust
+
+The worker reads only the existing client-signer certificate, key and CA bundle.
+Missing or invalid signing material disables automatic enrollment, not unrelated
+worker tasks. Provision `flightctl-client-signer-ca` and `flightctl-ca-bundle` in
+the worker namespace, including when certificate generation is `none`. Correct
+the material and restart the worker to enable signing; automatic reload is not
+supported. File-based serial allocation is not supported by worker enrollment.
+API signing and other required dependencies retain their startup requirements.
+
+For Podman quadlets, the standalone utility prepares a private, volatile signing
+snapshot under `/run/flightctl-worker-enrollment` before the worker starts. It
+copies only the existing enrollment signer certificate, key and bundle, never
+the API server TLS key. Missing or invalid inputs produce an empty snapshot;
+unsafe destination permissions fail startup. Restart the worker after repairing
+signing material. The runtime snapshot is not an additional persistent PKI store.
+
+Set `global.tpmCA.configMapName` and `global.tpmCA.keys` to mount selected public
+manufacturer CA certificates read-only at `/etc/flightctl/tpm-cas` in both API
+and worker. Provide identical ConfigMaps in both namespaces when using an
+internal namespace. Each selected key must be a safe filename holding one PEM
+CA certificate; do not put private keys in this ConfigMap. Empty configuration
+adds no trust paths or mounts. Missing maps or keys do not prevent startup, but
+missing required trust cannot satisfy a TPM-required policy. The existing loader
+skips invalid entries and uses available valid roots; it reads only the first
+certificate in each file. Restart both services after changing trust material.
+TPM-less devices remain eligible for policies that do not require TPM verification.
+
 **Homepage:** <https://github.com/flightctl/flightctl>
 
 ## Prerequisites
 
 ### Worker signing material
 
-The API and worker use the same client-signing CA. Both require the existing
+The API and worker use the same client-signing CA. Signing uses the existing
 `flightctl-client-signer-ca` secret (`tls.crt` and `tls.key`) and
 `flightctl-ca-bundle` secret (`ca-bundle.crt`) in their respective namespaces.
 Certificate generation copies this material to `global.internalNamespace` when
 it differs from the release namespace. With `global.generateCertificates=none`,
-provision these secrets in both namespaces before starting the services.
+provision these secrets in both namespaces to enable signing. API startup still
+requires its signing material; workers without it can run unrelated tasks.
 
-The worker mounts these files read-only under `/root/.flightctl/certs` and fails
-startup if the signing certificate or key cannot be loaded. It does not generate
-a CA or require the API server TLS key. File-based CA serial allocation
-(`ca.internalConfig.serialFile`) is unsupported in the worker because it cannot
+The worker mounts an optional read-only directory at
+`/root/.flightctl/certs/enrollment`. Missing or invalid signing material disables
+automatic enrollment until repaired and the worker restarted. It does not
+generate a CA or require the API server TLS key. File-based CA serial allocation
+(`ca.internalConfig.serialFile`) disables worker enrollment because it cannot
 coordinate with other signing processes; the default uses random serials.
 
 ### Pod Security Standards
@@ -411,6 +441,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate for synchronous builtin certificates, or configure it after the generated Secret exists for asynchronous certificates. - true: use externalCertificate; with cert-manager, configure it after the generated Secret exists. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |
+| global.tpmCA | object | `{"configMapName":"","keys":[]}` | Public TPM manufacturer CA certificates shared by API verification and worker admission. |
+| global.tpmCA.configMapName | string | `""` | Existing ConfigMap with the same content in each runtime namespace. Empty disables configured TPM trust. |
+| global.tpmCA.keys | list | `[]` | Selected safe filenames, one PEM CA certificate per key. Missing or invalid trust cannot satisfy a required TPM gate. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
 | imageBuilderApi.enabled | bool | `true` | Enable imagebuilder API service |
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
