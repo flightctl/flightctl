@@ -109,10 +109,10 @@ var _ = Describe("CSR transaction ownership", func() {
 				}
 			}
 		},
-		Entry("default status and configured signer", false, true, false),
-		Entry("issued status and enrollment digest", true, true, false),
-		Entry("issued status without enrollment digest", true, false, false),
-		Entry("empty signer and generated-name hook", false, false, true),
+		Entry("When default status and configured signer are supplied it should preserve create semantics", false, true, false),
+		Entry("When issued status and enrollment digest are supplied it should preserve create semantics", true, true, false),
+		Entry("When issued status without enrollment digest are supplied it should preserve create semantics", true, false, false),
+		Entry("When empty signer and generated-name hook are supplied it should preserve create semantics", false, false, true),
 	)
 
 	for _, method := range []string{"Update", "CreateOrUpdate"} {

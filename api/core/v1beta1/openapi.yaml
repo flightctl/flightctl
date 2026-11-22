@@ -3653,63 +3653,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /enrollmentapprovalpolicies/{name}/status:
-    x-resource: enrollmentapprovalpolicies/status
-    get:
-      tags:
-        - enrollmentapprovalpolicy
-      description: Get an EnrollmentApprovalPolicy resource.
-      operationId: getEnrollmentApprovalPolicyStatus
-      parameters:
-        - name: name
-          in: path
-          description: The name of the EnrollmentApprovalPolicy resource to get.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentApprovalPolicyStatus'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "429":
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: Service Unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
   /enrollmenthookpolicies:
     x-resource: enrollmenthookpolicies
     get:

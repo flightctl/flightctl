@@ -148,9 +148,6 @@ type ServerInterface interface {
 	// (PUT /enrollmentapprovalpolicies/{name})
 	ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /enrollmentapprovalpolicies/{name}/status)
-	GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request, name string)
-
 	// (GET /enrollmentconfig)
 	GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams)
 
@@ -542,11 +539,6 @@ func (_ Unimplemented) PatchEnrollmentApprovalPolicy(w http.ResponseWriter, r *h
 
 // (PUT /enrollmentapprovalpolicies/{name})
 func (_ Unimplemented) ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (GET /enrollmentapprovalpolicies/{name}/status)
-func (_ Unimplemented) GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2131,32 +2123,6 @@ func (siw *ServerInterfaceWrapper) ReplaceEnrollmentApprovalPolicy(w http.Respon
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceEnrollmentApprovalPolicy(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetEnrollmentApprovalPolicyStatus operation middleware
-func (siw *ServerInterfaceWrapper) GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetEnrollmentApprovalPolicyStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4352,9 +4318,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/enrollmentapprovalpolicies/{name}", wrapper.ReplaceEnrollmentApprovalPolicy)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/enrollmentapprovalpolicies/{name}/status", wrapper.GetEnrollmentApprovalPolicyStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/enrollmentconfig", wrapper.GetEnrollmentConfig)

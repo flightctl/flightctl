@@ -618,10 +618,6 @@ overrides:
       responses-resource-put-allowed: off
       responses-resource-patch-allowed: off
       responses-resource-delete-allowed: off
-  - files:
-      - "**/api/core/v1beta1/openapi.yaml#/paths/~1enrollmentapprovalpolicies~1%7Bname%7D~1status"
-    rules:
-      subresource-status-verbs-required: off
   # LabelSyncMapping expression validation returns 422; endpoint-specific rules preserve the shared allowlists.
   - files:
       - "**/api/core/v1beta1/openapi.yaml#/paths/~1labelsyncmappings"

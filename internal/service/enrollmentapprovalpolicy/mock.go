@@ -85,21 +85,6 @@ func (mr *MockServiceMockRecorder) GetEnrollmentApprovalPolicy(ctx, orgId, name 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentApprovalPolicy", reflect.TypeOf((*MockService)(nil).GetEnrollmentApprovalPolicy), ctx, orgId, name)
 }
 
-// GetEnrollmentApprovalPolicyStatus mocks base method.
-func (m *MockService) GetEnrollmentApprovalPolicyStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentApprovalPolicyStatus, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEnrollmentApprovalPolicyStatus", ctx, orgId, name)
-	ret0, _ := ret[0].(*domain.EnrollmentApprovalPolicyStatus)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// GetEnrollmentApprovalPolicyStatus indicates an expected call of GetEnrollmentApprovalPolicyStatus.
-func (mr *MockServiceMockRecorder) GetEnrollmentApprovalPolicyStatus(ctx, orgId, name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentApprovalPolicyStatus", reflect.TypeOf((*MockService)(nil).GetEnrollmentApprovalPolicyStatus), ctx, orgId, name)
-}
-
 // ListEnrollmentApprovalPolicies mocks base method.
 func (m *MockService) ListEnrollmentApprovalPolicies(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentApprovalPoliciesParams) (*domain.EnrollmentApprovalPolicyList, domain.Status) {
 	m.ctrl.T.Helper()

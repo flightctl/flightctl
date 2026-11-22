@@ -2,6 +2,7 @@ package enrollmentapprovalpolicy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -184,14 +185,6 @@ func (handler *ServiceHandler) ListEnrollmentApprovalPolicies(ctx context.Contex
 	return result, policyErrorToAPIStatus(err, "", false)
 }
 
-func (handler *ServiceHandler) GetEnrollmentApprovalPolicyStatus(ctx context.Context, orgID uuid.UUID, name string) (*domain.EnrollmentApprovalPolicyStatus, domain.Status) {
-	policy, status := handler.GetEnrollmentApprovalPolicy(ctx, orgID, name)
-	if policy == nil {
-		return nil, status
-	}
-	return policy.Status, status
-}
-
 func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	if policy.Status != nil {
 		return nil, domain.NewFailureStatus(400, "ProtectedField", "status is server-owned")
@@ -244,7 +237,8 @@ func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Conte
 
 func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	version := ""
-	for _, operation := range patch {
+	patch = append(domain.PatchRequest(nil), patch...)
+	for i, operation := range patch {
 		if operation.Path == "/metadata/resourceVersion" && string(operation.Op) == "test" {
 			version, _ = operation.Value.(string)
 			continue
@@ -252,8 +246,11 @@ func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context
 		if !strings.HasPrefix(operation.Path, "/spec/") && operation.Path != "/spec" && !strings.HasPrefix(operation.Path, "/metadata/labels/") && operation.Path != "/metadata/labels" {
 			return nil, domain.NewFailureStatus(400, "ProtectedField", "patch may only change spec or labels")
 		}
-		if operation.Value == nil && operation.Op != "remove" && operation.Path != "/spec/approvalLimit" {
-			return nil, domain.StatusBadRequest("patch value must not be null for " + operation.Path)
+		if operation.Value == nil && operation.Op != "remove" {
+			if operation.Path != "/spec/approvalLimit" && operation.Path != "/spec/autoApprovalWindowDays" {
+				return nil, domain.StatusBadRequest("patch value must not be null for " + operation.Path)
+			}
+			patch[i].Value = json.RawMessage("null")
 		}
 	}
 	if version == "" {
@@ -276,7 +273,7 @@ func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context
 			}
 			stored.Status = nil
 			var candidate domain.EnrollmentApprovalPolicy
-			if err := common.ApplyJSONPatch(txCtx, stored, &candidate, patch, "/enrollmentapprovalpolicies/"+name); err != nil {
+			if err := applyPolicyPatch(txCtx, stored, &candidate, patch, name); err != nil {
 				return InvalidPolicyInputError{Cause: fmt.Errorf("apply patch: %w", err)}
 			}
 			if candidate.Spec.CertificateName != stored.Spec.CertificateName {

@@ -17,7 +17,7 @@ import (
 func TestEditPolicyRequestsOnlyForChanges(t *testing.T) {
 	for _, format := range []string{"json", "yaml"} {
 		for _, changed := range []bool{false, true} {
-			t.Run(format+" changed="+lo.Ternary(changed, "true", "false"), func(t *testing.T) {
+			t.Run("When editing "+format+" with changed="+lo.Ternary(changed, "true", "false")+" it should patch only changes", func(t *testing.T) {
 				policy := &api.EnrollmentApprovalPolicy{Kind: api.EnrollmentApprovalPolicyKind, ApiVersion: "flightctl.io/v1beta1", Metadata: api.ObjectMeta{Name: lo.ToPtr("west"), ResourceVersion: lo.ToPtr("1")}, Spec: api.EnrollmentApprovalPolicySpec{MatchExpression: "original"}}
 				response := &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: policy, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}
 				options := DefaultEditOptions()

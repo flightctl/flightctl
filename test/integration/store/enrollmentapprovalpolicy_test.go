@@ -47,7 +47,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		orgID = uuid.New()
 		Expect(testutil.CreateTestOrganization(ctx, organizationstore.NewOrganizationStore(db), orgID)).To(Succeed())
 		policies = policystore.NewStore(db, log)
-		Expect(db.Create(&model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgID, Name: "credential"}, Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: "enrollment"})}).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Create(&model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgID, Name: "credential"}, Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: "enrollment"})}).Error).To(Succeed())
 	})
 	AfterEach(func() {
 		cancel()
@@ -75,12 +75,12 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		credentials := csrstore.NewCertificateSigningRequestStore(migrationDB, log, "enrollment")
 		Expect(credentials.InitialMigration(ctx)).To(Succeed())
 		var isNull bool
-		Expect(db.Raw("SELECT policy_set_revision IS NULL FROM certificate_signing_requests WHERE org_id = ? AND name = ?", orgID, "credential").Scan(&isNull).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Raw("SELECT policy_set_revision IS NULL FROM certificate_signing_requests WHERE org_id = ? AND name = ?", orgID, "credential").Scan(&isNull).Error).To(Succeed())
 		Expect(isNull).To(BeFalse())
 		_, err = create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(Equal(int64(1)))
 	})
 	It("When migrating a nullable policy revision it should backfill before enforcing the constraint", func() {
@@ -88,13 +88,13 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer testdb.CloseDB(migrationDB)
 		Expect(migrationDB.WithContext(ctx).Exec("ALTER TABLE certificate_signing_requests ALTER COLUMN policy_set_revision DROP NOT NULL").Error).To(Succeed())
-		Expect(db.Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", orgID, "credential").UpdateColumn("policy_set_revision", nil).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Model(&model.CertificateSigningRequest{}).Where("org_id = ? AND name = ?", orgID, "credential").UpdateColumn("policy_set_revision", nil).Error).To(Succeed())
 		credentials := csrstore.NewCertificateSigningRequestStore(migrationDB, log, "enrollment")
 		Expect(credentials.InitialMigration(ctx)).To(Succeed())
 		_, err = create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(Equal(int64(1)))
 	})
 	It("When validation fails it should leave no policy or revision writes", func() {
@@ -104,14 +104,14 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		_, err = policies.Get(ctx, orgID, "west")
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(BeZero())
 	})
 	It("When policy is deleted it should retain count and reserve its name", func() {
 		created, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(created.Status.EnrollmentCount).To(Equal(int64(0)))
-		Expect(db.Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", orgID, "west").Update("status", model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64})).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", orgID, "west").Update("status", model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64})).Error).To(Succeed())
 		_, err = policies.Get(ctx, uuid.New(), "west")
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		err = deletePolicy(ctx, policies, orgID, "west", "credential")
@@ -119,12 +119,12 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		_, err = policies.Get(ctx, orgID, "west")
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		var retained model.EnrollmentApprovalPolicy
-		Expect(db.Unscoped().Where("org_id = ? AND name = ?", orgID, "west").Take(&retained).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgID, "west").Take(&retained).Error).To(Succeed())
 		Expect(retained.Status.Data.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
 		_, err = create("west", nil)
 		Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 	})
-	It("When concurrent policies select one credential each validation should see committed enabled siblings", func() {
+	It("When concurrent policies select one credential it should validate committed enabled siblings", func() {
 		const total = 6
 		start := make(chan struct{})
 		observations := make(chan int, total)
@@ -160,13 +160,13 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		sort.Ints(counts)
 		Expect(counts).To(Equal([]int{0, 1, 2, 3, 4, 5}))
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(Equal(int64(total)))
 	})
 	It("When updating policy configuration it should preserve count and reject stale versions", func() {
 		created, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(db.Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", orgID, "west").Update("status", model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt32 + 1})).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", orgID, "west").Update("status", model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt32 + 1})).Error).To(Succeed())
 		updated, _, err := mutatePolicy(ctx, policies, orgID, "west", "credential", func(current *domain.EnrollmentApprovalPolicy, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
 			current.Spec.Enabled = true
 			current.Status = &domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: 0}
@@ -192,7 +192,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		Expect(updated.Spec.DeviceLabels).To(HaveKeyWithValue("region", "west"))
 		Expect(*updated.Metadata.Generation).To(Equal(int64(2)))
 	})
-	It("When the configured signer changes live and retained policy bindings should still protect the credential", func() {
+	It("When the configured signer changes it should retain credential protection for live and deleted bindings", func() {
 		_, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		credentials := csrstore.NewCertificateSigningRequestStore(db, log, "changed-signer")
@@ -211,7 +211,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 			Expect(err).To(MatchError(flterrors.ErrEnrollmentCredentialRetained))
 		}
 	})
-	It("When same-version policy updates race exactly one should commit", func() {
+	It("When same-version policy updates race it should commit exactly one", func() {
 		created, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		results := make(chan error, 2)
@@ -309,7 +309,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		_, err = policies.Get(ctx, orgID, "west")
 		Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(BeZero())
 		original, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
@@ -334,7 +334,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 			current, err := policies.Get(ctx, orgID, "west")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(current).To(Equal(original))
-			Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+			Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 			Expect(credential.PolicySetRevision).To(Equal(int64(1)))
 		}
 	})
@@ -348,7 +348,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 
 	It("When organizations share names it should isolate zero-organization mutations", func() {
 		Expect(testutil.CreateTestOrganization(ctx, organizationstore.NewOrganizationStore(db), uuid.Nil)).To(Succeed())
-		Expect(db.Create(&model.CertificateSigningRequest{Resource: model.Resource{OrgID: uuid.Nil, Name: "credential"}, Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: "enrollment"})}).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Create(&model.CertificateSigningRequest{Resource: model.Resource{OrgID: uuid.Nil, Name: "credential"}, Spec: model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: "enrollment"})}).Error).To(Succeed())
 		foreign, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())
 		zero, _, err := mutatePolicy(ctx, policies, uuid.Nil, "west", "credential", func(_ *domain.EnrollmentApprovalPolicy, _ *domain.CertificateSigningRequest, _ []domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
@@ -366,7 +366,7 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(preserved).To(Equal(foreign))
 		var credential model.CertificateSigningRequest
-		Expect(db.Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
+		Expect(db.WithContext(ctx).Where("org_id = ? AND name = ?", orgID, "credential").Take(&credential).Error).To(Succeed())
 		Expect(credential.PolicySetRevision).To(Equal(int64(1)))
 	})
 

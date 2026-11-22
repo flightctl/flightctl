@@ -24,7 +24,7 @@ func TestPolicyAccountingRoundTrip(t *testing.T) {
 				require.NoError(t, json.Unmarshal(encoded, &decoded))
 				require.Equal(t, limit, decoded.Spec.ApprovalLimit)
 				require.Equal(t, count, decoded.Status.EnrollmentCount)
-				require.Equal(t, policy.Status, converter.StatusFromDomain(resource.Status))
+				require.Equal(t, policy.Status, converter.FromDomain(&resource).Status)
 			})
 		}
 	}

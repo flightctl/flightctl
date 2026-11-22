@@ -14,16 +14,11 @@ func TestEnrollmentApprovalPolicyStatusAlwaysIncludesCount(t *testing.T) {
 	require.JSONEq(t, `{"enrollmentCount":0}`, string(encoded))
 }
 
-func TestEnrollmentApprovalPolicyStatusIsReadOnly(t *testing.T) {
+func TestEnrollmentApprovalPolicyHasNoStatusEndpoint(t *testing.T) {
 	specification, err := GetSpec()
 	require.NoError(t, err)
 	statusPath := specification.Paths.Find("/enrollmentapprovalpolicies/{name}/status")
-	require.NotNil(t, statusPath)
-	require.NotNil(t, statusPath.Get)
-	require.Nil(t, statusPath.Put)
-	require.Nil(t, statusPath.Patch)
-	require.Nil(t, statusPath.Post)
-	require.Nil(t, statusPath.Delete)
+	require.Nil(t, statusPath)
 }
 
 func TestEnrollmentApprovalPolicyValidation(t *testing.T) {

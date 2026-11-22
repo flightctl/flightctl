@@ -52,7 +52,6 @@ rules:
       - devices/status
       - enrollmentapprovalpolicies
       - enrollmentapprovalpolicies/approvallimit
-      - enrollmentapprovalpolicies/status
       - enrollmentconfig
       - enrollmenthookpolicies
       - enrollmentrequests
@@ -148,7 +147,6 @@ rules:
       - devices/status
       - enrollmentapprovalpolicies
       - enrollmentapprovalpolicies/approvallimit
-      - enrollmentapprovalpolicies/status
       - enrollmentconfig
       - enrollmentrequests
       - enrollmentrequests/approval

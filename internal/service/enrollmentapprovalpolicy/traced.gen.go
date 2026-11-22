@@ -68,14 +68,6 @@ func (_d *TracedService) GetEnrollmentApprovalPolicy(ctx context.Context, orgId 
 	return ep1, s1
 }
 
-func (_d *TracedService) GetEnrollmentApprovalPolicyStatus(ctx context.Context, orgId uuid.UUID, name string) (ep1 *domain.EnrollmentApprovalPolicyStatus, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "GetEnrollmentApprovalPolicyStatus")
-
-	ep1, s1 = _d.inner.GetEnrollmentApprovalPolicyStatus(ctx, orgId, name)
-	endSpan(span, s1)
-	return ep1, s1
-}
-
 func (_d *TracedService) ListEnrollmentApprovalPolicies(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentApprovalPoliciesParams) (ep1 *domain.EnrollmentApprovalPolicyList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListEnrollmentApprovalPolicies")
 

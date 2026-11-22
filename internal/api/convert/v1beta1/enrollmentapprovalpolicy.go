@@ -10,7 +10,6 @@ type EnrollmentApprovalPolicyConverter interface {
 	FromDomain(*domain.EnrollmentApprovalPolicy) *apiv1beta1.EnrollmentApprovalPolicy
 	ListFromDomain(*domain.EnrollmentApprovalPolicyList) *apiv1beta1.EnrollmentApprovalPolicyList
 	ListParamsToDomain(apiv1beta1.ListEnrollmentApprovalPoliciesParams) domain.ListEnrollmentApprovalPoliciesParams
-	StatusFromDomain(*domain.EnrollmentApprovalPolicyStatus) *apiv1beta1.EnrollmentApprovalPolicyStatus
 }
 
 type enrollmentApprovalPolicyConverter struct{}
@@ -29,7 +28,4 @@ func (*enrollmentApprovalPolicyConverter) ListFromDomain(list *domain.Enrollment
 }
 func (*enrollmentApprovalPolicyConverter) ListParamsToDomain(params apiv1beta1.ListEnrollmentApprovalPoliciesParams) domain.ListEnrollmentApprovalPoliciesParams {
 	return params
-}
-func (*enrollmentApprovalPolicyConverter) StatusFromDomain(status *domain.EnrollmentApprovalPolicyStatus) *apiv1beta1.EnrollmentApprovalPolicyStatus {
-	return status
 }

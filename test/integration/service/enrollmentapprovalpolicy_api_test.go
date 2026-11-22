@@ -120,6 +120,140 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		return response
 	}
 	policyJSON := []byte(`{"apiVersion":"v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{}}}`)
+	DescribeTable("When nullable policy values are patched it should preserve the API contract", func(field, op, value, version string, denyQuota bool, want int) {
+		ctx, cancel := context.WithTimeout(suite.Ctx, 15*time.Second)
+		defer cancel()
+		privileged := makeHandler(policyAPIValidator{})
+		var initial api.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(policyJSON, &initial)).To(Succeed())
+		initial.Spec.ApprovalLimit = lo.ToPtr(int32(5))
+		initial.Spec.AutoApprovalWindowDays = lo.ToPtr(int32(2))
+		initial.Spec.Enabled, initial.Spec.RequireTPMVerification = true, true
+		body, err := json.Marshal(initial)
+		Expect(err).NotTo(HaveOccurred())
+		created := request(privileged, http.MethodPost, "", body, ctx)
+		Expect(created.Code).To(Equal(201), created.Body.String())
+		Expect(suite.DB.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", suite.OrgID, "west").UpdateColumn("status", model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64})).Error).To(Succeed())
+		before := request(privileged, http.MethodGet, "/west", nil, ctx)
+		Expect(before.Code).To(Equal(200))
+		var current api.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(before.Body.Bytes(), &current)).To(Succeed())
+		if version == "current" {
+			version = *current.Metadata.ResourceVersion
+		}
+		prefix := ""
+		if version != "missing" {
+			prefix = fmt.Sprintf(`{"op":"test","path":"/metadata/resourceVersion","value":%q},`, version)
+		}
+		path := "/spec/" + field
+		if field == "spec" {
+			path = "/spec"
+		}
+		valueField := ""
+		if value != "missing" {
+			valueField = `,"value":` + value
+		}
+		body = []byte(fmt.Sprintf(`[%s{"op":%q,"path":%q%s}]`, prefix, op, path, valueField))
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/enrollmentapprovalpolicies/west", bytes.NewReader(body)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json-patch+json")
+		response := httptest.NewRecorder()
+		makeHandler(policyAPIValidator{}, denyQuota).ServeHTTP(response, req)
+		Expect(response.Code).To(Equal(want), response.Body.String())
+		after := request(privileged, http.MethodGet, "/west", nil, ctx)
+		Expect(after.Code).To(Equal(200))
+		if want != 200 {
+			if want == 400 {
+				var failure api.Status
+				Expect(json.Unmarshal(response.Body.Bytes(), &failure)).To(Succeed())
+				Expect(failure.Reason).To(Equal("Bad Request"))
+			}
+			Expect(after.Body.String()).To(MatchJSON(before.Body.String()))
+			return
+		}
+		var saved api.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(after.Body.Bytes(), &saved)).To(Succeed())
+		Expect(response.Body.String()).To(MatchJSON(after.Body.String()))
+		Expect(saved.Status.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
+		Expect(saved.Metadata.ResourceVersion).NotTo(Equal(current.Metadata.ResourceVersion))
+		if field == "spec" {
+			Expect(saved.Spec.ApprovalLimit).To(BeNil())
+			Expect(saved.Spec.AutoApprovalWindowDays).To(BeNil())
+		} else if field == "approvalLimit" {
+			if value == "null" || op == "remove" {
+				Expect(saved.Spec.ApprovalLimit).To(BeNil())
+			} else {
+				Expect(fmt.Sprint(*saved.Spec.ApprovalLimit)).To(Equal(value))
+			}
+			Expect(saved.Spec.AutoApprovalWindowDays).To(Equal(current.Spec.AutoApprovalWindowDays))
+		} else {
+			if value == "null" || op == "remove" {
+				Expect(saved.Spec.AutoApprovalWindowDays).To(BeNil())
+			} else {
+				Expect(fmt.Sprint(*saved.Spec.AutoApprovalWindowDays)).To(Equal(value))
+			}
+			Expect(saved.Spec.ApprovalLimit).To(Equal(current.Spec.ApprovalLimit))
+		}
+	},
+		Entry("When replacing the limit with null it should clear it", "approvalLimit", "replace", "null", "current", false, 200),
+		Entry("When adding a null limit it should clear it", "approvalLimit", "add", "null", "current", false, 200),
+		Entry("When removing the limit it should clear it", "approvalLimit", "remove", "missing", "current", false, 200),
+		Entry("When replacing the window with null it should clear it without quota privilege", "autoApprovalWindowDays", "replace", "null", "current", true, 200),
+		Entry("When adding a null window it should clear it", "autoApprovalWindowDays", "add", "null", "current", true, 200),
+		Entry("When removing the window it should clear it", "autoApprovalWindowDays", "remove", "missing", "current", true, 200),
+		Entry("When a limit value is missing it should reject", "approvalLimit", "replace", "missing", "current", false, 400),
+		Entry("When a window value is missing it should reject", "autoApprovalWindowDays", "add", "missing", "current", false, 400),
+		Entry("When a test value is missing it should reject", "approvalLimit", "test", "missing", "current", false, 400),
+		Entry("When quota clear is denied it should preserve the limit", "approvalLimit", "replace", "null", "current", true, 403),
+		Entry("When quota removal is denied it should preserve the limit", "approvalLimit", "remove", "missing", "current", true, 403),
+		Entry("When quota alias clear is denied it should preserve the limit", "ApprovalLimit", "replace", "null", "current", true, 403),
+		Entry("When whole spec clear is denied it should preserve the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", true, 403),
+		Entry("When the version is stale it should preserve both limits", "approvalLimit", "replace", "null", "0", false, 409),
+		Entry("When the version is missing it should preserve both limits", "autoApprovalWindowDays", "replace", "null", "missing", false, 409),
+		Entry("When the limit becomes zero it should remain explicit", "approvalLimit", "replace", "0", "current", false, 200),
+		Entry("When the limit becomes maximal it should remain exact", "approvalLimit", "replace", "2147483647", "current", false, 200),
+		Entry("When the limit is negative it should reject", "approvalLimit", "replace", "-1", "current", false, 400),
+		Entry("When the limit overflows it should reject", "approvalLimit", "replace", "2147483648", "current", false, 400),
+		Entry("When the limit is fractional it should reject", "approvalLimit", "replace", "0.5", "current", false, 400),
+		Entry("When the limit is a string it should reject", "approvalLimit", "replace", `"1"`, "current", false, 400),
+		Entry("When the window becomes maximal it should remain exact", "autoApprovalWindowDays", "replace", "106751", "current", true, 200),
+		Entry("When the window is zero it should reject", "autoApprovalWindowDays", "replace", "0", "current", true, 400),
+		Entry("When the window overflows it should reject", "autoApprovalWindowDays", "replace", "106752", "current", true, 400),
+		Entry("When the window is a string it should reject", "autoApprovalWindowDays", "replace", `"2"`, "current", true, 400),
+		Entry("When enabled is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"enabled":null}`, "current", false, 400),
+		Entry("When TPM is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"requireTPMVerification":null}`, "current", false, 400),
+		Entry("When both limits are null in a whole spec it should clear them", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null,"autoApprovalWindowDays":null}`, "current", false, 200),
+		Entry("When a whole spec is null it should reject", "spec", "replace", "null", "current", false, 400),
+		Entry("When a label value is null it should reject before coercion", "deviceLabels", "replace", `{"region":null}`, "current", false, 400),
+		Entry("When a label key is null it should reject before coercion", "allowedIncomingLabels", "replace", `[null]`, "current", false, 400),
+		Entry("When a finite limit is tested against null it should fail without quota privilege", "approvalLimit", "test", "null", "current", true, 400),
+	)
+	It("When nullable values are tested after clearing it should retain explicit null through serialization", func() {
+		ctx, cancel := context.WithTimeout(suite.Ctx, 15*time.Second)
+		defer cancel()
+		handler := makeHandler(policyAPIValidator{})
+		created := request(handler, http.MethodPost, "", policyJSON, ctx)
+		Expect(created.Code).To(Equal(201), created.Body.String())
+		var policy api.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(created.Body.Bytes(), &policy)).To(Succeed())
+		patch := fmt.Sprintf(`[{"op":"test","path":"/metadata/resourceVersion","value":%q},
+			{"op":"add","path":"/spec/approvalLimit","value":null},
+			{"op":"test","path":"/spec/approvalLimit","value":null},
+			{"op":"add","path":"/spec/autoApprovalWindowDays","value":null},
+			{"op":"test","path":"/spec/autoApprovalWindowDays","value":null},
+			{"op":"remove","path":"/spec/autoApprovalWindowDays"}]`, *policy.Metadata.ResourceVersion)
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/enrollmentapprovalpolicies/west", bytes.NewReader([]byte(patch))).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json-patch+json")
+		updated := httptest.NewRecorder()
+		handler.ServeHTTP(updated, req)
+		Expect(updated.Code).To(Equal(200), updated.Body.String())
+		fetched := request(handler, http.MethodGet, "/west", nil, ctx)
+		Expect(fetched.Code).To(Equal(200))
+		Expect(fetched.Body.String()).To(MatchJSON(updated.Body.String()))
+		Expect(json.Unmarshal(fetched.Body.Bytes(), &policy)).To(Succeed())
+		Expect(policy.Spec.ApprovalLimit).To(BeNil())
+		Expect(policy.Spec.AutoApprovalWindowDays).To(BeNil())
+		Expect(policy.Status.EnrollmentCount).To(BeZero())
+	})
 	It("When credential revocation races service validation it should wait for the policy transaction", func() {
 		ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
 		defer cancel()
@@ -440,18 +574,18 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			}
 		}
 	},
-		Entry("revoked PUT", "revoked", http.MethodPut, false),
-		Entry("revoked PATCH", "revoked", http.MethodPatch, false),
-		Entry("revoked DELETE", "revoked", http.MethodDelete, false),
-		Entry("expired PUT", "expired", http.MethodPut, false),
-		Entry("expired PATCH", "expired", http.MethodPatch, false),
-		Entry("expired DELETE", "expired", http.MethodDelete, false),
-		Entry("unavailable revoked PUT", "revoked", http.MethodPut, true),
-		Entry("unavailable revoked PATCH", "revoked", http.MethodPatch, true),
-		Entry("unavailable revoked DELETE", "revoked", http.MethodDelete, true),
-		Entry("unavailable expired PUT", "expired", http.MethodPut, true),
-		Entry("unavailable expired PATCH", "expired", http.MethodPatch, true),
-		Entry("unavailable expired DELETE", "expired", http.MethodDelete, true),
+		Entry("When cleanup uses revoked PUT it should preserve credential and validator boundaries", "revoked", http.MethodPut, false),
+		Entry("When cleanup uses revoked PATCH it should preserve credential and validator boundaries", "revoked", http.MethodPatch, false),
+		Entry("When cleanup uses revoked DELETE it should preserve credential and validator boundaries", "revoked", http.MethodDelete, false),
+		Entry("When cleanup uses expired PUT it should preserve credential and validator boundaries", "expired", http.MethodPut, false),
+		Entry("When cleanup uses expired PATCH it should preserve credential and validator boundaries", "expired", http.MethodPatch, false),
+		Entry("When cleanup uses expired DELETE it should preserve credential and validator boundaries", "expired", http.MethodDelete, false),
+		Entry("When cleanup uses unavailable revoked PUT it should preserve credential and validator boundaries", "revoked", http.MethodPut, true),
+		Entry("When cleanup uses unavailable revoked PATCH it should preserve credential and validator boundaries", "revoked", http.MethodPatch, true),
+		Entry("When cleanup uses unavailable revoked DELETE it should preserve credential and validator boundaries", "revoked", http.MethodDelete, true),
+		Entry("When cleanup uses unavailable expired PUT it should preserve credential and validator boundaries", "expired", http.MethodPut, true),
+		Entry("When cleanup uses unavailable expired PATCH it should preserve credential and validator boundaries", "expired", http.MethodPatch, true),
+		Entry("When cleanup uses unavailable expired DELETE it should preserve credential and validator boundaries", "expired", http.MethodDelete, true),
 	)
 	It("When quota permission is denied it should reject quota mutations and unsupported source operations without writes", func() {
 		privileged := makeHandler(policyAPIValidator{})
@@ -532,9 +666,11 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Expect(listed.Items[0].Status.EnrollmentCount).To(Equal(int64(0)))
 		response = request(handler, http.MethodGet, "?fieldSelector=spec.unknown%3Dx", nil, suite.Ctx)
 		Expect(response.Code).To(Equal(400), response.Body.String())
-		response = request(handler, http.MethodGet, "/west/status", nil, suite.Ctx)
+		response = request(handler, http.MethodGet, "/west", nil, suite.Ctx)
 		Expect(response.Code).To(Equal(200))
-		Expect(response.Body.String()).To(MatchJSON(`{"enrollmentCount":0}`))
+		Expect(json.Unmarshal(response.Body.Bytes(), &created)).To(Succeed())
+		Expect(created.Status.EnrollmentCount).To(Equal(int64(0)))
+		Expect(request(handler, http.MethodGet, "/west/status", nil, suite.Ctx).Code).To(Equal(404))
 		Expect(request(handler, http.MethodPut, "/west", policyJSON, suite.Ctx).Code).To(Equal(409))
 		foreignContext := util.WithOrganizationID(suite.Ctx, uuid.New())
 		Expect(request(handler, http.MethodGet, "/west", nil, foreignContext).Code).To(Equal(404))

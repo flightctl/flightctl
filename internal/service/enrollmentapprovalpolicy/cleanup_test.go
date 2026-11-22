@@ -153,7 +153,7 @@ func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
 		}, 400},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
+		t.Run("When cleanup violates "+testCase.name+" it should preserve policy integrity", func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = true
 			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
@@ -175,7 +175,7 @@ func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
 
 func TestPolicyCleanupRejectsProtectedStatus(t *testing.T) {
 	for _, operation := range []string{"put", "patch"} {
-		t.Run(operation, func(t *testing.T) {
+		t.Run("When cleanup uses "+operation+" it should reject protected status", func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = true
 			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())

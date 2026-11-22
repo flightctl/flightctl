@@ -27,7 +27,6 @@ const (
 	API_RESOURCE_DEVICES_RESUME = "devices/resume"
 	API_RESOURCE_DEVICES_STATUS = "devices/status"
 	API_RESOURCE_ENROLLMENTAPPROVALPOLICIES = "enrollmentapprovalpolicies"
-	API_RESOURCE_ENROLLMENTAPPROVALPOLICIES_STATUS = "enrollmentapprovalpolicies/status"
 	API_RESOURCE_ENROLLMENTCONFIG = "enrollmentconfig"
 	API_RESOURCE_ENROLLMENTHOOKPOLICIES = "enrollmenthookpolicies"
 	API_RESOURCE_ENROLLMENTREQUESTS = "enrollmentrequests"
@@ -546,14 +545,6 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "replaceEnrollmentApprovalPolicy",
 		Resource:    "enrollmentapprovalpolicies",
 		Action:      "update",
-		Versions: []apimetadata.EndpointMetadataVersion{
-			{Version: "v1beta1", DeprecatedAt: nil},
-		},
-	},
-	"GET:/enrollmentapprovalpolicies/{name}/status": {
-		OperationID: "getEnrollmentApprovalPolicyStatus",
-		Resource:    "enrollmentapprovalpolicies/status",
-		Action:      "get",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},

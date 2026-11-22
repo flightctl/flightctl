@@ -14,5 +14,4 @@ type Service interface {
 	ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, domain.Status)
 	PatchEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentApprovalPolicy, domain.Status)
 	DeleteEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string) domain.Status
-	GetEnrollmentApprovalPolicyStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentApprovalPolicyStatus, domain.Status)
 }

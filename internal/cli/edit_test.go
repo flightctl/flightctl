@@ -998,7 +998,7 @@ func stringPtr(s string) *string {
 
 func TestEditJSONRejectsTrailingInput(t *testing.T) {
 	for _, content := range []string{`{"kind":"Device"} {}`, `{"kind":"Device"} garbage`} {
-		t.Run(content, func(t *testing.T) {
+		t.Run("When JSON has trailing input "+content+" it should reject the document", func(t *testing.T) {
 			options := DefaultEditOptions()
 			options.Output = "json"
 			_, err := options.parseEditedContent([]byte(content))

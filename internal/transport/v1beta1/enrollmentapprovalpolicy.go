@@ -83,11 +83,6 @@ func (handler *TransportHandler) GetEnrollmentApprovalPolicy(w http.ResponseWrit
 	handler.SetResponse(w, handler.converter.EnrollmentApprovalPolicy().FromDomain(result), status)
 }
 
-func (handler *TransportHandler) GetEnrollmentApprovalPolicyStatus(w http.ResponseWriter, request *http.Request, name string) {
-	result, status := handler.enrollmentapprovalpolicy.GetEnrollmentApprovalPolicyStatus(request.Context(), transport.OrgIDFromContext(request.Context()), name)
-	handler.SetResponse(w, handler.converter.EnrollmentApprovalPolicy().StatusFromDomain(result), status)
-}
-
 func (handler *TransportHandler) ReplaceEnrollmentApprovalPolicy(w http.ResponseWriter, request *http.Request, name string) {
 	var policy apiv1beta1.EnrollmentApprovalPolicy
 	if err := decodePolicy(request.Body, &policy); err != nil {
@@ -114,17 +109,47 @@ func (handler *TransportHandler) ReplaceEnrollmentApprovalPolicy(w http.Response
 	handler.SetResponse(w, handler.converter.EnrollmentApprovalPolicy().FromDomain(result), status)
 }
 
-func (handler *TransportHandler) PatchEnrollmentApprovalPolicy(w http.ResponseWriter, request *http.Request, name string) {
-	var patch apiv1beta1.PatchRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.UseNumber()
+// decodePolicyPatch preserves explicit null separately from a missing value.
+func decodePolicyPatch(body io.Reader) (apiv1beta1.PatchRequest, error) {
+	var operations []struct {
+		Op    apiv1beta1.PatchRequestOp `json:"op"`
+		Path  string                    `json:"path"`
+		Value json.RawMessage           `json:"value"`
+	}
+	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&patch); err != nil {
-		handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
-		return
+	if err := decoder.Decode(&operations); err != nil {
+		return nil, err
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		handler.SetResponse(w, nil, domain.StatusBadRequest("exactly one JSON document is required"))
+		return nil, fmt.Errorf("exactly one JSON document is required")
+	}
+	patch := make(apiv1beta1.PatchRequest, len(operations))
+	for i, operation := range operations {
+		patch[i].Op, patch[i].Path = operation.Op, operation.Path
+		if len(operation.Value) == 0 {
+			if operation.Op != "remove" {
+				return nil, fmt.Errorf("patch value is required for %s", operation.Op)
+			}
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(operation.Value), []byte("null")) {
+			patch[i].Value = json.RawMessage("null")
+			continue
+		}
+		valueDecoder := json.NewDecoder(bytes.NewReader(operation.Value))
+		valueDecoder.UseNumber()
+		if err := valueDecoder.Decode(&patch[i].Value); err != nil {
+			return nil, err
+		}
+	}
+	return patch, nil
+}
+
+func (handler *TransportHandler) PatchEnrollmentApprovalPolicy(w http.ResponseWriter, request *http.Request, name string) {
+	patch, err := decodePolicyPatch(request.Body)
+	if err != nil {
+		handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}
 	for _, operation := range patch {

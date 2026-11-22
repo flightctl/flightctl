@@ -19,7 +19,7 @@ func TestPolicyAdministrationPermissions(t *testing.T) {
 	organization := &model.Organization{ID: orgID}
 	authorizer := NewStaticAuthZ(logrus.New())
 	for _, role := range []string{api.RoleAdmin, api.RoleOperator, api.RoleViewer, api.RoleInstaller} {
-		t.Run(role, func(t *testing.T) {
+		t.Run("When the role is "+role+" it should enforce policy administration permissions", func(t *testing.T) {
 			mapped := identity.NewMappedIdentity("test", "test", []*model.Organization{organization}, map[string][]string{orgID.String(): {role}}, false, nil)
 			ctx := util.WithOrganizationID(context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mapped), orgID)
 			for _, resource := range []string{"enrollmentapprovalpolicies", "enrollmentapprovalpolicies/approvallimit"} {
