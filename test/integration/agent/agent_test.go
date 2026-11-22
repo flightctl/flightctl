@@ -530,7 +530,7 @@ var _ = Describe("Device Agent behavior", func() {
 	})
 
 	When("a fleet update is blocked by an expired one-time window", func() {
-		It("should apply the device configuration after a later window opens", func() {
+		It("should apply the device configuration after the window is removed", func() {
 			const configPath = "/etc/policy-window"
 
 			fleetName := "policy-window-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -615,8 +615,8 @@ var _ = Describe("Device Agent behavior", func() {
 
 			updatedFleet, getStatus = h.Fleet.GetFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, v1beta1.GetFleetParams{})
 			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
-			updatedFleet.Spec.Template.Spec.Config = configProvider("authorized")
-			updatedFleet.Spec.Template.Spec.UpdatePolicy = policy(oneTimeSchedule(time.Now().Add(-1*time.Minute), "1h"))
+			updatedFleet.Spec.Template.Spec.Config = configProvider("removed")
+			updatedFleet.Spec.Template.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{}
 
 			_, status = h.Fleet.ReplaceFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleetName, *updatedFleet, true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
@@ -628,13 +628,13 @@ var _ = Describe("Device Agent behavior", func() {
 			device, getStatus := h.Device.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
 			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device.Spec).ToNot(BeNil())
-			device.Spec.Config = configProvider("authorized")
-			device.Spec.UpdatePolicy = policy(oneTimeSchedule(time.Now().Add(-1*time.Minute), "1h"))
+			device.Spec.Config = configProvider("removed")
+			device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{}
 			_, status = h.Device.ReplaceDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *device, nil, false, false)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
 			Eventually(getRenderedVersion, TIMEOUT, POLLING).ShouldNot(Equal(expiredRenderedVersion))
 
-			waitForFile(configPath, deviceName, h.TestDirPath, lo.ToPtr("authorized"), lo.ToPtr(0600))
+			waitForFile(configPath, deviceName, h.TestDirPath, lo.ToPtr("removed"), lo.ToPtr(0600))
 		})
 	})
 

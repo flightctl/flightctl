@@ -441,6 +441,83 @@ func TestSync(t *testing.T) {
 
 }
 
+func TestSyncDoesNotRecheckPolicyAfterAdmission(t *testing.T) {
+	ctx := context.Background()
+	deviceName := "test-device"
+	current := newVersionedDevice("1")
+	desired := newVersionedDevice("2")
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockResourceManager := resource.NewMockManager(ctrl)
+	mockSystemdManager := systemd.NewMockManager(ctrl)
+	mockHookManager := hook.NewMockManager(ctrl)
+	mockAppManager := applications.NewMockManager(ctrl)
+	mockLifecycleManager := lifecycle.NewMockManager(ctrl)
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
+	mockOSManager := os.NewMockManager(ctrl)
+	mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+
+	gomock.InOrder(
+		mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
+		mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(nil),
+	)
+	mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil)
+	mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(2)
+	mockSpecManager.EXPECT().IsUpgrading().Return(false).AnyTimes()
+	mockPullConfigResolver.EXPECT().BeforeUpdate(desired.Spec)
+	mockPrefetchManager.EXPECT().RegisterOCICollector(mockAppManager)
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdatePending(ctx).Return(false, nil)
+	mockPrefetchManager.EXPECT().BeforeUpdate(ctx, current.Spec, desired.Spec, gomock.Any()).Return(nil)
+	mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec, gomock.Any()).Return(nil)
+	mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil)
+	mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil)
+	mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil)
+	mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil)
+	mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil)
+	mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil)
+	mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nil)
+	mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil)
+
+	log := log.NewPrefixLogger("test")
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+	podmanClient := client.NewPodman(log, nil, readWriter, testutil.NewPollConfig())
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podmanClient, nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
+	configController := config.NewController(readWriter, tempDir, log)
+
+	agent := Agent{
+		log:                    log,
+		statusManager:          status.NewManager(deviceName, log),
+		specManager:            mockSpecManager,
+		appManager:             mockAppManager,
+		applicationsController: appController,
+		configController:       configController,
+		hookManager:            mockHookManager,
+		resourceManager:        mockResourceManager,
+		systemdManager:         mockSystemdManager,
+		lifecycleManager:       mockLifecycleManager,
+		prefetchManager:        mockPrefetchManager,
+		osManager:              mockOSManager,
+		pullConfigResolver:     mockPullConfigResolver,
+	}
+
+	require.NoError(t, agent.sync(ctx, current, desired))
+}
+
 func TestRollbackDevice(t *testing.T) {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
