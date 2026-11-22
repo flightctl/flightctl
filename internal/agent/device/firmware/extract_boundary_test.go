@@ -208,16 +208,14 @@ func TestExtractStagingFailures(t *testing.T) {
 			require.Empty(x.entries())
 		})
 	}
-	t.Run("When the mount fails after the extraction is canceled it should report the cancellation", func(t *testing.T) {
+	t.Run("When extraction is canceled before admission it should return without mounting", func(t *testing.T) {
 		require := require.New(t)
 		x := newExtractHarness(t, defaultPayload(t))
-		x.mounter.mountErr = errors.New("mount interrupted")
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, err := x.extractor().Extract(ctx, x.pkg)
 		require.ErrorIs(err, context.Canceled)
-		requirePublishError(t, err, firmware.PublishNotVisible, "stage")
-		x.requireCounts(t, 1, 0, 0, 0)
+		x.requireCounts(t, 0, 0, 0, 0)
 		require.Empty(x.entries())
 	})
 	t.Run("When the caller cancels during staging and the unmount fails too it should report both", func(t *testing.T) {
@@ -548,13 +546,18 @@ type gatedMounter struct {
 func (m *gatedMounter) Mount(ctx context.Context, image string) (string, error) {
 	m.once.Do(func() {
 		close(m.entered)
-		<-m.release
+		select {
+		case <-m.release:
+		case <-ctx.Done():
+		}
 	})
 	return m.ImageMounter.Mount(ctx, image)
 }
 
 func TestExtractChecksApprovalAfterWaitingForTheCache(t *testing.T) {
 	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	x := newExtractHarness(t, defaultPayload(t))
 	approval := &switchApproval{}
 	approval.approved.Store(true)
@@ -563,15 +566,36 @@ func TestExtractChecksApprovalAfterWaitingForTheCache(t *testing.T) {
 
 	first := make(chan error, 1)
 	go func() {
-		_, err := extractor.Extract(context.Background(), x.pkg)
+		_, err := extractor.Extract(ctx, x.pkg)
 		first <- err
 	}()
-	<-gate.entered
+	select {
+	case <-gate.entered:
+	case <-ctx.Done():
+		t.Fatal("first extraction did not reach mount")
+	}
+	waitingCtx, cancelWaiting := context.WithCancel(ctx)
+	defer cancelWaiting()
+	checkedBeforeCancel := approval.checks.Load()
+	canceled := make(chan error, 1)
+	go func() {
+		_, err := extractor.Extract(waitingCtx, x.pkg)
+		canceled <- err
+	}()
+	require.Eventually(func() bool { return approval.checks.Load() > checkedBeforeCancel }, time.Second, time.Millisecond)
+	cancelWaiting()
+	select {
+	case err := <-canceled:
+		require.ErrorIs(err, context.Canceled)
+	case <-ctx.Done():
+		t.Fatal("canceled extraction did not return while the first held the cache")
+	}
+
 	checked := approval.checks.Load()
 	second := make(chan error, 1)
 	var secondPayload *firmware.PublishedPayload
 	go func() {
-		p, err := extractor.Extract(context.Background(), x.pkg)
+		p, err := extractor.Extract(ctx, x.pkg)
 		secondPayload = p
 		second <- err
 	}()
@@ -579,8 +603,18 @@ func TestExtractChecksApprovalAfterWaitingForTheCache(t *testing.T) {
 	approval.approved.Store(false)
 	close(gate.release)
 
-	require.NoError(<-first, "the extraction that held the cache completes")
-	err := <-second
+	select {
+	case err := <-first:
+		require.NoError(err, "the extraction that held the cache completes")
+	case <-ctx.Done():
+		t.Fatal("first extraction did not complete")
+	}
+	var err error
+	select {
+	case err = <-second:
+	case <-ctx.Done():
+		t.Fatal("second extraction did not complete")
+	}
 	require.Nil(secondPayload)
 	requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, false)
 	require.ErrorContains(err, "no longer approved")

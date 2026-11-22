@@ -128,8 +128,10 @@ func (e *Extractor) Extract(ctx context.Context, pkg *VerifiedPackage) (*Publish
 		return nil, unavailable(release, false, errors.New("release is no longer approved"))
 	}
 	r := e.retention
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, fmt.Errorf("updater %s cache admission: %w", release, err)
+	}
+	defer func() { <-r.gate }()
 	if !e.approval.IsApproved(pkg.Name, pkg.Version, pkg.DescriptorDigest) {
 		return nil, unavailable(release, false, errors.New("release is no longer approved"))
 	}

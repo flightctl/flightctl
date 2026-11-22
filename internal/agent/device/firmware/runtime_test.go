@@ -11,15 +11,16 @@ import (
 )
 
 type elfSpec struct {
-	class   elf.Class
-	machine elf.Machine
-	order   binary.ByteOrder
-	typ     elf.Type
-	interp  bool
-	dynamic bool
-	needed  bool
-	noLoad  bool
-	osabi   elf.OSABI
+	class            elf.Class
+	machine          elf.Machine
+	order            binary.ByteOrder
+	typ              elf.Type
+	interp           bool
+	dynamic          bool
+	duplicateDynamic bool
+	needed           bool
+	noLoad           bool
+	osabi            elf.OSABI
 	// entry, loadFlags, loadVaddr and loadMemsz override the defaults, under
 	// which the single load segment is readable and executable and contains
 	// the entry point.
@@ -69,9 +70,12 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 		}
 		put(elf.DT_NULL, 0)
 		progs = append(progs, prog{typ: elf.PT_DYNAMIC, data: dyn.Bytes()})
+		if s.duplicateDynamic {
+			progs = append(progs, progs[len(progs)-1])
+		}
 	}
 	dataOff := ehsize + phentsize*len(progs)
-	total := dataOff
+	total := dataOff + 4
 	for _, p := range progs {
 		total += len(p.data)
 	}
@@ -86,10 +90,11 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	w(uint16(s.typ))
 	w(uint16(s.machine))
 	w(uint32(1))
-	entry, base := uint64(0x401000), uint64(0x400000)
+	base := uint64(0x400000)
 	if !is64 {
-		entry, base = 0x8048000, 0x8048000
+		base = 0x8048000
 	}
+	entry := base + uint64(total-4)
 	if s.entry != 0 {
 		entry = s.entry
 	}
@@ -154,11 +159,12 @@ func buildELF(t *testing.T, s elfSpec) []byte {
 	for _, p := range progs {
 		buf.Write(p.data)
 	}
+	buf.Write([]byte{0xc3, 0, 0, 0})
 	return buf.Bytes()
 }
 
 // pieWithDynamic returns a static position-independent amd64 executable whose
-// dynamic segment is the second program header and ends the file.
+// dynamic segment is the second program header and precedes the entry bytes.
 func pieWithDynamic(t *testing.T) []byte {
 	s := amd64Static()
 	s.typ = elf.ET_DYN
@@ -188,6 +194,9 @@ func TestCheckNativeExecutable(t *testing.T) {
 		contains string
 	}{
 		{name: "When the executable is a static binary for the architecture it should accept it", data: valid, goarch: "amd64"},
+		{name: "When the entry point is in zero-fill it should reject it", data: buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x401000; return s }()), goarch: "amd64", wantErr: true, contains: "entry point"},
+		{name: "When the load segment is truncated it should reject it", data: valid[:len(valid)-1], goarch: "amd64", wantErr: true, contains: "entry point"},
+		{name: "When the executable has multiple dynamic segments it should reject it", data: buildELF(t, func() elfSpec { s := amd64Static(); s.dynamic = true; s.duplicateDynamic = true; return s }()), goarch: "amd64", wantErr: true, contains: "multiple dynamic segments"},
 		{
 			name:   "When the executable is a static position-independent binary it should accept it",
 			data:   buildELF(t, func() elfSpec { s := amd64Static(); s.typ = elf.ET_DYN; s.dynamic = true; return s }()),
@@ -259,7 +268,7 @@ func TestCheckNativeExecutable(t *testing.T) {
 		},
 		{
 			name:     "When the dynamic segment is cut short it should reject it",
-			data:     pieWithDynamic(t)[:len(pieWithDynamic(t))-4],
+			data:     pieWithDynamic(t)[:len(pieWithDynamic(t))-8],
 			goarch:   "amd64",
 			wantErr:  true,
 			contains: "unreadable dynamic segment",
@@ -313,7 +322,7 @@ func TestCheckNativeExecutable(t *testing.T) {
 		},
 		{
 			name:   "When the entry point is the last byte of the executable load segment it should accept it",
-			data:   buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x400000 + 0x2000 - 1; return s }()),
+			data:   buildELF(t, func() elfSpec { s := amd64Static(); s.entry = 0x400000 + uint64(len(valid)) - 1; return s }()),
 			goarch: "amd64",
 		},
 		{

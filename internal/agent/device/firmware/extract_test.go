@@ -344,8 +344,13 @@ func TestExtractRetainedPayloadMatrix(t *testing.T) {
 		require.NoError(err)
 		x.pin(t, payload)
 		x.resetCounts()
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-		defer cancel()
+		ctx := &expiringContext{Context: context.Background(), done: make(chan struct{})}
+		x.hooks.xattr = func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
+			if attr == "security.capability" {
+				close(ctx.done)
+			}
+			return nil, fileio.XattrAbsent, nil, true
+		}
 		_, err = x.extractor().Extract(ctx, x.pkg)
 		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
 		requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
