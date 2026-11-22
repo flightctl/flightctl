@@ -377,6 +377,13 @@ func (r *Retention) Pin(p Pin) error {
 	if err != nil {
 		return err
 	}
+	retired, err := (phaseRecordStore{dir: c.firmware, attemptID: p.AttemptID}).isRetired()
+	if err != nil {
+		return err
+	}
+	if retired {
+		return fmt.Errorf("attempt %q has already been retired: %w", p.AttemptID, ErrPinConflict)
+	}
 	e, err := c.updaters.Lstat(p.PayloadDir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -431,6 +438,27 @@ func (r *Retention) Release(attemptID string) error {
 	if held {
 		return fmt.Errorf("attempt %q has unresolved runner state: %w", attemptID, ErrPinConflict)
 	}
+	store := phaseRecordStore{dir: c.firmware, attemptID: attemptID}
+	hasPin := false
+	for _, pin := range pins {
+		if pin.AttemptID == attemptID {
+			hasPin = true
+			break
+		}
+	}
+	hasRunnerState := false
+	if c.firmware != nil {
+		record, err := store.load()
+		if err != nil {
+			return err
+		}
+		hasRunnerState = record.AttemptID != ""
+	}
+	if hasPin || hasRunnerState {
+		if err := store.retire(); err != nil {
+			return fmt.Errorf("retire firmware runner state: %w", err)
+		}
+	}
 	kept := make([]Pin, 0, len(pins))
 	for _, p := range pins {
 		if p.AttemptID != attemptID {
@@ -447,9 +475,6 @@ func (r *Retention) Release(attemptID string) error {
 				return fmt.Errorf("persist retention registry: %w", err)
 			}
 		}
-	}
-	if err := (phaseRecordStore{dir: c.firmware}).retire(attemptID); err != nil {
-		return fmt.Errorf("retire firmware runner state: %w", err)
 	}
 	return nil
 }

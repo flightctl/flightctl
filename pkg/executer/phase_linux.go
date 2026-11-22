@@ -30,12 +30,15 @@ type PhaseJob struct {
 	bus       *systemd.Conn
 	cancelBus context.CancelFunc
 	unit      string
+	launcher  string
 
 	stdout, stderr     *os.File
 	result, diagnostic *os.File
+	source             *os.File
 	started            bool
 	submitted          bool
 	acknowledged       bool
+	cleanupConfirmed   bool
 	deadline           time.Time
 }
 
@@ -79,9 +82,29 @@ func (*LinuxPhaseExecutor) PreparePhase(ctx context.Context, spec PhaseExecSpec)
 		bus.Close()
 		return nil, err
 	}
+	var source *os.File
+	if spec.SourceFD != nil {
+		fd, err := unix.FcntlInt(spec.SourceFD.Fd(), unix.F_DUPFD_CLOEXEC, 3)
+		if err != nil {
+			cancelBus()
+			bus.Close()
+			return nil, fmt.Errorf("duplicate phase source descriptor: %w", err)
+		}
+		source = os.NewFile(uintptr(fd), spec.SourceFD.Name())
+	}
 	spec.Args = slices.Clone(spec.Args)
+	launcher, err := stagePhaseLauncher(spec.RootDir, spec.LauncherPath)
+	if err != nil {
+		if source != nil {
+			_ = source.Close()
+		}
+		cancelBus()
+		bus.Close()
+		return nil, err
+	}
 	return &PhaseJob{
-		spec: spec, bus: bus, cancelBus: cancelBus, unit: "flightctl-updater-" + hex.EncodeToString(token) + ".service",
+		spec: spec, bus: bus, cancelBus: cancelBus, source: source,
+		unit: "flightctl-updater-" + hex.EncodeToString(token) + ".service", launcher: launcher,
 	}, nil
 }
 
@@ -108,28 +131,72 @@ func checkPhaseControllers(path string) error {
 }
 
 func validatePhaseSpec(spec PhaseExecSpec) error {
+	if err := validatePhasePaths(spec); err != nil {
+		return err
+	}
+	if spec.HostNamespaces.PID.Inode == 0 || spec.HostNamespaces.Network.Inode == 0 || spec.HostNamespaces.IPC.Inode == 0 {
+		return errors.New("phase launcher requires the host namespace identities")
+	}
+	if err := validatePhaseArgs(spec); err != nil {
+		return err
+	}
+	if err := validatePhaseLimits(spec); err != nil {
+		return err
+	}
+	return validatePhaseSource(spec.SourceFD)
+}
+
+func validatePhasePaths(spec PhaseExecSpec) error {
 	if !filepath.IsAbs(spec.RootDir) || spec.RootDir != filepath.Clean(spec.RootDir) || spec.RootDir == "/" ||
-		!filepath.IsAbs(spec.Entrypoint) || spec.Entrypoint != filepath.Clean(spec.Entrypoint) || spec.Entrypoint == "/" {
+		!filepath.IsAbs(spec.Entrypoint) || spec.Entrypoint != filepath.Clean(spec.Entrypoint) || spec.Entrypoint == "/" ||
+		!filepath.IsAbs(spec.LauncherPath) || spec.LauncherPath != filepath.Clean(spec.LauncherPath) ||
+		spec.LauncherPath == "/" {
 		return errors.New("invalid phase root or executable path")
 	}
 	if err := validatePhaseRoot(spec.RootDir); err != nil {
 		return err
 	}
+	if err := validatePhaseLauncher(spec.LauncherPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validatePhaseArgs(spec PhaseExecSpec) error {
 	for _, arg := range append([]string{spec.Entrypoint}, spec.Args...) {
-		if strings.ContainsRune(arg, '$') {
-			return errors.New("phase argv cannot contain system-manager environment expansions")
+		if strings.ContainsRune(arg, '$') || strings.ContainsRune(arg, 0) {
+			return errors.New("phase argv contains an unsupported character")
 		}
 	}
+	return nil
+}
+
+func validatePhaseLimits(spec PhaseExecSpec) error {
 	l := spec.Limits
 	if l.ResultBytes <= 0 || l.StderrBytes <= 0 || l.ScratchBytes <= 0 || l.MemoryBytes <= 0 ||
-		l.Processes <= 0 || l.Invocation < time.Microsecond || l.Cleanup < time.Microsecond {
+		l.Processes <= 0 || l.Invocation < 3*time.Microsecond || l.Cleanup < time.Microsecond {
 		return errors.New("invalid phase limits")
 	}
 	if spec.WritableWork && l.ScratchBytes < int64(os.Getpagesize()) {
 		return errors.New("phase scratch is smaller than the filesystem allocation unit")
 	}
-	if spec.SourceSocket && !spec.WritableWork {
-		return errors.New("read-only phase cannot receive source access")
+	return nil
+}
+
+func validatePhaseSource(source *os.File) error {
+	if source == nil {
+		return nil
+	}
+	info, err := source.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect phase source descriptor: %w", err)
+	}
+	flags, err := unix.FcntlInt(source.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		return fmt.Errorf("inspect phase source descriptor mode: %w", err)
+	}
+	if info.Mode()&os.ModeNamedPipe == 0 || flags&unix.O_ACCMODE != unix.O_RDONLY {
+		return errors.New("phase source must be a read-only inherited pipe")
 	}
 	return nil
 }
@@ -157,21 +224,19 @@ func phaseProperty(name string, value any) systemd.Property {
 func (j *PhaseJob) properties() []systemd.Property {
 	spec := j.spec
 	l := spec.Limits
-	addressFamilies := struct {
-		Allow bool
-		Names []string
-	}{Allow: true}
-	if spec.SourceSocket {
-		addressFamilies.Names = []string{"AF_UNIX"}
-	}
+	queueTimeout, startTimeout, runTimeout := phaseManagerTimeouts(l.Invocation)
+	launcherCommand := []string{phaseLauncherRootPath}
+	launcherCommand = append(launcherCommand, phaseNamespaceLauncherArgs(spec.HostNamespaces)...)
+	launcherCommand = append(launcherCommand, "--", spec.Entrypoint)
+	launcherCommand = append(launcherCommand, spec.Args...)
 	props := []systemd.Property{
 		systemd.PropType("exec"), phaseProperty("AddRef", true),
 		phaseProperty("CollectMode", "inactive-or-failed"),
-		systemd.PropExecStart(append([]string{spec.Entrypoint}, spec.Args...), false),
+		systemd.PropExecStart(launcherCommand, false),
 		systemd.PropSlice("system.slice"),
 		phaseProperty("ExitType", "cgroup"), phaseProperty("Restart", "no"),
 		phaseProperty("RootDirectory", spec.RootDir), phaseProperty("WorkingDirectory", "/"),
-		phaseProperty("MountAPIVFS", false),
+		phaseProperty("MountAPIVFS", true), phaseProperty("ProcSubset", "pid"),
 		phaseProperty("ProtectControlGroupsEx", "strict"),
 		phaseProperty("InaccessiblePaths", []string{"/sys/fs/cgroup"}),
 		phaseProperty("User", "65534"), phaseProperty("Group", "65534"),
@@ -181,33 +246,32 @@ func (j *PhaseJob) properties() []systemd.Property {
 		phaseProperty("SystemCallArchitectures", []string{"native"}),
 		phaseProperty("AmbientCapabilities", uint64(0)),
 		phaseProperty("RestrictNamespaces", uint64(0)),
-		phaseProperty("PrivateNetwork", true), phaseProperty("PrivatePIDs", "yes"),
+		phaseProperty("PrivateNetwork", true), phaseProperty("PrivatePIDs", "yes"), phaseProperty("PrivateIPC", true),
 		phaseProperty("ProtectSystem", "strict"), phaseProperty("ReadOnlyPaths", []string{"/"}),
 		phaseProperty("DevicePolicy", "closed"), phaseProperty("OOMPolicy", "kill"),
 		phaseProperty("MemoryMax", uint64(l.MemoryBytes)), phaseProperty("MemorySwapMax", uint64(0)),
 		phaseProperty("TasksMax", uint64(l.Processes)),
-		phaseProperty("JobTimeoutUSec", uint64(l.Invocation.Microseconds())),
-		phaseProperty("TimeoutStartUSec", uint64(l.Invocation.Microseconds())),
-		phaseProperty("RuntimeMaxUSec", uint64(l.Invocation.Microseconds())),
+		phaseProperty("JobTimeoutUSec", uint64(queueTimeout.Microseconds())),
+		phaseProperty("TimeoutStartUSec", uint64(startTimeout.Microseconds())),
+		phaseProperty("RuntimeMaxUSec", uint64(runTimeout.Microseconds())),
 		phaseProperty("TimeoutStopUSec", uint64(l.Cleanup.Microseconds())),
 		phaseProperty("KillMode", "control-group"), phaseProperty("KillSignal", int32(unix.SIGKILL)),
-		phaseProperty("StandardInput", "null"),
 		phaseProperty("StandardOutputFileDescriptor", dbus.UnixFD(j.result.Fd())),
 		phaseProperty("StandardErrorFileDescriptor", dbus.UnixFD(j.diagnostic.Fd())),
 	}
 	filter := struct {
 		Allow bool
 		Names []string
-	}{Names: []string{"io_uring_setup", "io_uring_enter", "io_uring_register"}}
-	if spec.SourceSocket {
-		props = append(props, phaseProperty("RestrictAddressFamilies", addressFamilies))
+	}{Names: []string{"io_uring_setup", "io_uring_enter", "io_uring_register", "socket", "socketpair"}}
+	if j.source != nil {
+		props = append(props, phaseProperty("StandardInputFileDescriptor", dbus.UnixFD(j.source.Fd())))
 	} else {
-		filter.Names = append(filter.Names, "socket", "socketpair")
+		props = append(props, phaseProperty("StandardInput", "null"))
 	}
 	props = append(props, phaseProperty("SystemCallFilter", filter))
 	type temporaryMount struct{ Path, Options string }
 	const empty = "ro,nodev,nosuid,noexec,mode=000,size=65536,nr_inodes=32"
-	mounts := []temporaryMount{{"/sys", empty}, {"/proc", empty}, {"/dev", empty}, {"/run", empty}}
+	mounts := []temporaryMount{{"/sys", empty}, {"/dev", empty}, {"/run", empty}}
 	if spec.WritableWork {
 		scratch := l.ScratchBytes / int64(os.Getpagesize()) * int64(os.Getpagesize())
 		option := fmt.Sprintf("rw,nodev,nosuid,noexec,size=%d,nr_inodes=%d,mode=0700,uid=65534,gid=65534",
@@ -215,6 +279,22 @@ func (j *PhaseJob) properties() []systemd.Property {
 		mounts = append(mounts, temporaryMount{"/work", option})
 	}
 	return append(props, phaseProperty("TemporaryFileSystem", mounts))
+}
+
+func phaseManagerTimeouts(invocation time.Duration) (queue, startup, runtime time.Duration) {
+	total := invocation.Microseconds()
+	queueUSec := total * 2 / 10
+	if queueUSec < 1 {
+		queueUSec = 1
+	}
+	startupUSec := total * 4 / 10
+	if startupUSec < 1 {
+		startupUSec = 1
+	}
+	runtimeUSec := total - queueUSec - startupUSec
+	return time.Duration(queueUSec) * time.Microsecond,
+		time.Duration(startupUSec) * time.Microsecond,
+		time.Duration(runtimeUSec) * time.Microsecond
 }
 
 // Start launches the helper only under the configured service and waits for systemd's exec job.
@@ -240,6 +320,7 @@ func (j *PhaseJob) Start(ctx context.Context) error {
 	_, err = j.bus.StartTransientUnitContext(startCtx, j.unit, "fail", j.properties(), started)
 	_ = j.result.Close()
 	_ = j.diagnostic.Close()
+	j.closeSource()
 	if err != nil {
 		return fmt.Errorf("%w: start phase scope: %w", ErrPhaseUnsupported, err)
 	}
@@ -290,7 +371,7 @@ func (j *PhaseJob) Wait(ctx context.Context) (PhaseExecOutput, error) {
 		}
 		runErr = invokeCtx.Err()
 	}
-	j.release()
+	cleanupErr = errors.Join(cleanupErr, j.release())
 	for drained < 2 {
 		streamErr = errors.Join(streamErr, <-streams)
 		drained++
@@ -332,19 +413,34 @@ func (j *PhaseJob) waitForService(ctx context.Context) (int, error) {
 // Close stops the transient service, checks its cgroup and releases descriptors.
 func (j *PhaseJob) Close() error {
 	if j.bus == nil {
-		return nil
+		return j.release()
 	}
-	defer j.release()
-	return j.stop()
+	stopErr := j.stop()
+	return errors.Join(stopErr, j.release())
 }
 
-func (j *PhaseJob) release() {
+func (j *PhaseJob) release() error {
 	for _, fd := range []*os.File{j.stdout, j.stderr, j.result, j.diagnostic} {
 		if fd != nil {
 			_ = fd.Close()
 		}
 	}
+	var err error
+	if j.cleanupConfirmed {
+		if removeErr := removeStagedPhaseLauncher(j.spec.RootDir, j.launcher); removeErr != nil {
+			err = fmt.Errorf("%w: remove staged phase launcher: %w", ErrPhaseCleanup, removeErr)
+		}
+	}
+	j.closeSource()
 	j.disconnect()
+	return err
+}
+
+func (j *PhaseJob) closeSource() {
+	if j.source != nil {
+		_ = j.source.Close()
+		j.source = nil
+	}
 }
 
 func (j *PhaseJob) disconnect() {
@@ -357,6 +453,7 @@ func (j *PhaseJob) disconnect() {
 
 func (j *PhaseJob) stop() error {
 	if !j.submitted {
+		j.cleanupConfirmed = true
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), j.spec.Limits.Cleanup)
@@ -380,10 +477,12 @@ func (j *PhaseJob) stop() error {
 	}
 	events, err := os.ReadFile(filepath.Join("/sys/fs/cgroup/system.slice", j.unit, "cgroup.events"))
 	if errors.Is(err, os.ErrNotExist) {
+		j.cleanupConfirmed = true
 		return nil
 	}
 	if err != nil || !strings.Contains(string(events), "populated 0\n") {
 		return fmt.Errorf("%w: service cgroup is not confirmed empty", ErrPhaseCleanup)
 	}
+	j.cleanupConfirmed = true
 	return nil
 }

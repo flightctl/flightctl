@@ -20,6 +20,7 @@ override_dh_auto_install:
 	# an option could have been vendoring the go modules before creating the sources package, but then compilation didn't work even locally
 	cp bin/$(shell dpkg --print-architecture)/flightctl-agent debian/flightctl-agent/usr/bin/
 	cp bin/$(shell dpkg --print-architecture)/flightctl debian/flightctl-agent/usr/bin/
+	install -D -m 755 bin/$(shell dpkg --print-architecture)/flightctl-phase-launcher debian/flightctl-agent/usr/libexec/flightctl/phase-launcher
 
 	mkdir -p debian/flightctl-agent/var/lib/flightctl
 

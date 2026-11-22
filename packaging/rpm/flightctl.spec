@@ -357,6 +357,7 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
     install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
+    install -m 0755 bin/flightctl-phase-launcher %{buildroot}/usr/libexec/flightctl/phase-launcher
     install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
@@ -526,6 +527,7 @@ fi
     %license LICENSE
     %dir /etc/flightctl
     %{_bindir}/flightctl-agent
+    /usr/libexec/flightctl/phase-launcher
     %{_bindir}/flightctl-must-gather
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
