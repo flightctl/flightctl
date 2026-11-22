@@ -131,7 +131,7 @@ func (e *Extractor) Extract(ctx context.Context, pkg *VerifiedPackage) (*Publish
 	if err := r.acquire(ctx); err != nil {
 		return nil, fmt.Errorf("updater %s cache admission: %w", release, err)
 	}
-	defer func() { <-r.gate }()
+	defer func() { <-r.cache.gate }()
 	if !e.approval.IsApproved(pkg.Name, pkg.Version, pkg.DescriptorDigest) {
 		return nil, unavailable(release, false, errors.New("release is no longer approved"))
 	}
@@ -178,6 +178,10 @@ func (x *extraction) run() (*PublishedPayload, error) {
 			return x.reuse(m)
 		case x.ctx.Err() != nil:
 			return nil, retainedFailure(x.ctx, x.release, verr)
+		case x.pkg.cachedBy != nil && errors.Is(verr, errRetainedManifestDigest):
+			// Authenticate the cached digest against the image before moving
+			// an unpinned tree that may already contain the genuine manifest.
+			return x.fresh()
 		case errors.Is(verr, ErrRetainedPayloadChanged):
 			if err := x.quarantine(); err != nil {
 				return nil, err
@@ -186,7 +190,7 @@ func (x *extraction) run() (*PublishedPayload, error) {
 			return nil, retainedFailure(x.ctx, x.release, verr)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return nil, unavailable(x.release, false, err)
+		return nil, retainedFailure(x.ctx, x.release, retainedReadFailure("stat version directory", err))
 	}
 	return x.fresh()
 }
@@ -224,8 +228,8 @@ func (x *extraction) finish(p *PublishedPayload, fresh bool) (*PublishedPayload,
 	}
 	p.Evidence = obs
 	p.Cleanup = CleanupReport{Pending: append([]string(nil), x.pending...), Err: x.cleanupErr}
-	x.e.retention.leases[x.pkg.PackageDigest]++
-	p.lease = &lease{owner: x.e.retention, digest: x.pkg.PackageDigest}
+	x.e.retention.cache.leases[x.pkg.PackageDigest]++
+	p.lease = &lease{owner: x.e.retention.cache, digest: x.pkg.PackageDigest}
 	return p, nil
 }
 
@@ -297,12 +301,27 @@ func (x *extraction) stage(ctx context.Context, mountPoint string) (*StagedTree,
 		return nil, publishFailure(x.release, PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, err)
 	}
 	if policy.Hash(data) != x.pkg.ManifestDigest {
-		return nil, publishFailure(x.release, PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, errors.New("the mounted manifest differs from the verified manifest"))
+		return nil, x.manifestMismatch(ctx, "the mounted manifest differs from the verified manifest")
 	}
 	if parsed, err := ParseManifest(data); err != nil || !reflect.DeepEqual(*parsed, x.pkg.Manifest) {
-		return nil, publishFailure(x.release, PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, errors.New("the mounted manifest does not parse to the verified manifest"))
+		return nil, x.manifestMismatch(ctx, "the mounted manifest does not parse to the verified manifest")
 	}
 	return StageTree(ctx, src, x.cache.updaters, data, &x.pkg.Manifest, x.limits, x.e.goarch)
+}
+
+func (x *extraction) manifestMismatch(ctx context.Context, message string) error {
+	if err := ctx.Err(); err != nil {
+		return contextFailure(ctx, x.release, PublishNotVisible, "stage")
+	}
+	cause := errors.New(message)
+	if x.pkg.cachedBy != nil {
+		if err := x.pkg.cachedBy.invalidateCachedManifest(ctx, x.pkg); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("invalidate stale verified record: %w", err))
+		} else {
+			cause = fmt.Errorf("fetch the approved package again: %w", cause)
+		}
+	}
+	return publishFailure(x.release, PublishNotVisible, "stage", ReasonUpdaterUnavailable, false, cause)
 }
 
 // unmount releases the source under its own timeout, which still runs when
@@ -398,6 +417,8 @@ func (x *extraction) contended(ctx context.Context, st *StagedTree) (*PublishedP
 	for attempt := 1; attempt <= 2; attempt++ {
 		class, m, err := x.classify(ctx)
 		switch {
+		case errors.Is(ctx.Err(), context.Canceled):
+			return nil, x.discardAfterFailure(st, contextFailure(ctx, x.release, PublishNotVisible, "classify"))
 		case class == winnerValid:
 			return x.adopt(st, m)
 		case class == winnerInvalidPinned:
@@ -418,6 +439,8 @@ func (x *extraction) contended(ctx context.Context, st *StagedTree) (*PublishedP
 			continue
 		case isVisibleNotUsable(err):
 			return nil, err
+		case errors.Is(ctx.Err(), context.Canceled):
+			return nil, x.discardAfterFailure(st, contextFailure(ctx, x.release, PublishNotVisible, "rename-retry"))
 		default:
 			return nil, x.discardAfterFailure(st, publishFailure(x.release, PublishNotVisible, "rename-retry", ReasonUpdaterUnavailable, true, err))
 		}

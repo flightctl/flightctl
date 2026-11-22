@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"reflect"
+	"sync"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	policy "github.com/flightctl/flightctl/internal/firmwarepolicy"
 )
 
@@ -36,6 +39,9 @@ func (f *Fetcher) recordPath(descriptorDigest string) string {
 	return filepath.Join(f.dataDir, "firmware", "packages", digestHex(descriptorDigest)+".json")
 }
 
+// recordWrites serializes replacement and conditional invalidation across fetchers.
+var recordWrites sync.Mutex
+
 func (f *Fetcher) writeRecord(pkg *VerifiedPackage) error {
 	data, err := json.Marshal(packageRecord{
 		APIVersion:            recordAPIVersion,
@@ -51,6 +57,8 @@ func (f *Fetcher) writeRecord(pkg *VerifiedPackage) error {
 	if err != nil {
 		return err
 	}
+	recordWrites.Lock()
+	defer recordWrites.Unlock()
 	return f.rw.WriteFileDurable(f.recordPath(pkg.DescriptorDigest), data, 0o700, 0o600)
 }
 
@@ -115,7 +123,37 @@ func (f *Fetcher) cachedPackage(ctx context.Context, revision int64, descriptorD
 		PolicyRevision:        revision,
 		Manifest:              record.Manifest,
 		Cached:                true,
+		cachedBy:              f,
 	}
 	pkg.extraction = bindExtraction(pkg, d)
 	return pkg, true
+}
+
+// invalidateCachedManifest removes the stale record only while it still contains
+// the manifest observed by this fetch. A concurrent verified refresh wins.
+func (f *Fetcher) invalidateCachedManifest(ctx context.Context, pkg *VerifiedPackage) error {
+	recordWrites.Lock()
+	defer recordWrites.Unlock()
+
+	record, err := f.readRecord(pkg.DescriptorDigest)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	identity := pkg.extraction.identity
+	if record.ManifestDigest != identity.manifestDigest || !reflect.DeepEqual(record.Manifest, identity.manifest) {
+		return nil
+	}
+	path := f.recordPath(pkg.DescriptorDigest)
+	dir, err := f.rw.OpenAnchor(filepath.Dir(path), fileio.DirOptions{Trusted: true})
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if _, err := dir.RemoveTree(ctx, filepath.Base(path), cleanupBounds()); err != nil {
+		return err
+	}
+	return dir.Sync()
 }

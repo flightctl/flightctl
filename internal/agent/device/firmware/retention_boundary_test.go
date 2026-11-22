@@ -336,7 +336,7 @@ func TestRetentionVerifyPublishedRejects(t *testing.T) {
 		require.ErrorIs(err, firmware.ErrRetainedPayloadChanged)
 		require.Contains(err.Error(), "missing")
 	})
-	t.Run("When the version directory cannot be inspected it should report the payload changed", func(t *testing.T) {
+	t.Run("When the version directory cannot be inspected it should report incomplete verification", func(t *testing.T) {
 		skipAsRoot(t)
 		require := require.New(t)
 		f := newPayloadFixture(t, defaultPayload(t))
@@ -344,8 +344,8 @@ func TestRetentionVerifyPublishedRejects(t *testing.T) {
 		require.NoError(os.Chmod(f.cacheDir(), 0o400))
 		t.Cleanup(func() { _ = os.Chmod(f.cacheDir(), 0o700) })
 		_, err := newRetention(f).VerifyPublished(context.Background(), pin)
-		require.ErrorIs(err, firmware.ErrRetainedPayloadChanged)
-		require.Contains(err.Error(), "permission denied")
+		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
+		require.ErrorIs(err, fs.ErrPermission)
 	})
 }
 
@@ -387,6 +387,23 @@ func TestRetentionCleanupBoundaries(t *testing.T) {
 		_, statErr := os.Stat(filepath.Join(locked, "f"))
 		require.NoError(statErr)
 	})
+	t.Run("When the first candidate repeatedly fails it should attempt a later candidate on the next pass", func(t *testing.T) {
+		f := newPayloadFixture(t, defaultPayload(t))
+		later := publishVersion(t, f, 'a')
+		blocked := ".staging-0123456789abcdef"
+		require.NoError(t, os.Mkdir(f.cacheDir(blocked), 0o700))
+		r := evidenceRetention(f, &hooks{removeTree: func(name string) (fileio.RemoveResult, error, bool) {
+			return fileio.RemoveResult{}, unix.EIO, name == blocked
+		}}, firmware.WithCleanupLimits(1, firmware.MaxCacheListingEntries, firmware.CleanupPassMaxWork))
+		removed, err := r.CleanupUnreferenced(ctx)
+		require.ErrorIs(t, err, unix.EIO)
+		require.Empty(t, removed)
+		removed, err = r.CleanupUnreferenced(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{later.PayloadDir}, removed)
+		require.DirExists(t, f.cacheDir(blocked))
+	})
+
 	t.Run("When the evidence directory holds a subdirectory it should keep it", func(t *testing.T) {
 		require := require.New(t)
 		f := newPayloadFixture(t, defaultPayload(t))
@@ -676,18 +693,27 @@ func TestRetentionVerifyPublishedCapabilities(t *testing.T) {
 		f := newPayloadFixture(t, defaultPayload(t))
 		pin := publishVersion(t, f, 'a')
 		pin.Limits.MaxExtractionSeconds = 1
+		outer, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var verification context.Context
 		reads := 0
-		expiring := &hooks{xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
+		expiring := &hooks{walk: func(ctx context.Context) { verification = ctx }, xattr: func(_, attr string) ([]byte, fileio.XattrState, error, bool) {
 			if attr != "security.capability" {
 				return nil, "", nil, false
 			}
 			reads++
 			if reads == 1 {
-				time.Sleep(1100 * time.Millisecond)
+				require.NotNil(verification)
+				select {
+				case <-outer.Done():
+					t.Fatal("verification did not use its pinned deadline")
+				case <-verification.Done():
+					require.NoError(outer.Err())
+				}
 			}
 			return nil, fileio.XattrAbsent, nil, true
 		}}
-		_, err := evidenceRetention(f, expiring).VerifyPublished(context.Background(), pin)
+		_, err := evidenceRetention(f, expiring).VerifyPublished(outer, pin)
 		require.ErrorIs(err, context.DeadlineExceeded)
 		require.ErrorIs(err, firmware.ErrRetainedVerificationIncomplete)
 		require.NotErrorIs(err, firmware.ErrRetainedPayloadChanged)

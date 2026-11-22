@@ -33,6 +33,7 @@ const (
 // sysOps holds the kernel calls used by anchors so that tests in this package
 // can inject failures at the operating-system boundary.
 type sysOps struct {
+	fstat     func(fd int, stat *unix.Stat_t) error
 	unlinkat  func(dirfd int, path string, flags int) error
 	renameat2 func(olddirfd int, oldpath string, newdirfd int, newpath string, flags uint) error
 	fstatat   func(dirfd int, path string, stat *unix.Stat_t, flags int) error
@@ -40,6 +41,7 @@ type sysOps struct {
 }
 
 var defaultSysOps = &sysOps{
+	fstat:     unix.Fstat,
 	unlinkat:  unix.Unlinkat,
 	renameat2: unix.Renameat2,
 	fstatat:   unix.Fstatat,
@@ -450,7 +452,11 @@ func (w *walker) walk(ctx context.Context, dir *os.File, prefix string, depth in
 				return w.a.openDirError(path.Join(w.a.path, prefix), name, false, err)
 			}
 			var opened unix.Stat_t
-			if err := unix.Fstat(fd, &opened); err != nil || uint64(opened.Dev) != e.Dev || uint64(opened.Ino) != e.Ino { //nolint:unconvert // Stat_t widths differ by architecture
+			if err := w.a.sys.fstat(fd, &opened); err != nil {
+				_ = unix.Close(fd)
+				return fmt.Errorf("stat opened directory %w: %w", errors.WithElement(rel), err)
+			}
+			if uint64(opened.Dev) != e.Dev || uint64(opened.Ino) != e.Ino { //nolint:unconvert // Stat_t widths differ by architecture
 				_ = unix.Close(fd)
 				return fmt.Errorf("%w %w: directory changed during walk", errors.ErrUnsafeFileType, errors.WithElement(rel))
 			}
@@ -847,7 +853,10 @@ func (a *anchor) GetXattr(rel, attr string, limit int) ([]byte, XattrState, erro
 		}
 		defer func() { _ = unix.Close(opened) }()
 		var st unix.Stat_t
-		if err := unix.Fstat(opened, &st); err != nil || st.Dev != before.Dev || st.Ino != before.Ino {
+		if err := a.sys.fstat(opened, &st); err != nil {
+			return nil, XattrUnknown, fmt.Errorf("stat opened entry %w: %w", errors.WithElement(display), err)
+		}
+		if st.Dev != before.Dev || st.Ino != before.Ino {
 			return nil, XattrUnknown, fmt.Errorf("%w %w: entry changed while opening", errors.ErrUnsafeFileType, errors.WithElement(display))
 		}
 		fd = opened
@@ -1151,7 +1160,11 @@ func (r *remover) open(parentFD int, name string, st *unix.Stat_t) (*removeFrame
 		return nil, r.halt(RemoveError, fmt.Errorf("open directory %q: %w", name, err))
 	}
 	var opened unix.Stat_t
-	if err := unix.Fstat(fd, &opened); err != nil || opened.Dev != st.Dev || opened.Ino != st.Ino {
+	if err := r.a.sys.fstat(fd, &opened); err != nil {
+		_ = unix.Close(fd)
+		return nil, r.halt(RemoveError, fmt.Errorf("stat opened directory %q: %w", name, err))
+	}
+	if opened.Dev != st.Dev || opened.Ino != st.Ino {
 		_ = unix.Close(fd)
 		return nil, r.halt(RemoveError, fmt.Errorf("directory %q changed during removal", name))
 	}
