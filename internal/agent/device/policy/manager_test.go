@@ -733,30 +733,13 @@ func TestScheduleTimeZoneHandling(t *testing.T) {
 
 func TestMalformedScheduleFailsClosed(t *testing.T) {
 	logger := log.NewPrefixLogger("test")
-	manager := NewManager(logger).(*manager)
-	valid := &v1beta1.DeviceSpec{
-		UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
-			UpdateSchedule: &v1beta1.UpdateSchedule{
-				TimeZone: lo.ToPtr(v1beta1.TimeZone("UTC")),
-				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
-					Date:               "2026-01-01",
-					At:                 "12:00",
-					StartGraceDuration: "1h",
-				}}),
-			},
-		},
-	}
-
-	err := manager.Sync(context.Background(), valid)
-	require.NoError(t, err)
-	manager.update.nowFn = func() time.Time {
-		return time.Date(2026, 1, 1, 12, 30, 0, 0, time.UTC)
-	}
-	require.True(t, manager.IsReady(context.Background(), Update))
-
-	err = manager.Sync(context.Background(), &v1beta1.DeviceSpec{
-		UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
-			UpdateSchedule: &v1beta1.UpdateSchedule{
+	tests := []struct {
+		name     string
+		schedule *v1beta1.UpdateSchedule
+	}{
+		{
+			name: "invalid date",
+			schedule: &v1beta1.UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "not-a-date",
 					At:                 "12:00",
@@ -764,9 +747,62 @@ func TestMalformedScheduleFailsClosed(t *testing.T) {
 				}}),
 			},
 		},
-	})
-	require.Error(t, err)
-	require.False(t, manager.IsReady(context.Background(), Update))
+		{
+			name: "invalid time",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "not-a-time",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+		{
+			name: "invalid duration",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "12:00",
+					StartGraceDuration: "not-a-duration",
+				}}),
+			},
+		},
+		{
+			name: "non-positive duration",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					At:                 "12:00",
+					StartGraceDuration: "0s",
+				}}),
+			},
+		},
+		{
+			name: "empty one-time windows",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{}),
+			},
+		},
+		{
+			name: "incomplete recurring schedule",
+			schedule: &v1beta1.UpdateSchedule{
+				At: lo.ToPtr(v1beta1.CronExpression("0 12 * * *")),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager(logger).(*manager)
+			err := manager.Sync(context.Background(), &v1beta1.DeviceSpec{
+				UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
+					UpdateSchedule: tt.schedule,
+				},
+			})
+			require.Error(t, err)
+			require.False(t, manager.IsReady(context.Background(), Update))
+		})
+	}
 }
 
 func TestAbsentScheduleIsReady(t *testing.T) {
