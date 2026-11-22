@@ -2,14 +2,13 @@
 package celruntime
 
 import (
-	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common/types/ref"
+	"github.com/jellydator/ttlcache/v3"
 )
 
 // MaxExpressionSize is the maximum expression size accepted by the CEL parser.
@@ -24,15 +23,12 @@ const MaxCachedPrograms = 256
 // Engine owns a CEL environment. Consumers supply their own declarations and libraries.
 type Engine struct {
 	env      *cel.Env
-	mu       sync.Mutex
-	programs map[string]*list.Element
-	lru      *list.List
+	programs *ttlcache.Cache[string, cachedProgram]
 }
 
 type cachedProgram struct {
-	expression string
-	program    *Program
-	err        error
+	program *Program
+	err     error
 }
 
 // Program is a checked expression with its declared output type.
@@ -48,7 +44,13 @@ func New(options ...cel.EnvOption) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{env: env, programs: make(map[string]*list.Element, MaxCachedPrograms), lru: list.New()}, nil
+	return &Engine{
+		env: env,
+		programs: ttlcache.New(
+			ttlcache.WithCapacity[string, cachedProgram](MaxCachedPrograms),
+			ttlcache.WithTTL[string, cachedProgram](ttlcache.NoTTL),
+		),
+	}, nil
 }
 
 // Compile parses, type-checks, and builds an expression for this environment.
@@ -56,32 +58,15 @@ func New(options ...cel.EnvOption) (*Engine, error) {
 // not invalidate a Program already held by a caller. Compilation errors are cached too.
 // Compile and Program.Evaluate are safe to call concurrently.
 func (e *Engine) Compile(expression string) (*Program, error) {
-	e.mu.Lock()
-	if element, ok := e.programs[expression]; ok {
-		e.lru.MoveToFront(element)
-		cached := element.Value.(*cachedProgram)
-		e.mu.Unlock()
+	if item := e.programs.Get(expression); item != nil {
+		cached := item.Value()
 		return cached.program, cached.err
 	}
-	e.mu.Unlock()
 
 	program, err := e.compile(expression)
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if element, ok := e.programs[expression]; ok {
-		e.lru.MoveToFront(element)
-		cached := element.Value.(*cachedProgram)
-		return cached.program, cached.err
-	}
-	element := e.lru.PushFront(&cachedProgram{expression: expression, program: program, err: err})
-	e.programs[expression] = element
-	if e.lru.Len() > MaxCachedPrograms {
-		oldest := e.lru.Back()
-		delete(e.programs, oldest.Value.(*cachedProgram).expression)
-		e.lru.Remove(oldest)
-	}
-	return program, err
+	item, _ := e.programs.GetOrSet(expression, cachedProgram{program: program, err: err})
+	cached := item.Value()
+	return cached.program, cached.err
 }
 
 func (e *Engine) compile(expression string) (*Program, error) {
