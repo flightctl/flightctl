@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -61,6 +62,36 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, updated.UpdatedFields, domain.Spec)
 		require.Contains(t, updated.UpdatedFields, domain.SpecTemplate)
+	})
+
+	t.Run("When a template is round-tripped through JSON it should not report a template update", func(t *testing.T) {
+		oldFleet := prepareTestFleetForEvents("f1")
+		oldFleet.Metadata.Generation = lo.ToPtr(int64(1))
+		oldFleet.Spec.Template.Spec.Os = nil
+		oldFleet.Spec.Template.Spec.UpdatePolicy = &domain.DeviceUpdatePolicySpec{
+			UpdateSchedule: &domain.UpdateSchedule{
+				At:                 "0 4 * * 1",
+				StartGraceDuration: "1h",
+			},
+		}
+
+		serializedFleet, err := json.Marshal(oldFleet)
+		require.NoError(t, err)
+		newFleet := &domain.Fleet{}
+		require.NoError(t, json.Unmarshal(serializedFleet, newFleet))
+		newFleet.Metadata.Generation = lo.ToPtr(int64(2))
+
+		// A JSON round-trip should preserve the template's semantic equality.
+		require.Equal(t, oldFleet.Spec.Template, newFleet.Spec.Template)
+
+		ev := &fakeEventsService{}
+		EmitFleetUpdatedEvent(context.Background(), ev, logrus.New(), domain.FleetKind, uuid.New(), "f1", oldFleet, newFleet, false, nil)
+
+		require.Len(t, ev.created, 1)
+		updated, err := ev.created[0].Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Contains(t, updated.UpdatedFields, domain.Spec)
+		require.NotContains(t, updated.UpdatedFields, domain.SpecTemplate)
 	})
 
 	t.Run("When the fleet-valid condition transitions to true it should emit a FleetValid event", func(t *testing.T) {

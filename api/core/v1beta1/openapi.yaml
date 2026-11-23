@@ -7314,17 +7314,61 @@ components:
           $ref: '#/components/schemas/UpdateSchedule'
     UpdateSchedule:
       type: object
-      description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
-      properties:
-        timeZone:
-          $ref: '#/components/schemas/TimeZone'
-        at:
-          $ref: '#/components/schemas/CronExpression'
-        startGraceDuration:
-          $ref: '#/components/schemas/Duration'
+      description: >-
+        Defines a schedule for an activity. A schedule may contain a complete
+        recurring definition (at and startGraceDuration), one or more
+        oneTimeWindows, or both. at and startGraceDuration must be provided
+        together. The schedule-level timeZone applies to the recurring
+        schedule and to all one-time windows in this object.
+      allOf:
+        - type: object
+          properties:
+            timeZone:
+              $ref: '#/components/schemas/TimeZone'
+            at:
+              allOf:
+                - $ref: '#/components/schemas/CronExpression'
+              description: Cron expression format for the recurring schedule. See CronExpression for the supported syntax.
+              x-go-type-skip-optional-pointer: true
+            startGraceDuration:
+              allOf:
+                - $ref: '#/components/schemas/Duration'
+              description: The maximum duration allowed for the recurring action to complete.
+              x-go-type-skip-optional-pointer: true
+            oneTimeWindows:
+              type: array
+              description: Date-specific windows in which the corresponding operation may start.
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/OneTimeWindow'
+        - not:
+            anyOf:
+              - oneOf:
+                  - required: [at]
+                  - required: [startGraceDuration]
+              - not:
+                  anyOf:
+                    - required: [at, startGraceDuration]
+                    - required: [oneTimeWindows]
+    OneTimeWindow:
+      type: object
       required:
+        - date
         - at
         - startGraceDuration
+      properties:
+        date:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: Exact calendar date on which the one-time window opens, for example 2026-11-15.
+          example: "2026-11-15"
+        at:
+          type: string
+          pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
+          description: Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
+          example: "22:00"
+        startGraceDuration:
+          $ref: '#/components/schemas/Duration'
     TimeZone:
       type: string
       description: Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").

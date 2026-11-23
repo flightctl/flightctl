@@ -30,8 +30,8 @@ func TestIsReady(t *testing.T) {
 			name: "not ready: current time is before next run UTC",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "10m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("10m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 11, 5, 0, 0, time.UTC), // 11:05
 			expectedReady:   false,
@@ -41,8 +41,8 @@ func TestIsReady(t *testing.T) {
 			name: "not ready: outside grace period UTC",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "5m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("5m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 6, 0, 0, time.UTC), // 12:06 - 5m = 12:01
 			expectedReady:   false,
@@ -52,8 +52,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: within grace period America/New_York",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "10m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("10m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 6, 0, 0, nyLoc), // 12:06 - 10m = 11:56
 			expectedReady:   true,
@@ -63,8 +63,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: handles backward DST transition in America/New_York",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
-				At:                 "0 1 * * *", // 1:00 AM
-				StartGraceDuration: "60m",
+				At:                 v1beta1.CronExpression("0 1 * * *"), // 1:00 AM
+				StartGraceDuration: v1beta1.Duration("60m"),
 			},
 			currentTime:     time.Date(2024, 11, 3, 1, 30, 0, 0, nyLoc), // 1:30 am during repeated hour
 			expectedReady:   true,
@@ -74,8 +74,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: grace period handles DST transition in Europe/Berlin",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("Europe/Berlin"),
-				At:                 "0 1 * * *", // 1:00 am
-				StartGraceDuration: "90m",
+				At:                 v1beta1.CronExpression("0 1 * * *"), // 1:00 am
+				StartGraceDuration: v1beta1.Duration("90m"),
 			},
 			// test time at 03:15 am, which falls within the grace period
 			// even though the 2 am hour was skipped due to DST.
@@ -87,8 +87,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: time equal to next",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "10m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("10m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 0, 0, 0, nyLoc), // 12:00
 			expectedReady:   true,
@@ -98,8 +98,8 @@ func TestIsReady(t *testing.T) {
 			name: "not ready: current time equals grace period end",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "5m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("5m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 5, 0, 0, time.UTC), // 12:05 (end of grace)
 			expectedReady:   true,
@@ -109,8 +109,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: equals grace period for 30-minute interval",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
-				At:                 "*/30 * * * *", // every 30 minutes
-				StartGraceDuration: "5m",
+				At:                 v1beta1.CronExpression("*/30 * * * *"), // every 30 minutes
+				StartGraceDuration: v1beta1.Duration("5m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 35, 0, 0, time.UTC), // 12:35
 			expectedReady:   true,
@@ -120,8 +120,8 @@ func TestIsReady(t *testing.T) {
 			name: "ready: exactly at start of grace period",
 			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
-				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: "5m",
+				At:                 v1beta1.CronExpression("0 12 * * *"), // 12:00 pm
+				StartGraceDuration: v1beta1.Duration("5m"),
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 0, 0, 0, time.UTC), // 12:00
 			expectedReady:   true,
@@ -580,6 +580,95 @@ func TestIsReadyAcrossTime(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func TestIsReadyOneTimeWindows(t *testing.T) {
+	utc := time.UTC
+	tests := []struct {
+		name           string
+		currentTime    time.Time
+		updateSchedule *v1beta1.UpdateSchedule
+		wantReady      bool
+	}{
+		{
+			name:        "When the current time is before a one-time window it should not be ready",
+			currentTime: time.Date(2026, 11, 16, 3, 59, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: false,
+		},
+		{
+			name:        "When the current time is within a one-time window it should be ready",
+			currentTime: time.Date(2026, 11, 16, 5, 0, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+		{
+			name:        "When the current time is after a one-time window grace period it should not be ready",
+			currentTime: time.Date(2026, 11, 16, 6, 1, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: false,
+		},
+		{
+			name:        "When a one-time window uses a non-UTC timezone it should be evaluated in that timezone",
+			currentTime: time.Date(2026, 11, 16, 2, 30, 0, 0, utc), // 04:30 in Asia/Jerusalem
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("Asia/Jerusalem"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+		{
+			name:        "When recurring and one-time windows are provided it should be ready if either window is open",
+			currentTime: time.Date(2026, 11, 16, 5, 30, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone:           lo.ToPtr("UTC"),
+				At:                 v1beta1.CronExpression("0 4 * * 1"),
+				StartGraceDuration: v1beta1.Duration("1h"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			schedule := newSchedule(Update)
+			schedule.nowFn = func() time.Time { return tt.currentTime }
+
+			require.NoError(t, schedule.Parse(logger, tt.updateSchedule))
+			require.Equal(t, tt.wantReady, schedule.IsReady(logger))
 		})
 	}
 }

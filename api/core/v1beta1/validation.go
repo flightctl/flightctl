@@ -670,17 +670,49 @@ func (u UpdateSchedule) Validate() []error {
 		}
 	}
 
-	// allow only the standard 5 input cron syntax e.g. "* * * * *"
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(u.At)
-	if err != nil {
-		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+	hasAt := u.At != ""
+	hasGraceDuration := u.StartGraceDuration != ""
+	if hasAt != hasGraceDuration {
+		allErrs = append(allErrs, errors.New("at and startGraceDuration must be provided together"))
+	} else if hasAt {
+		// allow only the standard 5 input cron syntax e.g. "* * * * *"
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		schedule, err := parser.Parse(u.At)
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+		}
+		if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
+			allErrs = append(allErrs, err)
+		}
 	}
 
-	if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
-		allErrs = append(allErrs, err)
+	if u.OneTimeWindows != nil {
+		if len(*u.OneTimeWindows) == 0 {
+			allErrs = append(allErrs, errors.New("oneTimeWindows must not be empty"))
+		}
+		for i, window := range *u.OneTimeWindows {
+			for _, err := range validateOneTimeWindow(window) {
+				allErrs = append(allErrs, fmt.Errorf("oneTimeWindows[%d]: %w", i, err))
+			}
+		}
+	} else if !hasAt {
+		allErrs = append(allErrs, errors.New("at and startGraceDuration or oneTimeWindows are required"))
 	}
 
+	return allErrs
+}
+
+func validateOneTimeWindow(window OneTimeWindow) []error {
+	var allErrs []error
+	if _, err := time.Parse("2006-01-02", window.Date); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid date: %w", err))
+	}
+	if _, err := time.Parse("15:04", window.At); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid time: %w", err))
+	}
+	if _, err := time.ParseDuration(window.StartGraceDuration); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid start grace duration: %w", err))
+	}
 	return allErrs
 }
 
