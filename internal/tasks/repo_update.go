@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	servicecommon "github.com/flightctl/flightctl/internal/service/common"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	inspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,6 +38,73 @@ func repositoryUpdate(ctx context.Context, orgId uuid.UUID, event domain.Event, 
 	}
 
 	return nil
+}
+
+// retryRepositoryInspections targets only unfinished acquisition of packages in
+// this OCI scope. Complete content facts remain reusable across access changes.
+func (t *DeviceRenderLogic) retryRepositoryInspections(ctx context.Context, orgID uuid.UUID, event domain.Event, eventSvc eventservice.Service) error {
+	if t == nil || t.inspection == nil {
+		return nil
+	}
+	repo, status := t.repositorySvc.GetRepository(ctx, orgID, event.InvolvedObject.Name)
+	if status.Code == http.StatusNotFound {
+		return nil
+	}
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("look up inspection repository: %s", status.Message)
+	}
+	spec, err := repo.Spec.AsOciRepoSpec()
+	if err != nil || spec.Type != domain.OciRepoSpecTypeOci {
+		return nil
+	}
+	scope, err := inspectionRepositoryScope(spec)
+	if err != nil {
+		return err
+	}
+	if event.Metadata.CreationTimestamp != nil {
+		if err := t.inspection.store.FenceRepositoryClaims(ctx, orgID, scope, *event.Metadata.CreationTimestamp); err != nil {
+			return err
+		}
+	}
+	eventID, err := uuid.Parse(lo.FromPtr(event.Metadata.Name))
+	if err != nil {
+		return err
+	}
+	return t.emitInspectionRetries(ctx, orgID, scope, eventID, event.InvolvedObject.Name, eventSvc)
+}
+
+func inspectionRepositoryScope(spec domain.OciRepoSpec) (inspectionstore.RepositoryScope, error) {
+	host, err := inspectionstore.NormalizeReference(inspectionstore.ReferenceInput{
+		Reference: spec.Registry + "/placeholder", Role: model.InspectionRolePackage, Mechanism: model.InspectionPullContainer,
+	})
+	if err != nil {
+		return inspectionstore.RepositoryScope{}, err
+	}
+	scope := inspectionstore.RepositoryScope{Registry: host.Registry, Port: host.Port}
+	if path := strings.Trim(lo.FromPtr(spec.Repository), "/"); path != "" {
+		scope.Path, scope.Exact = strings.Split(path, "/"), true
+	} else if path := strings.Trim(lo.FromPtr(spec.Namespace), "/"); path != "" {
+		scope.Path = strings.Split(path, "/")
+	}
+	return scope, nil
+}
+
+func (t *DeviceRenderLogic) emitInspectionRetries(ctx context.Context, orgID uuid.UUID, scope inspectionstore.RepositoryScope, eventID uuid.UUID, repository string, eventSvc eventservice.Service) error {
+	for after := ""; ; {
+		names, err := t.inspection.store.ListDevicesAwaitingRepository(ctx, orgID, scope, after, inspectionWakeupBatch)
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			event := servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, domain.DeviceKind, name, repository)
+			event.Metadata.Name = lo.ToPtr(uuid.NewSHA1(eventID, []byte(name)).String())
+			eventSvc.CreateEvent(ctx, orgID, event)
+		}
+		if len(names) < inspectionWakeupBatch {
+			return nil
+		}
+		after = names[len(names)-1]
+	}
 }
 
 type RepositoryUpdateLogic struct {

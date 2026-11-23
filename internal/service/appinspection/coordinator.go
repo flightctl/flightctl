@@ -39,6 +39,8 @@ type WorkProgress struct {
 // failure settles the attempt with the references known so far.
 func (s *Coordinator) Process(ctx context.Context, orgID, id uuid.UUID, reload ReloadApplication) (WorkProgress, error) {
 	lease := s.timeout + claimGrace
+	ctx, cancelProcess := context.WithTimeout(ctx, lease)
+	defer cancelProcess()
 	claim, err := s.store.Claim(ctx, orgID, id, lease)
 	if err != nil || claim.Token == uuid.Nil {
 		return WorkProgress{}, err
@@ -79,6 +81,14 @@ func (s *Coordinator) Process(ctx context.Context, orgID, id uuid.UUID, reload R
 		if err != nil || claim.Token == uuid.Nil {
 			// A complete cache hit may have settled the last waiting application.
 			return WorkProgress{InspectionID: id}, err
+		}
+		if claim.Input.ParentDigest != "" {
+			// Resolve service access under the extraction claim, so a credential
+			// update between promotion and extraction applies to the new claim.
+			prepared, code = s.resolver.prepare(workCtx, orgID, app, claim.Input.ParentDigest)
+			if code != "" {
+				return s.finish(ctx, orgID, id, claim.Token, inspectionstore.Attempt{Input: claim.Input, State: model.InspectionFinishedIncomplete, DiagnosticCodes: []model.InspectionDiagnostic{code}})
+			}
 		}
 	}
 	if string(key) != claim.InputKey {

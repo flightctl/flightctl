@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/containers/image/v5/docker/reference"
@@ -879,36 +880,7 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 			if err != nil {
 				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
-			var targetImageRefs []string
-			deadline, hasDeadline := ctx.Deadline()
-			remaining := time.Duration(0)
-			if hasDeadline {
-				remaining = time.Until(deadline)
-			}
-			renderTimeout, canRender := helmDeltaHintRenderBudget(remaining, hasDeadline)
-			if !canRender {
-				// An empty result prevents collectHelmAppPairs from falling back to
-				// potentially stale workload references reported for the old release.
-				targetImageRefs = []string{}
-				t.log.WithFields(logrus.Fields{
-					"device":      t.event.InvolvedObject.Name,
-					"application": appName,
-				}).Warn("skipping target Helm chart render for delta hints because insufficient device render time remains")
-			} else {
-				helmRenderCtx, cancel := context.WithTimeout(ctx, renderTimeout)
-				imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
-				cancel()
-				if renderErr != nil {
-					targetImageRefs = []string{}
-					t.log.WithError(renderErr).WithFields(logrus.Fields{
-						"device":      t.event.InvolvedObject.Name,
-						"application": appName,
-					}).Warn("failed to render target Helm chart images for delta hints; skipping hints for this Helm application")
-				} else {
-					targetImageRefs = imageRefs
-				}
-			}
-			parent, nested = collectHelmAppPairs(helm, currentDigests, targetImageRefs)
+			parent, nested = collectHelmAppPairs(helm, currentDigests, t.helmImageRefsForHints(ctx, device, helm, renderedConfig, i, appName))
 		case domain.AppTypeVm:
 			vm, err := app.AsVmApplication()
 			if err != nil {
@@ -934,6 +906,27 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 		}
 	}
 	return appDeltaSizes, nil
+}
+
+func (t *deviceRenderState) helmImageRefsForHints(ctx context.Context, device *domain.Device, app v1beta1.HelmApplication, renderedConfig []byte, index int, appName string) []string {
+	if refs, inspected := t.inspectedHelm[strconv.Itoa(index)]; inspected {
+		return refs
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	renderTimeout, canRender := helmDeltaHintRenderBudget(time.Until(deadline), hasDeadline)
+	log := t.log.WithFields(logrus.Fields{"device": t.event.InvolvedObject.Name, "application": appName})
+	if !canRender {
+		log.Warn("skipping target Helm chart render for delta hints because insufficient device render time remains")
+		return []string{}
+	}
+	helmCtx, cancel := context.WithTimeout(ctx, renderTimeout)
+	defer cancel()
+	refs, err := t.DeviceRenderLogic.RenderHelmImageRefs(helmCtx, t.orgId, device, app, renderedConfig)
+	if err != nil {
+		log.WithError(err).Warn("failed to render target Helm chart images for delta hints; skipping hints for this Helm application")
+		return []string{}
+	}
+	return refs
 }
 
 func applyHintsToApp(app *domain.ApplicationProviderSpec, appType domain.AppType, hints *appDeltaHints) error {

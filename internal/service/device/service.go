@@ -108,7 +108,14 @@ type SpecUpdateOptions struct {
 	FleetDependencyRefs *[]model.DependencyRef
 }
 
-// RenderedDeviceOptions rejects output rendered from a superseded generation.
+// RenderedDeviceOptions fences writes from superseded renders.
 type RenderedDeviceOptions struct {
 	ExpectedGeneration *int64
+	Inspection         *RenderContinuation
+}
+
+type RenderContinuation struct {
+	ID              uuid.UUID
+	Snapshot        model.InspectionFingerprint
+	ResourceVersion string
 }

@@ -81,6 +81,19 @@ func New(
 	}
 }
 
+func (s *Server) inspectionTasks(ctx context.Context, provider queues.Provider) (*appinspectionservice.Cleaner, *tasks.InspectionWakeups, error) {
+	inspectionStore, err := appinspectionstore.NewStore(s.db)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleaner, err := appinspectionservice.NewCleaner(inspectionStore)
+	if err != nil {
+		return nil, nil, err
+	}
+	wakeups, err := tasks.NewInspectionWakeups(ctx, provider, inspectionStore)
+	return cleaner, wakeups, err
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
@@ -200,15 +213,7 @@ func (s *Server) Run(ctx context.Context) error {
 	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
 
-	inspectionStore, err := appinspectionstore.NewStore(s.db)
-	if err != nil {
-		return err
-	}
-	inspectionCleaner, err := appinspectionservice.NewCleaner(inspectionStore)
-	if err != nil {
-		return err
-	}
-	inspectionWakeups, err := tasks.NewInspectionWakeups(ctx, queuesProvider, inspectionStore)
+	inspectionCleaner, inspectionWakeups, err := s.inspectionTasks(ctx, queuesProvider)
 	if err != nil {
 		return err
 	}

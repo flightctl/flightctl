@@ -408,6 +408,42 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		Expect(inspections.ConsumeIfCurrent(ctx, orgID, owner.Owner, second.ContinuationID, model.InspectionFingerprint{2})).To(BeFalse())
 	})
 
+	It("When repository access changes it should fence an older package claim only within the affected scope", func() {
+		first := createDevice(orgID, "device-in-scope")
+		outside := createDevice(orgID, "device-outside-scope")
+		admitPackage := func(owner appinspectionstore.OwnerVersion, path string) uuid.UUID {
+			result, err := inspections.Admit(ctx, orgID, appinspectionstore.Admission{
+				Owner: owner, EventID: uuid.New(), Snapshot: model.InspectionFingerprint{1},
+				Applications: []appinspectionstore.AdmissionApplication{{Context: "app", Mechanism: model.InspectionPullContainer,
+					References: []appinspectionstore.ReferenceInput{{Reference: "registry.example:5000/" + path + ":v1", Role: model.InspectionRolePackage, Mechanism: model.InspectionPullContainer}},
+				}},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return result.WorkIDs[0]
+		}
+		id := admitPackage(first, "team/app")
+		other := admitPackage(outside, "team-other/app")
+		old, err := inspections.Claim(ctx, orgID, id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		unrelated, err := inspections.Claim(ctx, orgID, other, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		var eventTime time.Time
+		Expect(db.WithContext(ctx).Raw("SELECT clock_timestamp()").Scan(&eventTime).Error).To(Succeed())
+		scope := appinspectionstore.RepositoryScope{Registry: "registry.example", Port: 5000, Path: []string{"team"}}
+		Expect(inspections.ListDevicesAwaitingRepository(ctx, orgID, scope, "", 10)).To(ConsistOf(first.Name))
+		Expect(inspections.FenceRepositoryClaims(ctx, orgID, scope, eventTime)).To(Succeed())
+		newClaim, err := inspections.Claim(ctx, orgID, id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(newClaim.Token).NotTo(BeZero())
+		Expect(newClaim.Token).NotTo(Equal(old.Token))
+		// A duplicate of the same repair signal leaves the subsequent claim alone.
+		Expect(inspections.FenceRepositoryClaims(ctx, orgID, scope, eventTime)).To(Succeed())
+		partial := appinspectionstore.Attempt{State: model.InspectionFinishedIncomplete, DiagnosticCodes: []model.InspectionDiagnostic{model.InspectionContentUnavailable}}
+		Expect(inspections.Finish(ctx, orgID, id, old.Token, partial)).To(BeFalse())
+		Expect(inspections.Finish(ctx, orgID, id, newClaim.Token, partial)).To(BeTrue())
+		Expect(inspections.Finish(ctx, orgID, other, unrelated.Token, partial)).To(BeTrue())
+	})
+
 	It("When a claim expires it should let a new worker finish but fence the old worker", func() {
 		owner := createDevice(orgID, "device")
 		admitted := admit(owner, uuid.New(), uuid.Nil, 1, "app", "other")

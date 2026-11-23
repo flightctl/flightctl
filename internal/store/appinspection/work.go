@@ -25,6 +25,7 @@ type Admission struct {
 	EventID      uuid.UUID
 	PreviousID   uuid.UUID
 	Snapshot     model.InspectionFingerprint
+	ForceRender  bool
 	Applications []AdmissionApplication
 }
 
@@ -46,7 +47,7 @@ func (s *Store) Admit(ctx context.Context, orgID uuid.UUID, admission Admission)
 	}
 	continuation := model.ApplicationInspectionContinuation{
 		OrgID: orgID, ID: uuid.New(), Generation: owner.Generation, OwnerCreatedAt: owner.CreatedAt,
-		TemplateIdentity: owner.TemplateIdentity, Snapshot: admission.Snapshot, EventID: admission.EventID, Current: true,
+		TemplateIdentity: owner.TemplateIdentity, Snapshot: admission.Snapshot, EventID: admission.EventID, Current: true, ForceRender: admission.ForceRender,
 	}
 	if owner.Kind == OwnerDevice {
 		continuation.DeviceName = &owner.Name
@@ -157,7 +158,7 @@ func (s *Store) Claim(ctx context.Context, orgID, id uuid.UUID, duration time.Du
 	}
 	var claim WorkClaim
 	err := store.DB(ctx, s.db).Raw(`UPDATE application_inspections
-		SET claim_token = ?, claim_until = clock_timestamp() + (? * interval '1 microsecond')
+		SET claim_token = ?, claimed_at = clock_timestamp(), claim_until = clock_timestamp() + (? * interval '1 microsecond')
 		WHERE org_id = ? AND id = ? AND `+unclaimedWork+`
 		RETURNING claim_token AS token, claim_until, state, input, input_key`, uuid.New(), duration.Microseconds(), orgID, id).Scan(&claim).Error
 	return claim, storeutil.ErrorFromGormError(err)
@@ -288,8 +289,10 @@ const readyContinuation = `current AND consumed_at IS NULL AND NOT EXISTS (
 	WHERE u.org_id = application_inspection_continuations.org_id AND u.continuation_id = application_inspection_continuations.id AND u.pending
 )`
 
+const runnableContinuation = `((` + readyContinuation + `) OR pending_version IS NOT NULL)`
+
 func (s *Store) ListReadyContinuations(ctx context.Context, orgID, after uuid.UUID, limit int) ([]uuid.UUID, error) {
-	return s.listWorkIDs(ctx, &model.ApplicationInspectionContinuation{}, orgID, after, limit, readyContinuation)
+	return s.listWorkIDs(ctx, &model.ApplicationInspectionContinuation{}, orgID, after, limit, runnableContinuation)
 }
 
 func (s *Store) listWorkIDs(ctx context.Context, table any, orgID, after uuid.UUID, limit int, predicate string, args ...any) ([]uuid.UUID, error) {
@@ -327,7 +330,7 @@ func (s *Store) ConsumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Own
 			return err
 		}
 		result := tx.Model(&model.ApplicationInspectionContinuation{}).Where("org_id = ? AND id = ?", orgID, id).
-			Where(readyContinuation).Where("NOT invalidated").Update("consumed_at", gorm.Expr("clock_timestamp()"))
+			Where(readyContinuation).Where("NOT invalidated").Where(freshContinuation).Update("consumed_at", gorm.Expr("clock_timestamp()"))
 		applied = result.RowsAffected != 0
 		return result.Error
 	})

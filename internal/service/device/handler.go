@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	catalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
 	"github.com/flightctl/flightctl/internal/store"
+	inspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -37,6 +38,7 @@ import (
 // DeviceServiceHandler implements Service.
 type DeviceServiceHandler struct {
 	deviceStore       devicestore.Store
+	inspectionStore   *inspectionstore.Store
 	catalogStore      catalogstore.Store
 	fleetStore        fleetstore.Store
 	events            events.Service
@@ -72,6 +74,10 @@ func WithRepositoryGetter(getRepository common.RepositoryGetter) HandlerOption {
 	return func(h *DeviceServiceHandler) {
 		h.getRepository = getRepository
 	}
+}
+
+func WithInspectionStore(inspections *inspectionstore.Store) HandlerOption {
+	return func(h *DeviceServiceHandler) { h.inspectionStore = inspections }
 }
 
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
@@ -1258,53 +1264,69 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	var oldConditions, oldHoldConditions, newHoldConditions []domain.Condition
 	var renderedVersion string
 	var held bool
-	_, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
-		if err := m.RequireExisting(); err != nil {
-			return err
+	var continuation *RenderContinuation
+	for _, option := range options {
+		if option.Inspection != nil {
+			continuation = option.Inspection
 		}
-		for _, option := range options {
-			if option.ExpectedGeneration != nil && lo.FromPtr(m.Device.Metadata.Generation) != *option.ExpectedGeneration {
+	}
+	mutate := func(ctx context.Context) (string, error) {
+		_, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+			if err := m.RequireExisting(); err != nil {
+				return err
+			}
+			for _, option := range options {
+				if option.ExpectedGeneration != nil && lo.FromPtr(m.Device.Metadata.Generation) != *option.ExpectedGeneration {
+					return flterrors.ErrResourceVersionConflict
+				}
+			}
+			if continuation != nil && lo.FromPtr(m.Device.Metadata.ResourceVersion) != continuation.ResourceVersion {
 				return flterrors.ErrResourceVersionConflict
 			}
-		}
-		// Capture pre-render conditions before applyRenderedUpdate sets SpecValid.
-		previous = snapshotDeviceForStatusUpdate(m.Device)
-		oldConditions = nil
-		updated = nil
-		renderedVersion = ""
-		held, oldHoldConditions, newHoldConditions = false, nil, nil
-		if m.Device.Status != nil {
-			oldConditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
-		}
-		if domain.DeviceRequiresFirmwareHold(m.Device) {
-			held = true
-			var err error
-			oldHoldConditions, newHoldConditions, err = h.holdForFirmware(ctx, orgId, m.Device)
-			return err
-		}
-		version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
-		if err != nil {
-			return err
-		}
-		renderedVersion = version
-		var statusBefore *domain.DeviceStatus
-		if m.Device.Status != nil {
-			st := *m.Device.Status
-			if m.Device.Status.Conditions != nil {
-				st.Conditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
+			// Capture pre-render conditions before applyRenderedUpdate sets SpecValid.
+			previous = snapshotDeviceForStatusUpdate(m.Device)
+			oldConditions = nil
+			updated = nil
+			renderedVersion = ""
+			held, oldHoldConditions, newHoldConditions = false, nil, nil
+			if m.Device.Status != nil {
+				oldConditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
 			}
-			statusBefore = &st
-		}
-		if !common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log) {
-			m.Device.Status = statusBefore
-		}
-		// Always emit the update when renderedVersion advanced, even if USSS made no status change.
-		updated = m.Device
-		return nil
-	}, devicestore.WithTimestamp())
+			if domain.DeviceRequiresFirmwareHold(m.Device) {
+				held = true
+				var err error
+				oldHoldConditions, newHoldConditions, err = h.holdForFirmware(ctx, orgId, m.Device)
+				return err
+			}
+			version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+			if err != nil {
+				return err
+			}
+			renderedVersion = version
+			var statusBefore *domain.DeviceStatus
+			if m.Device.Status != nil {
+				st := *m.Device.Status
+				if m.Device.Status.Conditions != nil {
+					st.Conditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
+				}
+				statusBefore = &st
+			}
+			if !common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log) {
+				m.Device.Status = statusBefore
+			}
+			// Always emit the update when renderedVersion advanced, even if USSS made no status change.
+			updated = m.Device
+			return nil
+		}, devicestore.WithTimestamp())
+		return renderedVersion, err
+	}
+	applied, err := h.mutateRenderedDevice(ctx, orgId, name, continuation, mutate)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	if !applied {
+		return domain.StatusOK()
 	}
 	if held {
 		if newHoldConditions != nil {
@@ -1348,10 +1370,48 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
 	}
 
-	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion); err != nil {
+	if continuation != nil {
+		err = NotifyInspectionRender(ctx, h.inspectionStore, orgId, name, continuation.ID, renderedVersion)
+	} else {
+		err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
+	}
+	if err != nil {
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
 	}
 	return domain.StatusOK()
+}
+
+// NotifyInspectionRender exposes a committed version without repeating the rendered write.
+func NotifyInspectionRender(ctx context.Context, inspections *inspectionstore.Store, orgID uuid.UUID, name string, id uuid.UUID, version string) error {
+	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgID, name, version); err != nil {
+		return err
+	}
+	return inspections.AcknowledgePublication(ctx, orgID, id, version)
+}
+
+func (h *DeviceServiceHandler) mutateRenderedDevice(ctx context.Context, orgID uuid.UUID, name string, continuation *RenderContinuation, mutate func(context.Context) (string, error)) (bool, error) {
+	if continuation == nil {
+		_, err := mutate(ctx)
+		return true, err
+	}
+	if h.inspectionStore == nil {
+		return false, errors.New("device render continuation store is required")
+	}
+	owner := inspectionstore.Owner{Kind: inspectionstore.OwnerDevice, Name: name}
+	var consumed bool
+	err := h.deviceStore.WithTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		consumed, err = h.inspectionStore.ConsumeIfCurrent(txCtx, orgID, owner, continuation.ID, continuation.Snapshot)
+		if err != nil || !consumed {
+			return err
+		}
+		version, err := mutate(txCtx)
+		if err != nil || version == "" {
+			return err
+		}
+		return h.inspectionStore.RecordPublication(txCtx, orgID, continuation.ID, version)
+	})
+	return consumed, err
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {

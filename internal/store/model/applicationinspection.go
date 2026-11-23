@@ -76,7 +76,8 @@ type ApplicationInspection struct {
 	State           InspectionState            `gorm:"not null;check:application_inspection_work_state,state IN ('resolving','pending','complete','finished_incomplete')"`
 	Revision        InspectionFingerprint      `gorm:"type:jsonb;serializer:json;not null"`
 	DiagnosticCodes []InspectionDiagnostic     `gorm:"type:jsonb;serializer:json"`
-	ClaimToken      *uuid.UUID                 `gorm:"type:uuid"`
+	ClaimedAt       *time.Time
+	ClaimToken      *uuid.UUID `gorm:"type:uuid"`
 	ClaimUntil      *time.Time
 	FreshUntil      *time.Time
 	CreatedAt       time.Time `gorm:"not null;index:inspection_cleanup_age,priority:2"`
@@ -140,6 +141,8 @@ type ApplicationInspectionContinuation struct {
 	EventID          uuid.UUID             `gorm:"type:uuid;not null"`
 	Current          bool                  `gorm:"not null"`
 	Invalidated      bool                  `gorm:"not null;default:false"`
+	ForceRender      bool                  `gorm:"not null;default:false"`
 	ConsumedAt       *time.Time
+	PendingVersion   *string
 	SupersededAt     *time.Time
 }

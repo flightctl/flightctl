@@ -45,6 +45,8 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 		`DROP INDEX IF EXISTS application_inspection_canonical_key`,
 		`CREATE INDEX IF NOT EXISTS application_inspection_recoverable ON application_inspections (org_id, id) WHERE state IN ('resolving','pending')`,
 		`CREATE INDEX IF NOT EXISTS inspection_continuation_recoverable ON application_inspection_continuations (org_id, id) WHERE current AND consumed_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS inspection_continuation_notify ON application_inspection_continuations (org_id, id) WHERE pending_version IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS inspection_continuation_cleanup ON application_inspection_continuations (org_id, superseded_at, id) WHERE NOT current`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_current_device ON application_inspection_continuations (org_id, device_name) WHERE current AND device_name IS NOT NULL`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_current_fleet ON application_inspection_continuations (org_id, fleet_name) WHERE current AND fleet_name IS NOT NULL`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_device_event ON application_inspection_continuations (org_id, device_name, event_id) WHERE device_name IS NOT NULL`,

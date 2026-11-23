@@ -25,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	inspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/ignition"
@@ -77,7 +78,11 @@ func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, logi
 	if err != nil {
 		log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
 	} else {
-		log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
+		log.Infof("processed render request for device %s/%s", orgId, event.InvolvedObject.Name)
+	}
+	var admissionErr *inspectionAdmissionError
+	if errors.As(err, &admissionErr) {
+		return err
 	}
 	return nil
 }
@@ -93,6 +98,7 @@ type DeviceRenderLogic struct {
 	vmConverterOverride VmConverterFn
 	helmRenderer        helmImageRenderer
 	deltaLookup         generationLookup
+	inspection          *deviceInspection
 }
 
 type helmImageRenderer interface {
@@ -236,6 +242,8 @@ type deviceRenderState struct {
 	templateVersion *string
 	vmConverter     VmConverterFn
 	vmRenderOptions VmRenderOptions
+	continuation    *inspectionstore.ReadyContinuation
+	inspectedHelm   map[string][]string
 }
 
 func (t *DeviceRenderLogic) newRenderState(orgId uuid.UUID, event domain.Event) *deviceRenderState {
@@ -283,7 +291,14 @@ func (t *DeviceRenderLogic) renderDevice(ctx context.Context, orgId uuid.UUID, e
 func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	device, status := t.deviceSvc.GetDevice(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
+		if t.continuation != nil && status.Code == http.StatusNotFound {
+			return t.inspection.store.DiscardContinuation(ctx, t.orgId, t.continuation.ID)
+		}
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+	}
+	progress, err := t.currentInspection(ctx, device)
+	if err != nil {
+		return &inspectionAdmissionError{err}
 	}
 	if t.event.Reason == domain.EventReasonDeltaGenerationCompleted {
 		generation := device.Metadata.Generation
@@ -306,7 +321,10 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonFleetRolloutDeviceSelected,
 		domain.EventReasonApplicationLifecycleChanged,
-	}, t.event.Reason)
+	}, t.event.Reason) || (progress.NeedsRetry && inspectionRetrySignal(t.event.Reason))
+	if t.continuation != nil {
+		bypassHashCheck = t.continuation.ForceRender
+	}
 
 	if device.Metadata.Annotations != nil {
 		annotations := lo.FromPtr(device.Metadata.Annotations)
@@ -315,13 +333,13 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		if val, ok := annotations[domain.DeviceAnnotationAwaitingReconnect]; ok {
 			if val == "true" {
 				t.log.Infof("Device %s is awaiting reconnection after restore", t.event.InvolvedObject.Name)
-				return nil
+				return t.discardInspection(ctx)
 			}
 		}
 		if val, ok := annotations[domain.DeviceAnnotationConflictPaused]; ok {
 			if val == "true" {
 				t.log.Infof("Device %s is paused due to conflicts", t.event.InvolvedObject.Name)
-				return nil
+				return t.discardInspection(ctx)
 			}
 		}
 
@@ -331,7 +349,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		// device for the current template version. Skip redundant duplicates here rather than
 		// falling through to bypassHashCheck, which would otherwise force a phantom re-render,
 		// rendered-version bump, and agent update cycle for a device that already caught up.
-		if t.event.Reason == domain.EventReasonFleetRolloutDeviceSelected {
+		if t.event.Reason == domain.EventReasonFleetRolloutDeviceSelected && t.continuation == nil {
 			templateVersion, hasTemplateVersion := annotations[domain.DeviceAnnotationTemplateVersion]
 			renderedTemplateVersion, hasRenderedTemplateVersion := annotations[domain.DeviceAnnotationRenderedTemplateVersion]
 			if hasTemplateVersion && hasRenderedTemplateVersion && templateVersion == renderedTemplateVersion {
@@ -349,7 +367,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		// bypassHashCheck says this event must always produce a fresh render, or the firmware
 		// hold condition does not match the device's firmware state, which the rendered write
 		// must then record or clear.
-		if !bypassHashCheck && firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
+		if t.continuation == nil && !bypassHashCheck && firmwareHoldRecorded(device) == domain.DeviceRequiresFirmwareHold(device) {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
 					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
@@ -359,21 +377,45 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 	}
 
-	if device.Metadata.Owner != nil {
-		_, owner, err := util.GetResourceOwner(device.Metadata.Owner)
-		if err != nil {
-			return fmt.Errorf("failed getting device owner %s/%s: %w", t.orgId, t.event.InvolvedObject.Name, err)
-		}
-		t.ownerFleet = &owner
-
-		annotations := lo.FromPtr(device.Metadata.Annotations)
-		tvString, exists := util.GetFromMap(annotations, domain.DeviceAnnotationTemplateVersion)
-		if !exists {
-			return fmt.Errorf("device has no templateversion annotation")
-		}
-		t.templateVersion = &tvString
+	if err := t.bindRenderOwner(device); err != nil {
+		return err
 	}
+	rendered, renderErr := t.renderEffectiveSpec(ctx, device)
+	options := deviceservice.RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(lo.FromPtr(device.Metadata.Generation))}
+	if renderErr == nil && t.inspection != nil {
+		guard, paused, err := t.advanceInspection(ctx, device, rendered, progress, bypassHashCheck)
+		if err != nil {
+			return &inspectionAdmissionError{err}
+		}
+		if paused {
+			return nil
+		}
+		options.Inspection = guard
+	}
+	if renderErr == nil {
+		renderErr = t.resolveRenderedAppDeltaHints(ctx, device, &rendered)
+	}
+	return t.publishRender(ctx, device, rendered, renderErr, specHash, bypassHashCheck, options)
+}
 
+func (t *deviceRenderState) bindRenderOwner(device *domain.Device) error {
+	if device.Metadata.Owner == nil {
+		return nil
+	}
+	_, owner, err := util.GetResourceOwner(device.Metadata.Owner)
+	if err != nil {
+		return fmt.Errorf("failed getting device owner %s/%s: %w", t.orgId, t.event.InvolvedObject.Name, err)
+	}
+	annotations := lo.FromPtr(device.Metadata.Annotations)
+	tvString, exists := util.GetFromMap(annotations, domain.DeviceAnnotationTemplateVersion)
+	if !exists {
+		return fmt.Errorf("device has no templateversion annotation")
+	}
+	t.ownerFleet, t.templateVersion = &owner, &tvString
+	return nil
+}
+
+func (t *deviceRenderState) renderEffectiveSpec(ctx context.Context, device *domain.Device) (RenderedSpec, error) {
 	// Overlay the fleet-level application lifecycle default and the device-level override on
 	// top of the declarative application specs, baking the result into RenderedApplications
 	// only; neither is ever persisted back into the device's Spec. A malformed annotation is
@@ -404,18 +446,24 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		spec = &specCopy
 	}
 
-	rendered, renderErr := t.renderSpec(ctx, spec)
-	if renderErr == nil {
-		renderErr = t.resolveRenderedAppDeltaHints(ctx, device, &rendered)
+	return t.renderSpec(ctx, spec)
+}
+
+func (t *deviceRenderState) publishRender(ctx context.Context, device *domain.Device, rendered RenderedSpec, renderErr error, specHash string, bypassHashCheck bool, options deviceservice.RenderedDeviceOptions) error {
+	if renderErr != nil && t.continuation != nil {
+		return renderErr
 	}
 	if errors.Is(renderErr, errIgnitionConversion) {
 		return t.setErrorStatus(ctx, renderErr)
 	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		var outcome common.RepositoryRefsOutcome
-		outcome, status = t.deviceSvc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, t.orgId, *device.Metadata.Name, lo.FromPtr(device.Metadata.Generation), device.Spec)
+		outcome, status := t.deviceSvc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, t.orgId, *device.Metadata.Name, lo.FromPtr(device.Metadata.Generation), device.Spec)
 		if status.Code != http.StatusOK {
-			return t.setErrorStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
+			err := fmt.Errorf("setting repository references: %s", status.Message)
+			if t.continuation != nil {
+				return err
+			}
+			return t.setErrorStatus(ctx, err)
 		}
 		if outcome != common.RepositoryRefsReplaced {
 			t.log.Infof("Repository references of device %s/%s left unchanged (%s): the device changed since it was read or its firmware references are not known yet", t.orgId, *device.Metadata.Name, outcome)
@@ -444,13 +492,13 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints, deviceservice.RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(lo.FromPtr(device.Metadata.Generation))})
+	status := t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints, options)
 	if deviceservice.IsFirmwareHold(status) {
 		t.log.Infof("Rendered output of device %s/%s is held: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 		return nil
 	}
 	if err := common.ApiStatusToErr(status); err != nil {
-		if status.Code == http.StatusConflict {
+		if status.Code == http.StatusConflict || t.continuation != nil {
 			return err
 		}
 		return t.setErrorStatus(ctx, err)

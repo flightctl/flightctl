@@ -281,13 +281,18 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 }
 
 type ApplicationInspectionCleanupExecutor struct {
-	cleaner *appinspectionservice.Cleaner
+	cleaner      *appinspectionservice.Cleaner
+	replayWindow time.Duration
 }
 
 func (e *ApplicationInspectionCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeAppInspectionCleanup)
-	if _, err := e.cleaner.Cleanup(taskCtx, orgID, time.Now()); err != nil {
+	now := time.Now()
+	if _, err := e.cleaner.Cleanup(taskCtx, orgID, now); err != nil {
 		log.WithError(err).Warn("Application inspection cleanup failed")
+	}
+	if _, err := e.cleaner.CleanupContinuations(taskCtx, orgID, now.Add(-e.replayWindow)); err != nil {
+		log.WithError(err).Warn("Application inspection continuation cleanup failed")
 	}
 }
 
@@ -506,7 +511,7 @@ func InitializeTaskExecutors(
 			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
 		},
-		PeriodicTaskTypeAppInspectionCleanup:  &ApplicationInspectionCleanupExecutor{cleaner: inspectionCleaner},
+		PeriodicTaskTypeAppInspectionCleanup:  &ApplicationInspectionCleanupExecutor{cleaner: inspectionCleaner, replayWindow: time.Duration(cfg.Service.EventRetentionPeriod)},
 		PeriodicTaskTypeAppInspectionRecovery: &ApplicationInspectionRecoveryExecutor{wakeups: inspectionWakeups},
 		PeriodicTaskTypeDeltaPrepareDeadline: &DeltaPrepareDeadlineExecutor{
 			log:        log.WithField("pkg", "delta-prepare-deadline"),

@@ -177,7 +177,10 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		if shouldUpdateRepositoryReferers(ctx, eventWithOrgId.Event, log) {
 			taskName = "repositoryUpdate"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.RepositorySvc, d.EventSvc, log)
+				return errors.Join(
+					d.DeviceRenderer.retryRepositoryInspections(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.EventSvc),
+					repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.RepositorySvc, d.EventSvc, log),
+				)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}

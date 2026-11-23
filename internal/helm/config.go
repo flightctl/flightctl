@@ -88,8 +88,8 @@ func TargetRepositoryAliases(renderedConfig []byte) ([]RepositoryAlias, error) {
 	}
 	for i := range config.Repositories {
 		endpoint, err := url.Parse(config.Repositories[i].URL)
-		if err != nil {
-			return nil, err
+		if err != nil || endpoint.Host == "" || endpoint.Opaque != "" {
+			return nil, fmt.Errorf("invalid Helm dependency repository URL")
 		}
 		endpoint.User, endpoint.RawQuery, endpoint.Fragment, endpoint.ForceQuery = nil, "", "", false
 		config.Repositories[i].URL = endpoint.String()

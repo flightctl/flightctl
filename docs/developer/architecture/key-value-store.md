@@ -104,6 +104,14 @@ flowchart TD
 - **Failed Message Handling**: Failures are retried with exponential backoff until a maximum number of retries, after which an event is emitted notifying about a permanent failure
 - **Checkpoint Tracking**: Global checkpoint ensures no message loss during failures
 
+### Application inspection queue
+
+Device renders that need application inspection persist the work and its render continuation in PostgreSQL. While inspection is pending, the device keeps its last published configuration. One dedicated consumer per worker processes inspection and resume operations independently of ordinary events.
+
+The `application-inspection-queue` stream carries only the operation and record identifiers. Periodic recovery republishes unclaimed or expired work and ready continuations from PostgreSQL, independently of event checkpoints. The rendered write and continuation consumption commit together so duplicate deliveries cannot publish a second version. Recovery also retries notifications for versions committed before a worker stopped.
+
+OCI packages reuse inspection results after resolving the package digest through the existing metadata cache. Helm results retain their original freshness deadline in PostgreSQL. After expiry, a new inspection runs the chart dependency update and template steps again.
+
 ## Resilience and Recovery
 
 Flight Control implements a **dual-persistence architecture** to ensure no event loss during Redis failures (at-least-once delivery; duplicate processing possible):
