@@ -6463,6 +6463,14 @@ components:
             - Read
             - ReadWrite
           default: Read
+        devicePullAccess:
+          type: boolean
+          default: false
+          description: >-
+            Deliver this Repository's existing credentials, CA and transport
+            settings to devices. This does not change the permissions of the
+            configured credentials. False or omitted disables delivery for both
+            Read and ReadWrite access modes. Service-side Repository access is unchanged.
         ociAuth:
           $ref: "#/components/schemas/OciAuth"
         ca.crt:
