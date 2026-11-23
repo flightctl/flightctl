@@ -130,10 +130,17 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("When stored OCI JSON predates delivery flags it should remain disabled without rewriting the row", func() {
-			for _, mode := range []string{"Read", "ReadWrite"} {
-				name := "legacy-" + mode
+			for _, tc := range []struct {
+				name string
+				spec string
+			}{
+				{name: "Read", spec: `{"type":"oci","registry":"quay.io","accessMode":"Read"}`},
+				{name: "ReadWrite", spec: `{"type":"oci","registry":"quay.io","accessMode":"ReadWrite"}`},
+				{name: "omitted-access-mode", spec: `{"type":"oci","registry":"quay.io"}`},
+			} {
+				name := "legacy-" + tc.name
 				var spec api.RepositorySpec
-				Expect(spec.UnmarshalJSON([]byte(fmt.Sprintf(`{"type":"oci","registry":"quay.io","accessMode":%q}`, mode)))).To(Succeed())
+				Expect(spec.UnmarshalJSON([]byte(tc.spec))).To(Succeed())
 				legacy := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}, Spec: model.MakeJSONField(spec)}
 				Expect(db.WithContext(ctx).Create(&legacy).Error).ToNot(HaveOccurred())
 				repo, err := repositoryStore.Get(ctx, orgId, name)
@@ -141,9 +148,9 @@ var _ = Describe("RepositoryStore create", func() {
 				ociSpec, err := repo.Spec.AsOciRepoSpec()
 				Expect(err).ToNot(HaveOccurred())
 				Expect(ociSpec.DevicePullAccess).To(BeNil())
-				var hasField bool
-				Expect(db.WithContext(ctx).Raw("SELECT jsonb_exists(spec, 'devicePullAccess') FROM repositories WHERE org_id = ? AND name = ?", orgId, name).Scan(&hasField).Error).ToNot(HaveOccurred())
-				Expect(hasField).To(BeFalse())
+				var storedSpec string
+				Expect(db.WithContext(ctx).Raw("SELECT spec::text FROM repositories WHERE org_id = ? AND name = ?", orgId, name).Scan(&storedSpec).Error).ToNot(HaveOccurred())
+				Expect(storedSpec).To(MatchJSON(tc.spec))
 			}
 		})
 

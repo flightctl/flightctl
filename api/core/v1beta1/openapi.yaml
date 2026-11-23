@@ -6467,8 +6467,9 @@ components:
           type: boolean
           default: false
           description: >-
-            Allow delivery of this Repository's credentials, CA and transport
-            settings to devices. False or omitted disables delivery for both
+            Deliver this Repository's existing credentials, CA and transport
+            settings to devices. This does not change the permissions of the
+            configured credentials. False or omitted disables delivery for both
             Read and ReadWrite access modes. Service-side Repository access is unchanged.
         ociAuth:
           $ref: "#/components/schemas/OciAuth"
