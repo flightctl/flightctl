@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
+	inspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
@@ -1170,6 +1171,21 @@ func TestRenderSpecApplicationInspection(t *testing.T) {
 			result := appinspection.InspectSpec(&apps[0])
 			require.Equal(t, []appinspection.Reference{{Image: uri + ":" + tag, Role: appinspection.RolePackage, ConsumerKind: tt.consumer}}, result.Declared)
 			require.Nil(t, result.Inline)
+
+			if tt.appType != domain.AppTypeHelm {
+				repos := repositoryservice.NewMockService(gomock.NewController(t))
+				repos.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).
+					Return(nil, domain.Status{Code: http.StatusForbidden}).Times(2)
+				inspector, err := inspectionservice.NewInspector(repos)
+				require.NoError(t, err)
+				var manualApps []domain.ApplicationProviderSpec
+				require.NoError(t, json.Unmarshal(manual.Applications, &manualApps))
+				require.Len(t, manualApps, 1)
+				catalogResult := inspector.InspectPackage(t.Context(), orgID, &apps[0], nil)
+				require.Equal(t, catalogResult, inspector.InspectPackage(t.Context(), orgID, &manualApps[0], nil))
+				require.Equal(t, result.Declared, catalogResult.References)
+				require.Equal(t, []appinspection.Diagnostic{appinspection.DiagnosticContentUnavailable}, catalogResult.Diagnostics)
+			}
 		})
 	}
 }
