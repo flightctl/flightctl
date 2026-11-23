@@ -3708,6 +3708,9 @@ type OrganizationList struct {
 
 // OrganizationSpec OrganizationSpec describes an organization.
 type OrganizationSpec struct {
+	// AapOrganizationId Numeric organization ID from the authenticated AAP Gateway instance. Present only on authorized organization list results with a positive, unambiguous ID in that identity's Gateway organization lists. Omitted for other authentication providers or organizations without a known Gateway ID.
+	AapOrganizationId *int64 `json:"aapOrganizationId,omitempty"`
+
 	// DisplayName Human readable name shown to users.
 	DisplayName *string `json:"displayName,omitempty"`
 
