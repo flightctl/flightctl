@@ -118,7 +118,7 @@ var _ = Describe("Fleet schedule validation and persistence", func() {
 		}, "invalid time zone"),
 		Entry("incomplete recurring schedule", func(fleet *api.Fleet) {
 			schedule := fleet.Spec.Template.Spec.UpdatePolicy.DownloadSchedule
-			schedule.StartGraceDuration = nil
+			schedule.StartGraceDuration = ""
 		}, "startGraceDuration must be set"),
 	)
 })
@@ -134,8 +134,8 @@ func fleetWithSchedules(name string) api.Fleet {
 	}
 	fleet.Spec.Template.Spec.UpdatePolicy = &api.DeviceUpdatePolicySpec{
 		DownloadSchedule: &api.UpdateSchedule{
-			At:                 &downloadAt,
-			StartGraceDuration: &downloadDuration,
+			At:                 downloadAt,
+			StartGraceDuration: downloadDuration,
 			TimeZone:           &downloadTimeZone,
 			OneTimeWindows: &[]api.OneTimeWindow{{
 				Date:               "2026-11-15",

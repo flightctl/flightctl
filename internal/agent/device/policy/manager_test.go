@@ -198,8 +198,8 @@ func TestScheduleParse(t *testing.T) {
 					s.nowFn = func() time.Time { return now }
 					err := s.Parse(logger, &v1beta1.UpdateSchedule{
 						TimeZone:           tt.timeZone,
-						At:                 lo.ToPtr(v1beta1.CronExpression(tt.at)),
-						StartGraceDuration: lo.ToPtr(v1beta1.Duration(tt.grace)),
+						At:                 tt.at,
+						StartGraceDuration: tt.grace,
 					})
 					if tt.expectedError != "" {
 						require.ErrorContains(err, tt.expectedError)
@@ -564,8 +564,8 @@ func TestIsReadyAcrossTime(t *testing.T) {
 					}
 					setupRequire.NoError(s.Parse(logger, &v1beta1.UpdateSchedule{
 						TimeZone:           lo.ToPtr(tt.timeZone),
-						At:                 lo.ToPtr(v1beta1.CronExpression(tt.at)),
-						StartGraceDuration: lo.ToPtr(v1beta1.Duration(tt.grace)),
+						At:                 tt.at,
+						StartGraceDuration: tt.grace,
 					}))
 					setupRequire.Zero(clockReads, "parsing should be independent of the current time")
 
@@ -671,4 +671,37 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 			require.Equal(t, tt.wantReady, schedule.IsReady(logger))
 		})
 	}
+}
+
+func TestScheduleParseUsesLocalTimeZone(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	schedule := newSchedule(Update)
+
+	err := schedule.Parse(logger, &v1beta1.UpdateSchedule{
+		TimeZone: lo.ToPtr(v1beta1.TimeZone("Local")),
+		OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+			Date:               "2026-11-16",
+			At:                 "04:00",
+			StartGraceDuration: "1h",
+		}}),
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, time.Local, schedule.location)
+}
+
+func TestScheduleParseRejectsNonPositiveGraceDuration(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	schedule := newSchedule(Update)
+
+	err := schedule.Parse(logger, &v1beta1.UpdateSchedule{
+		TimeZone: lo.ToPtr(v1beta1.TimeZone("UTC")),
+		OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+			Date:               "2026-11-16",
+			At:                 "04:00",
+			StartGraceDuration: "0s",
+		}}),
+	})
+
+	require.ErrorContains(t, err, "must be positive")
 }

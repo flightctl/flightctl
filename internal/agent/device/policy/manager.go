@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -109,6 +110,15 @@ func newSchedule(policyType Type) *schedule {
 }
 
 func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSchedule) error {
+	if updateSchedule == nil {
+		return fmt.Errorf("schedule is nil")
+	}
+
+	s.location = nil
+	s.cron = nil
+	s.startGraceDuration = 0
+	s.oneTimeWindows = nil
+
 	hasAt := updateSchedule.At != ""
 	hasGraceDuration := updateSchedule.StartGraceDuration != ""
 	if hasAt != hasGraceDuration {
@@ -120,11 +130,16 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 
 	// parse time zone
 	if updateSchedule.TimeZone != nil {
-		loc, err := time.LoadLocation(lo.FromPtr(updateSchedule.TimeZone))
-		if err != nil {
-			return fmt.Errorf("invalid time zone: %w", err)
+		timeZone := lo.FromPtr(updateSchedule.TimeZone)
+		if strings.EqualFold(timeZone, "local") {
+			s.location = time.Local
+		} else {
+			loc, err := time.LoadLocation(timeZone)
+			if err != nil {
+				return fmt.Errorf("invalid time zone: %w", err)
+			}
+			s.location = loc
 		}
-		s.location = loc
 	} else {
 		s.location = time.Local
 	}
@@ -143,6 +158,9 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 		duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
 		if err != nil {
 			return fmt.Errorf("invalid start grace duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("invalid start grace duration: must be positive")
 		}
 		s.startGraceDuration = duration
 	}
@@ -172,6 +190,9 @@ func parseOneTimeWindow(window v1beta1.OneTimeWindow, location *time.Location) (
 	graceDuration, err := time.ParseDuration(window.StartGraceDuration)
 	if err != nil {
 		return oneTimeWindow{}, fmt.Errorf("invalid start grace duration: %w", err)
+	}
+	if graceDuration <= 0 {
+		return oneTimeWindow{}, fmt.Errorf("start grace duration must be positive")
 	}
 
 	return oneTimeWindow{start: start, graceDuration: graceDuration}, nil

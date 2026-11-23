@@ -223,6 +223,108 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 	}
 }
 
+func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
+	tests := []struct {
+		name        string
+		schedule    UpdateSchedule
+		wantErrText string
+	}{
+		{
+			name: "When a one-time-only schedule is valid it should pass",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+		},
+		{
+			name: "When a combined recurring and one-time schedule is valid it should pass",
+			schedule: UpdateSchedule{
+				At:                 CronExpression("0 4 * * 1"),
+				StartGraceDuration: Duration("1h"),
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+		},
+		{
+			name: "When the schedule is empty it should fail with a schedule error",
+			schedule: UpdateSchedule{
+				TimeZone: lo.ToPtr(TimeZone("UTC")),
+			},
+			wantErrText: "schedule",
+		},
+		{
+			name: "When a one-time date is invalid it should identify the date field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-02-30",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].date",
+		},
+		{
+			name: "When a one-time time is invalid it should identify the at field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "24:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].at",
+		},
+		{
+			name: "When a one-time duration is not positive it should identify the duration field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "0s",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+		{
+			name: "When a one-time duration uses an unsupported unit it should identify the duration field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "1ms",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.schedule.Validate()
+			if tt.wantErrText == "" {
+				require.Empty(t, errs)
+				return
+			}
+
+			require.NotEmpty(t, errs)
+			assert.Condition(t, func() bool {
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.wantErrText) {
+						return true
+					}
+				}
+				return false
+			})
+		})
+	}
+}
+
 func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {

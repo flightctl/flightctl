@@ -1574,8 +1574,8 @@ func fleetWithScheduleRoundTrip(name string, harness *e2e.Harness) v1beta1.Fleet
 	fleet.Spec.Template.Spec.Os = &v1beta1.DeviceOsSpec{Image: "quay.io/redhat/rhde:9.2"}
 	fleet.Spec.Template.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
 		DownloadSchedule: &v1beta1.UpdateSchedule{
-			At:                 &downloadAt,
-			StartGraceDuration: &downloadDuration,
+			At:                 downloadAt,
+			StartGraceDuration: downloadDuration,
 			TimeZone:           &downloadTimeZone,
 			OneTimeWindows: &[]v1beta1.OneTimeWindow{{
 				Date:               "2026-12-01",
