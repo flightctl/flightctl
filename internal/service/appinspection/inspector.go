@@ -85,8 +85,18 @@ func (i *Inspector) resolveAccess(ctx context.Context, orgID uuid.UUID, endpoint
 			return nil, errors.New("unable to resolve package repository access")
 		}
 		for _, item := range page.Items {
+			specType, err := item.Spec.Discriminator()
+			if err != nil {
+				return nil, errors.New("unable to determine package repository type")
+			}
+			if specType != string(domain.RepoSpecTypeOci) {
+				continue
+			}
 			spec, err := item.Spec.AsOciRepoSpec()
-			if err != nil || !strings.EqualFold(spec.Registry, endpoint.Registry) {
+			if err != nil {
+				return nil, errors.New("unable to decode OCI package repository access")
+			}
+			if !strings.EqualFold(spec.Registry, endpoint.Registry) {
 				continue
 			}
 			score := accessSpecificity(spec, endpoint.Repository)

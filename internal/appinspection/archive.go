@@ -22,6 +22,8 @@ const (
 	packageTarZstd packageFormat = "tar+zstd"
 )
 
+const maxTarTrailingPadding = 1 << 20
+
 var errInvalidArchive = errors.New("invalid application package archive")
 
 func artifactFormat(name string) packageFormat {
@@ -139,8 +141,13 @@ func (w *packageWorkspace) readTar(ctx context.Context, stage string, src io.Rea
 			return nil, err
 		}
 	}
-	if _, err := io.Copy(tarPadding{}, src); err != nil {
+	// Read through the compression trailer while bounding work after the tar end marker.
+	n, err := io.Copy(tarPadding{}, io.LimitReader(src, maxTarTrailingPadding+1))
+	if err != nil {
 		return nil, err
+	}
+	if n > maxTarTrailingPadding {
+		return nil, errInvalidArchive
 	}
 	return whiteouts, nil
 }

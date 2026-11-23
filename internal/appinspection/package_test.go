@@ -132,6 +132,39 @@ func TestInspectPackageIncompleteArchive(t *testing.T) {
 	}
 }
 
+func TestInspectPackageTarTrailingPadding(t *testing.T) {
+	const image = "quay.io/example/app:base"
+	const override = "quay.io/example/app:override"
+	compose := func(ref string) string { return "services:\n  app:\n    image: " + ref + "\n" }
+	for _, tc := range []struct {
+		name        string
+		padding     int
+		corrupt     bool
+		diagnostics []Diagnostic
+		image       string
+	}{
+		{name: "padding is at the limit it should discover the override", padding: maxTarTrailingPadding, image: override},
+		{name: "padding is over the limit it should retain the base", padding: maxTarTrailingPadding + 1, diagnostics: []Diagnostic{DiagnosticParseFailed}, image: image},
+		{name: "the trailer is corrupt at the limit it should retain the base", padding: maxTarTrailingPadding, corrupt: true, diagnostics: []Diagnostic{DiagnosticParseFailed}, image: image},
+	} {
+		t.Run("When "+tc.name, func(t *testing.T) {
+			archive := makeTar(t, archiveEntry{name: "docker-compose.override.yaml", data: compose(override)})
+			data := gzipBytes(t, append(archive, make([]byte, tc.padding)...))
+			if tc.corrupt {
+				data[len(data)-8] ^= 1
+			}
+			registry := packageRegistry{}
+			base := registry.blob("docker-compose.yaml", "application/yaml", []byte(compose(image)))
+			layer := registry.blob("package.tgz", "application/gzip", data)
+			parent := registry.manifest(t, ocispec.DescriptorEmptyJSON, base, layer)
+			repo := registry.serve(t, parent, false)
+			result := InspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil)
+			require.Equal(t, tc.diagnostics, result.Diagnostics)
+			require.Equal(t, []Reference{{Image: tc.image, Role: RoleWorkload, ConsumerKind: ConsumerContainer}}, result.References)
+		})
+	}
+}
+
 func TestInspectPackageRejectsInvalidArtifactTitles(t *testing.T) {
 	for _, title := range []string{"", ".", "../docker-compose.yaml", "/docker-compose.yaml"} {
 		t.Run("When a blob title is invalid it should finish incomplete: "+title, func(t *testing.T) {
@@ -260,7 +293,9 @@ func (r packageRegistry) serve(t *testing.T, parent ocispec.Descriptor, private 
 		w.Header().Set("Content-Length", strconv.FormatInt(object.desc.Size, 10))
 		w.Header().Set("Docker-Content-Digest", object.desc.Digest.String())
 		if req.Method == http.MethodGet {
-			_, _ = w.Write(object.data)
+			if _, err := w.Write(object.data); err != nil {
+				t.Errorf("writing registry response: %v", err)
+			}
 		}
 	}))
 	t.Cleanup(srv.Close)

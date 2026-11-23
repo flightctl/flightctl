@@ -144,12 +144,16 @@ func TestInspectPackageRetriesAfterServiceCredentialsAreRepaired(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDigest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
 			if req.Method == http.MethodGet {
-				_, _ = w.Write(manifest)
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("writing registry manifest: %v", err)
+				}
 			}
 		case "/v2/" + repoPath + "/blobs/" + blobDigest.String():
 			w.Header().Set("Docker-Content-Digest", blobDigest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
-			_, _ = w.Write(blob)
+			if _, err := w.Write(blob); err != nil {
+				t.Errorf("writing registry blob: %v", err)
+			}
 		default:
 			http.NotFound(w, req)
 		}
@@ -183,12 +187,20 @@ func TestInspectPackageRetriesAfterServiceCredentialsAreRepaired(t *testing.T) {
 	first := repositoryAccessPage(t, []domain.OciRepoSpec{broad, exact})
 	exact.OciAuth = access("repaired-test-token")
 	second := repositoryAccessPage(t, []domain.OciRepoSpec{exact, broad})
+	var malformed domain.Repository
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"oci","registry":false}`), &malformed.Spec))
+	second.Items = append(second.Items, malformed)
+	third := repositoryAccessPage(t, []domain.OciRepoSpec{exact, broad})
+	var httpRepo domain.Repository
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"http","registry":"`+host+`","repository":"`+repoPath+`"}`), &httpRepo.Spec))
+	third.Items = append(third.Items, httpRepo)
 
 	orgID := uuid.New()
 	service := repository.NewMockService(gomock.NewController(t))
 	gomock.InOrder(
 		service.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).Return(first, domain.StatusOK()),
 		service.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).Return(second, domain.StatusOK()),
+		service.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).Return(third, domain.StatusOK()),
 	)
 	inspector, err := NewInspector(service)
 	require.NoError(t, err)
@@ -200,6 +212,9 @@ func TestInspectPackageRetriesAfterServiceCredentialsAreRepaired(t *testing.T) {
 	require.Equal(t, []appinspection.Diagnostic{appinspection.DiagnosticContentUnavailable}, denied.Diagnostics)
 	require.Equal(t, []appinspection.Reference{declared}, denied.References)
 	require.Empty(t, denied.ParentDigest)
+
+	invalidAccess := inspector.InspectPackage(ctx, orgID, &app, nil)
+	require.Equal(t, denied, invalidAccess)
 
 	result := inspector.InspectPackage(ctx, orgID, &app, nil)
 	require.Empty(t, result.Diagnostics)
