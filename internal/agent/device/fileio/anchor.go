@@ -252,6 +252,8 @@ func (a *anchor) OpenDir(name string, opts DirOptions) (Anchor, error) {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("stat directory %w: %w", errors.WithElement(path.Join(a.path, name)), err)
 		}
+	}
+	if opts.Create {
 		if err := unix.Fsync(a.fd); err != nil {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("sync directory %w: %w", errors.WithElement(a.path), err)
