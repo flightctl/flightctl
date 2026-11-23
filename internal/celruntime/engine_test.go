@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common/types"
@@ -16,7 +17,7 @@ import (
 
 func TestCompileAndEvaluate(t *testing.T) {
 	t.Run("When a boolean expression is compiled it should preserve its type and evaluate reported values", func(t *testing.T) {
-		engine, err := celruntime.New(cel.Variable("serial", cel.StringType))
+		engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("serial", cel.StringType)))
 		require.NoError(t, err)
 		program, err := engine.Compile(`serial.startsWith("WEST-")`)
 		require.NoError(t, err)
@@ -24,6 +25,23 @@ func TestCompileAndEvaluate(t *testing.T) {
 		value, err := program.Evaluate(map[string]any{"serial": "WEST-001"})
 		require.NoError(t, err)
 		require.Equal(t, types.True, value)
+	})
+}
+
+func TestNewPreservesEnvOptions(t *testing.T) {
+	t.Run("When an option subslice is supplied it should preserve the caller's remaining options", func(t *testing.T) {
+		options := []cel.EnvOption{cel.Variable("first", cel.StringType), cel.Variable("second", cel.StringType)}
+		engine, err := celruntime.New(celruntime.WithEnvOptions(options[:1]...))
+		require.NoError(t, err)
+		_, err = engine.Compile(`first`)
+		require.NoError(t, err)
+		_, err = engine.Compile(`second`)
+		require.ErrorContains(t, err, "undeclared reference")
+
+		engine, err = celruntime.New(celruntime.WithEnvOptions(options...))
+		require.NoError(t, err)
+		_, err = engine.Compile(`second`)
+		require.NoError(t, err)
 	})
 }
 
@@ -45,7 +63,7 @@ func TestEvaluationValues(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine, err := celruntime.New(cel.Variable("reported", cel.DynType), cel.OptionalTypes())
+			engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("reported", cel.DynType), cel.OptionalTypes()))
 			require.NoError(t, err)
 			program, err := engine.Compile(tt.expression)
 			require.NoError(t, err)
@@ -63,9 +81,9 @@ func TestEvaluationValues(t *testing.T) {
 
 func TestEnvironmentIsolation(t *testing.T) {
 	t.Run("When engines declare different types it should compile independently of other caches", func(t *testing.T) {
-		stringsEngine, err := celruntime.New(cel.Variable("reported", cel.StringType))
+		stringsEngine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("reported", cel.StringType)))
 		require.NoError(t, err)
-		boolEngine, err := celruntime.New(cel.Variable("reported", cel.BoolType))
+		boolEngine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("reported", cel.BoolType)))
 		require.NoError(t, err)
 		stringProgram, err := stringsEngine.Compile(`reported`)
 		require.NoError(t, err)
@@ -118,7 +136,7 @@ func TestActivation(t *testing.T) {
 			"spec":   nil,
 		})
 		require.NoError(t, err)
-		engine, err := celruntime.New(cel.Variable("status", cel.DynType), cel.Variable("spec", cel.DynType))
+		engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("status", cel.DynType), cel.Variable("spec", cel.DynType)))
 		require.NoError(t, err)
 		program, err := engine.Compile(`status.productSerial == "WEST-001" && spec == null`)
 		require.NoError(t, err)
@@ -130,20 +148,36 @@ func TestActivation(t *testing.T) {
 	})
 }
 
-func TestEvaluateRejectsNilActivation(t *testing.T) {
-	t.Run("When activation is nil it should reject evaluation explicitly", func(t *testing.T) {
-		engine, err := celruntime.New()
-		require.NoError(t, err)
-		program, err := engine.Compile(`true`)
-		require.NoError(t, err)
-		_, err = program.Evaluate(nil)
-		require.ErrorContains(t, err, "activation is nil")
-	})
+func TestEvaluateEmptyActivation(t *testing.T) {
+	engine, err := celruntime.New()
+	require.NoError(t, err)
+	program, err := engine.Compile(`true`)
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name       string
+		activation any
+		wantError  bool
+	}{
+		{name: "When activation is nil it should reject evaluation", wantError: true},
+		{name: "When the activation map is nil it should reject evaluation", activation: map[string]any(nil), wantError: true},
+		{name: "When the activation map is empty it should evaluate a constant expression", activation: map[string]any{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			value, err := program.Evaluate(tt.activation)
+			if tt.wantError {
+				require.EqualError(t, err, "activation is nil")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, types.True, value)
+		})
+	}
 }
 
 func TestConcurrentEvaluation(t *testing.T) {
 	t.Run("When callers compile and evaluate concurrently it should isolate activations during eviction", func(t *testing.T) {
-		engine, err := celruntime.New(cel.Variable("serial", cel.IntType))
+		engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("serial", cel.IntType)))
 		require.NoError(t, err)
 		var wg sync.WaitGroup
 		for worker := range 16 {
@@ -227,15 +261,76 @@ func TestExpressionSizeLimit(t *testing.T) {
 		_, err = engine.Compile(`"` + strings.Repeat("a", 1_001) + `"`)
 		require.ErrorContains(t, err, "parsing CEL expression")
 	})
+
+	t.Run("When an expression exceeds the configured code point limit it should return the CEL error without evicting cached programs", func(t *testing.T) {
+		const sizeLimit = 5
+		engine, err := celruntime.New(celruntime.WithConfig(celruntime.Config{MaxExpressionSize: sizeLimit, CacheCapacity: 1}))
+		require.NoError(t, err)
+		atLimit := `"ééé"`
+		program, err := engine.Compile(atLimit)
+		require.NoError(t, err)
+
+		oversized := `"ééééé"`
+		env, err := cel.NewEnv(cel.ParserExpressionSizeLimit(sizeLimit))
+		require.NoError(t, err)
+		_, issues := env.Parse(oversized)
+		require.Error(t, issues.Err())
+		for range 2 {
+			_, err := engine.Compile(oversized)
+			require.EqualError(t, err, "parsing CEL expression: "+issues.Err().Error())
+		}
+		cached, err := engine.Compile(atLimit)
+		require.NoError(t, err)
+		require.Same(t, program, cached)
+
+		_, err = engine.Compile(`true`)
+		require.NoError(t, err)
+		recompiled, err := engine.Compile(atLimit)
+		require.NoError(t, err)
+		require.NotSame(t, program, recompiled)
+	})
+}
+
+func TestProgramCacheTTL(t *testing.T) {
+	t.Run("When the cache TTL elapses it should recompile the expression", func(t *testing.T) {
+		const ttl = 10 * time.Millisecond
+		engine, err := celruntime.New(celruntime.WithConfig(celruntime.Config{CacheTTL: ttl}))
+		require.NoError(t, err)
+		program, err := engine.Compile(`true`)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			recompiled, err := engine.Compile(`true`)
+			return err == nil && recompiled != program
+		}, time.Second, 2*ttl)
+	})
 }
 
 func TestEvaluationCostLimit(t *testing.T) {
 	t.Run("When evaluation exceeds its cost bound it should return an error", func(t *testing.T) {
-		engine, err := celruntime.New(cel.Variable("items", cel.ListType(cel.StringType)))
+		engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("items", cel.ListType(cel.StringType))))
 		require.NoError(t, err)
 		program, err := engine.Compile(`items.exists(item, item == "absent")`)
 		require.NoError(t, err)
 		_, err = program.Evaluate(map[string]any{"items": make([]string, 10_100)})
 		require.ErrorContains(t, err, "cost limit exceeded")
+	})
+
+	t.Run("When an engine sets a lower cost limit it should apply only to that engine", func(t *testing.T) {
+		variables := celruntime.WithEnvOptions(cel.Variable("items", cel.ListType(cel.StringType)))
+		limitedEngine, err := celruntime.New(variables, celruntime.WithConfig(celruntime.Config{MaxExpressionCost: 1}))
+		require.NoError(t, err)
+		defaultEngine, err := celruntime.New(variables)
+		require.NoError(t, err)
+		const expression = `items.exists(item, item == "absent")`
+		activation := map[string]any{"items": []string{"item"}}
+		limitedProgram, err := limitedEngine.Compile(expression)
+		require.NoError(t, err)
+		_, err = limitedProgram.Evaluate(activation)
+		require.ErrorContains(t, err, "cost limit exceeded")
+		defaultProgram, err := defaultEngine.Compile(expression)
+		require.NoError(t, err)
+		value, err := defaultProgram.Evaluate(activation)
+		require.NoError(t, err)
+		require.Equal(t, types.False, value)
 	})
 }

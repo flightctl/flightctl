@@ -2,28 +2,56 @@
 package celruntime
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+	"unicode/utf8"
 
 	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common"
+	"cel.dev/cel-go/common/runes"
 	"cel.dev/cel-go/common/types/ref"
 	"github.com/jellydator/ttlcache/v3"
 )
 
-// MaxExpressionSize is the maximum expression size accepted by the CEL parser.
-const MaxExpressionSize = 1_000
+// Config overrides the defaults for one engine. Zero values use the defaults.
+type Config struct {
+	MaxExpressionSize int           // Maximum number of Unicode code points per expression.
+	MaxExpressionCost uint64        // Maximum CEL cost units per evaluation.
+	CacheCapacity     uint64        // Maximum cached compilations, including failures.
+	CacheTTL          time.Duration // Maximum idle time for cached compilations. Zero means no expiration.
+}
 
-// MaxExpressionCost bounds the runtime cost of a single evaluation.
-const MaxExpressionCost = 10_000
+// Option configures an engine before its CEL environment is created.
+type Option func(*engineOptions)
 
-// MaxCachedPrograms bounds cached compilations, including failures, per engine.
-const MaxCachedPrograms = 256
+type engineOptions struct {
+	config     Config
+	envOptions []cel.EnvOption
+}
+
+// WithConfig supplies the runtime limits and cache settings for an engine.
+func WithConfig(config Config) Option {
+	return func(settings *engineOptions) {
+		settings.config = config
+	}
+}
+
+// WithEnvOptions adds declarations, libraries, and other CEL environment options in order.
+func WithEnvOptions(options ...cel.EnvOption) Option {
+	return func(settings *engineOptions) {
+		settings.envOptions = append(settings.envOptions, options...)
+	}
+}
 
 // Engine owns a CEL environment. Consumers supply their own declarations and libraries.
 type Engine struct {
-	env      *cel.Env
-	programs *ttlcache.Cache[string, cachedProgram]
+	env               *cel.Env
+	programs          *ttlcache.Cache[string, cachedProgram]
+	maxExpressionSize int
+	maxExpressionCost uint64
 }
 
 type cachedProgram struct {
@@ -37,27 +65,48 @@ type Program struct {
 	outputType *cel.Type
 }
 
-// New constructs an engine with the consumer's environment options.
-func New(options ...cel.EnvOption) (*Engine, error) {
-	options = append(options, cel.ParserExpressionSizeLimit(MaxExpressionSize))
-	env, err := cel.NewEnv(options...)
+// New constructs an engine with optional settings and CEL environment options.
+func New(options ...Option) (*Engine, error) {
+	var settings engineOptions
+	for _, option := range options {
+		option(&settings)
+	}
+	config := settings.config
+	if config.MaxExpressionSize < 0 {
+		return nil, errors.New("maximum CEL expression size must be non-negative")
+	}
+	if config.CacheTTL < 0 {
+		return nil, errors.New("CEL cache TTL must be non-negative")
+	}
+	maxExpressionSize := cmp.Or(config.MaxExpressionSize, 1_000)
+	envOptions := append(settings.envOptions, cel.ParserExpressionSizeLimit(maxExpressionSize))
+	env, err := cel.NewEnv(envOptions...)
 	if err != nil {
 		return nil, err
 	}
 	return &Engine{
-		env: env,
+		env:               env,
+		maxExpressionSize: maxExpressionSize,
+		maxExpressionCost: cmp.Or(config.MaxExpressionCost, 10_000),
 		programs: ttlcache.New(
-			ttlcache.WithCapacity[string, cachedProgram](MaxCachedPrograms),
-			ttlcache.WithTTL[string, cachedProgram](ttlcache.NoTTL),
+			ttlcache.WithCapacity[string, cachedProgram](cmp.Or(config.CacheCapacity, 256)),
+			ttlcache.WithTTL[string, cachedProgram](cmp.Or(config.CacheTTL, ttlcache.NoTTL)),
 		),
 	}, nil
 }
 
 // Compile parses, type-checks, and builds an expression for this environment.
 // Successful compilations return the same Program while cached. Eviction does
-// not invalidate a Program already held by a caller. Compilation errors are cached too.
-// Compile and Program.Evaluate are safe to call concurrently.
+// not invalidate a Program already held by a caller. Compilation errors within
+// the expression size limit are cached too. Compile is safe to call concurrently.
 func (e *Engine) Compile(expression string) (*Program, error) {
+	if len(expression) > e.maxExpressionSize {
+		if size := utf8.RuneCountInString(expression); size > e.maxExpressionSize {
+			// Preserve the CEL parser diagnostic without retaining the expression.
+			err := &runes.SizeLimitError{Size: size, Limit: e.maxExpressionSize}
+			return nil, fmt.Errorf("parsing CEL expression: %w", cel.ErrorAsIssues(err).Err())
+		}
+	}
 	if item := e.programs.Get(expression); item != nil {
 		cached := item.Value()
 		return cached.program, cached.err
@@ -70,7 +119,7 @@ func (e *Engine) Compile(expression string) (*Program, error) {
 }
 
 func (e *Engine) compile(expression string) (*Program, error) {
-	parsed, issues := e.env.Parse(expression)
+	parsed, issues := e.env.ParseSource(common.NewTextSource(expression))
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("parsing CEL expression: %w", issues.Err())
 	}
@@ -78,7 +127,7 @@ func (e *Engine) compile(expression string) (*Program, error) {
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("checking CEL expression: %w", issues.Err())
 	}
-	program, err := e.env.Program(checked, cel.CostLimit(MaxExpressionCost))
+	program, err := e.env.Program(checked, cel.CostLimit(e.maxExpressionCost))
 	if err != nil {
 		return nil, fmt.Errorf("building CEL program: %w", err)
 	}
@@ -91,8 +140,12 @@ func (p *Program) OutputType() *cel.Type {
 }
 
 // Evaluate returns the CEL value without consumer-specific conversion.
+// Concurrent evaluations require independent activations or activations that
+// support concurrent use. Resolve shared lazy globals before concurrent use or
+// provide a concurrency-safe global activation.
 func (p *Program) Evaluate(activation any) (ref.Val, error) {
-	if activation == nil {
+	bindings, isMap := activation.(map[string]any)
+	if activation == nil || (isMap && bindings == nil) {
 		return nil, errors.New("activation is nil")
 	}
 	value, _, err := p.program.Eval(activation)

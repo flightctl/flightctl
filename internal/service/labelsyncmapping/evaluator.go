@@ -63,14 +63,14 @@ type evaluator struct {
 }
 
 func NewEvaluator() (Evaluator, error) {
-	engine, err := celruntime.New(
+	engine, err := celruntime.New(celruntime.WithEnvOptions(
 		cel.Variable("metadata", cel.DynType),
 		cel.Variable("spec", cel.DynType),
 		cel.Variable("status", cel.DynType),
 		cel.OptionalTypes(),
 		ext.TwoVarComprehensions(),
 		semverLibrary(),
-	)
+	))
 	if err != nil {
 		return nil, err
 	}
