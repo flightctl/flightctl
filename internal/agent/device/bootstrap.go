@@ -214,8 +214,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 
 	if b.specManager.IsUpgrading() {
 		updatingCondition.Status = v1beta1.ConditionStatusTrue
-		// TODO: only set rebooting in case where we are actually rebooting
-		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
+		updatingCondition.Reason = string(v1beta1.UpdateStateApplyingUpdate)
 	} else {
 		rollbackInfo, err := b.specManager.GetRollbackInfo()
 		if err != nil {
@@ -238,6 +237,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 
 	_, updateErr := b.statusManager.Update(ctx,
+		status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{Status: v1beta1.DeviceSummaryStatusOnline}),
 		status.SetConfig(v1beta1.DeviceConfigStatus{
 			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
 		}),

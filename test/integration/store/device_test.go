@@ -1228,11 +1228,11 @@ var _ = Describe("DeviceStore create", func() {
 				// Create update policy
 				updatePolicy := &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
-						At:       "0 2 * * *",
+						At:       api.CronExpression("0 2 * * *"),
 						TimeZone: lo.ToPtr("UTC"),
 					},
 					UpdateSchedule: &api.UpdateSchedule{
-						At:       "0 3 * * *",
+						At:       api.CronExpression("0 3 * * *"),
 						TimeZone: lo.ToPtr("UTC"),
 					},
 				}
@@ -2237,7 +2237,7 @@ var _ = Describe("DeviceStore create", func() {
 				Applications: &[]api.ApplicationProviderSpec{testAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
-						At:       "0 2 * * *",
+						At:       api.CronExpression("0 2 * * *"),
 						TimeZone: lo.ToPtr("UTC"),
 					},
 				},
@@ -2295,7 +2295,7 @@ var _ = Describe("DeviceStore create", func() {
 				Applications: &[]api.ApplicationProviderSpec{equivAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
-						At:       "0 2 * * *",
+						At:       api.CronExpression("0 2 * * *"),
 						TimeZone: lo.ToPtr("UTC"),
 					},
 				},

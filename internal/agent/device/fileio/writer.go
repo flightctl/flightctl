@@ -789,3 +789,38 @@ func UnpackTar(writer Writer, tarPath, destDir string) error {
 
 	return nil
 }
+
+func (w *writer) WriteFileDurable(name string, data []byte, dirMode, fileMode fs.FileMode, opts ...FileOption) error {
+	fullPath, err := filepath.Abs(filepath.Join(w.rootDir, name))
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(fullPath)
+	fopts := &fileOptions{uid: w.uid, gid: w.gid}
+	for _, opt := range opts {
+		opt(fopts)
+	}
+	if err := writeFileAtomically(fullPath, data, dirMode, fileMode, fopts.uid, fopts.gid); err != nil {
+		return err
+	}
+	// A prior failed attempt may have created any ancestor without syncing its
+	// parent. Existing directory entries therefore also need syncing on retry.
+	for directory := dir; ; directory = filepath.Dir(directory) {
+		f, err := os.Open(directory)
+		if err != nil {
+			return err
+		}
+		syncErr := f.Sync()
+		closeErr := f.Close()
+		if syncErr != nil {
+			return fmt.Errorf("sync durable file directory: %w", syncErr)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if filepath.Dir(directory) == directory {
+			break
+		}
+	}
+	return nil
+}

@@ -67,6 +67,29 @@ The agent can report hook outcomes by changing `Pending` to `Succeeded`, `Contin
 
 For hook configuration, failure policies, and restart behavior, see [Using enrollment hooks](enrollment-hooks.md).
 
+### Revoking enrollment credentials
+
+Revocation applies to an issued enrollment credential and has consequences for new enrollment, pending Enrollment Requests, and admitted devices.
+
+To revoke an issued enrollment credential, run:
+
+```console
+flightctl revoke csr/<name> --reason "<reason>"
+```
+
+Revocation has the following consequences:
+
+- Blocks new enrollment with the credential.
+- Denies pending Enrollment Requests bound to the revoked CSR. Each request receives a `Denied=True` condition with reason `EnrollmentCredentialRevoked`.
+- Flags devices admitted with the credential. Each device has `status.enrollmentCredential.revoked` set to `true` and receives an `EnrollmentCredentialRevoked` condition.
+- Sets `status.revocation.flaggingCompletedAt` on the CSR after all consequences complete.
+
+Revocation does not evict admitted devices or stop management certificate renewal. It also does not change service client behavior.
+
+The denial does not create a terminal approval block. An administrator can approve a denied Enrollment Request explicitly later.
+
+To list devices flagged by credential revocation, use the `status.enrollmentCredential.revoked=true` field selector. See [Filter by enrollment credential provenance](field-selectors.md#example-5-filter-by-enrollment-credential-provenance) for the command that lists flagged devices.
+
 ## Viewing the Device Inventory and Device Details
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. You can promote fields to labels during enrollment with the agent's `label-from-systeminfo` configuration, or synchronize them to labels after enrollment with `LabelSyncMapping` resources. Promoted labels support grouping and filtering devices by attributes such as region or OS version. See [Managing dynamic label mappings](managing-dynamic-mappings.md) for server-side mappings.
@@ -2268,13 +2291,29 @@ Each device can define two independent schedules in the `updatePolicy` section o
 * **`downloadSchedule`**: Defines when the device is allowed to download update artifacts such as OS image layers.
 * **`updateSchedule`**: Defines when the device is allowed to apply updates.
 
+Firmware updater authorization metadata can be refreshed outside download windows
+so that devices can receive updater revocations. This does not download updater
+programs or firmware artifacts.
+
 Each schedule supports:
 
 | Parameter              | Description                                                                 |
 |------------------------|-----------------------------------------------------------------------------|
-| `at`                   | (Required) A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
+| `at`                   | (Required for a recurring schedule) A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. It must be configured together with `startGraceDuration`. |
 | `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device's local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `startGraceDuration`   | (Required) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+| `startGraceDuration`   | (Required for a recurring schedule) A duration string that extends the allowed start time window after a schedule trigger. It must be configured together with `at`. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+| `oneTimeWindows`       | (Optional) A non-empty list of date-specific windows. It can be used by itself or together with the recurring schedule. |
+
+A schedule must contain one of the following configurations:
+
+- A recurring schedule with both `at` and `startGraceDuration`.
+- One or more `oneTimeWindows`.
+- Both a recurring schedule and one or more `oneTimeWindows`.
+
+The recurring fields are a pair. A schedule that contains only one of `at` or
+`startGraceDuration`, or none of these scheduling fields, is invalid. The
+schedule-level `timeZone` applies to the recurring schedule and to every
+one-time window in that schedule.
 
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
@@ -2303,6 +2342,32 @@ updatePolicy:
     startGraceDuration: "2h"      # allow update until 7:00 AM
 ```
 
+The following example defines a one-time window without a recurring schedule:
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    timeZone: "Asia/Jerusalem"
+    oneTimeWindows:
+      - date: "2026-11-15"
+        at: "22:00"
+        startGraceDuration: "90m"
+```
+
+The following example combines a recurring schedule with a one-time window:
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    at: "0 4 * * 1"               # every Monday at 4:00 AM
+    timeZone: "UTC"
+    startGraceDuration: "1h"      # allow updates until 5:00 AM
+    oneTimeWindows:
+      - date: "2026-11-16"
+        at: "04:00"
+        startGraceDuration: "2h"  # allow the one-time update until 6:00 AM
+```
+
 > [!NOTE]
-> The `startGraceDuration` field is required and allows for potential delays in agent execution. Without a sufficient grace period, the update window may be missed.
+> For a recurring schedule, `startGraceDuration` is required together with `at` and allows for potential delays in agent execution. One-time windows define their own `startGraceDuration`. Without a sufficient grace period, the update window may be missed.
 > Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.
