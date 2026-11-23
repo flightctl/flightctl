@@ -4,7 +4,13 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs openssl-libs tzdata
+# Pin Podman to the release whose Go binaries pass FIPS validation; rootlessport ships in this RPM.
+RUN arch="$(rpm --eval '%{_arch}')" && \
+    podman_rpm="https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/${arch}/appstream/os/Packages/p/podman-6.1.1-1.el10_3.${arch}.rpm" && \
+    dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs \
+        podman fuse-overlayfs openssl-libs tzdata && \
+    dnf downgrade -y --installroot=/runtime-root --setopt=localpkg_gpgcheck=True "$podman_rpm" && \
+    test "$(rpm --root /runtime-root -q --qf '%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}' podman)" = "7:6.1.1-1.el10_3.${arch}"
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
