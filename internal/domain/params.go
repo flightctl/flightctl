@@ -22,6 +22,15 @@ type GetEnrollmentConfigParams = v1beta1.GetEnrollmentConfigParams
 type GetFleetParams = v1beta1.GetFleetParams
 type GetRenderedDeviceParams = v1beta1.GetRenderedDeviceParams
 
+// ========== Sort Types ==========
+
+type ListDevicesParamsSortBy = v1beta1.ListDevicesParamsSortBy
+
+const (
+	ListDevicesSortByName  = v1beta1.ListDevicesSortByName
+	ListDevicesSortByAlias = v1beta1.ListDevicesSortByAlias
+)
+
 // ========== Order Types ==========
 
 type ListEventsParamsOrder = v1beta1.ListEventsParamsOrder

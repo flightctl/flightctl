@@ -529,6 +529,99 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(allDevicesSummary.Total).To(Equal(int64(3)))
 		})
 
+		Context("When sorting by alias", func() {
+			// Aliases cover every case the continue predicate has to handle:
+			// an empty alias, a duplicated alias, and NULL aliases, which sort last.
+			BeforeEach(func() {
+				testutil.CreateTestDevice(ctx, devStore, orgId, "mydevice-4", nil, nil, nil)
+				testutil.CreateTestDevice(ctx, devStore, orgId, "mydevice-5", nil, nil, nil)
+				aliases := map[string]any{
+					"mydevice-1": "alpha",
+					"mydevice-2": "",
+					"mydevice-3": nil,
+					"mydevice-4": nil,
+					"mydevice-5": "alpha",
+				}
+				for name, alias := range aliases {
+					result := db.Model(&model.Device{}).
+						Where("org_id = ? AND name = ?", orgId, name).
+						Update("alias", alias)
+					Expect(result.Error).ToNot(HaveOccurred())
+					Expect(result.RowsAffected).To(Equal(int64(1)))
+				}
+			})
+
+			pageAll := func(listParams devicestore.DeviceListParams) ([]string, []int64) {
+				var names []string
+				var remaining []int64
+				for {
+					devices, err := devStore.List(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(devices.Items).ToNot(BeEmpty())
+					for _, dev := range devices.Items {
+						names = append(names, lo.FromPtr(dev.Metadata.Name))
+					}
+					if devices.Metadata.RemainingItemCount != nil {
+						remaining = append(remaining, *devices.Metadata.RemainingItemCount)
+					}
+					if devices.Metadata.Continue == nil {
+						return names, remaining
+					}
+					cont, err := store.ParseContinueString(devices.Metadata.Continue)
+					Expect(err).ToNot(HaveOccurred())
+					// One token value per sort column; the default name sort has one.
+					Expect(cont.Names).To(HaveLen(max(len(devicestore.NormalizeSortColumns(listParams.SortColumns)), 1)))
+					listParams.Continue = cont
+				}
+			}
+
+			ascending := []string{"mydevice-2", "mydevice-1", "mydevice-5", "mydevice-3", "mydevice-4"}
+
+			It("When paging one device at a time it should return every device once with NULL aliases last", func() {
+				names, remaining := pageAll(devicestore.DeviceListParams{ListParams: store.ListParams{
+					Limit:       1,
+					SortColumns: []store.SortColumn{store.SortByAlias},
+				}})
+				Expect(names).To(Equal(ascending))
+				Expect(remaining).To(Equal([]int64{4, 3, 2, 1}))
+			})
+
+			It("When pages cross from aliased to unaliased devices it should not skip or repeat devices", func() {
+				for _, limit := range []int{2, 3, 4} {
+					names, _ := pageAll(devicestore.DeviceListParams{ListParams: store.ListParams{
+						Limit:       limit,
+						SortColumns: []store.SortColumn{store.SortByAlias, store.SortByName},
+					}})
+					Expect(names).To(Equal(ascending), "limit %d", limit)
+				}
+			})
+
+			It("When the first page ends before NULL aliases it should count the unaliased devices as remaining", func() {
+				devices, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{ListParams: store.ListParams{
+					Limit:       2,
+					SortColumns: []store.SortColumn{store.SortByAlias},
+				}})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(devices.Metadata.RemainingItemCount).ToNot(BeNil())
+				Expect(*devices.Metadata.RemainingItemCount).To(Equal(int64(3)))
+			})
+
+			It("When sorting descending it should keep NULL aliases last", func() {
+				desc := store.SortDesc
+				names, _ := pageAll(devicestore.DeviceListParams{ListParams: store.ListParams{
+					Limit:       1,
+					SortOrder:   &desc,
+					SortColumns: []store.SortColumn{store.SortByAlias},
+				}})
+				Expect(names).To(Equal([]string{"mydevice-5", "mydevice-1", "mydevice-2", "mydevice-4", "mydevice-3"}))
+			})
+
+			It("When no sort is requested it should keep ordering by name", func() {
+				names, _ := pageAll(devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 2}})
+				Expect(names).To(Equal([]string{"mydevice-1", "mydevice-2", "mydevice-3", "mydevice-4", "mydevice-5"}))
+			})
+		})
+
 		It("List with paging", func() {
 			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
 			allDevices, err := devStore.List(ctx, orgId, listParams)
