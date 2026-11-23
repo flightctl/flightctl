@@ -99,7 +99,7 @@ func (r *Renderer) RenderManifests(
 	if chartName == "." || chartName == ".." || filepath.Base(chartName) != chartName {
 		return "", fmt.Errorf("invalid chart name %q in reference %q", chartName, imageSpec.Image)
 	}
-	releaseName, err := releaseNameForApp(app, imageSpec.Image)
+	release, err := TargetRelease(app, device)
 	if err != nil {
 		return "", err
 	}
@@ -176,12 +176,11 @@ func (r *Renderer) RenderManifests(
 		valuesPaths = append(valuesPaths, valuesPath)
 	}
 
-	templateArgs := []string{"template", releaseName, chartPath, "--skip-tests"}
-	namespace := chartutil.AppNamespace(app.Namespace, releaseName)
-	if namespace != "" {
-		templateArgs = append(templateArgs, "--namespace", namespace)
+	templateArgs := []string{"template", release.Name, chartPath, "--skip-tests"}
+	if release.Namespace != "" {
+		templateArgs = append(templateArgs, "--namespace", release.Namespace)
 	}
-	if releaseIsInstalled(device, releaseName) {
+	if release.Upgrade {
 		templateArgs = append(templateArgs, "--is-upgrade")
 	}
 	for _, valuesPath := range valuesPaths {
@@ -237,6 +236,25 @@ func ImageRefsCacheKey(
 	}
 	keyHash := sha256.Sum256(keyMaterial)
 	return "helmImageRefs/v2/" + orgID.String() + "/" + hex.EncodeToString(keyHash[:]), nil
+}
+
+type ReleaseContext struct {
+	Name      string
+	Namespace string
+	Upgrade   bool
+}
+
+// TargetRelease identifies the Helm template context shared by inspection and rendering.
+func TargetRelease(app v1beta1.HelmApplication, device *domain.Device) (ReleaseContext, error) {
+	image, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return ReleaseContext{}, err
+	}
+	name, err := releaseNameForApp(app, image.Image)
+	if err != nil {
+		return ReleaseContext{}, err
+	}
+	return ReleaseContext{Name: name, Namespace: chartutil.AppNamespace(app.Namespace, name), Upgrade: releaseIsInstalled(device, name)}, nil
 }
 
 func releaseNameForApp(app v1beta1.HelmApplication, chartRef string) (string, error) {

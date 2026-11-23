@@ -11,9 +11,10 @@ import (
 type InspectionProvider string
 
 const (
-	InspectionProviderCompose InspectionProvider = "compose"
-	InspectionProviderQuadlet InspectionProvider = "quadlet"
-	InspectionProviderHelm    InspectionProvider = "helm"
+	InspectionProviderContainer InspectionProvider = "container"
+	InspectionProviderCompose   InspectionProvider = "compose"
+	InspectionProviderQuadlet   InspectionProvider = "quadlet"
+	InspectionProviderHelm      InspectionProvider = "helm"
 )
 
 type InspectionFormat string

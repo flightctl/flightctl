@@ -74,6 +74,10 @@ func validateProviderFormat(input model.ApplicationInspectionInput) error {
 			len(validation.IsDNS1123Label(input.Helm.Namespace)) != 0 {
 			return errors.New("invalid Helm release identity")
 		}
+	case model.InspectionProviderContainer:
+		if input.Helm != nil || input.Format != model.InspectionFormatInline {
+			return errors.New("invalid container inspection identity")
+		}
 	case model.InspectionProviderCompose, model.InspectionProviderQuadlet:
 		if input.Helm != nil {
 			return errors.New("unexpected Helm inspection identity")

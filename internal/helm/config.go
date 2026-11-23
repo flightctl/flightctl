@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"sigs.k8s.io/yaml"
 )
 
 func prepareHelmConfig(
@@ -62,6 +64,37 @@ func prepareHelmRegistryConfig(ctx context.Context, configHome string, files []d
 	// config and organization-scoped Repository credentials are the only
 	// credentials permitted for a device's Helm render.
 	return "", nil
+}
+
+type RepositoryAlias struct {
+	Name string
+	URL  string
+}
+
+// TargetRepositoryAliases returns the dependency sources that can affect templates.
+// Authentication and transport settings are used only when acquiring the charts.
+func TargetRepositoryAliases(renderedConfig []byte) ([]RepositoryAlias, error) {
+	files, err := renderedConfigFiles(renderedConfig)
+	if err != nil {
+		return nil, err
+	}
+	data, found, err := firstConfigFile(files, helmRepositoryConfig)
+	if err != nil || !found {
+		return nil, err
+	}
+	var config struct{ Repositories []RepositoryAlias }
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	for i := range config.Repositories {
+		endpoint, err := url.Parse(config.Repositories[i].URL)
+		if err != nil {
+			return nil, err
+		}
+		endpoint.User, endpoint.RawQuery, endpoint.Fragment, endpoint.ForceQuery = nil, "", "", false
+		config.Repositories[i].URL = endpoint.String()
+	}
+	return config.Repositories, nil
 }
 
 func prepareHelmRepositoryConfig(configHome string, files []domain.FileSpec) (string, error) {
