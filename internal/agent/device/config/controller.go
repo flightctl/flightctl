@@ -57,14 +57,14 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	return c.ensureConfigFiles(currentFiles, desiredFiles)
 }
 
-// reservedRoot returns the directory that holds agent-managed firmware state
-// beneath the configured data directory, or "" when no data directory is
+// reservedRoots returns the directories that hold agent-managed state beneath
+// the configured data directory. It returns nil when no data directory is
 // configured.
-func (c *Controller) reservedRoot() string {
+func (c *Controller) reservedRoots() []string {
 	if c.dataDir == "" {
-		return ""
+		return nil
 	}
-	return filepath.Join(filepath.Clean(c.dataDir), "firmware")
+	return []string{filepath.Join(filepath.Clean(c.dataDir), "firmware")}
 }
 
 // rejectReservedPaths fails when any desired file is at or beneath the
@@ -72,13 +72,11 @@ func (c *Controller) reservedRoot() string {
 // applied in full or not at all. The comparison is lexical: relative paths
 // and symbolic links that alias the data directory are not resolved.
 func (c *Controller) rejectReservedPaths(files []v1beta1.FileSpec) error {
-	root := c.reservedRoot()
-	if root == "" {
-		return nil
-	}
-	for _, file := range files {
-		if isReservedPath(root, file.Path) {
-			return fmt.Errorf("%w %w", deviceerrors.ErrReservedConfigPath, deviceerrors.WithElement(file.Path))
+	for _, root := range c.reservedRoots() {
+		for _, file := range files {
+			if isReservedPath(root, file.Path) {
+				return fmt.Errorf("%w %w", deviceerrors.ErrReservedConfigPath, deviceerrors.WithElement(file.Path))
+			}
 		}
 	}
 	return nil
@@ -151,11 +149,18 @@ func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1beta1.File
 // in the desiredFiles, then prunes any now-empty directories the agent created.
 // It reports whether the owned-directory set changed.
 func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec, owned map[string]bool) (bool, error) {
-	root := c.reservedRoot()
+	reservedRoots := c.reservedRoots()
 	removeFiles := make([]string, 0)
 	for _, file := range computeRemoval(currentFiles, desiredFiles) {
-		if root != "" && isReservedPath(root, file) {
-			c.log.Warnf("Not deleting %s: the path is reserved for agent-managed firmware state", file)
+		reserved := false
+		for _, root := range reservedRoots {
+			if isReservedPath(root, file) {
+				reserved = true
+				break
+			}
+		}
+		if reserved {
+			c.log.Warnf("Not deleting %s: the path is reserved for agent-managed state", file)
 			continue
 		}
 		removeFiles = append(removeFiles, file)
