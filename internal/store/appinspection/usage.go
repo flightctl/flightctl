@@ -72,24 +72,12 @@ func (s *Store) ReplaceUsagesIfCurrent(ctx context.Context, orgID uuid.UUID, own
 	// Use a savepoint within a caller's transaction so a binding rejected by
 	// the foreign key rolls back the preceding deletion as well.
 	err = store.DB(ctx, s.db).Transaction(func(tx *gorm.DB) error {
-		var version struct{ Matches bool }
-		// Keep the owner version stable through replacement and serialize writers for this owner.
-		if err := tx.Table(table).Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("COALESCE(generation, 0) = ? AND created_at = ? AS matches", owner.Generation, owner.CreatedAt).
-			Where("org_id = ? AND name = ? AND deleted_at IS NULL", orgID, owner.Name).Take(&version).Error; err != nil {
+		matches, err := lockOwnerVersion(tx, table, orgID, owner)
+		if err != nil || !matches {
 			return err
 		}
-		if !version.Matches {
-			return nil
-		}
-		if err := tx.Where("org_id = ?", orgID).Where(clause.Eq{Column: clause.Column{Name: column}, Value: owner.Name}).
-			Delete(&model.ApplicationInspectionUsage{}).Error; err != nil {
+		if err := replaceUsages(tx, column, orgID, owner.Name, rows); err != nil {
 			return err
-		}
-		if len(rows) > 0 {
-			if err := tx.CreateInBatches(&rows, 500).Error; err != nil {
-				return err
-			}
 		}
 		applied = true
 		return nil
@@ -98,6 +86,29 @@ func (s *Store) ReplaceUsagesIfCurrent(ctx context.Context, orgID uuid.UUID, own
 		return false, storeutil.ErrorFromGormError(err)
 	}
 	return applied, nil
+}
+
+// lockOwnerVersion keeps the admitted owner version stable through usage replacement or resume.
+func lockOwnerVersion(tx *gorm.DB, table string, orgID uuid.UUID, owner OwnerVersion) (bool, error) {
+	var version struct{ Matches bool }
+	err := tx.Table(table).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("COALESCE(generation, 0) = ? AND created_at = ? AS matches", owner.Generation, owner.CreatedAt).
+		Where("org_id = ? AND name = ? AND deleted_at IS NULL", orgID, owner.Name).Take(&version).Error
+	return version.Matches, err
+}
+
+func replaceUsages(tx *gorm.DB, column string, orgID uuid.UUID, name string, rows []model.ApplicationInspectionUsage) error {
+	if err := forOwner(tx, column, orgID, name).Delete(&model.ApplicationInspectionUsage{}).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return tx.CreateInBatches(&rows, 500).Error
+}
+
+func forOwner(tx *gorm.DB, column string, orgID uuid.UUID, name string) *gorm.DB {
+	return tx.Where("org_id = ?", orgID).Where(clause.Eq{Column: clause.Column{Name: column}, Value: name})
 }
 
 // usageIdentity accepts application contexts, template identities, and users

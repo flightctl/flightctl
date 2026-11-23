@@ -24,16 +24,35 @@ func NewStore(db *gorm.DB) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-const completeAttemptPredicate = "state = 'complete'"
+const (
+	completeAttemptPredicate  = "state = 'complete'"
+	canonicalAttemptPredicate = "input_key <> '' AND state IN ('pending','complete')"
+)
 
 func (s *Store) InitialMigration(ctx context.Context) error {
 	db := store.DB(ctx, s.db)
-	if err := db.AutoMigrate(&model.ApplicationInspection{}, &model.ApplicationInspectionRef{}, &model.ApplicationInspectionUsage{}); err != nil {
+	if err := db.AutoMigrate(&model.ApplicationInspection{}, &model.ApplicationInspectionRef{}, &model.ApplicationInspectionUsage{}, &model.ApplicationInspectionContinuation{}); err != nil {
 		return err
 	}
-	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS application_inspection_complete_key
-		ON application_inspections (org_id, input_key) WHERE ` + completeAttemptPredicate).Error; err != nil {
-		return err
+	if db.Migrator().HasConstraint(&model.ApplicationInspection{}, "application_inspection_state") {
+		if err := db.Migrator().DropConstraint(&model.ApplicationInspection{}, "application_inspection_state"); err != nil {
+			return err
+		}
+	}
+	for _, statement := range []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS application_inspection_reusable_key ON application_inspections (org_id, input_key) WHERE ` + canonicalAttemptPredicate,
+		`DROP INDEX IF EXISTS application_inspection_complete_key`,
+		`DROP INDEX IF EXISTS application_inspection_canonical_key`,
+		`CREATE INDEX IF NOT EXISTS application_inspection_recoverable ON application_inspections (org_id, id) WHERE state IN ('resolving','pending')`,
+		`CREATE INDEX IF NOT EXISTS inspection_continuation_recoverable ON application_inspection_continuations (org_id, id) WHERE current AND consumed_at IS NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_current_device ON application_inspection_continuations (org_id, device_name) WHERE current AND device_name IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_current_fleet ON application_inspection_continuations (org_id, fleet_name) WHERE current AND fleet_name IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_device_event ON application_inspection_continuations (org_id, device_name, event_id) WHERE device_name IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS inspection_continuation_fleet_event ON application_inspection_continuations (org_id, fleet_name, event_id) WHERE fleet_name IS NOT NULL`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
+		}
 	}
 	for _, fk := range []struct {
 		table, name, ddl string
@@ -47,6 +66,10 @@ func (s *Store) InitialMigration(ctx context.Context) error {
 		{"application_inspection_usages", "application_inspection_usage_device_fk", `ALTER TABLE application_inspection_usages ADD CONSTRAINT application_inspection_usage_device_fk
 			FOREIGN KEY (org_id, device_name) REFERENCES devices (org_id, name) ON DELETE CASCADE`},
 		{"application_inspection_usages", "application_inspection_usage_fleet_fk", `ALTER TABLE application_inspection_usages ADD CONSTRAINT application_inspection_usage_fleet_fk
+			FOREIGN KEY (org_id, fleet_name) REFERENCES fleets (org_id, name) ON DELETE CASCADE`},
+		{"application_inspection_continuations", "inspection_continuation_device_fk", `ALTER TABLE application_inspection_continuations ADD CONSTRAINT inspection_continuation_device_fk
+			FOREIGN KEY (org_id, device_name) REFERENCES devices (org_id, name) ON DELETE CASCADE`},
+		{"application_inspection_continuations", "inspection_continuation_fleet_fk", `ALTER TABLE application_inspection_continuations ADD CONSTRAINT inspection_continuation_fleet_fk
 			FOREIGN KEY (org_id, fleet_name) REFERENCES fleets (org_id, name) ON DELETE CASCADE`},
 	} {
 		if !db.Migrator().HasConstraint(fk.table, fk.name) {
@@ -108,42 +131,70 @@ func (s *Store) RecordAttempt(ctx context.Context, orgID uuid.UUID, attempt Atte
 	if err := validateAttempt(attempt); err != nil {
 		return uuid.Nil, err
 	}
+	if attempt.Input.Helm != nil && attempt.Input.Helm.FreshFor != 0 {
+		return uuid.Nil, errors.New("Helm refresh results require queued work")
+	}
 	id := uuid.New()
-	refs := make([]model.ApplicationInspectionRef, 0, len(attempt.References))
-	for i, input := range attempt.References {
-		ref, err := NormalizeReference(input)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("inspection reference %d: %w", i+1, err)
-		}
-		ref.OrgID, ref.InspectionID = orgID, id
-		refs = append(refs, ref)
+	refs, err := normalizeReferences(orgID, id, attempt.References)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	row := model.ApplicationInspection{
 		OrgID: orgID, ID: id, InputKey: string(key), Input: attempt.Input, State: attempt.State,
 		Revision: attempt.Revision, DiagnosticCodes: attempt.DiagnosticCodes,
 	}
 	err = store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
-		insert := tx
 		if attempt.State == model.InspectionComplete {
-			// A no-op update returns the winner while keeping it locked through the transaction.
-			insert = tx.Clauses(clause.OnConflict{
-				Columns:     []clause.Column{{Name: "org_id"}, {Name: "input_key"}},
-				TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: completeAttemptPredicate}}},
-				DoUpdates:   clause.AssignmentColumns([]string{"input_key"}),
-			}, clause.Returning{Columns: []clause.Column{{Name: "id"}}})
-		}
-		if err := insert.Create(&row).Error; err != nil {
+			if err := insertCanonicalAttempt(tx, &row); err != nil {
+				return err
+			}
+			if row.ID != id {
+				if row.State == model.InspectionComplete {
+					return nil
+				}
+				for i := range refs {
+					refs[i].InspectionID = row.ID
+				}
+				return finishAttempt(tx, orgID, row.ID, attempt, refs)
+			}
+		} else if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
-		if row.ID != id || len(refs) == 0 {
-			return nil
-		}
-		return tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&refs, 500).Error
+		return insertReferences(tx, refs)
 	})
 	if err != nil {
 		return uuid.Nil, storeutil.ErrorFromGormError(err)
 	}
 	return row.ID, nil
+}
+
+func insertCanonicalAttempt(tx *gorm.DB, row *model.ApplicationInspection) error {
+	// Return and lock the canonical row without changing its current attempt state.
+	return tx.Clauses(clause.OnConflict{
+		Columns:     []clause.Column{{Name: "org_id"}, {Name: "input_key"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: canonicalAttemptPredicate}}},
+		DoUpdates:   clause.AssignmentColumns([]string{"input_key"}),
+	}, clause.Returning{Columns: []clause.Column{{Name: "id"}, {Name: "state"}, {Name: "fresh_until"}}}).Create(row).Error
+}
+
+func normalizeReferences(orgID, id uuid.UUID, inputs []ReferenceInput) ([]model.ApplicationInspectionRef, error) {
+	refs := make([]model.ApplicationInspectionRef, 0, len(inputs))
+	for i, input := range inputs {
+		ref, err := NormalizeReference(input)
+		if err != nil {
+			return nil, fmt.Errorf("inspection reference %d: %w", i+1, err)
+		}
+		ref.OrgID, ref.InspectionID = orgID, id
+		refs = append(refs, ref)
+	}
+	return refs, nil
+}
+
+func insertReferences(tx *gorm.DB, refs []model.ApplicationInspectionRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&refs, 500).Error
 }
 
 func validateAttempt(attempt Attempt) error {
@@ -170,7 +221,7 @@ func validateAttempt(attempt Attempt) error {
 }
 
 func (s *Store) FindComplete(ctx context.Context, orgID uuid.UUID, key InputKey) (Result, error) {
-	return s.getResult(ctx, orgID, "input_key = ? AND "+completeAttemptPredicate, key)
+	return s.getResult(ctx, orgID, "input_key <> '' AND input_key = ? AND (fresh_until IS NULL OR fresh_until > clock_timestamp()) AND "+completeAttemptPredicate, key)
 }
 
 func (s *Store) GetAttempt(ctx context.Context, orgID, resultID uuid.UUID) (Result, error) {

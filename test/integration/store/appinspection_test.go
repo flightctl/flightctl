@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -236,6 +237,204 @@ var _ = Describe("ApplicationInspectionStore", func() {
 			ApplicationContext: application, InspectionID: id, Mechanism: model.InspectionPullContainer,
 		}
 	}
+
+	admit := func(owner appinspectionstore.OwnerVersion, event, previous uuid.UUID, snapshot byte, names ...string) appinspectionstore.AdmissionResult {
+		req := appinspectionstore.Admission{
+			Owner: owner, EventID: event, PreviousID: previous, Snapshot: model.InspectionFingerprint{snapshot},
+		}
+		for _, name := range names {
+			req.Applications = append(req.Applications, appinspectionstore.AdmissionApplication{
+				Context: name, Mechanism: model.InspectionPullContainer, References: attempt.References,
+			})
+		}
+		result, err := inspections.Admit(ctx, orgID, req)
+		Expect(err).NotTo(HaveOccurred())
+		return result
+	}
+
+	It("When matching queued inspections race it should attach both consumers to one durable result", func() {
+		owners := []appinspectionstore.OwnerVersion{createDevice(orgID, "first"), createDevice(orgID, "second")}
+		admissions := []appinspectionstore.AdmissionResult{
+			admit(owners[0], uuid.New(), uuid.Nil, 1, "app"),
+			admit(owners[1], uuid.New(), uuid.Nil, 1, "app"),
+		}
+		for _, admitted := range admissions {
+			Expect(admitted.WorkIDs).To(HaveLen(1))
+			Expect(inspections.GetAttempt(ctx, orgID, admitted.WorkIDs[0])).Error().NotTo(HaveOccurred())
+		}
+		recoverable, err := inspections.ListRecoverableWork(ctx, orgID, uuid.Nil, 10)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(recoverable).To(ConsistOf(admissions[0].WorkIDs[0], admissions[1].WorkIDs[0]))
+		other, err := inspections.ListRecoverableWork(ctx, otherOrg, uuid.Nil, 10)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(other).To(BeEmpty())
+
+		type promotion struct {
+			id  uuid.UUID
+			err error
+		}
+		start := make(chan struct{})
+		promoted := make(chan promotion, 2)
+		for _, admitted := range admissions {
+			id := admitted.WorkIDs[0]
+			claim, err := inspections.Claim(ctx, orgID, id, time.Minute)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(claim.Token).NotTo(BeZero())
+			go func() {
+				<-start
+				id, err := inspections.PromoteOrAttach(ctx, orgID, id, claim.Token, attempt.Input)
+				promoted <- promotion{id, err}
+			}()
+		}
+		close(start)
+		first, second := <-promoted, <-promoted
+		Expect(first.err).NotTo(HaveOccurred())
+		Expect(second.err).NotTo(HaveOccurred())
+		Expect(first.id).NotTo(BeZero())
+		Expect(second.id).To(Equal(first.id))
+
+		claim, err := inspections.Claim(ctx, orgID, first.id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(claim.Token).NotTo(BeZero())
+		duplicate, err := inspections.Claim(ctx, orgID, first.id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(duplicate.Token).To(BeZero())
+		Expect(inspections.Finish(ctx, orgID, first.id, claim.Token, attempt)).To(BeTrue())
+		Expect(inspections.Finish(ctx, orgID, first.id, claim.Token, attempt)).To(BeFalse())
+
+		reopened, err := appinspectionstore.NewStore(db)
+		Expect(err).NotTo(HaveOccurred())
+		ready, err := reopened.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ready).To(ConsistOf(admissions[0].ContinuationID, admissions[1].ContinuationID))
+		for _, owner := range owners {
+			usages, err := listUsages(ctx, orgID, owner.Owner)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(usages).To(HaveLen(1))
+			Expect(usages[0].InspectionID).To(Equal(first.id))
+			Expect(usages[0].Pending).To(BeFalse())
+		}
+		key, err := appinspectionstore.KeyForInput(orgID, attempt.Input)
+		Expect(err).NotTo(HaveOccurred())
+		result, err := reopened.FindComplete(ctx, orgID, key)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.References).To(HaveLen(1))
+
+		later := admit(createDevice(orgID, "later"), uuid.New(), uuid.Nil, 1, "app")
+		lease, err := reopened.Claim(ctx, orgID, later.WorkIDs[0], time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reopened.PromoteOrAttach(ctx, orgID, later.WorkIDs[0], lease.Token, attempt.Input)).To(Equal(first.id))
+		duplicate, err = reopened.Claim(ctx, orgID, first.id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(duplicate.Token).To(BeZero())
+	})
+
+	It("When a Helm result expires it should share one refresh while retaining the old result for current usages", func() {
+		input := model.ApplicationInspectionInput{
+			Provider: model.InspectionProviderHelm, Format: model.InspectionFormatChart,
+			Helm: &model.InspectionHelmIdentity{
+				ReleaseName: "release", Namespace: "default", ChartReference: "registry.example/team/chart:stable", FreshFor: time.Minute,
+			},
+		}
+		attach := func(name string) uuid.UUID {
+			admitted := admit(createDevice(orgID, name), uuid.New(), uuid.Nil, 1, "app")
+			provisional := admitted.WorkIDs[0]
+			lease, err := inspections.Claim(ctx, orgID, provisional, time.Minute)
+			Expect(err).NotTo(HaveOccurred())
+			id, err := inspections.PromoteOrAttach(ctx, orgID, provisional, lease.Token, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(id).NotTo(BeZero())
+			return id
+		}
+		id := attach("first")
+		lease, err := inspections.Claim(ctx, orgID, id, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(inspections.Finish(ctx, orgID, id, lease.Token, appinspectionstore.Attempt{State: model.InspectionComplete, Input: input})).To(BeTrue())
+		first, err := inspections.GetAttempt(ctx, orgID, id)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(first.Inspection.FreshUntil).NotTo(BeNil())
+		Expect(attach("second")).To(Equal(id))
+		reused, err := inspections.GetAttempt(ctx, orgID, id)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reused.Inspection.FreshUntil).To(Equal(first.Inspection.FreshUntil))
+		// Advance the fixture deadline without waiting for the configured TTL.
+		Expect(db.WithContext(ctx).Model(&model.ApplicationInspection{}).Where("org_id = ? AND id = ?", orgID, id).
+			Update("fresh_until", gorm.Expr("clock_timestamp() - interval '1 second'")).Error).To(Succeed())
+		refresh := attach("third")
+		Expect(refresh).NotTo(Equal(id))
+		Expect(attach("fourth")).To(Equal(refresh))
+		usages, err := listUsages(ctx, orgID, appinspectionstore.Owner{Kind: appinspectionstore.OwnerDevice, Name: "first"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(usages[0].InspectionID).To(Equal(id))
+		Expect(inspections.GetAttempt(ctx, orgID, id)).Error().NotTo(HaveOccurred())
+	})
+
+	It("When an admission is replayed or superseded it should preserve the current continuation and usages", func() {
+		owner := createDevice(orgID, "device")
+		firstEvent := uuid.New()
+		first := admit(owner, firstEvent, uuid.Nil, 1, "old")
+		replay := admit(owner, firstEvent, uuid.Nil, 1, "old")
+		Expect(replay.ContinuationID).To(Equal(first.ContinuationID))
+		second := admit(owner, uuid.New(), first.ContinuationID, 2, "new")
+		Expect(second.ContinuationID).NotTo(Equal(first.ContinuationID))
+		Expect(admit(owner, firstEvent, second.ContinuationID, 1, "old").ContinuationID).To(BeZero())
+		Expect(admit(owner, uuid.New(), first.ContinuationID, 1, "old").ContinuationID).To(BeZero())
+
+		work := second.WorkIDs[0]
+		lease, err := inspections.Claim(ctx, orgID, work, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		incomplete := appinspectionstore.Attempt{State: model.InspectionFinishedIncomplete, DiagnosticCodes: []model.InspectionDiagnostic{model.InspectionContentUnavailable}}
+		Expect(inspections.Finish(ctx, orgID, work, lease.Token, incomplete)).To(BeTrue())
+		result, err := inspections.GetAttempt(ctx, orgID, work)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.References).To(HaveLen(1))
+		usages, err := listUsages(ctx, orgID, owner.Owner)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(usages).To(HaveLen(1))
+		Expect(usages[0].ApplicationContext).To(Equal("new"))
+		Expect(usages[0].Pending).To(BeFalse())
+
+		Expect(inspections.ConsumeIfCurrent(ctx, orgID, owner.Owner, first.ContinuationID, model.InspectionFingerprint{1})).To(BeFalse())
+		Expect(inspections.ConsumeIfCurrent(ctx, orgID, owner.Owner, second.ContinuationID, model.InspectionFingerprint{1})).To(BeFalse())
+		other := createDevice(orgID, "other")
+		Expect(inspections.ConsumeIfCurrent(ctx, orgID, other.Owner, second.ContinuationID, model.InspectionFingerprint{2})).To(BeFalse())
+		rollback := errors.New("publication failed")
+		Expect(store.WithTransaction(ctx, db, func(txCtx context.Context) error {
+			Expect(inspections.ConsumeIfCurrent(txCtx, orgID, owner.Owner, second.ContinuationID, model.InspectionFingerprint{2})).To(BeTrue())
+			return rollback
+		})).To(MatchError(rollback))
+		Expect(inspections.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)).To(Equal([]uuid.UUID{second.ContinuationID}))
+		Expect(inspections.ConsumeIfCurrent(ctx, orgID, owner.Owner, second.ContinuationID, model.InspectionFingerprint{2})).To(BeTrue())
+		Expect(inspections.ConsumeIfCurrent(ctx, orgID, owner.Owner, second.ContinuationID, model.InspectionFingerprint{2})).To(BeFalse())
+	})
+
+	It("When a claim expires it should let a new worker finish but fence the old worker", func() {
+		owner := createDevice(orgID, "device")
+		admitted := admit(owner, uuid.New(), uuid.Nil, 1, "app", "other")
+		work := admitted.WorkIDs[0]
+		first, err := inspections.Claim(ctx, orgID, work, time.Millisecond)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(first.Token).NotTo(BeZero())
+		var next appinspectionstore.WorkClaim
+		Eventually(func(g Gomega) {
+			var err error
+			next, err = inspections.Claim(ctx, orgID, work, time.Minute)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(next.Token).NotTo(BeZero())
+		}).Should(Succeed())
+		Expect(next.Token).NotTo(Equal(first.Token))
+		incomplete := appinspectionstore.Attempt{State: model.InspectionFinishedIncomplete, DiagnosticCodes: []model.InspectionDiagnostic{model.InspectionContentUnavailable}}
+		Expect(inspections.Finish(ctx, orgID, work, first.Token, incomplete)).To(BeFalse())
+		Expect(inspections.Finish(ctx, orgID, work, next.Token, incomplete)).To(BeTrue())
+		ready, err := inspections.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ready).To(BeEmpty())
+		other := admitted.WorkIDs[1]
+		lease, err := inspections.Claim(ctx, orgID, other, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(inspections.Finish(ctx, orgID, other, lease.Token, incomplete)).To(BeTrue())
+		Expect(inspections.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)).To(Equal([]uuid.UUID{admitted.ContinuationID}))
+	})
 
 	It("When an earlier usage is removed it should resume after the last context within the same owner and organization", func() {
 		owner := createDevice(orgID, "device")

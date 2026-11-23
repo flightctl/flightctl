@@ -2,6 +2,7 @@ package appinspection_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/store/appinspection"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -25,6 +26,11 @@ func TestKeyForInput(t *testing.T) {
 		ParentDigest: digest.FromString("chart"),
 		Helm:         &model.InspectionHelmIdentity{ReleaseName: "release", Namespace: "default"},
 	}
+	refresh := chart
+	refresh.ParentDigest = ""
+	refresh.Helm = &model.InspectionHelmIdentity{
+		ReleaseName: "release", Namespace: "default", ChartReference: "registry.example/team/chart:stable", FreshFor: time.Minute,
+	}
 	for _, tt := range []struct {
 		name   string
 		input  model.ApplicationInspectionInput
@@ -34,6 +40,10 @@ func TestKeyForInput(t *testing.T) {
 		{"inline content", inline, func(in *model.ApplicationInspectionInput) { in.InlineFingerprint[0]++ }},
 		{"format", packaged, func(in *model.ApplicationInspectionInput) { in.Format = model.InspectionFormatTarGz }},
 		{"parent digest", packaged, func(in *model.ApplicationInspectionInput) { in.ParentDigest = digest.FromString("changed") }},
+		{"Helm chart reference", refresh, func(in *model.ApplicationInspectionInput) {
+			in.Helm.ChartReference = "registry.example/team/chart:next"
+		}},
+		{"Helm refresh period", refresh, func(in *model.ApplicationInspectionInput) { in.Helm.FreshFor *= 2 }},
 		{"platform", packaged, func(in *model.ApplicationInspectionInput) { in.Platform = "linux/amd64" }},
 		{"platform variant", packaged, func(in *model.ApplicationInspectionInput) { in.Platform = "linux/arm64/v9" }},
 		{"Helm values", chart, func(in *model.ApplicationInspectionInput) { in.Helm.Values[0]++ }},
@@ -79,6 +89,11 @@ func TestKeyForInput(t *testing.T) {
 		{"digest", packaged, func(in *model.ApplicationInspectionInput) { in.ParentDigest = "secret-value" }},
 		{"platform", packaged, func(in *model.ApplicationInspectionInput) { in.Platform = "secret-value" }},
 		{"chart identity", chart, func(in *model.ApplicationInspectionInput) { in.Helm = nil }},
+		{"chart refresh identity", refresh, func(in *model.ApplicationInspectionInput) {
+			identity := *in.Helm
+			identity.ChartReference = "https://secret-value@registry.example/chart"
+			in.Helm = &identity
+		}},
 		{"chart format", chart, func(in *model.ApplicationInspectionInput) { in.Format = model.InspectionFormatRaw }},
 		{"chart context for non-Helm input", inline, func(in *model.ApplicationInspectionInput) { in.Helm = chart.Helm }},
 		{"chart name", chart, func(in *model.ApplicationInspectionInput) {

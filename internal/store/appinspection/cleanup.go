@@ -28,7 +28,7 @@ func (s *Store) DeleteExpiredUnreferenced(ctx context.Context, orgID uuid.UUID, 
 		var ids []uuid.UUID
 		// Lock the bounded batch against new usage links and skip results another transaction holds.
 		if err := tx.Model(&model.ApplicationInspection{}).Where("org_id = ? AND created_at < ?", orgID, cutoff).
-			Where(inspectionWithoutUsage).Order("created_at, id").Limit(limit).
+			Where(inspectionWithoutUsage).Where("claim_until IS NULL OR claim_until <= clock_timestamp()").Order("created_at, id").Limit(limit).
 			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Pluck("id", &ids).Error; err != nil {
 			return err
 		}
@@ -38,7 +38,7 @@ func (s *Store) DeleteExpiredUnreferenced(ctx context.Context, orgID uuid.UUID, 
 		// Recheck under the candidate locks with a fresh snapshot in case a usage
 		// committed after the first query read the usage table.
 		result := tx.Where("org_id = ? AND created_at < ? AND id IN ?", orgID, cutoff, ids).
-			Where(inspectionWithoutUsage).Delete(&model.ApplicationInspection{})
+			Where(inspectionWithoutUsage).Where("claim_until IS NULL OR claim_until <= clock_timestamp()").Delete(&model.ApplicationInspection{})
 		deleted = result.RowsAffected
 		return result.Error
 	})
