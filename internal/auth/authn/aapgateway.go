@@ -249,7 +249,8 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 		orgRoles[orgName] = appendUniqueRoles(orgRoles[orgName], roles)
 	}
 
-	// Build ReportedOrganization with roles embedded
+	// Build reported organizations with roles, deduplicating by name after
+	// Gateway IDs have been collected.
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	userInfo.SetOrganizations(reportedOrganizations)
 	userInfo.SetSuperAdmin(isSuperAdmin)
@@ -285,13 +286,14 @@ func (a *AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) 
 }
 
 // getUserScopedOrganizations gets organizations for a specific user.
-// BuildReportedOrganizations deduplicates names after all Gateway ID evidence is collected.
 func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]*aap.AAPOrganization, error) {
+	// Get user's direct organizations
 	aapOrganizations, err := a.aapClient.ListUserOrganizations(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Get user's teams and their organizations
 	aapTeams, err := a.aapClient.ListUserTeams(ctx, token, userID)
 	if err != nil {
 		return nil, err

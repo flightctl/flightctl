@@ -293,48 +293,6 @@ Flight Control validates these existing AAP tokens rather than providing a separ
 Users with access to multiple AAP organizations will have access to multiple Flight Control organizations.
 For CLI organization selection and `--org` usage, see [Usage with multiple organizations](organizations.md#usage-with-multiple-organizations).
 
-### Original external organization IDs
-
-`GET /api/v1/organizations` includes the optional, read-only JSON string
-`spec.originalExternalId` for the source provider's original organization ID,
-scoped to that provider instance. Currently, Flight Control populates this
-field only for authenticated AAP Gateway identities with a positive,
-unambiguous Gateway organization ID, formatted as exact decimal text.
-
-The ID comes from the same Gateway instance that authenticates the request:
-its organization list for superusers and platform auditors, or direct
-memberships and team organization summaries for other users. Controller
-organization IDs are not used. The value comes from provider metadata,
-independently of the organization name prefix; do not derive it by removing
-a prefix from `externalId`.
-
-For example, Gateway organization `42`, named `Example Org`, with
-`organizationNamePrefix: "aap-"` maps to this Flight Control organization:
-
-```json
-{
-  "metadata": {"name": "d02b1abf-a372-45c7-a794-41547109075c"},
-  "spec": {
-    "externalId": "aap-Example Org",
-    "displayName": "aap-Example Org",
-    "originalExternalId": "42"
-  }
-}
-```
-
-`metadata.name` remains the Flight Control UUID used to select an organization.
-The existing `externalId`, `displayName`, name prefix, membership, roles, and
-organization visibility are unchanged. The field is omitted for other
-authentication providers and for organizations whose Gateway ID is missing,
-zero, negative, or ambiguous. This includes other local organizations visible to a
-superuser but absent from that user's Gateway lists. Conflicting IDs for the
-same name, or one ID reported for different names, are ambiguous; organizations
-and their roles remain available even when the field is omitted.
-
-The mapping is identity metadata, refreshed with the existing authentication
-cache (45 seconds by default). It requires no additional Gateway requests or
-database writes. Match the ID only against the same AAP Gateway instance.
-
 ## Related Documentation
 
 - [Authentication Overview](overview.md) - Overview of all authentication methods
