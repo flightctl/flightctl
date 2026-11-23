@@ -1,0 +1,5 @@
+# Delivery-only image of the updater contract fixture: the verified files under
+# /updater and no runnable command. Build it with build.sh, which stages the
+# context, normalizes timestamps and sets the image labels.
+FROM scratch
+COPY --chown=0:0 updater/ /updater/
