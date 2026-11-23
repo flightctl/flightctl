@@ -111,11 +111,15 @@ func (w *packageWorkspace) extractArchive(ctx context.Context, input io.Reader, 
 }
 
 func (w *packageWorkspace) readTar(ctx context.Context, stage string, src io.Reader, imageLayer bool) ([]string, error) {
-	tr := tar.NewReader(src)
+	stream := tarMetadataReader{src: src, remaining: &w.remainingTarMetadata}
+	tr := tar.NewReader(&stream)
 	var whiteouts []string
 	remainingWhiteoutBytes := maxWhiteoutPathBytes
 	for {
+		// Next consumes alignment padding and reads extended headers internally.
+		stream.readingMetadata = true
 		hdr, err := tr.Next()
+		stream.readingMetadata = false
 		if err == io.EOF {
 			break
 		}
@@ -207,6 +211,25 @@ func whiteoutTarget(name string, size int64) (string, error) {
 		return "", errInvalidArchive
 	}
 	return filepath.Join(filepath.Dir(name), base), nil
+}
+
+type tarMetadataReader struct {
+	src             io.Reader
+	remaining       *int
+	readingMetadata bool
+}
+
+func (r *tarMetadataReader) Read(p []byte) (int, error) {
+	if !r.readingMetadata {
+		return r.src.Read(p)
+	}
+	// Probe one byte past the limit to distinguish exhaustion from EOF.
+	n, err := r.src.Read(p[:min(len(p), *r.remaining+1)])
+	if n > *r.remaining {
+		return 0, errBudgetExceeded
+	}
+	*r.remaining -= n
+	return n, err
 }
 
 type tarPadding struct{}

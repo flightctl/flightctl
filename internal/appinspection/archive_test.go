@@ -197,6 +197,51 @@ func TestPackageImageLayerWhiteouts(t *testing.T) {
 	require.EqualValues(t, 6, w.used)
 }
 
+func TestPackageTarMetadataBudget(t *testing.T) {
+	baseContent := strings.Repeat("a", 4<<10)
+	base := makeTar(t, archiveEntry{name: "base", data: baseContent})
+	var pax bytes.Buffer
+	tw := tar.NewWriter(&pax)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "unused", Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": "metadata"}}))
+	require.NoError(t, tw.Close())
+	require.Equal(t, byte(tar.TypeXHeader), pax.Bytes()[156])
+	const extendedHeaderBytes = 1024 // One header block and one padded PAX data block.
+	data := []byte("x")
+	overlay := append(bytes.Repeat(pax.Bytes()[:extendedHeaderBytes], 2), makeTar(t, archiveEntry{name: "overlay", data: string(data)})...)
+	baseMetadata := len(base) - len(baseContent)
+	for _, tc := range []struct {
+		name  string
+		limit int
+		fits  bool
+	}{
+		{name: "metadata exactly fits it should publish both archives", limit: baseMetadata + len(overlay) - len(data), fits: true},
+		{name: "extended headers exceed the remaining budget it should retain the prior archive", limit: baseMetadata + extendedHeaderBytes + 512},
+	} {
+		t.Run("When "+tc.name, func(t *testing.T) {
+			w := testWorkspace(t, 1<<20)
+			w.remainingTarMetadata = tc.limit
+			ctx := t.Context()
+			require.NoError(t, w.extractArchive(ctx, bytes.NewReader(base), packageTar, false))
+			err := w.extractArchive(ctx, bytes.NewReader(gzipBytes(t, overlay)), packageTarGzip, false)
+			if tc.fits {
+				require.NoError(t, err)
+				got, err := fs.ReadFile(w.files(), "overlay")
+				require.NoError(t, err)
+				require.Equal(t, data, got)
+			} else {
+				require.ErrorIs(t, err, errBudgetExceeded)
+				_, err = fs.Stat(w.files(), "overlay")
+				require.ErrorIs(t, err, fs.ErrNotExist)
+			}
+			got, err := fs.ReadFile(w.files(), "base")
+			require.NoError(t, err)
+			require.Equal(t, baseContent, string(got))
+			_, err = w.root.Stat("stage")
+			require.ErrorIs(t, err, fs.ErrNotExist)
+		})
+	}
+}
+
 func TestPackageWhiteoutPathBudget(t *testing.T) {
 	const pathBytes = 256 << 10
 	entries := make([]archiveEntry, maxWhiteoutPathBytes/pathBytes+1)

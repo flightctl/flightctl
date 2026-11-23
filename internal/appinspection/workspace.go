@@ -11,19 +11,21 @@ import (
 )
 
 const (
-	packageDiskBudget int64 = 512 << 20
-	packageEntryLimit       = 50_000
+	packageDiskBudget       int64 = 512 << 20
+	packageEntryLimit             = 50_000
+	packageTarMetadataLimit       = 128 << 20
 )
 
 var errBudgetExceeded = errors.New("application package inspection budget exceeded")
 
 // packageWorkspace accounts for live file payloads and cumulative entries.
 type packageWorkspace struct {
-	root             *os.Root
-	dir              string
-	limit            int64
-	used             int64
-	remainingEntries int
+	root                 *os.Root
+	dir                  string
+	limit                int64
+	used                 int64
+	remainingEntries     int
+	remainingTarMetadata int
 }
 
 func newPackageWorkspace(limit int64, entryLimit int) (*packageWorkspace, error) {
@@ -38,7 +40,10 @@ func newPackageWorkspace(limit int64, entryLimit int) (*packageWorkspace, error)
 	if err := root.Mkdir("files", 0o700); err != nil {
 		return nil, errors.Join(err, root.Close(), os.RemoveAll(dir))
 	}
-	return &packageWorkspace{root: root, dir: dir, limit: limit, remainingEntries: entryLimit}, nil
+	return &packageWorkspace{
+		root: root, dir: dir, limit: limit,
+		remainingEntries: entryLimit, remainingTarMetadata: packageTarMetadataLimit,
+	}, nil
 }
 
 func (w *packageWorkspace) takeEntries(n int) error {
