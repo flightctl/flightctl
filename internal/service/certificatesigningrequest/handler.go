@@ -290,10 +290,17 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, or
 	if errors.Is(err, flterrors.ErrRevocationConsequencesPending) {
 		return domain.StatusConflict(fmt.Sprintf("cannot delete certificate signing request %q: enrollment credential revocation consequences are still pending", name))
 	}
+	if store.IsEnrollmentPolicyCredentialFKViolation(err) {
+		return domain.StatusConflict(flterrors.ErrEnrollmentCredentialRetained.Error())
+	}
 	if err == nil && deleted {
 		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
 	}
-	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	status := common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	if status.Code == 500 {
+		return domain.StatusInternalServerError("An internal error occurred")
+	}
+	return status
 }
 
 func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {

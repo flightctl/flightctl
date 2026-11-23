@@ -7,6 +7,8 @@ aliases:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+$" ))]'
   PathToResource:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
+  PathToUpsertResource:
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ) && @property != "/enrollmentapprovalpolicies/{name}")]'
   PathToEnrollmentApprovalPolicyCollection:
     - '$.paths[?(@property == "/enrollmentapprovalpolicies")]'
   PathToEnrollmentApprovalPolicyResource:
@@ -316,14 +318,12 @@ rules:
         values: ["200", "400", "401", "403", "404", "429", "503"]
 
   responses-resource-put-required:
-    description: PUT on a resource must have responses 200, 201, 400, 401, 403, 404, 409, 429, 503.
+    description: PUT on a resource must have responses 200, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResource.put"
     then:
       - field: responses.200
-        function: truthy
-      - field: responses.201
         function: truthy
       - field: responses.400
         function: truthy
@@ -339,6 +339,22 @@ rules:
         function: truthy
       - field: responses.503
         function: truthy
+
+  responses-upsert-put-created-required:
+    description: PUT on upsert resources must declare a 201 response.
+    severity: error
+    given: "#PathToUpsertResource.put"
+    then:
+      field: responses.201
+      function: truthy
+
+  responses-enrollmentapprovalpolicy-put-update-only:
+    description: Enrollment approval policy PUT updates an existing resource.
+    severity: error
+    given: "#PathToEnrollmentApprovalPolicyResource.put"
+    then:
+      field: responses.201
+      function: falsy
 
   responses-resource-put-allowed:
     description: PUT on a resource must not have responses other than 200, 201, 400, 401, 403, 404, 409, 429, 503.
@@ -392,7 +408,7 @@ rules:
     then:
       function: enumeration
       functionOptions:
-        values: ["201", "400", "401", "403", "404", "409", "429", "500", "503"]
+        values: ["201", "400", "401", "403", "409", "429", "500", "503"]
 
   responses-enrollmentapprovalpolicy-collection-get-allowed:
     description: Policy GET operations may return 500 for persistence failures.
@@ -419,7 +435,7 @@ rules:
     then:
       function: enumeration
       functionOptions:
-        values: ["200", "201", "400", "401", "403", "404", "409", "429", "500", "503"]
+        values: ["200", "400", "401", "403", "404", "409", "429", "500", "503"]
 
   responses-enrollmentapprovalpolicy-resource-patch-allowed:
     description: Policy PATCH operations may return 500 for persistence failures.

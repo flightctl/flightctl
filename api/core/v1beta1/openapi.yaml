@@ -3301,7 +3301,11 @@ paths:
     post:
       tags:
         - enrollmentapprovalpolicy
-      description: Create an EnrollmentApprovalPolicy resource.
+      description: >-
+        Create an EnrollmentApprovalPolicy resource. A non-null approvalLimit
+        requires update permission on enrollmentapprovalpolicies/approvallimit.
+        Creating an enabled policy requires a valid enrollment credential and
+        expression validation.
       operationId: createEnrollmentApprovalPolicy
       requestBody:
         content:
@@ -3330,7 +3334,7 @@ paths:
               parameters:
                 name: '$response.body#/metadata/name'
         "400":
-          description: Bad Request
+          description: Bad Request. An unknown enrollment credential returns InvalidPolicy for spec.certificateName.
           content:
             application/json:
               schema:
@@ -3343,12 +3347,6 @@ paths:
                 $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "404":
-          description: Not Found
           content:
             application/json:
               schema:
@@ -3443,7 +3441,11 @@ paths:
     put:
       tags:
         - enrollmentapprovalpolicy
-      description: Update an EnrollmentApprovalPolicy resource.
+      description: >-
+        Replace an existing EnrollmentApprovalPolicy. Supply the current
+        metadata.resourceVersion in the request body. Changing or clearing
+        spec.approvalLimit requires update permission on
+        enrollmentapprovalpolicies/approvallimit.
       operationId: replaceEnrollmentApprovalPolicy
       parameters:
         - name: name
@@ -3461,12 +3463,6 @@ paths:
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentApprovalPolicy'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -3496,7 +3492,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         "409":
-          description: Conflict
+          description: Missing or stale resource version, or a change to the immutable credential binding.
           content:
             application/json:
               schema:
@@ -3522,7 +3518,9 @@ paths:
     delete:
       tags:
         - enrollmentapprovalpolicy
-      description: Delete an EnrollmentApprovalPolicy resource.
+      description: >-
+        Delete an EnrollmentApprovalPolicy resource. The server retains its name,
+        credential binding, and lifetime enrollment count.
       operationId: deleteEnrollmentApprovalPolicy
       parameters:
         - name: name
@@ -3562,6 +3560,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "409":
+          description: The credential binding conflicts with the policy being deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -3583,7 +3587,11 @@ paths:
     patch:
       tags:
         - enrollmentapprovalpolicy
-      description: Patch an EnrollmentApprovalPolicy resource.
+      description: >-
+        Patch an existing EnrollmentApprovalPolicy. Include exactly one test
+        operation on /metadata/resourceVersion with the current value as a string.
+        Changing the final approvalLimit, including clearing or removing it,
+        requires update permission on enrollmentapprovalpolicies/approvallimit.
       operationId: patchEnrollmentApprovalPolicy
       parameters:
         - name: name
@@ -3630,7 +3638,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         "409":
-          description: Conflict
+          description: Missing or stale resource version test, or a change to the immutable credential binding.
           content:
             application/json:
               schema:
@@ -4420,6 +4428,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: The credential is retained by a policy binding or revocation consequences are still pending.
           content:
             application/json:
               schema:
@@ -6681,7 +6695,6 @@ components:
               - test
     EnrollmentApprovalPolicyPatchRequest:
       description: Policy patch operations, including null values for optional limits.
-      x-go-type: PatchRequest
       type: array
       items:
         type: object
@@ -6694,16 +6707,26 @@ components:
             description: A JSON Pointer path.
             type: string
           value:
-            description: The value to add or replace.
+            description: The value to add, replace, or test. A remove operation may omit the value.
             nullable: true
+            x-go-type: EnrollmentApprovalPolicyPatchValue
+            x-go-type-skip-optional-pointer: true
           op:
-            description: The operation to perform.
-            type: string
-            enum:
-              - add
-              - replace
-              - remove
-              - test
+            $ref: '#/components/schemas/EnrollmentApprovalPolicyPatchOp'
+    EnrollmentApprovalPolicyPatchOp:
+      description: A JSON Patch operation supported by enrollment approval policies.
+      x-go-type: PatchRequestOp
+      type: string
+      enum:
+        - add
+        - replace
+        - remove
+        - test
+      x-enum-varnames:
+        - EnrollmentApprovalPolicyPatchOpAdd
+        - EnrollmentApprovalPolicyPatchOpReplace
+        - EnrollmentApprovalPolicyPatchOpRemove
+        - EnrollmentApprovalPolicyPatchOpTest
     Repository:
       type: object
       properties:
@@ -11742,7 +11765,7 @@ components:
           default: false
           x-go-type-skip-optional-pointer: true
         certificateName:
-          description: Immutable name of a valid issued enrollment credential CSR in this tenant.
+          description: Immutable name of an enrollment credential CSR in this tenant. An enabled policy requires a currently valid, issued, unrevoked credential.
           type: string
           minLength: 1
         requireTPMVerification:
@@ -11751,7 +11774,7 @@ components:
           default: false
           x-go-type-skip-optional-pointer: true
         matchExpression:
-          description: Restricted boolean CEL expression requiring semantic and disjointness validation.
+          description: Restricted boolean CEL expression. The server validates it when creating an enabled policy, enabling a policy, or changing the expression of an enabled policy.
           type: string
           minLength: 1
         deviceLabels:
@@ -11772,7 +11795,7 @@ components:
           maximum: 2147483647
           nullable: true
         autoApprovalWindowDays:
-          description: Optional issuance-relative window in whole days; requires authoritative credential issuance time.
+          description: Optional issuance-relative window in whole days. An enabled policy with a window requires authoritative credential issuance time.
           type: integer
           format: int32
           minimum: 1

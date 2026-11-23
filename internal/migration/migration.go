@@ -133,8 +133,12 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := repositorystore.NewRepositoryStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := enrollmentapprovalpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
-		return err
+	enrollmentApprovalPolicies, err := enrollmentapprovalpolicystore.NewStore(tx, log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy store: %w", err)
+	}
+	if err := enrollmentApprovalPolicies.InitialMigration(ctx); err != nil {
+		return fmt.Errorf("migrate enrollment approval policies: %w", err)
 	}
 	if err := enrollmenthookpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err

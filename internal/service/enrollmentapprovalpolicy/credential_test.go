@@ -7,15 +7,12 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	policyservice "github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
-	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
-func cleanupPolicy(t *testing.T, service *policyservice.ServiceHandler, orgID uuid.UUID, policy domain.EnrollmentApprovalPolicy, operation string) domain.Status {
+func disableOrDeletePolicy(t *testing.T, service *policyservice.ServiceHandler, orgID uuid.UUID, policy domain.EnrollmentApprovalPolicy, operation string) domain.Status {
 	t.Helper()
 	policy.Status = nil
 	policy.Spec.Enabled = false
@@ -42,56 +39,42 @@ func invalidatePolicyCredential(memory *policyMemoryStore, state string) {
 	}
 }
 
-func TestPolicyCleanupAfterCredentialInvalidation(t *testing.T) {
+func TestPolicyDisableOrDeleteIneligibleCredential(t *testing.T) {
 	for _, state := range []string{"revoked", "expired"} {
 		for _, operation := range []string{"put", "patch", "delete"} {
-			for _, unavailable := range []bool{false, true} {
-				t.Run("When "+state+" and "+operation+" with unavailable="+lo.Ternary(unavailable, "true", "false")+" it should preserve cleanup boundaries", func(t *testing.T) {
-					synctest.Test(t, func(t *testing.T) {
-						memory, policy := policyFixture(t)
-						policy.Spec.Enabled = true
-						validator := &testPolicyValidator{}
-						service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
-						created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
-						require.Equal(t, int32(201), status.Code)
-						created.Status.EnrollmentCount = 9
-						invalidatePolicyCredential(memory, state)
-						if unavailable {
-							service = policyservice.NewServiceHandler(memory, policyservice.UnavailablePolicySetValidator{}, "enrollment", events.NewMockService(gomock.NewController(t)), logrus.New())
-						}
-						status = cleanupPolicy(t, service, memory.orgID, *created, operation)
-						if unavailable {
-							require.Equal(t, int32(503), status.Code)
-							require.Equal(t, "PolicyValidationUnavailable", status.Reason)
-							require.Equal(t, 1, memory.writes)
-							require.True(t, memory.policy.Spec.Enabled)
-							require.Equal(t, int64(9), memory.policy.Status.EnrollmentCount)
-						} else {
-							require.Equal(t, int32(200), status.Code, status.Message)
-							require.Equal(t, 2, memory.writes)
-							if operation == "delete" {
-								require.Nil(t, memory.policy)
-								require.Nil(t, validator.candidate)
-							} else {
-								require.False(t, memory.policy.Spec.Enabled)
-								require.Equal(t, int64(9), memory.policy.Status.EnrollmentCount)
-								require.NotNil(t, validator.candidate)
-							}
-						}
-					})
+			t.Run("When the credential is "+state+" it should allow "+operation+" without expression validation", func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					memory, policy := policyFixture(t)
+					policy.Spec.Enabled = true
+					service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
+					created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+					require.Equal(t, int32(201), status.Code)
+					created.Status.EnrollmentCount = 9
+					invalidatePolicyCredential(memory, state)
+
+					service = newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, nil)
+					status = disableOrDeletePolicy(t, service, memory.orgID, *created, operation)
+					require.Equal(t, int32(200), status.Code, status.Message)
+					require.Equal(t, 2, memory.writes)
+					if operation == "delete" {
+						require.Nil(t, memory.policy)
+					} else {
+						require.False(t, memory.policy.Spec.Enabled)
+						require.Equal(t, int64(9), memory.policy.Status.EnrollmentCount)
+					}
 				})
-			}
+			})
 		}
 	}
 }
 
-func TestPolicyInvalidCredentialRejectsNonCleanup(t *testing.T) {
+func TestPolicyWritesAfterCredentialInvalidation(t *testing.T) {
 	for _, state := range []string{"revoked", "expired"} {
-		for _, operation := range []string{"create-disabled", "create-enabled", "enable", "edit-disabled"} {
-			t.Run("When "+state+" and "+operation+" it should reject non-cleanup writes", func(t *testing.T) {
+		for _, operation := range []string{"create-disabled", "create-enabled", "enable using put", "enable using patch", "edit-disabled"} {
+			t.Run("When "+state+" and "+operation+" it should enforce resulting-state eligibility", func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					memory, policy := policyFixture(t)
-					service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+					service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 					created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 					require.Equal(t, int32(201), status.Code)
 					invalidatePolicyCredential(memory, state)
@@ -103,14 +86,26 @@ func TestPolicyInvalidCredentialRejectsNonCleanup(t *testing.T) {
 						candidate.Metadata.ResourceVersion = nil
 						candidate.Spec.Enabled = operation == "create-enabled"
 						_, status = service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, candidate)
-					case "enable":
+					case "enable using put":
+						candidate.Spec.Enabled = true
+						_, status = service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", candidate)
+					case "enable using patch":
 						_, status = service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", domain.PatchRequest{{Op: "test", Path: "/metadata/resourceVersion", Value: "1"}, {Op: "replace", Path: "/spec/enabled", Value: true}})
 					default:
 						candidate.Spec.MatchExpression = "false"
 						_, status = service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", candidate)
 					}
-					require.Equal(t, int32(400), status.Code)
-					require.Equal(t, 1, memory.writes)
+					switch operation {
+					case "create-disabled":
+						require.Equal(t, int32(201), status.Code)
+						require.Equal(t, 2, memory.writes)
+					case "edit-disabled":
+						require.Equal(t, int32(200), status.Code)
+						require.Equal(t, 2, memory.writes)
+					default:
+						require.Equal(t, int32(400), status.Code)
+						require.Equal(t, 1, memory.writes)
+					}
 					require.False(t, memory.policy.Spec.Enabled)
 				})
 			})
@@ -118,7 +113,7 @@ func TestPolicyInvalidCredentialRejectsNonCleanup(t *testing.T) {
 	}
 }
 
-func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
+func TestPolicyDisablePreservesBindingAndIntegrity(t *testing.T) {
 	cases := []struct {
 		name   string
 		change func(*testing.T, *policyMemoryStore, *domain.EnrollmentApprovalPolicy, *uuid.UUID)
@@ -126,19 +121,19 @@ func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
 	}{
 		{"signer", func(_ *testing.T, memory *policyMemoryStore, _ *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			memory.credential.Spec.SignerName = "other"
-		}, 400},
+		}, 200},
 		{"unissued", func(_ *testing.T, memory *policyMemoryStore, _ *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			memory.credential.Status.Certificate = nil
-		}, 400},
+		}, 200},
 		{"malformed", func(_ *testing.T, memory *policyMemoryStore, _ *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			memory.credential.Status.Certificate = lo.ToPtr([]byte("invalid"))
-		}, 400},
+		}, 200},
 		{"not-yet-valid", func(t *testing.T, memory *policyMemoryStore, _ *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			memory.credential.Status.Certificate = lo.ToPtr(policyCertificate(t, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)))
-		}, 400},
+		}, 200},
 		{"issuance", func(_ *testing.T, _ *policyMemoryStore, policy *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			policy.Spec.AutoApprovalWindowDays = lo.ToPtr(int32(1))
-		}, 400},
+		}, 200},
 		{"binding", func(_ *testing.T, _ *policyMemoryStore, policy *domain.EnrollmentApprovalPolicy, _ *uuid.UUID) {
 			policy.Spec.CertificateName = "other"
 		}, 409},
@@ -153,10 +148,10 @@ func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
 		}, 400},
 	}
 	for _, testCase := range cases {
-		t.Run("When cleanup violates "+testCase.name+" it should preserve policy integrity", func(t *testing.T) {
+		t.Run("When disabling with "+testCase.name+" it should preserve policy integrity", func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = true
-			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 			created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 			require.Equal(t, int32(201), status.Code)
 			created.Status.EnrollmentCount = 9
@@ -164,21 +159,26 @@ func TestPolicyCleanupPreservesEligibilityAndIntegrity(t *testing.T) {
 			orgID := memory.orgID
 			memory.credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{}
 			testCase.change(t, memory, &candidate, &orgID)
-			status = cleanupPolicy(t, service, orgID, candidate, "put")
+			status = disableOrDeletePolicy(t, service, orgID, candidate, "put")
 			require.Equal(t, testCase.code, status.Code)
-			require.Equal(t, 1, memory.writes)
-			require.True(t, memory.policy.Spec.Enabled)
+			if testCase.code == 200 {
+				require.Equal(t, 2, memory.writes)
+				require.False(t, memory.policy.Spec.Enabled)
+			} else {
+				require.Equal(t, 1, memory.writes)
+				require.True(t, memory.policy.Spec.Enabled)
+			}
 			require.Equal(t, int64(9), memory.policy.Status.EnrollmentCount)
 		})
 	}
 }
 
-func TestPolicyCleanupRejectsProtectedStatus(t *testing.T) {
+func TestPolicyDisableRejectsProtectedStatus(t *testing.T) {
 	for _, operation := range []string{"put", "patch"} {
-		t.Run("When cleanup uses "+operation+" it should reject protected status", func(t *testing.T) {
+		t.Run("When disabling using "+operation+" it should reject protected status", func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = true
-			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 			created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 			require.Equal(t, int32(201), status.Code)
 			memory.credential.Status.Revocation = &domain.EnrollmentCertificateRevocation{}

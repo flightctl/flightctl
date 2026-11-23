@@ -236,8 +236,15 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
-	enrollmentApprovalPolicySvc := enrollmentapprovalpolicyservice.WrapWithTracing(
-		enrollmentapprovalpolicyservice.NewServiceHandler(enrollmentapprovalpolicystore.NewStore(s.db, s.log), enrollmentapprovalpolicyservice.UnavailablePolicySetValidator{}, s.cfg.CA.DeviceEnrollmentSignerName, eventsSvc, s.log))
+	enrollmentApprovalPolicyStore, err := enrollmentapprovalpolicystore.NewStore(s.db, s.log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy store: %w", err)
+	}
+	enrollmentApprovalPolicyHandler, err := enrollmentapprovalpolicyservice.NewServiceHandler(enrollmentApprovalPolicyStore, enrollmentapprovalpolicyservice.UnavailableExpressionValidator{}, s.cfg.CA.DeviceEnrollmentSignerName, eventsSvc, s.log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy service: %w", err)
+	}
+	enrollmentApprovalPolicySvc := enrollmentapprovalpolicyservice.WrapWithTracing(enrollmentApprovalPolicyHandler)
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 
 	var tpmVerifier tpmcsr.Verifier

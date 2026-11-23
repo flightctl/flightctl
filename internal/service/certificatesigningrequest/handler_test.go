@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -1024,6 +1025,27 @@ func TestDeleteCertificateSigningRequest(t *testing.T) {
 		require.Contains(t, fakeStore.items, "foo")
 		require.Empty(t, fakeEvents.events)
 	})
+	for _, tc := range []struct {
+		name       string
+		constraint string
+		code       int32
+		message    string
+	}{
+		{"When a policy retains the credential it should return a conflict", store.EnrollmentPolicyCredentialFK, statusConflictCode, flterrors.ErrEnrollmentCredentialRetained.Error()},
+		{"When another foreign key fails it should return a generic server error", "other_constraint", statusServerErrorCode, "An internal error occurred"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, fakeStore, _, fakeEvents, _ := newTestHandler(t)
+			fakeStore.items["foo"] = &csr
+			fakeStore.deleteErr = &pgconn.PgError{Code: "23503", ConstraintName: tc.constraint, Detail: "private database detail"}
+
+			status := h.DeleteCertificateSigningRequest(t.Context(), uuid.New(), "foo")
+			require.Equal(t, tc.code, status.Code)
+			require.Equal(t, tc.message, status.Message)
+			require.Contains(t, fakeStore.items, "foo")
+			require.Empty(t, fakeEvents.events)
+		})
+	}
 }
 
 func TestPatchCertificateSigningRequest(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	apiclientv1alpha1 "github.com/flightctl/flightctl/internal/api/client/v1alpha1"
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
@@ -405,35 +406,43 @@ func applyEnrollmentApprovalPolicy(ctx context.Context, apiClient *client.Client
 		return applyResult{err: err}
 	}
 	createResp, err := apiClient.CreateEnrollmentApprovalPolicyWithBodyWithResponse(ctx, "application/json", bytes.NewReader(createBody))
+	createResult := extractApplyResult(createResp, err)
+	if err != nil {
+		return createResult
+	}
+	alreadyExists := createResp.StatusCode() == http.StatusConflict && createResp.JSON409 != nil && createResp.JSON409.Reason == "AlreadyExists"
+	quotaDenied := createResp.StatusCode() == http.StatusForbidden && createResp.JSON403 != nil && createResp.JSON403.Reason == http.StatusText(http.StatusForbidden) && createResp.JSON403.Message == consts.ApprovalLimitPermissionRequiredMessage
+	if !alreadyExists && !quotaDenied {
+		return createResult
+	}
+	// A quota denial on POST can still allow an update that preserves the limit.
+	// The ordinary GET and PUT permissions apply, and PUT checks its version and limit.
+	if version == "" {
+		current, err := apiClient.GetEnrollmentApprovalPolicyWithResponse(ctx, resourceName)
+		if err != nil {
+			return extractApplyResult(current, err)
+		}
+		if current.JSON200 == nil {
+			if quotaDenied || current.StatusCode() == http.StatusNotFound {
+				return createResult
+			}
+			return extractApplyResult(current, nil)
+		}
+		if current.JSON200.Metadata.ResourceVersion == nil {
+			return applyResult{err: fmt.Errorf("policy response has no resourceVersion")}
+		}
+		version = *current.JSON200.Metadata.ResourceVersion
+	}
+	metadata["resourceVersion"] = version
+	replaceBody, err := json.Marshal(document)
 	if err != nil {
 		return applyResult{err: err}
 	}
-	if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict && createResp.JSON409 != nil && createResp.JSON409.Reason == "AlreadyExists" {
-		if version == "" {
-			current, err := apiClient.GetEnrollmentApprovalPolicyWithResponse(ctx, resourceName)
-			if err != nil {
-				return extractApplyResult(current, err)
-			}
-			if current.HTTPResponse != nil && current.HTTPResponse.StatusCode == http.StatusNotFound {
-				return extractApplyResult(createResp, nil)
-			}
-			if current.JSON200 == nil {
-				return extractApplyResult(current, nil)
-			}
-			if current.JSON200.Metadata.ResourceVersion == nil {
-				return applyResult{err: fmt.Errorf("policy response has no resourceVersion")}
-			}
-			version = *current.JSON200.Metadata.ResourceVersion
-		}
-		metadata["resourceVersion"] = version
-		replaceBody, err := json.Marshal(document)
-		if err != nil {
-			return applyResult{err: err}
-		}
-		replaceResp, err := apiClient.ReplaceEnrollmentApprovalPolicyWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(replaceBody))
-		return extractApplyResult(replaceResp, err)
+	replaceResp, err := apiClient.ReplaceEnrollmentApprovalPolicyWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(replaceBody))
+	if err == nil && quotaDenied && replaceResp.StatusCode() == http.StatusNotFound {
+		return createResult
 	}
-	return extractApplyResult(createResp, err)
+	return extractApplyResult(replaceResp, err)
 }
 
 // extractApplyResult extracts HTTP response and body from various response types

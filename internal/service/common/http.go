@@ -198,7 +198,6 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrDecommission:                        true,
 	flterrors.ErrResourceNotEmpty:                    true,
 	flterrors.ErrResourceInUse:                       true,
-	flterrors.ErrEnrollmentCredentialRetained:        true,
 }
 
 // StoreErrorToApiStatus maps a store error into the appropriate domain.Status.
@@ -211,6 +210,8 @@ func StoreErrorToApiStatus(err error, created bool, kind string, name *string) d
 	}
 
 	switch {
+	case errors.Is(err, flterrors.ErrEnrollmentCredentialRetained):
+		return domain.StatusConflict(flterrors.ErrEnrollmentCredentialRetained.Error())
 	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return domain.StatusResourceNotFound(kind, util.DefaultIfNil(name, "none"))
 	case badRequestErrors[err]:

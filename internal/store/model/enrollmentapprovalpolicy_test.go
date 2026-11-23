@@ -17,6 +17,18 @@ func TestEnrollmentApprovalPolicyConversionOwnsGeneration(t *testing.T) {
 	require.NoError(t, err)
 	*resource.Metadata.Generation = 9
 	require.Equal(t, int64(2), *record.Generation)
+	converted, err := NewEnrollmentApprovalPolicyFromApiResource(resource)
+	require.NoError(t, err)
+	*converted.Generation = 10
+	require.Equal(t, int64(9), *resource.Metadata.Generation)
+
+	record.Generation = nil
+	resource, err = record.ToApiResource()
+	require.NoError(t, err)
+	require.Nil(t, resource.Metadata.Generation)
+	converted, err = NewEnrollmentApprovalPolicyFromApiResource(resource)
+	require.NoError(t, err)
+	require.Nil(t, converted.Generation)
 }
 
 func TestPolicyModelNumericRoundTrip(t *testing.T) {

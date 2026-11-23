@@ -65,7 +65,7 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 	}{
 		{"When the submitted version was not authorized it should reject", `"2"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
 		{"When the authorized version changes it should conflict under lock", `"1"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
-		{"When quota is authorized but version changes it should still conflict", `"1"`, "30", lo.ToPtr(int32(10)), true, true, true, false, 409},
+		{"When the version changes it should conflict before the quota check", `"1"`, "30", lo.ToPtr(int32(10)), true, false, false, false, 409},
 		{"When quota is unchanged it should not require extra permission", `"1"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 200},
 		{"When quota is changed without permission it should reject", `"1"`, "20", lo.ToPtr(int32(10)), false, true, false, false, 403},
 		{"When quota is changed with permission it should replace", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, false, 200},
@@ -76,7 +76,7 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 		{"When version is missing it should conflict", "null", "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
 		{"When version is stale it should conflict", `"0"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
 		{"When version is not a string it should reject input", "1", "10", lo.ToPtr(int32(10)), false, false, false, false, 400},
-		{"When validation is unavailable it should remain fail closed", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, true, 503},
+		{"When validation is unavailable it should allow a disabled policy limit change", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, true, 200},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory := &replacePolicyRaceStore{routePolicyStore: &routePolicyStore{
@@ -87,11 +87,13 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 			if testCase.quotaCheck {
 				permissions.EXPECT().CheckPermission(gomock.Any(), "enrollmentapprovalpolicies/approvallimit", "update").Return(testCase.allowQuota, nil)
 			}
-			var validator policyservice.PolicySetValidator = acceptingRoutePolicyValidator{}
+			var validator policyservice.ExpressionValidator = acceptingRoutePolicyValidator{}
 			if testCase.unavailable {
-				validator = policyservice.UnavailablePolicySetValidator{}
+				validator = policyservice.UnavailableExpressionValidator{}
 			}
-			handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions, enrollmentapprovalpolicy: policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())}
+			service, err := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+			require.NoError(t, err)
+			handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions, enrollmentapprovalpolicy: service}
 			spec, err := apiv1beta1.GetSpec()
 			require.NoError(t, err)
 			router := chi.NewRouter()
@@ -118,9 +120,6 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 			}
 			if testCase.race {
 				require.Equal(t, int32(20), *memory.policy.Spec.ApprovalLimit)
-			}
-			if testCase.unavailable {
-				require.Contains(t, response.Body.String(), "PolicyValidationUnavailable")
 			}
 		})
 	}

@@ -15,14 +15,17 @@ import (
 type EnrollmentApprovalPolicy struct {
 	Resource
 
-	CertificateName string
+	CertificateName string `gorm:"not null"`
 
 	Spec   *JSONField[domain.EnrollmentApprovalPolicySpec]   `gorm:"type:jsonb"`
 	Status *JSONField[domain.EnrollmentApprovalPolicyStatus] `gorm:"type:jsonb"`
 }
 
 func (policyRecord EnrollmentApprovalPolicy) String() string {
-	val, _ := json.Marshal(policyRecord)
+	val, err := json.Marshal(policyRecord)
+	if err != nil {
+		return fmt.Sprintf("EnrollmentApprovalPolicy %q: %v", policyRecord.Name, err)
+	}
 	return string(val)
 }
 
@@ -49,6 +52,7 @@ func NewEnrollmentApprovalPolicyFromApiResource(resource *domain.EnrollmentAppro
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
+			Generation:      clonePtr(resource.Metadata.Generation),
 		},
 		CertificateName: resource.Spec.CertificateName,
 		Spec:            MakeJSONField(resource.Spec),

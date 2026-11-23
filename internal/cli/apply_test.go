@@ -2,9 +2,11 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -29,6 +31,55 @@ func TestApplyRepositoryDevicePullAccess(t *testing.T) {
 			var result api.Repository
 			require.NoError(t, json.Unmarshal([]byte(recorder.bodies[0]), &result))
 			require.Equal(t, repo.Spec, result.Spec)
+		})
+	}
+}
+
+func TestApplyApprovalPolicyQuotaFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason, message, methods string
+		get, put, want                 int
+	}{
+		{"When the existing cap is unchanged it should replace after the quota-specific create denial", "Forbidden", "approval limit changes require quota permission", "POST GET PUT", 200, 200, 200},
+		{"When the cap changes it should preserve the update denial", "Forbidden", "approval limit changes require quota permission", "POST GET PUT", 200, 403, 403},
+		{"When the resource is absent it should keep the create denial", "Forbidden", "approval limit changes require quota permission", "POST GET", 404, 0, 403},
+		{"When the resource cannot be read it should keep the create denial", "Forbidden", "approval limit changes require quota permission", "POST GET", 403, 0, 403},
+		{"When create authorization denies the request it should not attempt an update", "Forbidden", "permission denied", "POST", 0, 0, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var methods []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				mu.Lock()
+				methods = append(methods, request.Method)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				switch request.Method {
+				case http.MethodPost:
+					w.WriteHeader(http.StatusForbidden)
+					_ = json.NewEncoder(w).Encode(api.NewFailureStatus(403, tc.reason, tc.message))
+				case http.MethodGet:
+					w.WriteHeader(tc.get)
+					_, _ = fmt.Fprint(w, `{"metadata":{"name":"west","resourceVersion":"7"},"spec":{"approvalLimit":10}}`)
+				case http.MethodPut:
+					var policy api.EnrollmentApprovalPolicy
+					if err := json.NewDecoder(request.Body).Decode(&policy); err != nil || policy.Metadata.ResourceVersion == nil || *policy.Metadata.ResourceVersion != "7" {
+						http.Error(w, "missing fetched version", http.StatusBadRequest)
+						return
+					}
+					w.WriteHeader(tc.put)
+					_, _ = fmt.Fprint(w, `{}`)
+				}
+			}))
+			defer server.Close()
+			generated, err := apiclient.NewClientWithResponses(server.URL)
+			require.NoError(t, err)
+			result := applyEnrollmentApprovalPolicy(t.Context(), client.NewTestClient(generated), "west", []byte(`{"metadata":{"name":"west"},"spec":{"approvalLimit":10}}`))
+			require.NoError(t, result.err)
+			require.Equal(t, tc.want, result.httpResponse.StatusCode)
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, tc.methods, strings.Join(methods, " "))
 		})
 	}
 }
@@ -204,7 +255,7 @@ func TestApplySingleResourceEmptyName(t *testing.T) {
 }
 
 func TestApplyApprovalPolicyPreservesNonDuplicateConflict(t *testing.T) {
-	for _, reason := range []string{"PolicyOverlap", "ImmutableCertificateBinding", "ResourceVersionConflict"} {
+	for _, reason := range []string{"ImmutableCertificateBinding", "ResourceVersionConflict"} {
 		t.Run("When conflict is "+reason+" it should preserve the response", func(t *testing.T) {
 			var methods []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -2065,8 +2065,20 @@ type EnrollmentApprovalPolicyList struct {
 	Metadata ListMeta `json:"metadata"`
 }
 
+// EnrollmentApprovalPolicyPatchOp A JSON Patch operation supported by enrollment approval policies.
+type EnrollmentApprovalPolicyPatchOp = PatchRequestOp
+
 // EnrollmentApprovalPolicyPatchRequest Policy patch operations, including null values for optional limits.
-type EnrollmentApprovalPolicyPatchRequest = PatchRequest
+type EnrollmentApprovalPolicyPatchRequest = []struct {
+	// Op A JSON Patch operation supported by enrollment approval policies.
+	Op EnrollmentApprovalPolicyPatchOp `json:"op"`
+
+	// Path A JSON Pointer path.
+	Path string `json:"path"`
+
+	// Value The value to add, replace, or test. A remove operation may omit the value.
+	Value EnrollmentApprovalPolicyPatchValue `json:"value,omitempty"`
+}
 
 // EnrollmentApprovalPolicySpec Administrative enrollment policy configuration.
 type EnrollmentApprovalPolicySpec struct {
@@ -2076,10 +2088,10 @@ type EnrollmentApprovalPolicySpec struct {
 	// ApprovalLimit Lifetime automatic approval cap; absent or null is unlimited and zero blocks approvals.
 	ApprovalLimit *int32 `json:"approvalLimit,omitempty"`
 
-	// AutoApprovalWindowDays Optional issuance-relative window in whole days; requires authoritative credential issuance time.
+	// AutoApprovalWindowDays Optional issuance-relative window in whole days. An enabled policy with a window requires authoritative credential issuance time.
 	AutoApprovalWindowDays *int32 `json:"autoApprovalWindowDays,omitempty"`
 
-	// CertificateName Immutable name of a valid issued enrollment credential CSR in this tenant.
+	// CertificateName Immutable name of an enrollment credential CSR in this tenant. An enabled policy requires a currently valid, issued, unrevoked credential.
 	CertificateName string `json:"certificateName"`
 
 	// DeviceLabels Static labels assigned to automatically approved devices; may be empty.
@@ -2088,7 +2100,7 @@ type EnrollmentApprovalPolicySpec struct {
 	// Enabled Whether this policy participates in automatic approval. Defaults to false.
 	Enabled bool `json:"enabled,omitempty"`
 
-	// MatchExpression Restricted boolean CEL expression requiring semantic and disjointness validation.
+	// MatchExpression Restricted boolean CEL expression. The server validates it when creating an enabled policy, enabling a policy, or changing the expression of an enabled policy.
 	MatchExpression string `json:"matchExpression"`
 
 	// RequireTPMVerification Whether server-verified TPM identity is required. Defaults to false.

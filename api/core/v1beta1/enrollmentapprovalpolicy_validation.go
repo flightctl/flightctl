@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 const (
@@ -21,7 +22,7 @@ func (policy *EnrollmentApprovalPolicy) Validate() []error {
 	allErrors = append(allErrors, validation.ValidateLabels(policy.Metadata.Labels)...)
 	allErrors = append(allErrors, validation.ValidateAnnotations(policy.Metadata.Annotations)...)
 	allErrors = append(allErrors, validation.ValidateResourceNameReference(&policy.Spec.CertificateName, "spec.certificateName")...)
-	allErrors = append(allErrors, validation.ValidateLabels(&policy.Spec.DeviceLabels)...)
+	allErrors = append(allErrors, validation.ValidateLabelsWithPath(&policy.Spec.DeviceLabels, "spec.deviceLabels")...)
 	if policy.Spec.DeviceLabels == nil {
 		allErrors = append(allErrors, fmt.Errorf("spec.deviceLabels is required"))
 	}
@@ -29,9 +30,10 @@ func (policy *EnrollmentApprovalPolicy) Validate() []error {
 		allErrors = append(allErrors, fmt.Errorf("spec.matchExpression is required"))
 	}
 	if policy.Spec.AllowedIncomingLabels != nil {
-		for _, key := range *policy.Spec.AllowedIncomingLabels {
-			labels := map[string]string{key: ""}
-			allErrors = append(allErrors, validation.ValidateLabels(&labels)...)
+		for i, key := range *policy.Spec.AllowedIncomingLabels {
+			for _, detail := range validation.ValidateLabelKey(key) {
+				allErrors = append(allErrors, field.Invalid(field.NewPath("spec", "allowedIncomingLabels").Index(i), key, detail))
+			}
 		}
 	}
 	if policy.Spec.ApprovalLimit != nil && *policy.Spec.ApprovalLimit < 0 {

@@ -22,6 +22,7 @@ import (
 	policystore "github.com/flightctl/flightctl/internal/store/enrollmentapprovalpolicy"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -58,12 +59,95 @@ func (memory *policyMemoryStore) List(context.Context, uuid.UUID, store.ListPara
 func TestPolicyListSelectorFailure(t *testing.T) {
 	memory, _ := policyFixture(t)
 	memory.listError = fmt.Errorf("listing: %w", selector.NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector, fmt.Errorf("unsupported field")))
-	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+	service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 	_, status := service.ListEnrollmentApprovalPolicies(t.Context(), memory.orgID, domain.ListEnrollmentApprovalPoliciesParams{})
 	require.Equal(t, int32(400), status.Code)
+	require.Equal(t, "unknown or unsupported selector: unsupported field", status.Message)
 }
-func (memory *policyMemoryStore) WithPolicySetTransaction(ctx context.Context, _ uuid.UUID, _, _ string, fn func(context.Context, *domain.CertificateSigningRequest, []domain.EnrollmentApprovalPolicy) error) error {
-	return fn(ctx, memory.credential, nil)
+
+func TestPolicyPatchVersionInput(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []any
+		code   int32
+	}{
+		{"When the version test is absent it should conflict", nil, 409},
+		{"When the version test is stale it should conflict", []any{"0"}, 409},
+		{"When the version test has a number it should reject malformed input", []any{json.Number("1")}, 400},
+		{"When the version test is null it should reject malformed input", []any{json.RawMessage("null")}, 400},
+		{"When the version test is empty it should reject malformed input", []any{""}, 400},
+		{"When the version test overflows it should reject malformed input", []any{"9223372036854775808"}, 400},
+		{"When version tests are duplicated it should reject the request", []any{"1", "1"}, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memory, policy := policyFixture(t)
+			policy.Metadata.ResourceVersion = lo.ToPtr("1")
+			memory.policy = &policy
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
+			var patch domain.PatchRequest
+			for _, value := range tc.values {
+				patch = append(patch, domain.PatchRequest{{Op: "test", Path: "/metadata/resourceVersion", Value: value}}...)
+			}
+			_, status := service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", patch)
+			require.Equal(t, tc.code, status.Code, status.Message)
+			require.Zero(t, memory.writes)
+		})
+	}
+}
+
+func TestUnavailablePolicyValidatorThroughInputWrapper(t *testing.T) {
+	memory, policy := policyFixture(t)
+	policy.Spec.Enabled = true
+	diagnostic := errors.New("private compiler diagnostic")
+	wrapped := policyservice.InvalidPolicyInputError{Cause: errors.Join(diagnostic, policyservice.ErrValidationUnavailable)}
+	service := newTestPolicyService(t, memory, &testPolicyValidator{err: &wrapped}, nil)
+	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+	require.Equal(t, int32(503), status.Code, status.Message)
+	require.Equal(t, "PolicyValidationUnavailable", status.Reason)
+	require.Equal(t, policyservice.ErrValidationUnavailable.Error(), status.Message)
+}
+
+type policyTransactionProbe struct {
+	policystore.Store
+	attempts int
+	abort    error
+}
+
+func (probe *policyTransactionProbe) WithTransaction(context.Context, func(context.Context) error) error {
+	probe.attempts++
+	return probe.abort
+}
+
+func TestPolicyTransactionRetryBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		abort    error
+		attempts int
+		code     int32
+	}{
+		{"When PostgreSQL reports a deadlock it should cap transaction attempts", &pgconn.PgError{Code: "40P01"}, 3, 500},
+		{"When PostgreSQL reports a connection failure it should not replay an unknown outcome", &pgconn.PgError{Code: "08006"}, 1, 500},
+		{"When the client version is stale it should not retry", flterrors.ErrResourceVersionConflict, 1, 409},
+		{"When a business error wraps a PostgreSQL cause it should not replay", policyservice.InvalidPolicyError{Message: "invalid expression", Cause: &pgconn.PgError{Code: "40001"}}, 1, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memory, policy := policyFixture(t)
+			probe := &policyTransactionProbe{Store: memory, abort: tc.abort}
+			service := newTestPolicyService(t, probe, &testPolicyValidator{}, nil)
+			_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+			require.Equal(t, tc.code, status.Code, status.Message)
+			require.Equal(t, tc.attempts, probe.attempts)
+			require.Zero(t, memory.writes)
+		})
+	}
+}
+func (memory *policyMemoryStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	err := fn(ctx)
+	memory.lastError = err
+	return err
+}
+func (memory *policyMemoryStore) GetCredential(context.Context, uuid.UUID, string) (*domain.CertificateSigningRequest, error) {
+	return memory.credential, nil
 }
 func (memory *policyMemoryStore) Delete(context.Context, uuid.UUID, string) error {
 	memory.policy = nil
@@ -98,14 +182,20 @@ func (memory *policyMemoryStore) Mutate(ctx context.Context, orgID uuid.UUID, na
 }
 
 type testPolicyValidator struct {
-	err       error
-	candidate *domain.EnrollmentApprovalPolicy
-	enabled   []domain.EnrollmentApprovalPolicy
+	err         error
+	expressions []string
 }
 
-func (validator *testPolicyValidator) ValidatePolicySet(_ context.Context, candidate *domain.EnrollmentApprovalPolicy, enabled []domain.EnrollmentApprovalPolicy) error {
-	validator.candidate, validator.enabled = candidate, enabled
+func (validator *testPolicyValidator) ValidateExpression(_ context.Context, expression string) error {
+	validator.expressions = append(validator.expressions, expression)
 	return validator.err
+}
+
+func newTestPolicyService(t *testing.T, policies policystore.Store, validator policyservice.ExpressionValidator, events events.Service) *policyservice.ServiceHandler {
+	t.Helper()
+	service, err := policyservice.NewServiceHandler(policies, validator, "enrollment", events, logrus.New())
+	require.NoError(t, err)
+	return service
 }
 
 func policyCertificate(t *testing.T, notBefore, notAfter time.Time) []byte {
@@ -125,35 +215,57 @@ func policyFixture(t *testing.T) (*policyMemoryStore, domain.EnrollmentApprovalP
 	return memory, domain.EnrollmentApprovalPolicy{Metadata: domain.ObjectMeta{Name: lo.ToPtr("west")}, Spec: domain.EnrollmentApprovalPolicySpec{CertificateName: "credential", MatchExpression: "true", DeviceLabels: map[string]string{}}}
 }
 
-func TestPolicyUnavailableDoesNotWrite(t *testing.T) {
+func TestPolicyUnavailableOnCreate(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
-		t.Run(map[bool]string{false: "When disabled it should fail closed", true: "When enabled it should fail closed"}[enabled], func(t *testing.T) {
+		t.Run(map[bool]string{false: "When creating a disabled draft it should save without validation", true: "When creating an enabled policy it should fail closed"}[enabled], func(t *testing.T) {
 			memory, policy := policyFixture(t)
 			policy.Spec.Enabled = enabled
-			service := policyservice.NewServiceHandler(memory, policyservice.UnavailablePolicySetValidator{}, "enrollment", nil, logrus.New())
-			result, status := service.CreateEnrollmentApprovalPolicy(context.Background(), memory.orgID, policy)
-			require.Nil(t, result)
-			require.Equal(t, int32(503), status.Code)
-			require.Equal(t, "PolicyValidationUnavailable", status.Reason)
-			require.Zero(t, memory.writes)
+			service := newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, (*events.ServiceHandler)(nil))
+			result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+			if enabled {
+				require.Nil(t, result)
+				require.Equal(t, int32(503), status.Code)
+				require.Equal(t, "PolicyValidationUnavailable", status.Reason)
+				require.Zero(t, memory.writes)
+			} else {
+				require.Equal(t, int32(201), status.Code)
+				require.False(t, result.Spec.Enabled)
+				require.Equal(t, 1, memory.writes)
+			}
 		})
 	}
 }
 
-func TestPolicyUnavailableRejectsExistingDraftMutationsWithoutEvents(t *testing.T) {
+func TestPolicyDuplicateCreateWithUnavailableValidator(t *testing.T) {
+	t.Run("When an enabled policy exists it should return a conflict before expression validation", func(t *testing.T) {
+		memory, policy := policyFixture(t)
+		policy.Spec.Enabled = true
+		stored := policy
+		stored.Metadata.ResourceVersion = lo.ToPtr("1")
+		memory.policy = &stored
+		service := newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, nil)
+
+		result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+		require.Nil(t, result)
+		require.Equal(t, int32(409), status.Code, status.Message)
+		require.Equal(t, "AlreadyExists", status.Reason)
+		require.Zero(t, memory.writes)
+	})
+}
+
+func TestPolicyUnavailableRejectsActivationWithoutEvents(t *testing.T) {
 	memory, policy := policyFixture(t)
 	policy.Metadata.ResourceVersion = lo.ToPtr("1")
 	policy.Status = &domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: 9}
 	memory.policy = &policy
 	eventService := events.NewMockService(gomock.NewController(t))
-	service := policyservice.NewServiceHandler(memory, policyservice.UnavailablePolicySetValidator{}, "enrollment", eventService, logrus.New())
+	service := newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, eventService)
 	replacement := policy
 	replacement.Status = nil
+	replacement.Spec.Enabled = true
 	_, status := service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", replacement)
 	require.Equal(t, "PolicyValidationUnavailable", status.Reason)
 	_, status = service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", domain.PatchRequest{{Op: "test", Path: "/metadata/resourceVersion", Value: "1"}, {Op: "replace", Path: "/spec/enabled", Value: true}})
-	require.Equal(t, "PolicyValidationUnavailable", status.Reason)
-	status = service.DeleteEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west")
 	require.Equal(t, "PolicyValidationUnavailable", status.Reason)
 	require.Zero(t, memory.writes)
 	require.Equal(t, int64(9), memory.policy.Status.EnrollmentCount)
@@ -178,8 +290,6 @@ func TestPolicyValidationErrorMapping(t *testing.T) {
 		{"semantic pointer", &policyservice.InvalidPolicyError{Message: "unsupported expression", Cause: cause}, new(*policyservice.InvalidPolicyError), 400, "InvalidPolicy", "unsupported expression"},
 		{"input value", policyservice.InvalidPolicyInputError{Cause: cause}, new(policyservice.InvalidPolicyInputError), 400, "Bad Request", cause.Error()},
 		{"input pointer", &policyservice.InvalidPolicyInputError{Cause: cause}, new(*policyservice.InvalidPolicyInputError), 400, "Bad Request", cause.Error()},
-		{"overlap value", policyservice.PolicyOverlapError{PolicyName: "other"}, new(policyservice.PolicyOverlapError), 409, "PolicyOverlap", "enabled policy overlaps or cannot be proved disjoint from policy other"},
-		{"overlap pointer", &policyservice.PolicyOverlapError{PolicyName: "other"}, new(*policyservice.PolicyOverlapError), 409, "PolicyOverlap", "enabled policy overlaps or cannot be proved disjoint from policy other"},
 	} {
 		for _, form := range []string{"direct", "wrapped"} {
 			t.Run("When a "+form+" "+testCase.name+" is returned it should preserve classification and causes", func(t *testing.T) {
@@ -188,19 +298,18 @@ func TestPolicyValidationErrorMapping(t *testing.T) {
 					injected = fmt.Errorf("validate: %w", injected)
 				}
 				memory, policy := policyFixture(t)
-				service := policyservice.NewServiceHandler(memory, &testPolicyValidator{err: injected}, "enrollment", nil, logrus.New())
+				policy.Spec.Enabled = true
+				service := newTestPolicyService(t, memory, &testPolicyValidator{err: injected}, nil)
 				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 				require.Nil(t, result)
 				require.Zero(t, memory.writes)
 				require.ErrorIs(t, memory.lastError, injected)
 				require.ErrorIs(t, memory.lastError, testCase.err)
 				require.ErrorAs(t, memory.lastError, testCase.target)
-				if testCase.reason != "PolicyOverlap" {
-					require.ErrorIs(t, memory.lastError, sentinel)
-					var actual *json.SyntaxError
-					require.ErrorAs(t, memory.lastError, &actual)
-					require.Same(t, syntaxError, actual)
-				}
+				require.ErrorIs(t, memory.lastError, sentinel)
+				var actual *json.SyntaxError
+				require.ErrorAs(t, memory.lastError, &actual)
+				require.Same(t, syntaxError, actual)
 				require.Equal(t, testCase.code, status.Code)
 				require.Equal(t, testCase.reason, status.Reason)
 				require.Equal(t, testCase.message, status.Message)
@@ -211,13 +320,13 @@ func TestPolicyValidationErrorMapping(t *testing.T) {
 
 func TestPolicyLifecycleContracts(t *testing.T) {
 	memory, policy := policyFixture(t)
+	policy.Spec.Enabled = true
 	validator := &testPolicyValidator{}
-	service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+	service := newTestPolicyService(t, memory, validator, nil)
 	created, status := service.CreateEnrollmentApprovalPolicy(context.Background(), memory.orgID, policy)
 	require.Equal(t, int32(201), status.Code)
 	require.Zero(t, created.Status.EnrollmentCount)
-	require.NotNil(t, validator.candidate)
-	require.Empty(t, validator.enabled)
+	require.Equal(t, []string{policy.Spec.MatchExpression}, validator.expressions)
 	fetched, status := service.GetEnrollmentApprovalPolicy(context.Background(), memory.orgID, "west")
 	require.Equal(t, int32(200), status.Code)
 	require.Zero(t, fetched.Status.EnrollmentCount)
@@ -279,8 +388,9 @@ func TestPolicyCredentialValidation(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory, policy := policyFixture(t)
+			policy.Spec.Enabled = true
 			testCase.change(memory, &policy)
-			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 			_, status := service.CreateEnrollmentApprovalPolicy(context.Background(), memory.orgID, policy)
 			require.Equal(t, int32(400), status.Code)
 			require.Zero(t, memory.writes)
@@ -295,7 +405,7 @@ func TestPolicyPatchProtectsStatusAndMetadata(t *testing.T) {
 			policy.Metadata.ResourceVersion = lo.ToPtr("1")
 			policy.Status = &domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: 9}
 			memory.policy = &policy
-			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 			_, status := service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", domain.PatchRequest{
 				{Op: "test", Path: "/metadata/resourceVersion", Value: "1"},
 				{Op: "remove", Path: path},
@@ -310,7 +420,7 @@ func TestPolicyPatchProtectsStatusAndMetadata(t *testing.T) {
 
 func TestPolicyReplacementPreservesOmittedMetadata(t *testing.T) {
 	memory, policy := policyFixture(t)
-	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+	service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 	created, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 	require.Equal(t, int32(201), status.Code)
 	memory.policy.Metadata.Labels = lo.ToPtr(map[string]string{"region": "west"})
@@ -331,7 +441,7 @@ func TestPolicyUnexpectedStorageFailureUsesInternalServerError(t *testing.T) {
 			memory, _ := policyFixture(t)
 			cause := errors.New("internal database connection detail")
 			memory.listError, memory.getError = cause, cause
-			service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+			service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 			var status domain.Status
 			if operation == "list" {
 				_, status = service.ListEnrollmentApprovalPolicies(t.Context(), memory.orgID, domain.ListEnrollmentApprovalPoliciesParams{})
@@ -347,18 +457,34 @@ func TestPolicyUnexpectedStorageFailureUsesInternalServerError(t *testing.T) {
 
 func TestPolicyServiceDependencies(t *testing.T) {
 	memory, _ := policyFixture(t)
-	t.Run("When the logger is nil it should panic", func(t *testing.T) {
-		require.Panics(t, func() { policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, nil) })
-	})
+	for _, tc := range []struct {
+		name      string
+		policies  policystore.Store
+		validator policyservice.ExpressionValidator
+		signer    string
+		logger    logrus.FieldLogger
+		want      string
+	}{
+		{"When the store is absent it should explain the missing store", nil, &testPolicyValidator{}, "enrollment", logrus.New(), "policy store is required"},
+		{"When the validator is a nil pointer it should explain the missing validator", memory, (*testPolicyValidator)(nil), "enrollment", logrus.New(), "expression validator is required"},
+		{"When the signer is empty it should explain the missing signer", memory, &testPolicyValidator{}, "", logrus.New(), "signer name is required"},
+		{"When the logger is absent it should explain the missing logger", memory, &testPolicyValidator{}, "enrollment", nil, "logger is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, err := policyservice.NewServiceHandler(tc.policies, tc.validator, tc.signer, nil, tc.logger)
+			require.ErrorContains(t, err, tc.want)
+			require.Nil(t, service)
+		})
+	}
 	t.Run("When events are absent it should construct", func(t *testing.T) {
-		require.NotNil(t, policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New()))
+		require.NotNil(t, newTestPolicyService(t, memory, &testPolicyValidator{}, nil))
 	})
 }
 
 func TestPolicyUnknownCredential(t *testing.T) {
 	memory, policy := policyFixture(t)
 	memory.credential = nil
-	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+	service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 	require.Equal(t, int32(400), status.Code)
 	require.Equal(t, "InvalidPolicy", status.Reason)
@@ -369,7 +495,7 @@ func TestPolicyUnknownCredential(t *testing.T) {
 
 func TestPolicyPatchCauseAndClassification(t *testing.T) {
 	memory, policy := policyFixture(t)
-	service := policyservice.NewServiceHandler(memory, &testPolicyValidator{}, "enrollment", nil, logrus.New())
+	service := newTestPolicyService(t, memory, &testPolicyValidator{}, nil)
 	_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 	require.Equal(t, int32(201), status.Code)
 	_, status = service.PatchEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", domain.PatchRequest{
@@ -407,9 +533,10 @@ func TestPolicySemanticCauseTakesPrecedence(t *testing.T) {
 		} {
 			t.Run("When a wrapped "+testCase.name+" contains "+storageCause.name+" it should preserve policy classification", func(t *testing.T) {
 				memory, policy := policyFixture(t)
+				policy.Spec.Enabled = true
 				injected := fmt.Errorf("validate: %w", testCase.err)
 				validator := &testPolicyValidator{err: injected}
-				service := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+				service := newTestPolicyService(t, memory, validator, nil)
 				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
 				require.Nil(t, result)
 				require.Zero(t, memory.writes)
@@ -418,6 +545,51 @@ func TestPolicySemanticCauseTakesPrecedence(t *testing.T) {
 				require.Equal(t, int32(400), status.Code)
 				require.Equal(t, testCase.reason, status.Reason)
 				require.Equal(t, testCase.message, status.Message)
+			})
+		}
+	}
+}
+
+func TestPolicySentinelPublicMessages(t *testing.T) {
+	driverError := &pgconn.PgError{Code: "23505", Message: "private index and row detail"}
+	for _, tc := range []struct {
+		cause  error
+		code   int32
+		reason string
+	}{
+		{flterrors.ErrDuplicateName, 409, "AlreadyExists"},
+		{flterrors.ErrResourceVersionConflict, 409, "ResourceVersionConflict"},
+		{flterrors.ErrNoRowsUpdated, 409, "Conflict"},
+		{flterrors.ErrImmutableCertificateBinding, 409, "ImmutableCertificateBinding"},
+		{flterrors.ErrIllegalResourceVersionFormat, 400, "Bad Request"},
+		{flterrors.ErrFieldSelectorUnknownSelector, 400, "Bad Request"},
+		{flterrors.ErrUnsupportedUnicode, 400, "Bad Request"},
+		{policyservice.ErrValidationUnavailable, 503, "PolicyValidationUnavailable"},
+	} {
+		for _, form := range []string{"direct", "wrapped", "joined"} {
+			t.Run("When "+tc.cause.Error()+" is returned in "+form+" form it should expose only the public message", func(t *testing.T) {
+				memory, policy := policyFixture(t)
+				policy.Spec.Enabled = true
+				injected := tc.cause
+				switch form {
+				case "wrapped":
+					injected = fmt.Errorf("private persistence context: %w", tc.cause)
+				case "joined":
+					injected = fmt.Errorf("private persistence context: %w", errors.Join(tc.cause, driverError))
+				}
+				service := newTestPolicyService(t, memory, &testPolicyValidator{err: injected}, nil)
+				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				require.Nil(t, result)
+				require.Zero(t, memory.writes)
+				require.Equal(t, tc.code, status.Code)
+				require.Equal(t, tc.reason, status.Reason)
+				require.Equal(t, tc.cause.Error(), status.Message)
+				require.ErrorIs(t, memory.lastError, tc.cause)
+				if form == "joined" {
+					var diagnostic *pgconn.PgError
+					require.ErrorAs(t, memory.lastError, &diagnostic)
+					require.Same(t, driverError, diagnostic)
+				}
 			})
 		}
 	}

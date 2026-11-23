@@ -8007,6 +8007,7 @@ type DeleteCertificateSigningRequestResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
+	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -8921,7 +8922,6 @@ type CreateEnrollmentApprovalPolicyResponse struct {
 	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
-	JSON404      *Status
 	JSON409      *Status
 	JSON429      *Status
 	JSON500      *Status
@@ -8960,6 +8960,7 @@ type DeleteEnrollmentApprovalPolicyResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
+	JSON409      *Status
 	JSON429      *Status
 	JSON500      *Status
 	JSON503      *Status
@@ -9068,7 +9069,6 @@ type ReplaceEnrollmentApprovalPolicyResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentApprovalPolicy
-	JSON201      *EnrollmentApprovalPolicy
 	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
@@ -13301,6 +13301,13 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -15099,13 +15106,6 @@ func ParseCreateEnrollmentApprovalPolicyResponse(rsp *http.Response) (*CreateEnr
 		}
 		response.JSON403 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -15187,6 +15187,13 @@ func ParseDeleteEnrollmentApprovalPolicyResponse(rsp *http.Response) (*DeleteEnr
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
@@ -15391,13 +15398,6 @@ func ParseReplaceEnrollmentApprovalPolicyResponse(rsp *http.Response) (*ReplaceE
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest EnrollmentApprovalPolicy
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest Status

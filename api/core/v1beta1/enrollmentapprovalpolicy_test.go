@@ -2,11 +2,26 @@ package v1beta1
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPolicyLabelErrorPaths(t *testing.T) {
+	policy := EnrollmentApprovalPolicy{
+		Metadata: ObjectMeta{Name: lo.ToPtr("west"), Labels: lo.ToPtr(map[string]string{"invalid metadata key": "value"})},
+		Spec: EnrollmentApprovalPolicySpec{
+			CertificateName: "credential", MatchExpression: "true",
+			DeviceLabels: map[string]string{"invalid device key": "value"}, AllowedIncomingLabels: lo.ToPtr([]string{"*"}),
+		},
+	}
+	err := errors.Join(policy.Validate()...)
+	require.ErrorContains(t, err, "metadata.labels")
+	require.ErrorContains(t, err, "spec.deviceLabels")
+	require.ErrorContains(t, err, "spec.allowedIncomingLabels[0]")
+}
 
 func TestEnrollmentApprovalPolicyStatusAlwaysIncludesCount(t *testing.T) {
 	encoded, err := json.Marshal(EnrollmentApprovalPolicyStatus{})
@@ -58,15 +73,16 @@ func TestPolicyLimitDecoding(t *testing.T) {
 	for _, tc := range []struct {
 		name, body                 string
 		decodeError, semanticError bool
+		want                       *int32
 	}{
-		{"omitted", `{}`, false, false},
-		{"null", `{"approvalLimit":null}`, false, false},
-		{"zero", `{"approvalLimit":0}`, false, false},
-		{"maximum", `{"approvalLimit":2147483647}`, false, false},
-		{"negative", `{"approvalLimit":-1}`, false, true},
-		{"overflow", `{"approvalLimit":2147483648}`, true, false},
-		{"fractional", `{"approvalLimit":0.5}`, true, false},
-		{"wrong type", `{"approvalLimit":"1"}`, true, false},
+		{"omitted", `{}`, false, false, nil},
+		{"null", `{"approvalLimit":null}`, false, false, nil},
+		{"zero", `{"approvalLimit":0}`, false, false, lo.ToPtr(int32(0))},
+		{"maximum", `{"approvalLimit":2147483647}`, false, false, lo.ToPtr(int32(2147483647))},
+		{"negative", `{"approvalLimit":-1}`, false, true, lo.ToPtr(int32(-1))},
+		{"overflow", `{"approvalLimit":2147483648}`, true, false, nil},
+		{"fractional", `{"approvalLimit":0.5}`, true, false, nil},
+		{"wrong type", `{"approvalLimit":"1"}`, true, false, nil},
 	} {
 		t.Run("When the limit is "+tc.name+" it should enforce its input contract", func(t *testing.T) {
 			var spec EnrollmentApprovalPolicySpec
@@ -76,6 +92,7 @@ func TestPolicyLimitDecoding(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			require.Equal(t, tc.want, spec.ApprovalLimit)
 			spec.CertificateName, spec.MatchExpression, spec.DeviceLabels = "credential", "true", map[string]string{}
 			policy := EnrollmentApprovalPolicy{Metadata: ObjectMeta{Name: lo.ToPtr("west")}, Spec: spec}
 			if tc.semanticError {
@@ -99,4 +116,21 @@ func TestPolicyPatchAllowsNullableValues(t *testing.T) {
 	policy := spec.Paths.Find("/enrollmentapprovalpolicies/{name}").Patch.RequestBody.Value.Content["application/json-patch+json"].Schema.Value.Items.Value.Properties["value"].Value
 	require.False(t, shared.Nullable)
 	require.True(t, policy.Nullable)
+}
+
+func TestEnrollmentApprovalPolicyOperationResponses(t *testing.T) {
+	spec, err := GetSpec()
+	require.NoError(t, err)
+	post := spec.Paths.Find("/enrollmentapprovalpolicies").Post.Responses
+	require.Nil(t, post.Value("404"))
+	require.NotNil(t, post.Value("400"))
+	require.NotNil(t, post.Value("500"))
+	policy := spec.Paths.Find("/enrollmentapprovalpolicies/{name}")
+	require.Nil(t, policy.Put.Responses.Value("201"))
+	require.NotNil(t, policy.Put.Responses.Value("404"))
+	require.NotNil(t, policy.Put.Responses.Value("500"))
+	require.NotNil(t, policy.Patch.Responses.Value("500"))
+	require.NotNil(t, policy.Delete.Responses.Value("409"))
+	require.NotNil(t, policy.Delete.Responses.Value("500"))
+	require.NotNil(t, spec.Paths.Find("/certificatesigningrequests/{name}").Delete.Responses.Value("409"))
 }

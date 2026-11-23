@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -43,8 +44,11 @@ func (memory *routePolicyStore) Get(context.Context, uuid.UUID, string) (*domain
 	return store.CloneJSON(memory.policy)
 }
 
-func (memory *routePolicyStore) WithPolicySetTransaction(ctx context.Context, _ uuid.UUID, _, _ string, fn func(context.Context, *domain.CertificateSigningRequest, []domain.EnrollmentApprovalPolicy) error) error {
-	return fn(ctx, memory.credential, nil)
+func (memory *routePolicyStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+func (memory *routePolicyStore) GetCredential(context.Context, uuid.UUID, string) (*domain.CertificateSigningRequest, error) {
+	return memory.credential, nil
 }
 func (memory *routePolicyStore) Mutate(_ context.Context, _ uuid.UUID, _ string, apply policystore.ApplyFunc) (*domain.EnrollmentApprovalPolicy, *domain.EnrollmentApprovalPolicy, bool, error) {
 	current, err := store.CloneJSON(memory.policy)
@@ -64,7 +68,7 @@ func (memory *routePolicyStore) Mutate(_ context.Context, _ uuid.UUID, _ string,
 
 type acceptingRoutePolicyValidator struct{}
 
-func (acceptingRoutePolicyValidator) ValidatePolicySet(context.Context, *domain.EnrollmentApprovalPolicy, []domain.EnrollmentApprovalPolicy) error {
+func (acceptingRoutePolicyValidator) ValidateExpression(context.Context, string) error {
 	return nil
 }
 
@@ -88,21 +92,25 @@ func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
 	}{
 		{"When canonical quota add is denied it should not write", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
 		{"When lowercase quota alias is denied it should not write", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When uppercase quota alias is denied it should not write", `{"op":"add","path":"/spec/APPROVALLIMIT","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When mixed case quota alias is denied it should not write", `{"op":"add","path":"/spec/ApprovalLimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
+		{"When an uppercase quota field is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"APPROVALLIMIT":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
+		{"When a mixed case quota field is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
 		{"When quota replacement is denied it should not write", `{"op":"replace","path":"/spec/approvalLimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
 		{"When quota removal is denied it should not write", `{"op":"remove","path":"/spec/approvalLimit"}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
 		{"When whole spec replacement is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"enabled":false,"approvallimit":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
+		{"When a whole spec retains the limit it should update without quota permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{"region":"west"},"ApprovalLimit":10}}`, false, false, false, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
+		{"When removing a missing spec member it should reject the patch", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":10}},{"op":"remove","path":"/spec/approvallimit"}`, false, false, false, 400, lo.ToPtr(int32(10)), nil},
+		{"When multiple operations restore the limit it should update without quota permission", `{"op":"remove","path":"/spec/approvalLimit"},{"op":"add","path":"/spec/approvalLimit","value":10}`, false, false, false, 200, lo.ToPtr(int32(10)), nil},
 		{"When canonical quota change is authorized it should write", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
 		{"When lowercase alias is authorized it should write", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When an uppercase quota field is authorized it should write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"APPROVALLIMIT":999}}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
 		{"When quota removal is authorized it should write", `{"op":"remove","path":"/spec/approvalLimit"}`, true, true, false, 200, nil, nil},
 		{"When quota is only tested it should not require quota permission", `{"op":"test","path":"/spec/approvalLimit","value":10}`, false, false, false, 200, lo.ToPtr(int32(10)), nil},
 		{"When a label resembles quota it should preserve its case without quota permission", `{"op":"add","path":"/spec/deviceLabels/ApprovalLimit","value":"west"}`, false, false, false, 200, lo.ToPtr(int32(10)), map[string]string{"ApprovalLimit": "west"}},
 		{"When status is changed it should remain protected", `{"op":"add","path":"/status","value":{}}`, false, false, false, 400, lo.ToPtr(int32(10)), nil},
 		{"When certificate binding is changed it should remain immutable", `{"op":"replace","path":"/spec/certificateName","value":"other"}`, false, false, false, 409, lo.ToPtr(int32(10)), nil},
-		{"When canonical quota change reaches unavailable validation it should not write", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, true, true, 503, lo.ToPtr(int32(10)), nil},
-		{"When quota alias reaches unavailable validation it should not write", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, true, true, 503, lo.ToPtr(int32(10)), nil},
-		{"When a draft label reaches unavailable validation it should not write", `{"op":"add","path":"/spec/deviceLabels/region","value":"west"}`, false, false, true, 503, lo.ToPtr(int32(10)), nil},
+		{"When validation is unavailable it should allow a canonical draft quota change", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, true, true, 200, lo.ToPtr(int32(999)), nil},
+		{"When validation is unavailable it should allow a draft quota alias change", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, true, true, 200, lo.ToPtr(int32(999)), nil},
+		{"When validation is unavailable it should allow a draft label change", `{"op":"add","path":"/spec/deviceLabels/region","value":"west"}`, false, false, true, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory := &routePolicyStore{
@@ -117,11 +125,13 @@ func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
 			if testCase.quotaCheck {
 				permissions.EXPECT().CheckPermission(gomock.Any(), "enrollmentapprovalpolicies/approvallimit", "update").Return(testCase.allowQuota, nil)
 			}
-			var validator policyservice.PolicySetValidator = acceptingRoutePolicyValidator{}
+			var validator policyservice.ExpressionValidator = acceptingRoutePolicyValidator{}
 			if testCase.unavailable {
-				validator = policyservice.UnavailablePolicySetValidator{}
+				validator = policyservice.UnavailableExpressionValidator{}
 			}
-			handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions, enrollmentapprovalpolicy: policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())}
+			service, err := policyservice.NewServiceHandler(memory, validator, "enrollment", nil, logrus.New())
+			require.NoError(t, err)
+			handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions, enrollmentapprovalpolicy: service}
 			spec, err := apiv1beta1.GetSpec()
 			require.NoError(t, err)
 			router := chi.NewRouter()
@@ -135,15 +145,14 @@ func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
 			require.Equal(t, testCase.wantStatus, response.Code, response.Body.String())
 			require.Equal(t, testCase.wantLimit, memory.policy.Spec.ApprovalLimit)
 			if testCase.wantStatus == http.StatusOK {
-				require.Equal(t, 1, memory.writes)
+				var result apiv1beta1.EnrollmentApprovalPolicy
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+				require.Equal(t, testCase.wantLimit, result.Spec.ApprovalLimit)
 			} else {
 				require.Zero(t, memory.writes)
 			}
 			if testCase.wantLabels != nil {
 				require.Equal(t, testCase.wantLabels, memory.policy.Spec.DeviceLabels)
-			}
-			if testCase.unavailable {
-				require.Contains(t, response.Body.String(), "PolicyValidationUnavailable")
 			}
 		})
 	}
