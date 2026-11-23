@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
+	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -77,7 +78,7 @@ type preparedInput struct {
 	run      func(context.Context) inspection.Result
 }
 
-func (r *InputResolver) prepare(ctx context.Context, orgID uuid.UUID, app EffectiveApplication) (preparedInput, model.InspectionDiagnostic) {
+func (r *InputResolver) prepare(ctx context.Context, orgID uuid.UUID, app EffectiveApplication, pinned digest.Digest) (preparedInput, model.InspectionDiagnostic) {
 	appType, err := app.Spec.GetAppType()
 	if err != nil {
 		return preparedInput{}, model.InspectionParseFailed
@@ -112,7 +113,7 @@ func (r *InputResolver) prepare(ctx context.Context, orgID uuid.UUID, app Effect
 				return inspection.Result{Diagnostics: []inspection.Diagnostic{inspection.DiagnosticParseFailed}}
 			}}, ""
 		}
-		return r.preparePackage(ctx, orgID, app, appType, identity, declared)
+		return r.preparePackage(ctx, orgID, app, appType, identity, declared, pinned)
 	default:
 		return preparedInput{}, model.InspectionParseFailed
 	}
@@ -197,12 +198,23 @@ func (r *InputResolver) packageDigest(ctx context.Context, orgID uuid.UUID, decl
 	return revision, repository, nil
 }
 
-func (r *InputResolver) preparePackage(ctx context.Context, orgID uuid.UUID, app EffectiveApplication, appType domain.AppType, identity model.ApplicationInspectionInput, declared []inspection.Reference) (preparedInput, model.InspectionDiagnostic) {
-	revision, repository, err := r.packageDigest(ctx, orgID, declared)
-	if err != nil {
-		return preparedInput{}, model.InspectionContentUnavailable
+func (r *InputResolver) preparePackage(ctx context.Context, orgID uuid.UUID, app EffectiveApplication, appType domain.AppType, identity model.ApplicationInspectionInput, declared []inspection.Reference, pinned digest.Digest) (preparedInput, model.InspectionDiagnostic) {
+	revision := pinned
+	var repo *remote.Repository
+	var err error
+	if pinned == "" {
+		var repository func(context.Context) (*remote.Repository, error)
+		revision, repository, err = r.packageDigest(ctx, orgID, declared)
+		if err == nil {
+			repo, err = repository(ctx)
+		}
+	} else {
+		var endpoint registry.Reference
+		endpoint, err = packageEndpoint(declared)
+		if err == nil {
+			repo, err = r.inspector.packageRepository(ctx, orgID, endpoint)
+		}
 	}
-	repo, err := repository(ctx)
 	if err != nil {
 		return preparedInput{}, model.InspectionContentUnavailable
 	}

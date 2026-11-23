@@ -81,14 +81,6 @@ func New(
 	}
 }
 
-func newInspectionCleaner(db *gorm.DB) (*appinspectionservice.Cleaner, error) {
-	inspectionStore, err := appinspectionstore.NewStore(db)
-	if err != nil {
-		return nil, err
-	}
-	return appinspectionservice.NewCleaner(inspectionStore)
-}
-
 func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
@@ -208,10 +200,19 @@ func (s *Server) Run(ctx context.Context) error {
 	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
 
-	inspectionCleaner, err := newInspectionCleaner(s.db)
+	inspectionStore, err := appinspectionstore.NewStore(s.db)
 	if err != nil {
-		return fmt.Errorf("create application inspection cleaner: %w", err)
+		return err
 	}
+	inspectionCleaner, err := appinspectionservice.NewCleaner(inspectionStore)
+	if err != nil {
+		return err
+	}
+	inspectionWakeups, err := tasks.NewInspectionWakeups(ctx, queuesProvider, inspectionStore)
+	if err != nil {
+		return err
+	}
+	defer inspectionWakeups.Close()
 
 	// Initialize the task executors.
 	deltaPrepareStore := deltapreparestore.NewStore(s.db, s.log.WithField("pkg", "delta-prepare-store"))
@@ -219,7 +220,7 @@ func (s *Server) Run(ctx context.Context) error {
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc, inspectionCleaner)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc, inspectionCleaner, inspectionWakeups)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

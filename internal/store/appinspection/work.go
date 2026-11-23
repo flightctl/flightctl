@@ -139,6 +139,8 @@ type WorkClaim struct {
 	Token      uuid.UUID
 	ClaimUntil time.Time
 	State      model.InspectionState
+	Input      model.ApplicationInspectionInput `gorm:"serializer:json"`
+	InputKey   string
 }
 
 const liveWork = `state IN ('resolving','pending') AND EXISTS (
@@ -157,7 +159,7 @@ func (s *Store) Claim(ctx context.Context, orgID, id uuid.UUID, duration time.Du
 	err := store.DB(ctx, s.db).Raw(`UPDATE application_inspections
 		SET claim_token = ?, claim_until = clock_timestamp() + (? * interval '1 microsecond')
 		WHERE org_id = ? AND id = ? AND `+unclaimedWork+`
-		RETURNING claim_token AS token, claim_until, state`, uuid.New(), duration.Microseconds(), orgID, id).Scan(&claim).Error
+		RETURNING claim_token AS token, claim_until, state, input, input_key`, uuid.New(), duration.Microseconds(), orgID, id).Scan(&claim).Error
 	return claim, storeutil.ErrorFromGormError(err)
 }
 
@@ -290,12 +292,12 @@ func (s *Store) ListReadyContinuations(ctx context.Context, orgID, after uuid.UU
 	return s.listWorkIDs(ctx, &model.ApplicationInspectionContinuation{}, orgID, after, limit, readyContinuation)
 }
 
-func (s *Store) listWorkIDs(ctx context.Context, table any, orgID, after uuid.UUID, limit int, predicate string) ([]uuid.UUID, error) {
+func (s *Store) listWorkIDs(ctx context.Context, table any, orgID, after uuid.UUID, limit int, predicate string, args ...any) ([]uuid.UUID, error) {
 	if err := validatePageSize(limit); err != nil {
 		return nil, err
 	}
 	var ids []uuid.UUID
-	err := store.DB(ctx, s.db).Model(table).Where("org_id = ? AND id > ?", orgID, after).Where(predicate).Order("id").Limit(limit).Pluck("id", &ids).Error
+	err := store.DB(ctx, s.db).Model(table).Where("org_id = ? AND id > ?", orgID, after).Where(predicate, args...).Order("id").Limit(limit).Pluck("id", &ids).Error
 	return ids, storeutil.ErrorFromGormError(err)
 }
 
@@ -309,7 +311,7 @@ func (s *Store) ConsumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Own
 	var applied bool
 	err = store.RunInTransaction(ctx, s.db, func(tx *gorm.DB) error {
 		var continuation model.ApplicationInspectionContinuation
-		err := forOwner(tx, column, orgID, owner.Name).Where("id = ?", id).Where(readyContinuation).Take(&continuation).Error
+		err := forOwner(tx, column, orgID, owner.Name).Where("id = ? AND NOT invalidated", id).Where(readyContinuation).Take(&continuation).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
@@ -325,7 +327,7 @@ func (s *Store) ConsumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Own
 			return err
 		}
 		result := tx.Model(&model.ApplicationInspectionContinuation{}).Where("org_id = ? AND id = ?", orgID, id).
-			Where(readyContinuation).Update("consumed_at", gorm.Expr("clock_timestamp()"))
+			Where(readyContinuation).Where("NOT invalidated").Update("consumed_at", gorm.Expr("clock_timestamp()"))
 		applied = result.RowsAffected != 0
 		return result.Error
 	})

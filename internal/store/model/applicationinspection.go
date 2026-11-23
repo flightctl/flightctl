@@ -139,6 +139,7 @@ type ApplicationInspectionContinuation struct {
 	Snapshot         InspectionFingerprint `gorm:"type:jsonb;serializer:json;not null"`
 	EventID          uuid.UUID             `gorm:"type:uuid;not null"`
 	Current          bool                  `gorm:"not null"`
+	Invalidated      bool                  `gorm:"not null;default:false"`
 	ConsumedAt       *time.Time
 	SupersededAt     *time.Time
 }

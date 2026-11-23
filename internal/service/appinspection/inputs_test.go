@@ -76,7 +76,7 @@ func TestPreparedPackagePinsBlobs(t *testing.T) {
 	resolver := NewInputResolver(inspector, nil, nil, config.NewDefault(), nil)
 	var app EffectiveApplication
 	require.NoError(t, json.Unmarshal([]byte(`{"appType":"compose","image":"`+host+`/team/package:v1"}`), &app.Spec))
-	prepared, code := resolver.prepare(t.Context(), org, app)
+	prepared, code := resolver.prepare(t.Context(), org, app, "")
 	require.Empty(t, code)
 	require.Equal(t, oldDigest, prepared.identity.ParentDigest)
 	require.Zero(t, downloads.Load(), "resolving a lookup key must not extract layers")
@@ -84,7 +84,7 @@ func TestPreparedPackagePinsBlobs(t *testing.T) {
 	attempt := prepared.inspect(t.Context(), &app.Spec)
 	require.Equal(t, model.InspectionComplete, attempt.State)
 	require.Contains(t, attempt.References, inspectionstore.ReferenceInput{Reference: "registry.example/web:v1", Role: model.InspectionRoleWorkload, Mechanism: model.InspectionPullContainer})
-	refreshed, code := resolver.prepare(t.Context(), org, app)
+	refreshed, code := resolver.prepare(t.Context(), org, app, "")
 	require.Empty(t, code)
 	require.Equal(t, newDigest, refreshed.identity.ParentDigest)
 	require.EqualValues(t, 1, downloads.Load())
@@ -100,7 +100,7 @@ func TestHelmInspectionIdentity(t *testing.T) {
 		var err error
 		app.RenderedConfig, err = json.Marshal([]domain.FileSpec{{Path: "/root/.config/helm/repositories.yaml", Content: config}})
 		require.NoError(t, err)
-		prepared, code := resolver.prepare(t.Context(), org, app)
+		prepared, code := resolver.prepare(t.Context(), org, app, "")
 		require.Empty(t, code)
 		key, err := inspectionstore.KeyForInput(org, prepared.identity)
 		require.NoError(t, err)
