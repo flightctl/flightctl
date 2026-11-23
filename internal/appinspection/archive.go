@@ -22,7 +22,10 @@ const (
 	packageTarZstd packageFormat = "tar+zstd"
 )
 
-const maxTarTrailingPadding = 1 << 20
+const (
+	maxTarTrailingPadding = 1 << 20
+	maxWhiteoutPathBytes  = 16 << 20
+)
 
 var errInvalidArchive = errors.New("invalid application package archive")
 
@@ -110,6 +113,7 @@ func (w *packageWorkspace) extractArchive(ctx context.Context, input io.Reader, 
 func (w *packageWorkspace) readTar(ctx context.Context, stage string, src io.Reader, imageLayer bool) ([]string, error) {
 	tr := tar.NewReader(src)
 	var whiteouts []string
+	remainingWhiteoutBytes := maxWhiteoutPathBytes
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -118,11 +122,17 @@ func (w *packageWorkspace) readTar(ctx context.Context, stage string, src io.Rea
 		if err != nil {
 			return nil, err
 		}
+		if err := w.takeEntries(1); err != nil {
+			return nil, err
+		}
 		name, err := packagePath(hdr.Name)
 		if err != nil {
 			return nil, err
 		}
 		path := filepath.Join(stage, name)
+		if err := w.makeEntryParents(path); err != nil {
+			return nil, err
+		}
 		if imageLayer && strings.HasPrefix(filepath.Base(name), ".wh.") {
 			if hdr.Typeflag != tar.TypeReg {
 				return nil, errInvalidArchive
@@ -131,10 +141,12 @@ func (w *packageWorkspace) readTar(ctx context.Context, stage string, src io.Rea
 			if err != nil {
 				return nil, err
 			}
-			whiteouts = append(whiteouts, target)
-			if err := w.root.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-				return nil, err
+			// Retain the target paths until the archive and trailer are verified.
+			if len(target) > remainingWhiteoutBytes {
+				return nil, errBudgetExceeded
 			}
+			remainingWhiteoutBytes -= len(target)
+			whiteouts = append(whiteouts, strings.Clone(target))
 			continue
 		}
 		if err := w.stageTarEntry(ctx, path, hdr, tr); err != nil {

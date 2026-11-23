@@ -57,7 +57,7 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 
 func testWorkspace(t *testing.T, limit int64) *packageWorkspace {
 	t.Helper()
-	w, err := newPackageWorkspace(limit)
+	w, err := newPackageWorkspace(limit, packageEntryLimit)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, w.close())
@@ -195,6 +195,20 @@ func TestPackageImageLayerWhiteouts(t *testing.T) {
 		require.Equal(t, "new", string(file))
 	}
 	require.EqualValues(t, 6, w.used)
+}
+
+func TestPackageWhiteoutPathBudget(t *testing.T) {
+	const pathBytes = 256 << 10
+	entries := make([]archiveEntry, maxWhiteoutPathBytes/pathBytes+1)
+	for i := range entries {
+		entries[i].name = ".wh." + strings.Repeat("x", pathBytes)
+	}
+	data := gzipBytes(t, makeTar(t, entries...))
+	w := testWorkspace(t, 1<<20)
+	require.NoError(t, w.put(t.Context(), "download", bytes.NewReader(data)))
+	require.ErrorIs(t, w.extract(t.Context(), "download", packageTarGzip, true), errBudgetExceeded)
+	_, err := w.root.Stat("stage")
+	require.ErrorIs(t, err, fs.ErrNotExist)
 }
 
 func TestCompressedPackageCancellation(t *testing.T) {

@@ -121,7 +121,7 @@ func TestInspectPackageIncompleteArchive(t *testing.T) {
 			}
 			parent := registry.manifest(t, ocispec.DescriptorEmptyJSON, archive, known)
 			repo := registry.serve(t, parent, false)
-			result := inspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil, tc.budget)
+			result := inspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil, tc.budget, packageEntryLimit)
 			require.Equal(t, []Diagnostic{tc.diagnostic}, result.Diagnostics)
 			require.Equal(t, []Reference{{Image: "quay.io/example/app:known", Role: RoleWorkload, ConsumerKind: ConsumerContainer}}, result.References)
 			require.Equal(t, parent.Digest, result.ParentDigest)
@@ -130,6 +130,53 @@ func TestInspectPackageIncompleteArchive(t *testing.T) {
 			require.Empty(t, files)
 		})
 	}
+}
+
+func TestInspectPackageEntryLimit(t *testing.T) {
+	old := Reference{Image: "quay.io/example/app:old", Role: RoleWorkload, ConsumerKind: ConsumerContainer}
+	updated := Reference{Image: "quay.io/example/app:new", Role: RoleWorkload, ConsumerKind: ConsumerContainer}
+	for _, tc := range []struct {
+		name        string
+		limit       int
+		refs        []Reference
+		diagnostics []Diagnostic
+	}{
+		{name: "the cumulative entries fit it should publish the overlay", limit: 6, refs: []Reference{updated}},
+		{name: "the cumulative entries exceed the limit it should retain the verified layer", limit: 5, refs: []Reference{old}, diagnostics: []Diagnostic{DiagnosticBudgetExceeded}},
+	} {
+		t.Run("When "+tc.name, func(t *testing.T) {
+			t.Setenv("TMPDIR", t.TempDir())
+			registry := packageRegistry{}
+			base := registry.blob("", ocispec.MediaTypeImageLayer, makeTar(t,
+				archiveEntry{name: "old.container", data: "[Container]\nImage=" + old.Image + "\n"},
+				archiveEntry{name: "empty"},
+			))
+			overlay := registry.blob("", ocispec.MediaTypeImageLayerGzip, gzipBytes(t, makeTar(t,
+				archiveEntry{name: ".wh.old.container"},
+				archiveEntry{name: "implicit/empty"},
+				archiveEntry{name: "new.container", data: "[Container]\nImage=" + updated.Image + "\n"},
+			)))
+			parent := registry.manifest(t, ocispec.Descriptor{MediaType: ocispec.MediaTypeImageConfig}, base, overlay)
+			repo := registry.serve(t, parent, false)
+			result := inspectPackage(t.Context(), v1beta1.AppTypeQuadlet, repo, "target", nil, 1<<20, tc.limit)
+			require.Equal(t, tc.diagnostics, result.Diagnostics)
+			require.Equal(t, tc.refs, result.References)
+			files, err := os.ReadDir(os.TempDir())
+			require.NoError(t, err)
+			require.Empty(t, files)
+		})
+	}
+}
+
+func TestInspectPackageRawEntryLimit(t *testing.T) {
+	registry := packageRegistry{}
+	base := registry.blob("docker-compose.yaml", "application/yaml", []byte("services:\n  app:\n    image: quay.io/example/app:known\n"))
+	nested := registry.blob("implicit/empty", "application/octet-stream", nil)
+	parent := registry.manifest(t, ocispec.DescriptorEmptyJSON, nested, base)
+	repo := registry.serve(t, parent, false)
+	result := inspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil, 1<<20, 2)
+	require.Equal(t, []Diagnostic{DiagnosticBudgetExceeded}, result.Diagnostics)
+	require.Equal(t, []Reference{{Image: "quay.io/example/app:known", Role: RoleWorkload, ConsumerKind: ConsumerContainer}}, result.References)
 }
 
 func TestInspectPackageTarTrailingPadding(t *testing.T) {

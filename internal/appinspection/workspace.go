@@ -10,19 +10,23 @@ import (
 	"syscall"
 )
 
-const packageDiskBudget int64 = 512 << 20
+const (
+	packageDiskBudget int64 = 512 << 20
+	packageEntryLimit       = 50_000
+)
 
 var errBudgetExceeded = errors.New("application package inspection budget exceeded")
 
-// packageWorkspace accounts for live file payloads across sequential package writes.
+// packageWorkspace accounts for live file payloads and cumulative entries.
 type packageWorkspace struct {
-	root  *os.Root
-	dir   string
-	limit int64
-	used  int64
+	root             *os.Root
+	dir              string
+	limit            int64
+	used             int64
+	remainingEntries int
 }
 
-func newPackageWorkspace(limit int64) (*packageWorkspace, error) {
+func newPackageWorkspace(limit int64, entryLimit int) (*packageWorkspace, error) {
 	dir, err := os.MkdirTemp("", "flightctl-package-inspection-")
 	if err != nil {
 		return nil, err
@@ -34,7 +38,38 @@ func newPackageWorkspace(limit int64) (*packageWorkspace, error) {
 	if err := root.Mkdir("files", 0o700); err != nil {
 		return nil, errors.Join(err, root.Close(), os.RemoveAll(dir))
 	}
-	return &packageWorkspace{root: root, dir: dir, limit: limit}, nil
+	return &packageWorkspace{root: root, dir: dir, limit: limit, remainingEntries: entryLimit}, nil
+}
+
+func (w *packageWorkspace) takeEntries(n int) error {
+	if n > w.remainingEntries {
+		return errBudgetExceeded
+	}
+	w.remainingEntries -= n
+	return nil
+}
+
+// makeEntryParents charges implicit directories before creating them.
+func (w *packageWorkspace) makeEntryParents(path string) error {
+	parent := filepath.Dir(path)
+	missing := 0
+	for dir := parent; ; dir = filepath.Dir(dir) {
+		_, err := w.root.Stat(dir)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		missing++
+		if missing > w.remainingEntries {
+			return errBudgetExceeded
+		}
+	}
+	if err := w.takeEntries(missing); err != nil {
+		return err
+	}
+	return w.root.MkdirAll(parent, 0o700)
 }
 
 func (w *packageWorkspace) close() error {

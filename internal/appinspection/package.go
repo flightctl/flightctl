@@ -38,10 +38,10 @@ type PackageResult struct {
 // InspectPackage discovers references inside an OCI Compose or Quadlet package.
 // The repository must already be configured for the inspection endpoint.
 func InspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.Repository, ref string, platform *ocispec.Platform) PackageResult {
-	return inspectPackage(ctx, appType, repo, ref, platform, packageDiskBudget)
+	return inspectPackage(ctx, appType, repo, ref, platform, packageDiskBudget, packageEntryLimit)
 }
 
-func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.Repository, ref string, platform *ocispec.Platform, budget int64) (result PackageResult) {
+func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.Repository, ref string, platform *ocispec.Platform, budget int64, entryLimit int) (result PackageResult) {
 	md, parent, selected, err := fetchPackageManifest(ctx, repo, ref, platform)
 	if err != nil {
 		result.Diagnostics = []Diagnostic{DiagnosticContentUnavailable}
@@ -54,7 +54,7 @@ func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.R
 		return result
 	}
 	result.Format = string(format)
-	workspace, err := newPackageWorkspace(budget)
+	workspace, err := newPackageWorkspace(budget, entryLimit)
 	if err != nil {
 		result.Diagnostics = []Diagnostic{DiagnosticContentUnavailable}
 		return result
@@ -177,12 +177,21 @@ func imageLayerFormat(mediaType string) (packageFormat, error) {
 
 func (w *packageWorkspace) acquire(ctx context.Context, repo *remote.Repository, blob packageBlob) Diagnostic {
 	const download = "download"
+	if blob.format == packageRaw {
+		if err := w.takeEntries(1); err != nil {
+			return packageDiagnostic(err, DiagnosticParseFailed)
+		}
+	}
 	if err := w.download(ctx, repo, blob.desc, download); err != nil {
 		return packageDiagnostic(err, DiagnosticContentUnavailable)
 	}
 	var err error
 	if blob.format == packageRaw {
-		err = w.publish(ctx, download, filepath.Join("files", blob.title))
+		path := filepath.Join("files", blob.title)
+		if err := w.makeEntryParents(path); err != nil {
+			return packageDiagnostic(err, DiagnosticParseFailed)
+		}
+		err = w.publish(ctx, download, path)
 	} else {
 		err = w.extract(ctx, download, blob.format, blob.imageLayer)
 	}
