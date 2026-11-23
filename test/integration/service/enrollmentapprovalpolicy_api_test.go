@@ -527,7 +527,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Entry("When a test value is missing it should reject", "approvalLimit", "test", "missing", "current", false, 400),
 		Entry("When quota clear is denied it should preserve the limit", "approvalLimit", "replace", "null", "current", true, 403),
 		Entry("When quota removal is denied it should preserve the limit", "approvalLimit", "remove", "missing", "current", true, 403),
-		Entry("When a noncanonical limit path is used it should reject it", "ApprovalLimit", "replace", "null", "current", true, 400),
+		Entry("When an unknown policy field is patched it should reject the request", "unknownLimit", "replace", "null", "current", true, 400),
 		Entry("When whole spec clear is denied it should preserve the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", true, 403),
 		Entry("When the version is stale it should preserve both limits", "approvalLimit", "replace", "null", "0", false, 409),
 		Entry("When the version is missing it should preserve both limits", "autoApprovalWindowDays", "replace", "null", "missing", false, 409),

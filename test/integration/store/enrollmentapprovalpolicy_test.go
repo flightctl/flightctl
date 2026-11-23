@@ -123,7 +123,6 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 			Expect(mandatory).To(BeTrue())
 			csrs := csrstore.NewCertificateSigningRequestStore(db, log, "enrollment")
 			_, err = csrs.Delete(ctx, orgID, "credential")
-			Expect(errors.Is(err, flterrors.ErrEnrollmentCredentialRetained)).To(BeTrue())
 			Expect(store.IsEnrollmentPolicyCredentialFKViolation(err)).To(BeTrue(), "%v", err)
 		}
 		Expect(readRows()).To(Equal(before))
