@@ -15,6 +15,9 @@ func parseNeed(need PullNeed) (registry, path string, err error) {
 		raw = strings.TrimPrefix(raw, "docker://")
 	case ConsumerHelmChart:
 		raw = strings.TrimPrefix(raw, "oci://")
+		if !strings.Contains(raw, "/") {
+			return "", "", fmt.Errorf("missing Helm chart path")
+		}
 	default:
 		return "", "", fmt.Errorf("unsupported consumer")
 	}
@@ -34,6 +37,13 @@ func parseNeed(need PullNeed) (registry, path string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("invalid OCI reference: %w", err)
 	}
+	if registry == "docker.io" && reference.Domain(named) != registry {
+		// Canonical aliases also use Docker Hub's implicit library/ namespace.
+		named, err = reference.ParseNormalizedNamed(registry + "/" + reference.Path(named))
+		if err != nil {
+			return "", "", &inputError{message: "invalid OCI reference", cause: err}
+		}
+	}
 	path = reference.Path(named)
 	if need.Consumer == ConsumerHelmChart && registry != reference.Domain(named) {
 		// Docker normalization includes a single-label Helm host in the path.
@@ -46,6 +56,10 @@ func normalizeRegistry(raw string) (string, error) {
 	host := strings.ToLower(raw)
 	if host == "" || strings.ContainsAny(host, "/@?#") {
 		return "", fmt.Errorf("invalid registry")
+	}
+	switch host {
+	case "registry-1.docker.io", "index.docker.io":
+		return "docker.io", nil
 	}
 	// Repository endpoints are explicit, including single-label DNS names.
 	if _, err := reference.Parse(host + "/flightctl-scope"); err != nil {

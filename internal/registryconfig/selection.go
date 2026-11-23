@@ -19,7 +19,7 @@ type AmbiguityError struct {
 }
 
 func (e *AmbiguityError) Error() string {
-	return fmt.Sprintf("ambiguous credentials for %s scope %q: Repositories %s", e.Registry, e.Scope, strings.Join(e.RepositoryNames, ", "))
+	return fmt.Sprintf("ambiguous credentials for %s scope %q in destination %q: Repositories %s", e.Registry, e.Scope, e.Destination, strings.Join(e.RepositoryNames, ", "))
 }
 
 type decision struct {

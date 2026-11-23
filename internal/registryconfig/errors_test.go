@@ -3,6 +3,7 @@ package registryconfig_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/distribution/reference"
@@ -20,6 +21,12 @@ func TestSelectionErrorCauses(t *testing.T) {
 		_, err := snapshot.Select([]rc.PullNeed{need("quay.io/team//app")})
 		require.ErrorIs(t, err, reference.ErrReferenceInvalidFormat)
 		require.ErrorContains(t, err, "invalid pull need 0")
+	})
+
+	t.Run("When alias normalization makes a path too long it should preserve the parser cause safely", func(t *testing.T) {
+		_, err := snapshot.Select([]rc.PullNeed{need("registry-1.docker.io/private-token" + strings.Repeat("a", 240))})
+		require.ErrorIs(t, err, reference.ErrNameTooLong)
+		require.NotContains(t, err.Error(), "private-token")
 	})
 
 	t.Run("When a parser error contains input it should retain the cause without displaying secrets", func(t *testing.T) {

@@ -27,6 +27,15 @@ func TestReferenceMatching(t *testing.T) {
 		{"Docker Hub alias", "docker.io", "library", "", "index.docker.io/library/nginx", "docker.io", "library", true},
 		{"Docker Hub namespace", "index.docker.io", "team", "", "docker.io/team/app", "docker.io", "team", true},
 		{"Docker Hub registry wide", "docker.io", "", "", "nginx", "docker.io", "", true},
+		{"Docker Hub registry alias need", "docker.io", "team", "", "registry-1.docker.io/team/app", "docker.io", "team", true},
+		{"Docker Hub registry alias candidate", "registry-1.docker.io", "team", "", "docker.io/team/app", "docker.io", "team", true},
+		{"Docker Hub aliases together", "index.docker.io", "team", "", "registry-1.docker.io/team/app", "docker.io", "team", true},
+		{"Docker Hub registry alias short image", "registry-1.docker.io", "", "nginx", "nginx", "docker.io", "library/nginx", true},
+		{"Docker Hub registry alias library need", "docker.io", "", "nginx", "registry-1.docker.io/nginx", "docker.io", "library/nginx", true},
+		{"Docker Hub registry alias registry wide", "registry-1.docker.io", "", "", "docker.io/team/app", "docker.io", "", true},
+		{"Docker Hub registry alias candidate port isolation", "registry-1.docker.io:443", "", "", "docker.io/team/app", "docker.io", "", false},
+		{"Docker Hub registry alias need port isolation", "docker.io", "", "", "registry-1.docker.io:443/team/app", "registry-1.docker.io:443", "", false},
+		{"Docker Hub registry alias explicit port", "registry-1.docker.io:443", "team", "", "registry-1.docker.io:443/team/app", "registry-1.docker.io:443", "team", true},
 		{"image transport", "quay.io", "team", "", "docker://quay.io/team/app", "quay.io", "team", true},
 		{"digest", "quay.io", "team", "", "quay.io/team/app@sha256:" + strings.Repeat("a", 64), "quay.io", "team", true},
 		{"tag and digest", "quay.io", "team", "", "quay.io/team/app:tag@sha256:" + strings.Repeat("b", 64), "quay.io", "team", true},
@@ -73,6 +82,8 @@ func TestHelmChartRegistryMatching(t *testing.T) {
 		{"Helm chart with transport", "oci://registry/team/chart:1", "registry", "single-label", rc.ConsumerHelmChart, both},
 		{"Helm chart without transport", "registry/team/chart:1", "registry", "single-label", rc.ConsumerHelmChart, both},
 		{"Helm chart without a matching registry", "oci://registry/team/chart:1", "registry", "", rc.ConsumerHelmChart, []rc.Candidate{hub}},
+		{"Helm chart registry alias", "oci://registry-1.docker.io/team/chart:1", "docker.io", "docker-hub", rc.ConsumerHelmChart, both},
+		{"Helm chart registry alias candidate", "oci://docker.io/team/chart:1", "docker.io", "alias", rc.ConsumerHelmChart, []rc.Candidate{credential(t, "alias", "registry-1.docker.io", "")}},
 		{"container image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerContainer, both},
 		{"Helm workload image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerHelmImage, both},
 		{"OS image", "docker://registry/team/chart:1", "docker.io", "docker-hub", rc.ConsumerOS, both},
@@ -99,7 +110,7 @@ func TestHelmChartRegistryMatching(t *testing.T) {
 }
 
 func TestNeedValidation(t *testing.T) {
-	s, err := rc.NewSnapshot(orgID, nil)
+	s, err := rc.NewSnapshot(orgID, []rc.Candidate{credential(t, "registry", "registry", ""), credential(t, "port", "registry:5000", "")})
 	require.NoError(t, err)
 	for _, tt := range []struct {
 		name  string
@@ -110,6 +121,11 @@ func TestNeedValidation(t *testing.T) {
 		{"missing destination", rc.PullNeed{Reference: "quay.io/team/app", Consumer: rc.ConsumerContainer}},
 		{"unknown consumer", rc.PullNeed{Reference: "quay.io/team/app", Consumer: "bad", Destination: "root"}},
 		{"chart prefix on image", need("oci://quay.io/team/app")},
+		{"pathless chart", rc.PullNeed{Reference: "registry", Consumer: rc.ConsumerHelmChart, Destination: "helm"}},
+		{"pathless OCI chart", rc.PullNeed{Reference: "oci://registry", Consumer: rc.ConsumerHelmChart, Destination: "helm"}},
+		{"pathless chart with port", rc.PullNeed{Reference: "registry:5000", Consumer: rc.ConsumerHelmChart, Destination: "helm"}},
+		{"pathless OCI chart with port", rc.PullNeed{Reference: "oci://registry:5000", Consumer: rc.ConsumerHelmChart, Destination: "helm"}},
+		{"empty chart path", rc.PullNeed{Reference: "oci://registry/", Consumer: rc.ConsumerHelmChart, Destination: "helm"}},
 	} {
 		t.Run("When a need has "+tt.name+" it should reject the entire batch safely", func(t *testing.T) {
 			got, err := s.Select([]rc.PullNeed{need("quay.io/team/app"), tt.input})

@@ -102,6 +102,11 @@ func TestSharedAmbiguities(t *testing.T) {
 				}
 				require.Equal(t, "container:root", entries[0].Destination)
 				require.Equal(t, "container:workload", entries[1].Destination)
+				require.ErrorContains(t, entries[0], `in destination "container:root"`)
+				require.ErrorContains(t, entries[1], `in destination "container:workload"`)
+				require.NotEqual(t, entries[0].Error(), entries[1].Error())
+				require.ErrorContains(t, err, entries[0].Error())
+				require.ErrorContains(t, err, entries[1].Error())
 				require.Equal(t, []string{"alpha", "zulu"}, entries[0].RepositoryNames)
 				require.Equal(t, []string{"alpha", "zulu"}, entries[1].RepositoryNames)
 				require.Equal(t, "registry.example", entries[2].Registry)
