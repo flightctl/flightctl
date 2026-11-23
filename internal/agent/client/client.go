@@ -101,6 +101,7 @@ type ClientOption func(*clientOptions)
 
 type clientOptions struct {
 	pullSecretPath       string
+	signaturePolicyPath  string
 	repositoryConfigPath string
 	criConfigPath        string
 	timeout              time.Duration
@@ -112,6 +113,14 @@ type clientOptions struct {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// WithSignaturePolicy sets the signature policy file that an image pull must
+// satisfy instead of the host default policy.
+func WithSignaturePolicy(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.signaturePolicyPath = path
 	}
 }
 
