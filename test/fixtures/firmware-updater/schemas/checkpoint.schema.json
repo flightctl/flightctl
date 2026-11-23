@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Updater contract fixture checkpoint",
+  "description": "Synthetic resume position that the fixture accepts but never advances.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["step"],
+  "properties": {
+    "step": {"type": "integer", "minimum": 1, "maximum": 1000}
+  }
+}
