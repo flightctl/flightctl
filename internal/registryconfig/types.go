@@ -37,6 +37,24 @@ const (
 	OutcomeAmbiguous Outcome = "ambiguous"
 )
 
+// Composition contains credential selections and endpoint connection settings.
+type Composition struct {
+	Selections []Selection
+	Endpoints  []EndpointConfig
+}
+
+// EndpointConfig contains the connection settings shared by needs at one host[:port].
+// CABundle is canonical PEM containing only applicable Repository certificates;
+// an empty bundle leaves trust to the client's defaults. Scheme and verification
+// are explicit effective values. RepositoryNames lists all contributors in lexical order.
+type EndpointConfig struct {
+	Registry               string
+	CABundle               string // PEM-encoded certificates.
+	Scheme                 domain.OciRepoSpecScheme
+	SkipServerVerification bool
+	RepositoryNames        []string
+}
+
 type Selection struct {
 	Need     PullNeed
 	Registry string
