@@ -106,6 +106,7 @@ func TestInspectPackageIncompleteArchive(t *testing.T) {
 		mismatchDigest bool
 		diagnostic     Diagnostic
 	}{
+		{name: "the new download exceeds the remaining budget", data: data, budget: int64(len(base) + len(data) - 1), diagnostic: DiagnosticBudgetExceeded},
 		{name: "files exceed the shared budget", data: data, budget: int64(len(base) + len(data) + 10), diagnostic: DiagnosticBudgetExceeded},
 		{name: "gzip checksum fails", data: badCRC, budget: 1 << 20, diagnostic: DiagnosticParseFailed},
 		{name: "blob digest differs from the descriptor", data: data, budget: 1 << 20, mismatchDigest: true, diagnostic: DiagnosticContentUnavailable},
@@ -127,6 +128,21 @@ func TestInspectPackageIncompleteArchive(t *testing.T) {
 			files, err := os.ReadDir(os.TempDir())
 			require.NoError(t, err)
 			require.Empty(t, files)
+		})
+	}
+}
+
+func TestInspectPackageRejectsInvalidArtifactTitles(t *testing.T) {
+	for _, title := range []string{"", ".", "../docker-compose.yaml", "/docker-compose.yaml"} {
+		t.Run("When a blob title is invalid it should finish incomplete: "+title, func(t *testing.T) {
+			registry := packageRegistry{}
+			layer := registry.blob(title, "application/yaml", []byte("services:\n  app:\n    image: images.example.com/org/workload:v2\n"))
+			parent := registry.manifest(t, ocispec.DescriptorEmptyJSON, layer)
+			repo := registry.serve(t, parent, false)
+			result := InspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil)
+			require.Equal(t, []Diagnostic{DiagnosticParseFailed}, result.Diagnostics)
+			require.Equal(t, parent.Digest, result.ParentDigest)
+			require.Empty(t, result.References)
 		})
 	}
 }

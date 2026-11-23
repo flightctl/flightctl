@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -160,16 +162,13 @@ func TestCompressedPackageManyFiles(t *testing.T) {
 		entries = append(entries, archiveEntry{name: fmt.Sprintf("files/%05d", i), data: "x"})
 	}
 	entries = append(entries, archiveEntry{name: "docker-compose.yaml", data: "services:\n  app:\n    image: quay.io/example/app:latest\n"})
-	data := gzipBytes(t, makeTar(t, entries...))
-	w := testWorkspace(t, 1<<20)
-	require.NoError(t, w.put(t.Context(), "download", bytes.NewReader(data)))
-	require.NoError(t, w.extract(t.Context(), "download", packageTarGzip, false))
-	files, err := fs.ReadDir(w.files(), "files")
-	require.NoError(t, err)
-	require.Len(t, files, 10001)
-	file, err := fs.ReadFile(w.files(), "docker-compose.yaml")
-	require.NoError(t, err)
-	require.Equal(t, entries[len(entries)-1].data, string(file))
+	registry := packageRegistry{}
+	layer := registry.blob("many-files.tgz", "application/octet-stream", gzipBytes(t, makeTar(t, entries...)))
+	parent := registry.manifest(t, ocispec.DescriptorEmptyJSON, layer)
+	repo := registry.serve(t, parent, false)
+	result := InspectPackage(t.Context(), v1beta1.AppTypeCompose, repo, "target", nil)
+	require.Empty(t, result.Diagnostics)
+	require.Equal(t, []Reference{{Image: "quay.io/example/app:latest", Role: RoleWorkload, ConsumerKind: ConsumerContainer}}, result.References)
 }
 
 func TestPackageImageLayerWhiteouts(t *testing.T) {
