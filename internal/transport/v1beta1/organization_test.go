@@ -58,20 +58,21 @@ func (s *organizationReadStore) ListByExternalIDs(_ context.Context, ids []strin
 
 func TestOrganizations_AAPGatewayMetadata(t *testing.T) {
 	tests := []struct {
-		name      string
-		superuser bool
-		auditor   bool
-		nonAAP    bool
-		prefix    string
-		gatewayID int
+		name       string
+		superuser  bool
+		auditor    bool
+		nonAAP     bool
+		prefix     string
+		gatewayID  int
+		originalID string
 	}{
-		{name: "When a superuser lists organizations it should enrich only Gateway organizations", superuser: true, prefix: "aap-", gatewayID: 42},
-		{name: "When an auditor lists organizations it should use the Gateway all-organizations list", auditor: true, prefix: "aap-", gatewayID: 42},
-		{name: "When membership is direct or team-inherited it should retain IDs and roles", prefix: "aap-", gatewayID: 42},
-		{name: "When the prefix is empty it should retain the existing external key", gatewayID: 42},
-		{name: "When another Gateway reports the same names it should use that identity's IDs", prefix: "aap-", gatewayID: 142},
-		{name: "When Gateway IDs exceed 32 bits it should serialize the full integer", prefix: "aap-", gatewayID: 1099511627776},
-		{name: "When authentication is not AAP it should omit Gateway IDs", nonAAP: true, prefix: "aap-", gatewayID: 42},
+		{name: "When a superuser lists organizations it should enrich only Gateway organizations", superuser: true, prefix: "aap-", gatewayID: 42, originalID: "42"},
+		{name: "When an auditor lists organizations it should use the Gateway all-organizations list", auditor: true, prefix: "aap-", gatewayID: 42, originalID: "42"},
+		{name: "When membership is direct or team-inherited it should retain IDs and roles", prefix: "aap-", gatewayID: 42, originalID: "42"},
+		{name: "When the prefix is empty it should retain the existing external key", gatewayID: 42, originalID: "42"},
+		{name: "When another Gateway reports the same names it should use that identity's IDs", prefix: "aap-", gatewayID: 142, originalID: "142"},
+		{name: "When Gateway IDs exceed JSON float precision it should preserve exact decimal text", prefix: "aap-", gatewayID: 9007199254740993, originalID: "9007199254740993"},
+		{name: "When authentication is not AAP it should omit original external IDs", nonAAP: true, prefix: "aap-", gatewayID: 42, originalID: "42"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -211,10 +212,10 @@ func TestOrganizations_AAPGatewayMetadata(t *testing.T) {
 					expectedCount++
 				}
 				require.Len(t, list.Items, expectedCount)
-				wantIDs := map[string]int64{}
+				wantIDs := map[string]string{}
 				if !tt.nonAAP {
-					wantIDs[tt.prefix+"Example Org"] = int64(tt.gatewayID)
-					wantIDs[tt.prefix+"Team Org"] = 73
+					wantIDs[tt.prefix+"Example Org"] = tt.originalID
+					wantIDs[tt.prefix+"Team Org"] = "73"
 				}
 				assertOrganizationMetadata(t, response.Body.String(), orgs, wantIDs)
 				t.Logf("filtered=%t response=%s", filtered, strings.TrimSpace(response.Body.String()))
@@ -237,8 +238,8 @@ func TestOrganizations_AAPGatewayMetadata(t *testing.T) {
 }
 
 // Decode raw JSON as well as API types to distinguish an absent field from null
-// and to verify that the wire value is a JSON integer rather than a string.
-func assertOrganizationMetadata(t *testing.T, body string, orgs []*model.Organization, wantIDs map[string]int64) {
+// and to verify the exact source ID is a JSON string.
+func assertOrganizationMetadata(t *testing.T, body string, orgs []*model.Organization, wantIDs map[string]string) {
 	t.Helper()
 	var result struct {
 		Items []struct {
@@ -261,14 +262,13 @@ func assertOrganizationMetadata(t *testing.T, body string, orgs []*model.Organiz
 		require.NotNil(t, original)
 		require.Equal(t, original.ID.String(), *item.Metadata.Name)
 		require.Equal(t, original.DisplayName, displayName)
-		idJSON, present := item.Spec["aapOrganizationId"]
+		require.NotContains(t, item.Spec, "aapOrganizationId")
+		idJSON, present := item.Spec["originalExternalId"]
 		if wantID, expected := wantIDs[externalID]; expected {
 			require.True(t, present)
-			var actualID int64
-			require.NoError(t, json.Unmarshal(idJSON, &actualID))
-			require.Equal(t, wantID, actualID)
+			require.Equal(t, `"`+wantID+`"`, string(idJSON))
 		} else {
-			require.False(t, present, "unexpected AAP ID for %s: %s", externalID, idJSON)
+			require.False(t, present, "unexpected original external ID for %s: %s", externalID, idJSON)
 		}
 	}
 }

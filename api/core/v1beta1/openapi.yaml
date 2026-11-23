@@ -10737,12 +10737,10 @@ components:
       type: object
       description: OrganizationSpec describes an organization.
       properties:
-        aapOrganizationId:
-          type: integer
-          format: int64
-          minimum: 1
+        originalExternalId:
+          type: string
           readOnly: true
-          description: Numeric organization ID from the authenticated AAP Gateway instance. Present only on authorized organization list results with a positive, unambiguous ID in that identity's Gateway organization lists. Omitted for other authentication providers or organizations without a known Gateway ID.
+          description: Original organization ID from the authenticating provider, scoped to that provider instance. Currently populated only for authenticated AAP Gateway identities with a positive, unambiguous Gateway organization ID, formatted as a decimal string. Omitted for unsupported providers or unknown organizations.
         displayName:
           type: string
           description: Human readable name shown to users.

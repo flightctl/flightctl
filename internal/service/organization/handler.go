@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/contextutil"
@@ -78,7 +79,8 @@ func buildAuthorizedOrganizationList(ctx context.Context, orgs []*model.Organiza
 	}
 	for i, org := range orgs {
 		if id, found := aapIdentity.GetAAPOrganizationID(org.ExternalID); found && id > 0 {
-			result.Items[i].Spec.AapOrganizationId = &id
+			originalID := strconv.FormatInt(id, 10)
+			result.Items[i].Spec.OriginalExternalId = &originalID
 		}
 	}
 	return result

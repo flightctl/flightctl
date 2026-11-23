@@ -293,14 +293,20 @@ Flight Control validates these existing AAP tokens rather than providing a separ
 Users with access to multiple AAP organizations will have access to multiple Flight Control organizations.
 For CLI organization selection and `--org` usage, see [Usage with multiple organizations](organizations.md#usage-with-multiple-organizations).
 
-### Gateway organization IDs
+### Original external organization IDs
 
-`GET /api/v1/organizations` includes the optional, read-only JSON integer
-`spec.aapOrganizationId` when the authenticated AAP Gateway identity supplies a
-positive, unambiguous organization ID. The ID comes from the same Gateway
-instance that authenticates the request: its organization list for superusers
-and platform auditors, or direct memberships and team organization summaries
-for other users. Controller organization IDs are not used.
+`GET /api/v1/organizations` includes the optional, read-only JSON string
+`spec.originalExternalId` for the source provider's original organization ID,
+scoped to that provider instance. Currently, Flight Control populates this
+field only for authenticated AAP Gateway identities with a positive,
+unambiguous Gateway organization ID, formatted as exact decimal text.
+
+The ID comes from the same Gateway instance that authenticates the request:
+its organization list for superusers and platform auditors, or direct
+memberships and team organization summaries for other users. Controller
+organization IDs are not used. The value comes from provider metadata,
+independently of the organization name prefix; do not derive it by removing
+a prefix from `externalId`.
 
 For example, Gateway organization `42`, named `Example Org`, with
 `organizationNamePrefix: "aap-"` maps to this Flight Control organization:
@@ -311,7 +317,7 @@ For example, Gateway organization `42`, named `Example Org`, with
   "spec": {
     "externalId": "aap-Example Org",
     "displayName": "aap-Example Org",
-    "aapOrganizationId": 42
+    "originalExternalId": "42"
   }
 }
 ```

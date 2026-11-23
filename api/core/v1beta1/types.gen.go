@@ -3708,14 +3708,14 @@ type OrganizationList struct {
 
 // OrganizationSpec OrganizationSpec describes an organization.
 type OrganizationSpec struct {
-	// AapOrganizationId Numeric organization ID from the authenticated AAP Gateway instance. Present only on authorized organization list results with a positive, unambiguous ID in that identity's Gateway organization lists. Omitted for other authentication providers or organizations without a known Gateway ID.
-	AapOrganizationId *int64 `json:"aapOrganizationId,omitempty"`
-
 	// DisplayName Human readable name shown to users.
 	DisplayName *string `json:"displayName,omitempty"`
 
 	// ExternalId External ID of the organization.
 	ExternalId *string `json:"externalId,omitempty"`
+
+	// OriginalExternalId Original organization ID from the authenticating provider, scoped to that provider instance. Currently populated only for authenticated AAP Gateway identities with a positive, unambiguous Gateway organization ID, formatted as a decimal string. Omitted for unsupported providers or unknown organizations.
+	OriginalExternalId *string `json:"originalExternalId,omitempty"`
 }
 
 // OsModeType OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
