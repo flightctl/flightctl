@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
@@ -55,7 +56,6 @@ var (
 	redisHost     string
 	redisPort     uint
 	redisPassword domain.SecureString
-	redisCleanup  func()
 )
 
 func TestServiceSuite(t *testing.T) {
@@ -68,15 +68,25 @@ var _ = BeforeSuite(func() {
 	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 
 	var err error
-	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
-		suiteCtx, flightlog.InitLogs())
+	var redisCleanup func()
+	log := flightlog.InitLogs()
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(suiteCtx, log)
 	Expect(err).NotTo(HaveOccurred())
-})
+	DeferCleanup(redisCleanup)
 
-var _ = AfterSuite(func() {
-	if redisCleanup != nil {
-		redisCleanup()
-	}
+	// API startup can access the process-global rendered bus before any device spec.
+	// Its dependencies must remain usable until every spec in this worker has finished.
+	renderedKVStore, err := kvstore.NewKVStore(suiteCtx, log, redisHost, redisPort, redisPassword)
+	Expect(err).NotTo(HaveOccurred())
+	DeferCleanup(renderedKVStore.Close)
+
+	renderedProvider, err := queues.NewRedisProvider(suiteCtx, log, "service-rendered-"+uuid.NewString(), redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
+	Expect(err).NotTo(HaveOccurred())
+	DeferCleanup(func() {
+		renderedProvider.Stop()
+		renderedProvider.Wait()
+	})
+	Expect(rendered.Bus.Initialize(suiteCtx, renderedKVStore, renderedProvider, 10*time.Second, log)).To(Succeed())
 })
 
 // ServiceTestSuite provides common setup and teardown for service integration tests
