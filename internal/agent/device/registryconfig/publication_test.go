@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/registryconfig"
 	"github.com/stretchr/testify/require"
@@ -91,42 +90,68 @@ func TestRegistryAuthWithdrawalPreservesExternalReplacement(t *testing.T) {
 	require.FileExists(t, path)
 }
 
-func TestRegistryAuthRollbackByPhase(t *testing.T) {
+func TestRegistryAuthReconcilesRollbackTarget(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		cause    error
-		preserve bool
+		name    string
+		applied bool
 	}{
-		{name: "When preparation fails rollback should preserve the current and staged files", cause: deviceerrors.ErrPhasePreparing, preserve: true},
-		{name: "When apply fails rollback should reconcile the live files and remove staging", cause: deviceerrors.ErrPhaseApplyingUpdate},
-		{name: "When activation fails rollback should reconcile the live files and remove staging", cause: deviceerrors.ErrPhaseActivatingConfig},
+		{name: "When rolling back a deferred update it should repair drift without removing newer staging"},
+		{name: "When rolling back an applied update it should restore the previous auth", applied: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr, root := fixture(t)
-			desired := spec(t, valid)
+			current := spec(t, valid)
+			next := spec(t, strings.ReplaceAll(valid, secret, "rotated"))
 			ctx := t.Context()
-			require.NoError(t, mgr.Sync(ctx, desired))
-			require.NoError(t, mgr.BeforeUpdate(ctx, spec(t, strings.ReplaceAll(valid, secret, "rotated"))))
-			stage, ok := mgr.StagedPath(live(processHome))
+			livePath := live(processHome)
+			path := filepath.Join(root, livePath)
+			require.NoError(t, mgr.Sync(ctx, current))
+			require.NoError(t, mgr.BeforeUpdate(ctx, next))
+			stage, ok := mgr.StagedPath(livePath)
 			require.True(t, ok)
-			rollback := registryconfig.WithRollbackCause(ctx, errors.Join(tc.cause, errors.New("update failed")))
-			if tc.preserve {
-				require.NoError(t, mgr.BeforeUpdate(rollback, &v1beta1.DeviceSpec{}))
-				stillStaged, ok := mgr.StagedPath(live(processHome))
-				require.True(t, ok)
-				require.Equal(t, stage, stillStaged)
-			}
-			require.NoError(t, mgr.Sync(rollback, &v1beta1.DeviceSpec{}))
-			require.NoError(t, mgr.AfterUpdate(rollback))
-
-			path := filepath.Join(root, live(processHome))
-			if tc.preserve {
-				require.FileExists(t, stage)
-				assertAuth(t, path, map[string]string{"quay.io:5000": "test:" + secret})
+			if tc.applied {
+				require.NoError(t, mgr.Sync(ctx, next))
+				assertAuth(t, path, map[string]string{"quay.io:5000": "test:rotated"})
 			} else {
-				require.NoFileExists(t, stage)
-				require.NoFileExists(t, path)
+				require.NoError(t, os.Remove(path))
 			}
+
+			require.NoError(t, mgr.Sync(ctx, current))
+			require.NoError(t, mgr.AfterUpdate(ctx, current))
+			assertAuth(t, path, map[string]string{"quay.io:5000": "test:" + secret})
+			stillStaged, ok := mgr.StagedPath(livePath)
+			require.True(t, ok)
+			require.Equal(t, stage, stillStaged)
+			require.FileExists(t, stage)
+		})
+	}
+}
+
+func TestRegistryAuthRepairsDriftOnSameSpec(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(t *testing.T, path string)
+	}{
+		{name: "When generated auth is edited it should restore approved contents", edit: func(t *testing.T, path string) {
+			require.NoError(t, os.WriteFile(path, []byte(`{"auths":{}}`), 0o600))
+		}},
+		{name: "When generated auth is replaced it should restore approved contents", edit: func(t *testing.T, path string) {
+			require.NoError(t, os.Remove(path))
+			require.NoError(t, os.WriteFile(path, []byte(`{"auths":{}}`), 0o600))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, root := fixture(t)
+			ctx := t.Context()
+			desired := spec(t, valid)
+			path := filepath.Join(root, live(processHome))
+			require.NoError(t, mgr.Sync(ctx, desired))
+			tc.edit(t, path)
+
+			require.NoError(t, mgr.BeforeUpdate(ctx, desired))
+			require.NoError(t, mgr.Sync(ctx, desired))
+			require.NoError(t, mgr.AfterUpdate(ctx, desired))
+			assertAuth(t, path, map[string]string{"quay.io:5000": "test:" + secret})
 		})
 	}
 }

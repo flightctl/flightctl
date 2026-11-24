@@ -92,7 +92,7 @@ func TestRegistryConfigUpdateGates(t *testing.T) {
 						calls = append(calls, specs.EXPECT().IsUpgrading().Return(false), specs.EXPECT().IsUpgrading().Return(false), registry.EXPECT().Sync(ctx, desired.Spec).Return(tc.apply))
 						if tc.apply == nil {
 							calls = append(calls, hooks.EXPECT().Sync(current.Spec, desired.Spec), systemdMgr.EXPECT().EnsurePatterns(gomock.Any()),
-								lifecycleMgr.EXPECT().Sync(ctx, current.Spec, desired.Spec), registry.EXPECT().AfterUpdate(ctx).Return(tc.after))
+								lifecycleMgr.EXPECT().Sync(ctx, current.Spec, desired.Spec), registry.EXPECT().AfterUpdate(ctx, desired.Spec).Return(tc.after))
 						}
 					}
 				}
@@ -202,8 +202,8 @@ func TestSync(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
 				// OnAfterUpdating is called twice - once with error, once without during rollback
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError).AnyTimes()
-				mockHookManager.EXPECT().OnAfterUpdating(gomock.Any(), desired.Spec, current.Spec, false).Return(nil).AnyTimes()
-				mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version(), desired.SpecHash()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
@@ -445,7 +445,7 @@ func TestSync(t *testing.T) {
 			registry := registryconfig.NewMockManager(ctrl)
 			registry.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).AnyTimes()
 			registry.EXPECT().Sync(gomock.Any(), gomock.Any()).AnyTimes()
-			registry.EXPECT().AfterUpdate(gomock.Any()).AnyTimes()
+			registry.EXPECT().AfterUpdate(gomock.Any(), gomock.Any()).AnyTimes()
 			if tc.wantCleanup {
 				registry.EXPECT().Cleanup().Times(2)
 			}
@@ -1229,8 +1229,8 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		mockPullConfigResolver.EXPECT().Cleanup()
 		mockPrefetchManager.EXPECT().Cleanup()
 		registry := registryconfig.NewMockManager(ctrl)
-		registry.EXPECT().Sync(gomock.Any(), current.Spec)
-		registry.EXPECT().AfterUpdate(gomock.Any())
+		registry.EXPECT().Sync(ctx, current.Spec)
+		registry.EXPECT().AfterUpdate(ctx, current.Spec)
 		registry.EXPECT().Cleanup()
 
 		agent := Agent{

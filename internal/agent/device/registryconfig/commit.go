@@ -49,9 +49,6 @@ func (f recordOutput) account() (userutil.Account, bool) {
 }
 
 func (m *manager) Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error {
-	if rollbackBeforeSync(ctx) {
-		return nil
-	}
 	plan, err := m.plan(ctx, desired)
 	if err != nil {
 		return err

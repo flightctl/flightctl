@@ -390,9 +390,7 @@ func (a *Agent) handleMissingSpec(ctx context.Context, err error) bool {
 }
 
 func (a *Agent) handleFailedUpgrade(ctx context.Context, current, desired *v1beta1.Device, syncErr error) {
-	rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, func(ctx context.Context, from, to *v1beta1.Device) error {
-		return a.sync(registryconfig.WithRollbackCause(ctx, syncErr), from, to)
-	})
+	rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, a.sync)
 	if rollbackErr != nil {
 		a.log.Errorf("Rollback did not complete cleanly: %v", rollbackErr)
 	}
@@ -698,7 +696,7 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
 
-	if err := a.registryConfig.AfterUpdate(ctx); err != nil {
+	if err := a.registryConfig.AfterUpdate(ctx, desired); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
 	}
 

@@ -24,9 +24,6 @@ type stagedOutput struct {
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
-	if rollbackBeforeSync(ctx) {
-		return nil
-	}
 	plan, err := m.plan(ctx, desired)
 	if err != nil {
 		return err
@@ -49,6 +46,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 		}
 		next[path] = staged
 	}
+	m.preparedFor = desired
 	m.staged = next
 	return nil
 }
@@ -107,24 +105,31 @@ func openStageParent(rw fileio.ReadWriter, base string) (fileio.Anchor, error) {
 }
 
 func (m *manager) StagedPath(livePath string) (string, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if staged := m.staged[livePath]; staged != nil {
 		return staged.path, true
 	}
 	return "", false
 }
 
-func (m *manager) AfterUpdate(ctx context.Context) error {
-	if rollbackBeforeSync(ctx) {
-		return nil // Retain staged auth for the next preparation attempt.
+func (m *manager) AfterUpdate(_ context.Context, desired *v1beta1.DeviceSpec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.preparedFor != desired {
+		return nil
 	}
-	return m.Cleanup()
+	return m.cleanupLocked()
 }
 
 func (m *manager) Cleanup() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.cleanupLocked()
+}
+
+func (m *manager) cleanupLocked() error {
+	m.preparedFor = nil
 	m.staged = nil
 	if len(m.all) == 0 {
 		return nil

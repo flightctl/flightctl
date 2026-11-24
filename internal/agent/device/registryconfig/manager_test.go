@@ -176,7 +176,7 @@ func TestRegistryAuthLifecycle(t *testing.T) {
 	require.FileExists(t, namedStage)
 	assertAuth(t, filepath.Join(root, processFile), processAuth)
 	assertAuth(t, filepath.Join(root, namedFile), namedAuth)
-	require.NoError(t, mgr.AfterUpdate(t.Context()))
+	require.NoError(t, mgr.AfterUpdate(t.Context(), desired))
 	require.NoFileExists(t, processStage)
 	require.NoFileExists(t, namedStage)
 	_, ok = mgr.StagedPath(processFile)

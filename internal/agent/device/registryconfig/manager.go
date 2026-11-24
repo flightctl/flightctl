@@ -2,11 +2,9 @@ package registryconfig
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/userutil"
 )
@@ -15,21 +13,10 @@ import (
 type Manager interface {
 	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error
-	AfterUpdate(ctx context.Context) error
+	// AfterUpdate releases staging for the spec instance passed to BeforeUpdate.
+	AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	StagedPath(livePath string) (string, bool)
 	Cleanup() error
-}
-
-type rollbackCauseKey struct{}
-
-// WithRollbackCause records the error that triggered rollback reconciliation.
-func WithRollbackCause(ctx context.Context, cause error) context.Context {
-	return context.WithValue(ctx, rollbackCauseKey{}, cause)
-}
-
-func rollbackBeforeSync(ctx context.Context) bool {
-	cause, _ := ctx.Value(rollbackCauseKey{}).(error)
-	return cause != nil && !errors.Is(cause, deviceerrors.ErrPhaseApplyingUpdate) && !errors.Is(cause, deviceerrors.ErrPhaseActivatingConfig)
 }
 
 type Option func(*manager)
@@ -43,8 +30,9 @@ type manager struct {
 	dataDir string
 	lookup  func(v1beta1.Username) (userutil.Account, error)
 
-	mu     sync.RWMutex
-	staged map[string]*stagedOutput
+	mu          sync.Mutex
+	preparedFor *v1beta1.DeviceSpec
+	staged      map[string]*stagedOutput
 	// Retain previous paths while in-flight pulls can still use them.
 	all []*stagedOutput
 }

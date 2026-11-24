@@ -173,7 +173,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 
 		Expect(manager.Sync(ctx, desired)).To(Succeed())
 		Expect(config.NewController(rw, dataDir, logger).Sync(ctx, current, desired)).To(Succeed())
-		Expect(manager.AfterUpdate(ctx)).To(Succeed())
+		Expect(manager.AfterUpdate(ctx, desired)).To(Succeed())
 		info, err := os.Stat(rw.PathFor(live))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o600)))
@@ -239,7 +239,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 
 		Expect(manager.Sync(ctx, desired)).To(Succeed())
 		Expect(stage).To(BeAnExistingFile())
-		Expect(manager.AfterUpdate(ctx)).To(Succeed())
+		Expect(manager.AfterUpdate(ctx, desired)).To(Succeed())
 		Expect(stage).NotTo(BeAnExistingFile())
 		installed, err := os.Stat(filepath.Join(root, live))
 		Expect(err).NotTo(HaveOccurred())
