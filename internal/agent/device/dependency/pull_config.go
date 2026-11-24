@@ -16,6 +16,8 @@ type PullConfigSpec struct {
 	Paths []string
 	// OptionFn creates a client option from the resolved path.
 	OptionFn func(string) client.ClientOption
+	// UseGenerated permits staged managed configuration for this pull context.
+	UseGenerated bool
 }
 
 // PullConfigResolver manages the lifecycle of pull configurations
@@ -34,6 +36,17 @@ type PullConfigResolver interface {
 	Cleanup()
 }
 
+// GeneratedConfigSource provides staged configuration for a live path.
+type GeneratedConfigSource interface {
+	StagedPath(livePath string) (string, bool)
+}
+
+type PullConfigResolverOption func(*pullConfigResolver)
+
+func WithGeneratedConfigSource(src GeneratedConfigSource) PullConfigResolverOption {
+	return func(r *pullConfigResolver) { r.generated = src }
+}
+
 type resolvedConfig struct {
 	path          string
 	cleanup       func()
@@ -43,6 +56,7 @@ type resolvedConfig struct {
 type pullConfigResolver struct {
 	log       *log.PrefixLogger
 	rwFactory fileio.ReadWriterFactory
+	generated GeneratedConfigSource
 
 	mu       sync.Mutex
 	desired  *v1beta1.DeviceSpec
@@ -50,11 +64,12 @@ type pullConfigResolver struct {
 }
 
 // NewPullConfigResolver creates a new PullConfigResolver.
-func NewPullConfigResolver(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory) PullConfigResolver {
-	return &pullConfigResolver{
-		log:       log,
-		rwFactory: rwFactory,
+func NewPullConfigResolver(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, opts ...PullConfigResolverOption) PullConfigResolver {
+	r := &pullConfigResolver{log: log, rwFactory: rwFactory}
+	for _, opt := range opts {
+		opt(r)
 	}
+	return r
 }
 
 func (r *pullConfigResolver) BeforeUpdate(desired *v1beta1.DeviceSpec) {
@@ -109,6 +124,12 @@ func (r *pullConfigResolver) Options(specs ...PullConfigSpec) ClientOptsFn {
 		var opts []client.ClientOption
 		for _, spec := range specs {
 			for _, path := range spec.Paths {
+				if spec.UseGenerated && r.generated != nil && r.authFromSpec(r.desired, path) == nil {
+					if staged, ok := r.generated.StagedPath(path); ok {
+						opts = append(opts, spec.OptionFn(staged))
+						break
+					}
+				}
 				if cached, ok := r.resolved[path]; ok {
 					r.log.Debugf("Using cached inline config from device spec for %s", path)
 					opts = append(opts, spec.OptionFn(cached.path))

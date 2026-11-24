@@ -10,6 +10,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type stagedConfig map[string]string
+
+func (src stagedConfig) StagedPath(path string) (string, bool) {
+	staged, ok := src[path]
+	return staged, ok
+}
+
+func TestPullConfigResolverGeneratedPathPrecedence(t *testing.T) {
+	const live = "/home/example/.config/containers/auth.json"
+	factory := fileio.NewReadWriterFactory(t.TempDir())
+	rw, err := factory(v1beta1.CurrentProcessUsername)
+	require.NoError(t, err)
+	require.NoError(t, rw.WriteFile(live, []byte("on disk"), 0o600))
+	source := stagedConfig{}
+	resolver := NewPullConfigResolver(log.NewPrefixLogger("test"), factory, WithGeneratedConfigSource(source))
+	t.Cleanup(resolver.Cleanup)
+	resolver.BeforeUpdate(&v1beta1.DeviceSpec{})
+	var path string
+	capture := func(p string) client.ClientOption {
+		path = p
+		return client.WithPullSecret(p)
+	}
+	options := resolver.Options(PullConfigSpec{Paths: []string{live}, OptionFn: capture, UseGenerated: true})
+
+	require.Len(t, options(), 1)
+	require.Equal(t, live, path)
+	for _, stage := range []string{"/tmp/auth-first", "/tmp/auth-second"} {
+		source[live] = stage
+		require.Len(t, options(), 1)
+		require.Equal(t, stage, path)
+	}
+	otherContext := resolver.Options(PullConfigSpec{Paths: []string{live}, OptionFn: capture})
+	require.Len(t, otherContext(), 1)
+	require.Equal(t, live, path)
+	resolver.BeforeUpdate(createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+		createInlineConfigProvider(t, "authored", []v1beta1.FileSpec{{Path: live, Content: "on disk"}}),
+	}))
+	require.Len(t, options(), 1)
+	require.Equal(t, live, path)
+	resolver.BeforeUpdate(&v1beta1.DeviceSpec{})
+	delete(source, live)
+	require.Len(t, options(), 1)
+	require.Equal(t, live, path)
+}
+
 func TestPullConfigResolver_Options(t *testing.T) {
 	tests := []struct {
 		name                 string

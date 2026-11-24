@@ -123,8 +123,9 @@ func containerPullOptions(resolver dependency.PullConfigResolver, username v1bet
 	authPath := pullAuthPathForUser(username)
 	if len(authPath) > 0 {
 		return resolver.Options(dependency.PullConfigSpec{
-			Paths:    []string{authPath},
-			OptionFn: client.WithPullSecret,
+			Paths:        []string{authPath},
+			OptionFn:     client.WithPullSecret,
+			UseGenerated: true,
 		})
 	}
 	return resolver.Options()

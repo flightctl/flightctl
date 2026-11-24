@@ -39,7 +39,7 @@ func TestContainerPullOptionsExecutionUser(t *testing.T) {
 			resolver := dependency.NewMockPullConfigResolver(gomock.NewController(t))
 			resolver.EXPECT().Options(gomock.Cond(func(value any) bool {
 				spec, ok := value.(dependency.PullConfigSpec)
-				return ok && len(spec.Paths) == 1 && spec.Paths[0] == filepath.Join(current.HomeDir, consts.ContainersAuthRelativePath)
+				return ok && spec.UseGenerated && len(spec.Paths) == 1 && spec.Paths[0] == filepath.Join(current.HomeDir, consts.ContainersAuthRelativePath)
 			}))
 			containerPullOptions(resolver, tc.user)
 		})
