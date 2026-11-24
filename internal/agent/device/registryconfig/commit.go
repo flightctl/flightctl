@@ -285,8 +285,12 @@ func removeAuthFile(rw fileio.ReadWriter, entry recordOutput) error {
 		return err
 	}
 	id, err := publishedID(dir, entry)
-	if err != nil || id == "" {
+	if err != nil {
 		return err
+	}
+	if id == "" {
+		// A previous unlink can be visible before its directory sync succeeds.
+		return dir.Sync()
 	}
 	return dir.RemoveFile(authName)
 }

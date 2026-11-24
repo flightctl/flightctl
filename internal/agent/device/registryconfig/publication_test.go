@@ -76,6 +76,41 @@ func TestRegistryAuthInterruptedPublication(t *testing.T) {
 	}
 }
 
+func TestRegistryAuthWithdrawalRetriesDirectorySync(t *testing.T) {
+	ctx := t.Context()
+	mgr, root := fixture(t)
+	require.NoError(t, mgr.Sync(ctx, spec(t, valid)))
+	path := live(namedHome)
+	// Simulate an unlink that completed before withdrawal's directory sync failed.
+	require.NoError(t, os.Remove(filepath.Join(root, path)))
+	recordPath := filepath.Join(root, dataDir, "registry-config/outputs.json")
+	before, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	require.Contains(t, string(before), path)
+
+	factory := fileio.NewReadWriterFactory(root)
+	syncErr := errors.New("directory sync failed")
+	retrying := registryconfig.NewManager(func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		rw, err := factory(user)
+		return publicationReadWriter{ReadWriter: rw, syncDirectory: func(dir string) error {
+			if dir == filepath.Dir(path) {
+				return syncErr
+			}
+			return nil
+		}}, err
+	}, dataDir, registryconfig.WithAccountLookup(fixtureAccount))
+	withdrawn := &v1beta1.DeviceSpec{}
+	require.ErrorIs(t, retrying.Sync(ctx, withdrawn), syncErr)
+	after, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+
+	require.NoError(t, mgr.Sync(ctx, withdrawn))
+	after, err = os.ReadFile(recordPath)
+	require.NoError(t, err)
+	require.NotContains(t, string(after), path)
+}
+
 func TestRegistryAuthWithdrawalPreservesExternalReplacement(t *testing.T) {
 	mgr, root := fixture(t)
 	require.NoError(t, mgr.Sync(t.Context(), spec(t, valid)))
@@ -158,24 +193,37 @@ func TestRegistryAuthRepairsDriftOnSameSpec(t *testing.T) {
 
 type publicationReadWriter struct {
 	fileio.ReadWriter
-	replace func(dir, name string, write func() error) error
+	replace       func(dir, name string, write func() error) error
+	syncDirectory func(dir string) error
 }
 
 func (rw publicationReadWriter) OpenAnchor(path string, opts fileio.DirOptions) (fileio.Anchor, error) {
 	a, err := rw.ReadWriter.OpenAnchor(path, opts)
-	return publicationAnchor{Anchor: a, replace: rw.replace}, err
+	return publicationAnchor{Anchor: a, rw: rw}, err
 }
 
 type publicationAnchor struct {
 	fileio.Anchor
-	replace func(dir, name string, write func() error) error
+	rw publicationReadWriter
 }
 
 func (a publicationAnchor) OpenDir(name string, opts fileio.DirOptions) (fileio.Anchor, error) {
 	dir, err := a.Anchor.OpenDir(name, opts)
-	return publicationAnchor{Anchor: dir, replace: a.replace}, err
+	return publicationAnchor{Anchor: dir, rw: a.rw}, err
 }
 
 func (a publicationAnchor) ReplaceFileDurable(name string, data []byte, perm os.FileMode, opts ...fileio.ReplaceOption) error {
-	return a.replace(a.Path(), name, func() error { return a.Anchor.ReplaceFileDurable(name, data, perm, opts...) })
+	if a.rw.replace == nil {
+		return a.Anchor.ReplaceFileDurable(name, data, perm, opts...)
+	}
+	return a.rw.replace(a.Path(), name, func() error { return a.Anchor.ReplaceFileDurable(name, data, perm, opts...) })
+}
+
+func (a publicationAnchor) Sync() error {
+	if a.rw.syncDirectory != nil {
+		if err := a.rw.syncDirectory(a.Path()); err != nil {
+			return err
+		}
+	}
+	return a.Anchor.Sync()
 }

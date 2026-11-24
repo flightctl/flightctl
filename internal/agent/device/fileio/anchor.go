@@ -246,7 +246,7 @@ func (a *anchor) OpenDir(name string, opts DirOptions) (Anchor, error) {
 		}
 		if opts.Owner != nil {
 			if err := unix.Fchown(fd, int(opts.Owner.UID), int(opts.Owner.GID)); err != nil {
-				_ = unix.Close(fd)
+				_ = unix.Close(fd) // Preserve the ownership error.
 				return nil, fmt.Errorf("set directory owner %w: %w", errors.WithElement(path.Join(a.path, name)), err)
 			}
 		}
