@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/registryconfig"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
@@ -36,16 +37,73 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestRegistryConfigUpdateGates(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		download, prepare, update error
+		commit                    error
+		wantPhase, wantComponent  error
+	}{
+		{name: "When download approval is held it should skip preparation", download: errors.ErrDownloadPolicyNotReady, wantPhase: errors.ErrPhasePreparing, wantComponent: errors.ErrComponentDownloadPolicy},
+		{name: "When registry preparation fails it should skip prefetch", prepare: errors.ErrInvalidConfigResource, wantPhase: errors.ErrPhasePreparing, wantComponent: errors.ErrComponentConfig},
+		{name: "When update approval is held it should prefetch without applying files", update: errors.ErrUpdatePolicyNotReady, wantPhase: errors.ErrPhasePreparing, wantComponent: errors.ErrComponentUpdatePolicy},
+		{name: "When registry commit fails it should stop before applying other config", commit: errors.ErrInvalidConfigResource, wantPhase: errors.ErrPhaseApplyingUpdate, wantComponent: errors.ErrComponentConfig},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			ctrl := gomock.NewController(t)
+			current, desired := newVersionedDevice("1"), newVersionedDevice("2")
+			resources := resource.NewMockManager(ctrl)
+			specs := spec.NewMockManager(ctrl)
+			resolver := dependency.NewMockPullConfigResolver(ctrl)
+			registry := registryconfig.NewMockManager(ctrl)
+			prefetch := dependency.NewMockPrefetchManager(ctrl)
+			apps := applications.NewMockManager(ctrl)
+			osMgr := os.NewMockManager(ctrl)
+			hooks := hook.NewMockManager(ctrl)
+			a := &Agent{resourceManager: resources, specManager: specs, pullConfigResolver: resolver, registryConfig: registry,
+				prefetchManager: prefetch, appManager: apps, osManager: osMgr, hookManager: hooks}
+			calls := []*gomock.Call{
+				resources.EXPECT().BeforeUpdate(ctx, desired.Spec),
+				resources.EXPECT().IsCriticalAlert(resource.MonitorType(resource.CPUMonitorType)).Return(false),
+				resources.EXPECT().IsCriticalAlert(resource.MonitorType(resource.MemoryMonitorType)).Return(false),
+				specs.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(tc.download),
+			}
+			if tc.download == nil {
+				calls = append(calls, specs.EXPECT().IsUpgrading().Return(false), resolver.EXPECT().BeforeUpdate(desired.Spec), registry.EXPECT().Prepare(ctx, desired.Spec).Return(tc.prepare))
+				if tc.prepare == nil {
+					calls = append(calls,
+						prefetch.EXPECT().RegisterOCICollector(apps), specs.EXPECT().ShouldApplyOSImageUpdate().Return(false), specs.EXPECT().IsUpgrading().Return(false),
+						specs.EXPECT().ShouldApplyOSImageUpdatePending(ctx).Return(false, nil), osMgr.EXPECT().BeforeUpdate(ctx, current.Spec, desired.Spec),
+						prefetch.EXPECT().BeforeUpdate(ctx, current.Spec, desired.Spec, gomock.Any()), apps.EXPECT().BeforeUpdate(ctx, desired.Spec, gomock.Any()),
+						hooks.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec), specs.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(tc.update),
+					)
+					if tc.update == nil {
+						calls = append(calls, specs.EXPECT().IsUpgrading().Return(false), specs.EXPECT().IsUpgrading().Return(false), registry.EXPECT().Commit(ctx, desired.Spec).Return(tc.commit))
+					}
+				}
+			}
+			for i := 1; i < len(calls); i++ {
+				calls[i].After(calls[i-1])
+			}
+			err := a.sync(ctx, current, desired)
+			require.ErrorIs(t, err, tc.wantPhase)
+			require.ErrorIs(t, err, tc.wantComponent)
+		})
+	}
+}
+
 func TestSync(t *testing.T) {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	testCases := []struct {
-		name       string
-		current    *v1beta1.Device
-		desired    *v1beta1.Device
-		setupMocks func(
+		name        string
+		current     *v1beta1.Device
+		desired     *v1beta1.Device
+		wantCleanup bool
+		setupMocks  func(
 			currentSpec *v1beta1.Device,
 			desiredSpec *v1beta1.Device,
 			mockOSClient *os.MockClient,
@@ -67,9 +125,10 @@ func TestSync(t *testing.T) {
 		)
 	}{
 		{
-			name:    "sync with error and rollback with error",
-			current: newVersionedDevice("0"),
-			desired: newVersionedDevice("1"),
+			name:        "sync with error and rollback with error",
+			wantCleanup: true,
+			current:     newVersionedDevice("0"),
+			desired:     newVersionedDevice("1"),
 			setupMocks: func(
 				current *v1beta1.Device,
 				desired *v1beta1.Device,
@@ -136,9 +195,10 @@ func TestSync(t *testing.T) {
 			},
 		},
 		{
-			name:    "When greenboot is not installed it should complete the OS update",
-			current: newVersionedDevice("0"),
-			desired: newVersionedDevice("1"),
+			name:        "When greenboot is not installed it should complete the OS update",
+			wantCleanup: true,
+			current:     newVersionedDevice("0"),
+			desired:     newVersionedDevice("1"),
 			setupMocks: func(
 				current *v1beta1.Device,
 				desired *v1beta1.Device,
@@ -195,9 +255,10 @@ func TestSync(t *testing.T) {
 			},
 		},
 		{
-			name:    "When greenboot is installed but boot-complete.target is inactive it should wait",
-			current: newVersionedDevice("0"),
-			desired: newVersionedDevice("1"),
+			name:        "When greenboot is installed but boot-complete.target is inactive it should wait",
+			wantCleanup: true,
+			current:     newVersionedDevice("0"),
+			desired:     newVersionedDevice("1"),
 			setupMocks: func(
 				current *v1beta1.Device,
 				desired *v1beta1.Device,
@@ -364,6 +425,12 @@ func TestSync(t *testing.T) {
 			mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockPruningManager := imagepruning.NewMockManager(ctrl)
 			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+			registry := registryconfig.NewMockManager(ctrl)
+			registry.EXPECT().Prepare(gomock.Any(), gomock.Any()).AnyTimes()
+			registry.EXPECT().Commit(gomock.Any(), gomock.Any()).AnyTimes()
+			if tc.wantCleanup {
+				registry.EXPECT().Cleanup().Times(2)
+			}
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -428,6 +495,7 @@ func TestSync(t *testing.T) {
 				osManager:              mockOSManager,
 				pruningManager:         mockPruningManager,
 				pullConfigResolver:     mockPullConfigResolver,
+				registryConfig:         registry,
 			}
 
 			// initial sync
@@ -1140,8 +1208,10 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
 		mockHookManager.EXPECT().OnAfterUpdating(gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil).AnyTimes()
 		mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
-		mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
-		mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+		mockPullConfigResolver.EXPECT().Cleanup()
+		mockPrefetchManager.EXPECT().Cleanup()
+		registry := registryconfig.NewMockManager(ctrl)
+		registry.EXPECT().Cleanup()
 
 		agent := Agent{
 			log:                    logger,
@@ -1161,6 +1231,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 			osManager:              mockOSManager,
 			pruningManager:         mockPruningManager,
 			pullConfigResolver:     mockPullConfigResolver,
+			registryConfig:         registry,
 			caps:                   os.Capabilities{OsMode: v1beta1.OsModePackage},
 		}
 

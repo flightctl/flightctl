@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/registryconfig"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
@@ -303,8 +304,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create pull config resolver
-	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory)
+	registryConfig := registryconfig.NewManager(rwFactory, a.config.DataDir)
+	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory, dependency.WithGeneratedConfigSource(registryConfig))
 
 	// create application manager
 	appDataCache := applicationprovider.NewAppDataCache()
@@ -517,6 +518,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		rootPodmanClient,
 		prefetchManager,
 		pullConfigResolver,
+		registryConfig,
 		pruningManager,
 		caps,
 		criticalCh,
