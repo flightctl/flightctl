@@ -1,7 +1,9 @@
 package fileio
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 
@@ -78,6 +80,177 @@ type Reader interface {
 type ReadWriter interface {
 	Reader
 	Writer
+	// OpenAnchor opens path (relative to the configured root directory) as a
+	// directory handle. With Trusted set, every component from the root down to
+	// path is opened without following symbolic links and must be a directory
+	// owned by root or the effective user without group or other write access.
+	OpenAnchor(path string, opts DirOptions) (Anchor, error)
+}
+
+// EntryInfo describes a directory entry without following symbolic links.
+type EntryInfo struct {
+	Name string
+	// Type holds the fs.ModeType bits of the entry, or 0 for a regular file.
+	Type fs.FileMode
+	// Perm holds the permission bits plus fs.ModeSetuid, fs.ModeSetgid and
+	// fs.ModeSticky when set.
+	Perm  fs.FileMode
+	Nlink uint64
+	Size  int64
+	UID   uint32
+	Dev   uint64
+	Ino   uint64
+}
+
+// IsDir reports whether the entry is a directory.
+func (e EntryInfo) IsDir() bool { return e.Type == fs.ModeDir }
+
+// IsRegular reports whether the entry is a regular file.
+func (e EntryInfo) IsRegular() bool { return e.Type == 0 }
+
+// DirOptions controls how a directory handle is opened.
+type DirOptions struct {
+	// Create makes the directory when it is absent. An existing entry is
+	// opened and validated, never replaced.
+	Create bool
+	// Exclusive, with Create, fails with ErrDestinationExists instead of
+	// opening an existing entry.
+	Exclusive bool
+	// Perm is the creation mode.
+	Perm fs.FileMode
+	// Trusted requires a real directory owned by root or the effective user
+	// without group or other write access.
+	Trusted bool
+	// ReadOnly makes every mutating method fail with ErrReadOnlyAnchor.
+	ReadOnly bool
+}
+
+// WalkBounds limits a read-only streaming walk.
+type WalkBounds struct {
+	// MaxEntries is the number of entries visited before the walk fails with
+	// ErrWalkLimitExceeded.
+	MaxEntries   int
+	MaxDepth     int
+	MaxNameBytes int
+	// BatchSize is the number of names read per directory read; 0 means 128.
+	BatchSize int
+}
+
+// RemoveBounds limits a streaming postorder removal. Every cap is checked
+// before the work it counts.
+type RemoveBounds struct {
+	// MaxNodes counts successful unlink and rmdir calls, including the tree root.
+	MaxNodes int
+	// MaxWork counts directory reads, returned entries, stats, directory
+	// opens, every unlink, rmdir and rename attempt (successful or not) and
+	// rewinds.
+	MaxWork int
+	// MaxDetach caps renames of directories deeper than MaxDepth and the
+	// number of names reported in RemoveResult.Detached.
+	MaxDetach int
+	// MaxDirRetries caps rewinds of a single directory after ENOTEMPTY.
+	MaxDirRetries int
+	// MaxDepth caps the number of open directory handles.
+	MaxDepth int
+	// BatchSize is the number of names read per directory read; 0 means 128.
+	BatchSize int
+}
+
+// RemoveStop says why a removal call ended.
+type RemoveStop string
+
+const (
+	RemoveComplete     RemoveStop = "Complete"
+	RemoveNodeBudget   RemoveStop = "NodeBudget"
+	RemoveWorkBudget   RemoveStop = "WorkBudget"
+	RemoveDetachBudget RemoveStop = "DetachBudget"
+	RemoveChurn        RemoveStop = "Churn"
+	RemoveCrossDevice  RemoveStop = "CrossDevice"
+	RemoveCanceled     RemoveStop = "Canceled"
+	RemoveError        RemoveStop = "Error"
+)
+
+// RemoveResult reports bounded removal progress.
+type RemoveResult struct {
+	Complete bool
+	Stop     RemoveStop
+	Removed  int
+	Work     int
+	Retries  int
+	// Detached names the .quarantine-* entries created in the anchor for
+	// directories deeper than MaxDepth; at most MaxDetach names.
+	Detached []string
+	// LastErr is a sanitized description of the failure, at most 256 bytes.
+	LastErr string
+}
+
+// XattrState classifies an extended-attribute read.
+type XattrState string
+
+const (
+	XattrPresent     XattrState = "present"
+	XattrAbsent      XattrState = "absent"
+	XattrUnsupported XattrState = "unsupported"
+	XattrUnknown     XattrState = "unknown"
+)
+
+// CopyBounds limits a streaming copy or hash.
+type CopyBounds struct {
+	// MaxBytes is the largest accepted size; reading stops at MaxBytes+1
+	// with ErrFileLimitExceeded.
+	MaxBytes int64
+	// ChunkSize is the read size; 0 means 64 KiB. The context is checked
+	// before each chunk read and write.
+	ChunkSize int
+}
+
+// FileDigest is the size, SHA-256 and permission bits of a file.
+type FileDigest struct {
+	Size   int64
+	SHA256 string
+	Mode   fs.FileMode
+}
+
+// File is an open regular file.
+type File interface {
+	io.ReaderAt
+	io.Closer
+	Size() int64
+	// Info describes the opened file.
+	Info() EntryInfo
+}
+
+// Anchor is an open directory handle. Every operation is relative to it and
+// never follows symbolic links. Names are single path components; relative
+// paths ("rel") may contain several components separated by "/".
+type Anchor interface {
+	Path() string
+	OpenDir(name string, opts DirOptions) (Anchor, error)
+	Lstat(rel string) (EntryInfo, error)
+	// Walk visits the entries beneath rel in batches, calling fn with paths
+	// relative to rel. Returning fs.SkipDir for a directory skips it.
+	Walk(ctx context.Context, rel string, b WalkBounds, fn func(rel string, e EntryInfo) error) error
+	OpenFile(rel string) (File, error)
+	ReadFile(rel string, limit int64) ([]byte, error)
+	Hash(ctx context.Context, rel string, b CopyBounds) (FileDigest, error)
+	// CopyFrom copies the regular file srcRel of src into a new file name
+	// with mode perm, and syncs it.
+	CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error)
+	WriteFileExclusive(name string, data []byte, perm fs.FileMode) error
+	ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error
+	// RenameNoReplace atomically renames oldName to newName in newDir and
+	// fails with ErrDestinationExists when newName exists. newDir must be an
+	// Anchor from this package or wrap one and implement Unwrap() Anchor.
+	RenameNoReplace(oldName string, newDir Anchor, newName string) error
+	RemoveTree(ctx context.Context, name string, b RemoveBounds) (RemoveResult, error)
+	GetXattr(rel, attr string, limit int) ([]byte, XattrState, error)
+	Sync() error
+	AvailableBytes() (uint64, error)
+	ReadOnlyMount() (bool, error)
+	// Revalidate fails with ErrAnchorMoved when the path no longer leads to
+	// the opened directory.
+	Revalidate() error
+	Close() error
 }
 
 type readWriter struct {

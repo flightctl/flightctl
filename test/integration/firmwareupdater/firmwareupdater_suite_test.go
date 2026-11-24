@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"debug/elf"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -40,6 +44,11 @@ const (
 	releaseName     = "test-updater"
 	registryUser    = "firmware"
 	schemaJSON      = `{"type":"object","additionalProperties":false,"properties":{}}`
+	// extractableSchemaJSON gives the extractable fixture schema digests of its
+	// own: the catalog requires every release of a name that shares a schema
+	// digest to declare the same budget keys, and only this fixture declares
+	// extraction budgets.
+	extractableSchemaJSON = `{"title":"extractable","type":"object","additionalProperties":false,"properties":{}}`
 )
 
 // Fixture roles. Each role is an updater image pushed to the test registry and
@@ -52,6 +61,7 @@ const (
 	roleUnsigned       = "unsigned"
 	roleOtherIdentity  = "other-identity"
 	roleManifestList   = "manifest-list"
+	roleExtractable    = "extractable"
 )
 
 var roleVersions = map[string]string{
@@ -62,6 +72,7 @@ var roleVersions = map[string]string{
 	roleUnsigned:       "1.0.4",
 	roleOtherIdentity:  "1.0.5",
 	roleManifestList:   "1.0.6",
+	roleExtractable:    "1.0.7",
 }
 
 type fixture struct {
@@ -292,6 +303,10 @@ func provision(ctx context.Context, work string) suiteState {
 	for role, version := range roleVersions {
 		manifest := manifestFor(version, role == roleSchemaMismatch)
 		files := map[string]string{"updater/payload/bin/updater": "example updater binary\n"}
+		if role == roleExtractable {
+			files = extractableFiles()
+			manifest = extractableManifest(version, files)
+		}
 		var links map[string]string
 		if role == roleSymlink {
 			files["updater/real-manifest.json"] = string(manifest)
@@ -342,6 +357,12 @@ func provision(ctx context.Context, work string) suiteState {
 	releases := make([]catalog.ReleaseBinding, 0, len(st.Fixtures))
 	for role, f := range st.Fixtures {
 		r := release(repo, f.Version, f.Digest, approved.KeyData())
+		if role == roleExtractable {
+			schema := catalog.SchemaDocument{Digest: policy.Hash([]byte(extractableSchemaJSON)), Bytes: extractableSchemaJSON}
+			r.Schemas = catalog.SchemaBundle{Config: schema, Observation: schema, Request: schema, Result: schema, Checkpoint: schema}
+			r.Extraction = &catalog.ExtractionLimits{MaxExtractedManifestBytes: 65536, MaxExtractedFiles: 16, MaxExtractedFileBytes: 1 << 20, MaxExtractedTotalBytes: 2 << 20, ExtractionScratchBytes: 3 << 20, MaxExtractionSeconds: 300}
+			r.BudgetKeySet = append(r.BudgetKeySet, "maxExtractedManifestBytes", "maxExtractedFiles", "maxExtractedFileBytes", "maxExtractedTotalBytes", "extractionScratchBytes", "maxExtractionSeconds")
+		}
 		releases = append(releases, r)
 		data, err := json.Marshal(r)
 		Expect(err).NotTo(HaveOccurred())
@@ -424,6 +445,57 @@ func manifestFor(version string, otherSchema bool) []byte {
 			"executable": true,
 		}},
 	}
+	data, err := json.Marshal(m)
+	Expect(err).NotTo(HaveOccurred())
+	return data
+}
+
+// nativeELF returns a minimal static ELF executable for the test host
+// architecture (amd64 or arm64).
+func nativeELF() []byte {
+	machine := elf.EM_X86_64
+	if runtime.GOARCH == "arm64" {
+		machine = elf.EM_AARCH64
+	}
+	var buf bytes.Buffer
+	ident := [16]byte{0x7f, 'E', 'L', 'F', byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)}
+	buf.Write(ident[:])
+	for _, v := range []any{
+		uint16(elf.ET_EXEC), uint16(machine), uint32(elf.EV_CURRENT), uint64(0x400078), uint64(64), uint64(0), uint32(0),
+		uint16(64), uint16(56), uint16(1), uint16(64), uint16(0), uint16(0),
+		uint32(elf.PT_LOAD), uint32(elf.PF_R | elf.PF_X), uint64(0), uint64(0x400000), uint64(0x400000), uint64(124), uint64(0x2000), uint64(0x1000),
+	} {
+		Expect(binary.Write(&buf, binary.LittleEndian, v)).To(Succeed())
+	}
+	if machine == elf.EM_AARCH64 {
+		buf.Write([]byte{0xc0, 0x03, 0x5f, 0xd6})
+	} else {
+		buf.Write([]byte{0xc3, 0, 0, 0})
+	}
+	return buf.Bytes()
+}
+
+// extractableFiles is the image content of the extractable fixture: a native
+// static entrypoint and a data file.
+func extractableFiles() map[string]string {
+	return map[string]string{
+		"updater/payload/bin/updater":     string(nativeELF()),
+		"updater/payload/share/notes.txt": "updater notes\n",
+	}
+}
+
+func extractableManifest(version string, files map[string]string) []byte {
+	var m map[string]any
+	Expect(json.Unmarshal(manifestFor(version, false), &m)).To(Succeed())
+	list := []any{}
+	for _, path := range []string{"payload/bin/updater", "payload/share/notes.txt"} {
+		content := files["updater/"+path]
+		sum := sha256.Sum256([]byte(content))
+		list = append(list, map[string]any{"path": path, "sha256": hex.EncodeToString(sum[:]), "size": len(content), "executable": path == "payload/bin/updater"})
+	}
+	m["files"] = list
+	digest := policy.Hash([]byte(extractableSchemaJSON))
+	m["schemas"] = map[string]any{"config": digest, "observation": digest, "request": digest, "result": digest, "checkpoint": digest}
 	data, err := json.Marshal(m)
 	Expect(err).NotTo(HaveOccurred())
 	return data
