@@ -1282,6 +1282,8 @@ type prunerFixture struct {
 	user    *podmanStore
 	current *v1beta1.Device
 	desired *v1beta1.Device
+	// onSpecRead, when set, runs as the current spec is read.
+	onSpecRead func()
 }
 
 // newPrunerFixture starts with the given reference history; a nil history
@@ -1305,6 +1307,9 @@ func newPrunerFixture(t *testing.T, history []ImageRef, opts ...Option) *prunerF
 	}
 	specs := spec.NewMockManager(ctrl)
 	specs.EXPECT().Read(spec.Current).DoAndReturn(func(spec.Type) (*v1beta1.Device, error) {
+		if f.onSpecRead != nil {
+			f.onSpecRead()
+		}
 		return f.current, nil
 	}).AnyTimes()
 	specs.EXPECT().Read(spec.Desired).DoAndReturn(func(spec.Type) (*v1beta1.Device, error) {
@@ -1598,6 +1603,22 @@ func TestManager_requiredReferenceSources(t *testing.T) {
 		f.m.RequestPrune()
 		require.NoError(f.m.Prune(ctx))
 		require.Zero(later.calls)
+		require.Empty(f.root.removed)
+		require.True(f.m.PrunePending())
+	})
+
+	t.Run("When the pass is cancelled before the sources are queried it should not query them or remove anything", func(t *testing.T) {
+		require := require.New(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		source := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(unused)}, WithRequiredReferenceSource("firmware", source.snapshot))
+		f.root.addImages(updater, unused)
+		f.onSpecRead = cancel
+
+		f.m.RequestPrune()
+		require.NoError(f.m.Prune(ctx))
+		require.Zero(source.calls, "a cancelled pass queries no source")
 		require.Empty(f.root.removed)
 		require.True(f.m.PrunePending())
 	})
