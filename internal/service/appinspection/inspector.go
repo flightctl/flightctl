@@ -53,7 +53,7 @@ func (i *Inspector) InspectPackage(ctx context.Context, orgID uuid.UUID, app *do
 	if err != nil {
 		return unavailable
 	}
-	endpoint, err := registry.ParseReference(strings.TrimPrefix(pullRef, "docker://"))
+	endpoint, err := parsePackageEndpoint(pullRef)
 	if err != nil || endpoint.Reference == "" {
 		return unavailable
 	}
@@ -68,6 +68,26 @@ func (i *Inspector) InspectPackage(ctx context.Context, orgID uuid.UUID, app *do
 	result := appinspection.InspectPackage(ctx, appType, repo, endpoint.Reference, platform)
 	result.References = append(declared, result.References...)
 	return result
+}
+
+func parsePackageEndpoint(pullRef string) (registry.Reference, error) {
+	endpoint, err := registry.ParseReference(strings.TrimPrefix(pullRef, "docker://"))
+	if err != nil {
+		return registry.Reference{}, err
+	}
+	endpoint.Repository = packageRepositoryPath(endpoint.Registry, endpoint.Repository)
+	return endpoint, nil
+}
+
+func packageRepositoryPath(host, path string) string {
+	// Docker Hub serves official images under the library namespace.
+	switch strings.ToLower(host) {
+	case "docker.io", "index.docker.io", "registry-1.docker.io":
+		if path != "" && !strings.Contains(path, "/") {
+			return "library/" + path
+		}
+	}
+	return path
 }
 
 func (i *Inspector) resolveAccess(ctx context.Context, orgID uuid.UUID, endpoint registry.Reference) (*domain.OciRepoSpec, error) {
@@ -129,7 +149,7 @@ func sameServiceAccess(a, b *domain.OciRepoSpec) bool {
 // Give exact repositories precedence over namespaces and require a path boundary.
 func accessSpecificity(spec domain.OciRepoSpec, path string) int {
 	if spec.Repository != nil && *spec.Repository != "" {
-		repo := strings.Trim(*spec.Repository, "/")
+		repo := packageRepositoryPath(spec.Registry, strings.Trim(*spec.Repository, "/"))
 		if path == repo {
 			return len(repo) + 1
 		}

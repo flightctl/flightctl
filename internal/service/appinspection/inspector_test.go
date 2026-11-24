@@ -96,6 +96,46 @@ func TestResolvePackageRepositoryAccess(t *testing.T) {
 	}
 }
 
+func TestResolvePackageEndpointAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name, pullRef, host, path, namespace string
+		exact                                *string
+	}{
+		{name: "Docker Hub uses a short path it should pull from library and prefer exact access", pullRef: "docker.io/nginx:latest", host: "docker.io", path: "library/nginx", namespace: "library", exact: lo.ToPtr("nginx")},
+		{name: "Docker Hub uses a library path it should match a short Repository", pullRef: "docker.io/library/nginx:latest", host: "docker.io", path: "library/nginx", namespace: "library", exact: lo.ToPtr("nginx")},
+		{name: "Docker Hub uses its registry endpoint it should preserve the host and add library", pullRef: "registry-1.docker.io/nginx:latest", host: "registry-1.docker.io", path: "library/nginx", namespace: "library"},
+		{name: "Docker Hub uses its legacy endpoint it should preserve the host and add library", pullRef: "index.docker.io/nginx:latest", host: "index.docker.io", path: "library/nginx", namespace: "library"},
+		{name: "Docker Hub uses a user namespace it should preserve the path", pullRef: "docker.io/team/package:latest", host: "docker.io", path: "team/package", namespace: "team"},
+		{name: "the registry hostname is a single label it should match the namespace", pullRef: "registry/team/package:latest", host: "registry", path: "team/package", namespace: "team"},
+		{name: "a mirror uses a short path it should preserve that path", pullRef: "mirror.example.com/nginx:latest", host: "mirror.example.com", path: "nginx", namespace: "library", exact: lo.ToPtr("nginx")},
+	} {
+		t.Run("When "+tc.name, func(t *testing.T) {
+			endpoint, err := parsePackageEndpoint(tc.pullRef)
+			require.NoError(t, err)
+			require.Equal(t, registry.Reference{Registry: tc.host, Repository: tc.path, Reference: "latest"}, endpoint)
+
+			orgID := uuid.New()
+			service := repository.NewMockService(gomock.NewController(t))
+			namespace := domain.OciRepoSpec{Registry: tc.host, Namespace: lo.ToPtr(tc.namespace)}
+			specs := []domain.OciRepoSpec{namespace}
+			if tc.exact != nil {
+				specs = append(specs, domain.OciRepoSpec{Registry: tc.host, Repository: tc.exact})
+			}
+			service.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).
+				Return(repositoryAccessPage(t, specs), domain.StatusOK())
+			inspector, err := NewInspector(service)
+			require.NoError(t, err)
+			got, err := inspector.resolveAccess(t.Context(), orgID, endpoint)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, tc.exact, got.Repository)
+			if tc.exact == nil {
+				require.Equal(t, namespace.Namespace, got.Namespace)
+			}
+		})
+	}
+}
+
 func TestInspectPackageLookupFailureRetainsDeclaredReferences(t *testing.T) {
 	var app domain.ApplicationProviderSpec
 	const image = "quay.example.com/org/compose:v1"
