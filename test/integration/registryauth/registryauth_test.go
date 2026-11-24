@@ -46,6 +46,9 @@ const (
 	registrySecret  = "fixture-private-password"
 	applicationRepo = "private/container"
 	quadletRepo     = "private/quadlet"
+	vmLauncherRepo  = "private/vm-launcher"
+	vmDiskRepo      = "private/vm-disk"
+	composeRepo     = "private/compose"
 	volumeRepo      = "private/volume"
 	ordinaryFile    = "/etc/registry-auth-test"
 	dataDir         = "/var/lib/flightctl"
@@ -87,8 +90,19 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		work := GinkgoT().TempDir()
 		registry, endpoint := startRegistry(ctx, work)
 		configurePodman(work, endpoint)
-		exec := executer.NewCommonExecuter()
-		publishFixtures(ctx, exec, work, endpoint)
+		setStorage(work, "publisher")
+		logger := log.NewPrefixLogger("registry-auth-it")
+		backoff := poll.Config{BaseDelay: 20 * time.Millisecond, Factor: 1, MaxSteps: 1}
+		// The clients execute on the host; the simulated device root is for native state.
+		hostFactory := fileio.NewReadWriterFactory("")
+		podmanFactory := client.NewPodmanFactory(logger, backoff, hostFactory)
+		podman, err := podmanFactory(v1beta1.CurrentProcessUsername)
+		Expect(err).NotTo(HaveOccurred())
+		version, err := podman.Version(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		desired, repos := renderedSpec(endpoint, version)
+		publishFixtures(ctx, executer.NewCommonExecuter(), work, endpoint, repos)
+		publisherLogs := readRegistryLogs(ctx, registry)
 		setStorage(work, "device")
 
 		root := filepath.Join(work, "device-root")
@@ -100,18 +114,17 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		factory := fileio.NewReadWriterFactory(root)
 		rw, err := factory(v1beta1.CurrentProcessUsername)
 		Expect(err).NotTo(HaveOccurred())
-		logger := log.NewPrefixLogger("registry-auth-it")
 		var agentLogs bytes.Buffer
 		logger.SetOutput(&agentLogs)
-		DeferCleanup(func() { Expect(agentLogs.String()).NotTo(ContainSubstring(registrySecret)) })
+		encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + registrySecret))
+		DeferCleanup(func() {
+			Expect(agentLogs.String()).NotTo(ContainSubstring(registrySecret))
+			Expect(agentLogs.String()).NotTo(ContainSubstring(encoded))
+		})
 		manager := registryconfig.NewManager(factory, dataDir)
 		DeferCleanup(manager.Cleanup)
 		resolver := dependency.NewPullConfigResolver(logger, factory, dependency.WithGeneratedConfigSource(manager))
 		DeferCleanup(resolver.Cleanup)
-		backoff := poll.Config{BaseDelay: 20 * time.Millisecond, Factor: 1, MaxSteps: 1}
-		// The clients execute on the host; the simulated device root is for native state.
-		hostFactory := fileio.NewReadWriterFactory("")
-		podmanFactory := client.NewPodmanFactory(logger, backoff, hostFactory)
 		skopeoFactory := client.NewSkopeoFactory(logger, hostFactory)
 		prefetch := dependency.NewPrefetchManager(logger, podmanFactory, skopeoFactory, nil, rw, util.Duration(25*time.Second), resource.NewManager(logger, nil), backoff)
 		workerCtx, cancel := context.WithCancel(ctx)
@@ -128,7 +141,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		collector := &appCollector{collect: func(ctx context.Context, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 			return provider.CollectOCITargets(ctx, logger, podmanFactory, nil, factory, desired, provider.WithPullConfigResolver(resolver))
 		}}
-		current, desired := &v1beta1.DeviceSpec{}, renderedSpec(endpoint)
+		current := &v1beta1.DeviceSpec{}
 		live := filepath.Join(home, consts.ContainersAuthRelativePath)
 
 		resolver.BeforeUpdate(desired)
@@ -148,8 +161,10 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		Expect(rw.PathFor(ordinaryFile)).NotTo(BeAnExistingFile())
 
 		registryLogs := readRegistryLogs(ctx, registry)
-		for _, repo := range []string{applicationRepo, quadletRepo, volumeRepo} {
-			Expect(strings.Split(registryLogs, "\n")).To(ContainElement(SatisfyAll(
+		Expect(registryLogs).To(HavePrefix(publisherLogs))
+		pullLogs := strings.Split(strings.TrimPrefix(registryLogs, publisherLogs), "\n")
+		for _, repo := range repos {
+			Expect(pullLogs).To(ContainElement(SatisfyAll(
 				ContainSubstring(`msg="authorized request"`), ContainSubstring("http.request.method=GET"), ContainSubstring("/v2/"+repo+"/manifests/"),
 			)))
 		}
@@ -178,6 +193,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		}, 45*time.Second, 100*time.Millisecond).Should(BeTrue())
 		Expect(errors.Is(pullErr, deviceerrors.ErrAuthenticationFailed)).To(BeTrue(), "expected an authentication failure: %v", pullErr)
 		Expect(pullErr.Error()).NotTo(ContainSubstring(registrySecret))
+		Expect(pullErr.Error()).NotTo(ContainSubstring(encoded))
 	})
 
 	It("When the pull uses a named account it should read only that account's staged auth", func(ctx SpecContext) {
@@ -218,28 +234,72 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		}
 		Expect(canReadAs(uid, gid)).To(Succeed())
 		Expect(canReadAs(uid+1, gid+1)).To(BeAssignableToTypeOf(&exec.ExitError{}))
+
+		Expect(manager.Commit(ctx, desired)).To(Succeed())
+		Expect(stage).NotTo(BeAnExistingFile())
+		installed, err := os.Stat(filepath.Join(root, live))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(installed.Sys().(*syscall.Stat_t).Uid).To(BeEquivalentTo(uid))
+		Expect(installed.Sys().(*syscall.Stat_t).Gid).To(BeEquivalentTo(gid))
+		Expect(installed.Mode().Perm()).To(Equal(os.FileMode(0o600)))
 	})
 })
 
-func renderedSpec(endpoint string) *v1beta1.DeviceSpec {
+func renderedSpec(endpoint string, version *client.PodmanVersion) (*v1beta1.DeviceSpec, []string) {
 	image := func(repo string) string { return endpoint + "/" + repo + ":latest" }
-	var volume v1beta1.ApplicationVolume
-	volume.Name = "data"
-	Expect(volume.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{Image: v1beta1.ImageVolumeSource{Reference: image(volumeRepo)}})).To(Succeed())
-	container := v1beta1.ContainerApplication{Name: lo.ToPtr("container"), AppType: v1beta1.AppTypeContainer, Volumes: &[]v1beta1.ApplicationVolume{volume}}
+	repos := []string{applicationRepo}
+	container := v1beta1.ContainerApplication{Name: lo.ToPtr("container"), AppType: v1beta1.AppTypeContainer}
 	Expect(container.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image(applicationRepo)})).To(Succeed())
-	quadlet := v1beta1.QuadletApplication{Name: lo.ToPtr("quadlet"), AppType: v1beta1.AppTypeQuadlet}
-	Expect(quadlet.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: []v1beta1.ApplicationContent{{
-		Path: "quadlet.container", Content: lo.ToPtr("[Container]\nImage=" + image(quadletRepo) + "\n"),
-	}}})).To(Succeed())
-	var a, b v1beta1.ApplicationProviderSpec
-	Expect(a.FromContainerApplication(container)).To(Succeed())
-	Expect(b.FromQuadletApplication(quadlet)).To(Succeed())
+	if version.GreaterOrEqual(5, 5) {
+		volume := v1beta1.ApplicationVolume{Name: "data"}
+		Expect(volume.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{Image: v1beta1.ImageVolumeSource{Reference: image(volumeRepo)}})).To(Succeed())
+		container.Volumes = &[]v1beta1.ApplicationVolume{volume}
+		repos = append(repos, volumeRepo)
+	} else {
+		By("Leaving out the image-volume artifact on Podman versions below 5.5")
+	}
+	var application v1beta1.ApplicationProviderSpec
+	Expect(application.FromContainerApplication(container)).To(Succeed())
+	apps := []v1beta1.ApplicationProviderSpec{application}
+	if version.GreaterOrEqual(5, 0) {
+		quadlet := v1beta1.QuadletApplication{Name: lo.ToPtr("quadlet"), AppType: v1beta1.AppTypeQuadlet}
+		Expect(quadlet.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: []v1beta1.ApplicationContent{
+			{Path: "quadlet.container", Content: lo.ToPtr("[Container]\nImage=" + image(quadletRepo) + "\n")},
+			{Path: "vm.container", Content: lo.ToPtr("[Container]\nImage=launcher.image\nVolume=disk.volume:/disk\n")},
+			{Path: "launcher.image", Content: lo.ToPtr("[Image]\nImage=" + image(vmLauncherRepo) + "\n")},
+			{Path: "disk.volume", Content: lo.ToPtr("[Volume]\nDriver=image\nImage=" + image(vmDiskRepo) + "\n")},
+		}})).To(Succeed())
+		var spec v1beta1.ApplicationProviderSpec
+		Expect(spec.FromQuadletApplication(quadlet)).To(Succeed())
+		apps = append(apps, spec)
+		repos = append(repos, quadletRepo, vmLauncherRepo, vmDiskRepo)
+	} else {
+		By("Leaving out Quadlet and native VM pulls on Podman versions below 5.0")
+	}
+	if composeAvailable() {
+		compose := v1beta1.ComposeApplication{Name: lo.ToPtr("compose"), AppType: v1beta1.AppTypeCompose}
+		Expect(compose.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: []v1beta1.ApplicationContent{{
+			Path: "podman-compose.yaml", Content: lo.ToPtr("services:\n  app:\n    image: " + image(composeRepo) + "\n"),
+		}}})).To(Succeed())
+		var spec v1beta1.ApplicationProviderSpec
+		Expect(spec.FromComposeApplication(compose)).To(Succeed())
+		apps = append(apps, spec)
+		repos = append(repos, composeRepo)
+	} else {
+		By("Leaving out the Compose pull when a Compose provider or Skopeo is unavailable")
+	}
 
 	registry := authResource(endpoint, nil)
 	files, err := config.FilesToProviderSpec([]v1beta1.FileSpec{{Path: ordinaryFile, Content: "after approval"}})
 	Expect(err).NotTo(HaveOccurred())
-	return &v1beta1.DeviceSpec{Config: files, Applications: &[]v1beta1.ApplicationProviderSpec{a, b}, ConfigResources: &[]v1beta1.ConfigResource{registry}}
+	return &v1beta1.DeviceSpec{Config: files, Applications: &apps, ConfigResources: &[]v1beta1.ConfigResource{registry}}, repos
+}
+
+func composeAvailable() bool {
+	_, skopeoErr := exec.LookPath("skopeo")
+	_, podmanComposeErr := exec.LookPath("podman-compose")
+	_, dockerComposeErr := exec.LookPath("docker-compose")
+	return skopeoErr == nil && (podmanComposeErr == nil || dockerComposeErr == nil)
 }
 
 func authResource(endpoint string, user *v1beta1.Username) v1beta1.ConfigResource {
@@ -296,8 +356,7 @@ func setStorage(dir, name string) {
 	GinkgoT().Setenv("CONTAINERS_STORAGE_CONF", path)
 }
 
-func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint string) {
-	setStorage(dir, "publisher")
+func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint string, repos []string) {
 	fixture := filepath.Join(dir, "fixture")
 	Expect(os.WriteFile(fixture, []byte("test payload"), 0o600)).To(Succeed())
 	var archive bytes.Buffer
@@ -313,14 +372,16 @@ func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint 
 	Expect(err).NotTo(HaveOccurred())
 	auth := filepath.Join(dir, "publisher-auth.json")
 	Expect(os.WriteFile(auth, data, 0o600)).To(Succeed())
-	for _, repo := range []string{applicationRepo, quadletRepo} {
+	for _, repo := range repos {
 		ref := endpoint + "/" + repo + ":latest"
-		runPodman(ctx, exec, "import", archivePath, ref)
-		runPodman(ctx, exec, "push", "--authfile", auth, ref)
+		if repo == volumeRepo {
+			runPodman(ctx, exec, "artifact", "add", ref, fixture)
+			runPodman(ctx, exec, "artifact", "push", "--authfile", auth, ref)
+		} else {
+			runPodman(ctx, exec, "import", archivePath, ref)
+			runPodman(ctx, exec, "push", "--authfile", auth, ref)
+		}
 	}
-	volume := endpoint + "/" + volumeRepo + ":latest"
-	runPodman(ctx, exec, "artifact", "add", volume, fixture)
-	runPodman(ctx, exec, "artifact", "push", "--authfile", auth, volume)
 }
 
 func runPodman(ctx context.Context, exec executer.Executer, args ...string) {

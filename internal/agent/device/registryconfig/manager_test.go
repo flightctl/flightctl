@@ -1,6 +1,7 @@
 package registryconfig_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io/fs"
@@ -234,6 +235,86 @@ func TestRegistryAuthWithdrawalPreservesDirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(keep, []byte("unrelated"), 0o600))
 	require.Error(t, mgr.Commit(t.Context(), spec(t)))
 	require.FileExists(t, keep)
+}
+
+func TestRegistryAuthKeepsOtherEntriesForTheSameUser(t *testing.T) {
+	mgr, root := fixture(t)
+	const otherPort = `{"name":"registry:quay.io:5001","type":"registry","registry":"quay.io:5001","scheme":"https","skipServerVerification":false,"access":[{"scope":"team/nested","authentication":{"authType":"docker","username":"test","password":"alternate"},"consumers":[{"type":"container","user":"workload"}]}]}`
+	path := live(namedHome)
+	desired := spec(t, valid, otherPort)
+	require.NoError(t, mgr.Prepare(t.Context(), desired))
+	stage, ok := mgr.StagedPath(path)
+	require.True(t, ok)
+	assertAuth(t, stage, map[string]string{
+		"quay.io:5000/team/nested": "test:named",
+		"quay.io:5001/team/nested": "test:alternate",
+	})
+	require.NoError(t, mgr.Commit(t.Context(), desired))
+	require.NoError(t, mgr.Commit(t.Context(), spec(t, otherPort)))
+	assertAuth(t, filepath.Join(root, path), map[string]string{"quay.io:5001/team/nested": "test:alternate"})
+	require.NoFileExists(t, filepath.Join(root, live(processHome)))
+}
+
+func TestRegistryAuthRejectsUnusableStaging(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, dir string)
+	}{
+		{name: "When the staging parent is missing it should fail before exposing auth", setup: func(t *testing.T, dir string) {
+			require.NoError(t, os.Remove(dir))
+		}},
+		{name: "When the staging parent is writable without the sticky bit it should refuse it", setup: func(t *testing.T, dir string) {
+			require.NoError(t, os.Chmod(dir, 0o777))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, root := fixture(t)
+			tc.setup(t, filepath.Join(root, "tmp"))
+			err := mgr.Prepare(t.Context(), spec(t, valid))
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), secret)
+			_, ok := mgr.StagedPath(live(processHome))
+			require.False(t, ok)
+			require.NoFileExists(t, filepath.Join(root, live(processHome)))
+			require.Empty(t, stagedDirectories(t, root))
+		})
+	}
+}
+
+func TestRegistryAuthCancelledPrepareLeavesExistingState(t *testing.T) {
+	mgr, root := fixture(t)
+	desired := spec(t, valid)
+	require.NoError(t, mgr.Commit(t.Context(), desired))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, mgr.Prepare(ctx, spec(t, strings.ReplaceAll(valid, secret, "rotated"))), context.Canceled)
+	require.Empty(t, stagedDirectories(t, root))
+	assertAuth(t, filepath.Join(root, live(processHome)), map[string]string{"quay.io:5000": "test:" + secret})
+}
+
+func stagedDirectories(t *testing.T, root string) []fs.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "tmp"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	return entries
+}
+
+func TestRegistryAuthRejectsInvalidOutputRecord(t *testing.T) {
+	for _, tc := range []struct{ name, record string }{
+		{"When the record version is unknown it should preserve existing auth", `{"version":99,"outputs":[]}`},
+		{"When a record points outside a home it should preserve existing auth", `{"version":1,"outputs":[{"path":"/.config/containers/auth.json","uid":0,"gid":0}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, root := fixture(t)
+			require.NoError(t, mgr.Commit(t.Context(), spec(t, valid)))
+			require.NoError(t, os.WriteFile(filepath.Join(root, dataDir, "registry-config/outputs.json"), []byte(tc.record), 0o600))
+			require.Error(t, mgr.Commit(t.Context(), spec(t, strings.ReplaceAll(valid, secret, "rotated"))))
+			assertAuth(t, filepath.Join(root, live(processHome)), map[string]string{"quay.io:5000": "test:" + secret})
+		})
+	}
 }
 
 func TestRegistryAuthRetainsStagingUntilCleanup(t *testing.T) {
