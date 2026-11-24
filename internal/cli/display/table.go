@@ -1325,11 +1325,15 @@ func (formatter *TableFormatter) printEnrollmentApprovalPoliciesTable(writer *ta
 		if policy.Status != nil {
 			count = policy.Status.EnrollmentCount
 		}
+		limit := "∞"
+		if policy.Spec.ApprovalLimit != nil {
+			limit = fmt.Sprint(*policy.Spec.ApprovalLimit)
+		}
 		name := NoneString
 		if policy.Metadata.Name != nil {
 			name = *policy.Metadata.Name
 		}
-		formatter.printTableRowLn(writer, name, fmt.Sprint(policy.Spec.Enabled), policy.Spec.CertificateName, fmt.Sprint(count))
+		formatter.printTableRowLn(writer, name, fmt.Sprint(policy.Spec.Enabled), policy.Spec.CertificateName, fmt.Sprintf("%d/%s", count, limit))
 	}
 	return nil
 }

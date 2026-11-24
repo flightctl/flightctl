@@ -76,18 +76,18 @@ func (_d *TracedService) ListEnrollmentApprovalPolicies(ctx context.Context, org
 	return ep1, s1
 }
 
-func (_d *TracedService) PatchEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, authorize ...ApprovalLimitAuthorizer) (ep1 *domain.EnrollmentApprovalPolicy, s1 domain.Status) {
+func (_d *TracedService) PatchEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (ep1 *domain.EnrollmentApprovalPolicy, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchEnrollmentApprovalPolicy")
 
-	ep1, s1 = _d.inner.PatchEnrollmentApprovalPolicy(ctx, orgId, name, patch, authorize...)
+	ep1, s1 = _d.inner.PatchEnrollmentApprovalPolicy(ctx, orgId, name, patch)
 	endSpan(span, s1)
 	return ep1, s1
 }
 
-func (_d *TracedService) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy, authorize ...ApprovalLimitAuthorizer) (ep1 *domain.EnrollmentApprovalPolicy, s1 domain.Status) {
+func (_d *TracedService) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy) (ep1 *domain.EnrollmentApprovalPolicy, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceEnrollmentApprovalPolicy")
 
-	ep1, s1 = _d.inner.ReplaceEnrollmentApprovalPolicy(ctx, orgId, name, policy, authorize...)
+	ep1, s1 = _d.inner.ReplaceEnrollmentApprovalPolicy(ctx, orgId, name, policy)
 	endSpan(span, s1)
 	return ep1, s1
 }

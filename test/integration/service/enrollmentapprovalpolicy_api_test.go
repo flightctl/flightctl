@@ -44,6 +44,7 @@ import (
 	transport "github.com/flightctl/flightctl/internal/transport/v1beta1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -73,14 +74,10 @@ func (rejectingPolicyValidator) ValidateExpression(_ context.Context, expression
 type policyAPIAuthorizer struct {
 	auth.AuthZMiddleware
 	static     *authz.StaticAuthZ
-	denyQuota  bool
 	denyAction string
 }
 
 func (authorizer policyAPIAuthorizer) CheckPermission(ctx context.Context, resource, operation string) (bool, error) {
-	if authorizer.denyQuota && resource == "enrollmentapprovalpolicies/approvallimit" {
-		return false, nil
-	}
 	if resource == "enrollmentapprovalpolicies" && operation == authorizer.denyAction {
 		return false, nil
 	}
@@ -107,28 +104,31 @@ func (v blockedPolicyValidator) ValidateExpression(ctx context.Context, _ string
 }
 
 type policyReadRaceKey struct{}
+type policyRetryKey struct{}
 
-type policyRetryObserver struct {
-	policystore.Store
-	db           *gorm.DB
-	transactions []int64
-	onAbort      func(*pgconn.PgError)
+type policyValidatorFunc func(context.Context, string) error
+
+func (validate policyValidatorFunc) ValidateExpression(ctx context.Context, expr string) error {
+	return validate(ctx, expr)
 }
 
-func (observer *policyRetryObserver) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
-	err := observer.Store.WithTransaction(ctx, func(txCtx context.Context) error {
-		var transaction int64
-		if err := store.DB(txCtx, observer.db).Raw("SELECT txid_current()").Scan(&transaction).Error; err != nil {
-			return err
-		}
-		observer.transactions = append(observer.transactions, transaction)
-		return fn(txCtx)
-	})
-	var abort *pgconn.PgError
-	if errors.As(err, &abort) && observer.onAbort != nil {
-		observer.onAbort(abort)
-	}
-	return err
+func policyWriteAbortProbe(ctx context.Context, suite *ServiceTestSuite, sqlState string) *gorm.DB {
+	Expect(sqlState).To(BeElementOf("40001", "40P01", "08006"))
+	migrationDB, err := store.InitMigrationDB(suite.cfg, suite.Log)
+	Expect(err).NotTo(HaveOccurred())
+	ddl := migrationDB.WithContext(store.WithBypassSpanCheck(ctx))
+	Expect(ddl.Exec(`CREATE SEQUENCE policy_retry_probe`).Error).To(Succeed())
+	Expect(ddl.Exec(`CREATE FUNCTION policy_retry_probe() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF nextval('public.policy_retry_probe') = 1 THEN
+				RAISE EXCEPTION USING ERRCODE = TG_ARGV[0], MESSAGE = 'fixture rejected the first policy write';
+			END IF;
+			RETURN NEW;
+		END
+		$$`).Error).To(Succeed())
+	Expect(ddl.Exec(fmt.Sprintf(`CREATE TRIGGER policy_retry_probe BEFORE INSERT OR UPDATE ON enrollment_approval_policies
+		FOR EACH ROW EXECUTE FUNCTION policy_retry_probe('%s')`, sqlState)).Error).To(Succeed())
+	return ddl
 }
 
 func boundedPolicyTest(ctx context.Context) context.Context {
@@ -173,8 +173,8 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		router.Use(oapimiddleware.OapiRequestValidatorWithOptions(specification, &oapimiddleware.Options{SilenceServersWarning: true}))
 		return server.HandlerWithOptions(handler, server.ChiServerOptions{BaseURL: "/api/v1", BaseRouter: router})
 	}
-	makeHandler := func(validator policyservice.ExpressionValidator, denyQuota ...bool) http.Handler {
-		return makeHandlerWithAuth(validator, policyAPIAuthorizer{denyQuota: len(denyQuota) > 0 && denyQuota[0]})
+	makeHandler := func(validator policyservice.ExpressionValidator) http.Handler {
+		return makeHandlerWithAuth(validator, policyAPIAuthorizer{})
 	}
 	request := func(handler http.Handler, method, path string, body []byte, ctx context.Context) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
@@ -206,7 +206,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Expect(err).To(MatchError("initialize enrollment approval policy service: device enrollment signer name is required"))
 		Expect(errors.Unwrap(err)).To(MatchError("device enrollment signer name is required"))
 	})
-	DescribeTable("When the CLI applies a policy it should preserve ordinary and quota authorization", func(existing, denyQuota bool, denyAction string, limit int, methods []string, wantSuccess, enabled, unavailable bool) {
+	DescribeTable("When the CLI applies a policy it should preserve ordinary authorization", func(existing bool, denyAction string, limit int, methods []string, wantSuccess, enabled, unavailable bool) {
 		manifest := func(cap int) []byte {
 			return bytes.Replace(policyJSON, []byte(`"deviceLabels":{}`), fmt.Appendf(nil, `"deviceLabels":{"region":"west"},"approvalLimit":%d,"enabled":%t`, cap, enabled), 1)
 		}
@@ -219,7 +219,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		if unavailable {
 			validator = policyservice.UnavailableExpressionValidator{}
 		}
-		handler := makeHandlerWithAuth(validator, policyAPIAuthorizer{denyQuota: denyQuota, denyAction: denyAction})
+		handler := makeHandlerWithAuth(validator, policyAPIAuthorizer{denyAction: denyAction})
 		var actual []string
 		var methodsLock sync.Mutex
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +259,11 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(saved.Code).To(Equal(http.StatusOK), saved.Body.String())
 			var policy api.EnrollmentApprovalPolicy
 			Expect(json.Unmarshal(saved.Body.Bytes(), &policy)).To(Succeed())
-			Expect(policy.Spec.ApprovalLimit).To(Equal(lo.ToPtr(int32(10))))
+			wantLimit := int32(limit)
+			if existing && !wantSuccess {
+				wantLimit = 10
+			}
+			Expect(policy.Spec.ApprovalLimit).To(Equal(lo.ToPtr(wantLimit)))
 			Expect(policy.Spec.Enabled).To(Equal(enabled))
 			if existing && wantSuccess {
 				Expect(policy.Metadata.ResourceVersion).To(Equal(lo.ToPtr("2")))
@@ -270,17 +274,17 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(saved.Code).To(Equal(http.StatusNotFound))
 		}
 	},
-		Entry("When the cap is unchanged it should apply with ordinary permissions", true, true, "", 10, []string{"POST", "GET", "PUT"}, true, false, false),
-		Entry("When the cap changes it should preserve the quota denial", true, true, "", 11, []string{"POST", "GET", "PUT"}, false, false, false),
-		Entry("When quota-authorized create lacks read permission it should still create", false, false, "get", 10, []string{"POST"}, true, false, false),
-		Entry("When a finite policy is absent and quota is denied it should not create", false, true, "", 10, []string{"POST", "GET"}, false, false, false),
-		Entry("When create is denied it should not attempt to read or update", true, true, "create", 10, []string{"POST"}, false, false, false),
-		Entry("When update is denied it should not write the existing policy", true, true, "update", 10, []string{"POST", "GET", "PUT"}, false, false, false),
-		Entry("When read is denied it should not attempt to update", true, true, "get", 10, []string{"POST", "GET"}, false, false, false),
-		Entry("When compilation is unavailable it should apply an unchanged enabled expression", true, false, "", 10, []string{"POST", "GET", "PUT"}, true, true, true),
-		Entry("When compilation is unavailable it should still require quota permission for an enabled policy", true, true, "", 11, []string{"POST", "GET", "PUT"}, false, true, true),
+		Entry("When the cap is unchanged it should apply with ordinary permissions", true, "", 10, []string{"POST", "GET", "PUT"}, true, false, false),
+		Entry("When the cap changes it should apply with ordinary policy permissions", true, "", 11, []string{"POST", "GET", "PUT"}, true, false, false),
+		Entry("When create lacks read permission it should still create", false, "get", 10, []string{"POST"}, true, false, false),
+		Entry("When a finite policy is absent it should create with ordinary permissions", false, "", 10, []string{"POST"}, true, false, false),
+		Entry("When create is denied it should not attempt to read or update", true, "create", 10, []string{"POST"}, false, false, false),
+		Entry("When update is denied it should not write the existing policy", true, "update", 10, []string{"POST", "GET", "PUT"}, false, false, false),
+		Entry("When read is denied it should not attempt to update", true, "get", 10, []string{"POST", "GET"}, false, false, false),
+		Entry("When compilation is unavailable it should apply an unchanged enabled expression", true, "", 10, []string{"POST", "GET", "PUT"}, true, true, true),
+		Entry("When compilation is unavailable it should allow an enabled policy limit change", true, "", 11, []string{"POST", "GET", "PUT"}, true, true, true),
 	)
-	It("When the cap changes after the PATCH read it should reject the stale no-quota request", func() {
+	It("When the cap changes after the PATCH read it should reject the stale request", func() {
 		ctx, cancel := context.WithTimeout(suite.Ctx, 10*time.Second)
 		defer cancel()
 		fullAccess := makeHandler(policyAPIValidator{})
@@ -301,7 +305,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		})).To(Succeed())
 		defer func() { Expect(suite.DB.Callback().Query().Remove(callbackName)).To(Succeed()) }()
 		patch := fmt.Appendf(nil, `[{"op":"test","path":"/metadata/resourceVersion","value":%q},{"op":"replace","path":"/spec","value":{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{"region":"west"},"approvalLimit":10}}]`, *original.Metadata.ResourceVersion)
-		stale := request(makeHandler(policyAPIValidator{}, true), http.MethodPatch, "/west", patch, context.WithValue(ctx, policyReadRaceKey{}, true))
+		stale := request(makeHandler(policyAPIValidator{}), http.MethodPatch, "/west", patch, context.WithValue(ctx, policyReadRaceKey{}, true))
 		Expect(fired.Load()).To(BeTrue())
 		Expect(stale.Code).To(Equal(http.StatusConflict), stale.Body.String())
 		response := request(fullAccess, http.MethodGet, "/west", nil, ctx)
@@ -346,35 +350,76 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Expect(saved.StatusCode()).To(Equal(http.StatusOK))
 		Expect(saved.JSON200.Spec).To(Equal(patched.JSON200.Spec))
 	})
-	DescribeTable("When PostgreSQL aborts a policy update it should preserve transaction ownership", func(owned, interveningWrite bool) {
+	DescribeTable("When PostgreSQL rejects a policy insert it should retry only known aborts without an outer transaction", func(sqlState string, wantStatus int, wantAttempts int64) {
 		ctx := boundedPolicyTest(suite.Ctx)
+		marked := context.WithValue(ctx, policyRetryKey{}, true)
+		policies := newStore()
+		ddl := policyWriteAbortProbe(ctx, suite, sqlState)
+		defer testdb.CloseDB(ddl)
+
+		var observed []string
+		observer := "test:policy_insert_error"
+		Expect(suite.DB.Callback().Create().After("gorm:create").Register(observer, func(write *gorm.DB) {
+			var pgErr *pgconn.PgError
+			if write.Statement.Context.Value(policyRetryKey{}) != nil && write.Statement.Table == "enrollment_approval_policies" && errors.As(write.Error, &pgErr) {
+				observed = append(observed, pgErr.Code)
+			}
+		})).To(Succeed())
+		defer func() { Expect(suite.DB.Callback().Create().Remove(observer)).To(Succeed()) }()
+
+		var validationInTx []bool
+		validator := policyValidatorFunc(func(ctx context.Context, _ string) error {
+			validationInTx = append(validationInTx, store.InTransaction(ctx))
+			return nil
+		})
+		eventService := events.NewMockService(gomock.NewController(GinkgoT()))
+		if wantStatus == http.StatusCreated {
+			eventService.EXPECT().CreateEvent(gomock.Any(), suite.OrgID, gomock.Any()).Do(func(_ context.Context, orgID uuid.UUID, _ *domain.Event) {
+				saved, err := policies.Get(ctx, orgID, "west")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(saved.Metadata.ResourceVersion).To(Equal(lo.ToPtr("1")))
+			}).Times(1)
+		}
+		service, err := policyservice.NewServiceHandler(policies, validator, suite.cfg.CA.DeviceEnrollmentSignerName, eventService, suite.Log)
+		Expect(err).NotTo(HaveOccurred())
+		var policy domain.EnrollmentApprovalPolicy
+		Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+		policy.Spec.Enabled = true
+		result, status := service.CreateEnrollmentApprovalPolicy(marked, suite.OrgID, policy)
+		Expect(status.Code).To(Equal(int32(wantStatus)), status.Message)
+
+		var attempts int64
+		Expect(ddl.Raw(`SELECT last_value FROM policy_retry_probe`).Scan(&attempts).Error).To(Succeed())
+		Expect(observed).To(Equal([]string{sqlState}))
+		Expect(attempts).To(Equal(wantAttempts))
+		_, _ = fmt.Fprintf(GinkgoWriter, "Policy insert: SQLSTATE=%v attempts=%d validation in store transaction=%v HTTP=%d\n", observed, attempts, validationInTx, status.Code)
+		Expect(validationInTx).To(Equal([]bool{false}))
+		if wantStatus == http.StatusCreated {
+			Expect(result.Status.EnrollmentCount).To(BeZero())
+			Expect(result.Metadata.ResourceVersion).To(Equal(lo.ToPtr("1")))
+		} else {
+			Expect(result).To(BeNil())
+			_, err := policies.Get(ctx, suite.OrgID, "west")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		}
+	},
+		Entry("When serialization fails it should retry the insert once", "40001", http.StatusCreated, int64(2)),
+		Entry("When PostgreSQL reports a deadlock it should retry the insert once", "40P01", http.StatusCreated, int64(2)),
+		Entry("When PostgreSQL reports a connection failure it should leave the write unreplayed", "08006", http.StatusInternalServerError, int64(1)),
+	)
+	DescribeTable("When PostgreSQL aborts a policy update it should preserve transaction ownership", func(sqlState string, callerOwned, interveningWrite bool) {
+		ctx := boundedPolicyTest(suite.Ctx)
+		marked := context.WithValue(ctx, policyRetryKey{}, true)
 		policies := newStore()
 		initial := newService(policies, policyAPIValidator{})
 		var policy domain.EnrollmentApprovalPolicy
 		Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
 		created, status := initial.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
 		Expect(status.Code).To(Equal(int32(http.StatusCreated)), status.Message)
-		migrationDB, err := store.InitMigrationDB(suite.cfg, suite.Log)
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			sqlDB, err := migrationDB.DB()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(sqlDB.Close()).To(Succeed())
-		}()
-		ddl := migrationDB.WithContext(store.WithBypassSpanCheck(ctx))
-		Expect(ddl.Exec(`CREATE SEQUENCE policy_retry_probe`).Error).To(Succeed())
-		Expect(ddl.Exec(`CREATE FUNCTION policy_retry_probe() RETURNS trigger LANGUAGE plpgsql AS $$
-			BEGIN
-				IF nextval('public.policy_retry_probe') = 1 THEN
-					RAISE serialization_failure USING MESSAGE = 'fixture aborted the first transaction';
-				END IF;
-				RETURN NEW;
-			END
-			$$`).Error).To(Succeed())
-		Expect(ddl.Exec(`CREATE TRIGGER policy_retry_probe BEFORE UPDATE ON enrollment_approval_policies
-			FOR EACH ROW EXECUTE FUNCTION policy_retry_probe()`).Error).To(Succeed())
+		ddl := policyWriteAbortProbe(ctx, suite, sqlState)
+		defer testdb.CloseDB(ddl)
 		eventService := events.NewMockService(gomock.NewController(GinkgoT()))
-		if owned && !interveningWrite {
+		if !callerOwned && !interveningWrite {
 			eventService.EXPECT().CreateEvent(gomock.Any(), suite.OrgID, gomock.Any()).Do(func(_ context.Context, orgID uuid.UUID, _ *domain.Event) {
 				saved, err := policies.Get(ctx, orgID, "west")
 				Expect(err).NotTo(HaveOccurred())
@@ -382,32 +427,56 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			}).Times(1)
 		}
 		var observed []string
-		observer := &policyRetryObserver{Store: policies, db: suite.DB, onAbort: func(abort *pgconn.PgError) {
-			observed = append(observed, abort.Code)
-			if interveningWrite {
+		var transactions []int64
+		errorObserver := "test:policy_update_error"
+		Expect(suite.DB.Callback().Update().After("gorm:update").Register(errorObserver, func(write *gorm.DB) {
+			var pgErr *pgconn.PgError
+			if write.Statement.Context.Value(policyRetryKey{}) != nil && write.Statement.Table == "enrollment_approval_policies" && errors.As(write.Error, &pgErr) {
+				observed = append(observed, pgErr.Code)
+			}
+		})).To(Succeed())
+		defer func() { Expect(suite.DB.Callback().Update().Remove(errorObserver)).To(Succeed()) }()
+		readObserver := "test:policy_transaction_attempt"
+		Expect(suite.DB.Callback().Query().Before("gorm:query").Register(readObserver, func(query *gorm.DB) {
+			if query.Statement.Context.Value(policyRetryKey{}) == nil || query.Statement.Table != "enrollment_approval_policies" || !query.Statement.Unscoped {
+				return
+			}
+			_, inTx := query.Statement.ConnPool.(gorm.TxCommitter)
+			Expect(inTx).To(Equal(callerOwned))
+			var transaction int64
+			Expect(query.Session(&gorm.Session{NewDB: true}).Raw("SELECT txid_current()").Scan(&transaction).Error).To(Succeed())
+			transactions = append(transactions, transaction)
+			if len(transactions) == 2 && interveningWrite {
 				competitor := policy
 				competitor.Metadata.Labels = lo.ToPtr(map[string]string{"edited": "competitor"})
 				_, status := initial.ReplaceEnrollmentApprovalPolicy(ctx, suite.OrgID, "west", competitor)
 				Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
 			}
-		}}
-		service, err := policyservice.NewServiceHandler(observer, policyAPIValidator{}, suite.cfg.CA.DeviceEnrollmentSignerName, eventService, suite.Log)
+		})).To(Succeed())
+		defer func() { Expect(suite.DB.Callback().Query().Remove(readObserver)).To(Succeed()) }()
+		var validationInTx []bool
+		validator := policyValidatorFunc(func(ctx context.Context, _ string) error {
+			validationInTx = append(validationInTx, store.InTransaction(ctx))
+			return nil
+		})
+		service, err := policyservice.NewServiceHandler(policies, validator, suite.cfg.CA.DeviceEnrollmentSignerName, eventService, suite.Log)
 		Expect(err).NotTo(HaveOccurred())
 		policy.Metadata.ResourceVersion = created.Metadata.ResourceVersion
 		policy.Metadata.Labels = lo.ToPtr(map[string]string{"edited": "true"})
-		if owned {
-			_, status = service.ReplaceEnrollmentApprovalPolicy(ctx, suite.OrgID, "west", policy)
+		policy.Spec.Enabled = true
+		if !callerOwned {
+			_, status = service.ReplaceEnrollmentApprovalPolicy(marked, suite.OrgID, "west", policy)
 			if interveningWrite {
 				Expect(status.Code).To(Equal(int32(http.StatusConflict)), status.Message)
 				Expect(status.Reason).To(Equal("ResourceVersionConflict"))
 			} else {
 				Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
 			}
-			Expect(observer.transactions).To(HaveLen(2))
-			Expect(observer.transactions[1]).NotTo(Equal(observer.transactions[0]))
+			Expect(transactions).To(HaveLen(2))
+			Expect(transactions[1]).NotTo(Equal(transactions[0]))
 		} else {
 			rollback := errors.New("caller rolls back")
-			Expect(store.WithTransaction(ctx, suite.DB, func(txCtx context.Context) error {
+			Expect(store.WithTransaction(marked, suite.DB, func(txCtx context.Context) error {
 				_, status = service.ReplaceEnrollmentApprovalPolicy(txCtx, suite.OrgID, "west", policy)
 				Expect(status.Code).To(Equal(int32(http.StatusInternalServerError)), status.Message)
 				err := store.DB(txCtx, suite.DB).Exec("SELECT 1").Error
@@ -416,16 +485,21 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 				Expect(pgErr.Code).To(Equal("25P02"))
 				return rollback
 			})).To(MatchError(rollback))
-			Expect(observer.transactions).To(HaveLen(1))
+			Expect(transactions).To(HaveLen(1))
 		}
-		Expect(observed).To(Equal([]string{"40001"}))
-		_, _ = fmt.Fprintf(GinkgoWriter, "Policy retry: SQLSTATE=%v transaction IDs=%v HTTP=%d\n", observed, observer.transactions, status.Code)
+		Expect(observed).To(Equal([]string{sqlState}))
+		if !callerOwned && !interveningWrite {
+			Expect(validationInTx).To(Equal([]bool{false, false}))
+		} else {
+			Expect(validationInTx).To(Equal([]bool{callerOwned}))
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter, "Policy update: SQLSTATE=%v transaction IDs=%v validation in store transaction=%v HTTP=%d\n", observed, transactions, validationInTx, status.Code)
 		saved, err := policies.Get(ctx, suite.OrgID, "west")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(saved.Status.EnrollmentCount).To(BeZero())
 		var attempts int
 		Expect(ddl.Raw(`SELECT last_value FROM policy_retry_probe`).Scan(&attempts).Error).To(Succeed())
-		if owned {
+		if !callerOwned {
 			Expect(attempts).To(Equal(2))
 			Expect(*saved.Metadata.ResourceVersion).To(Equal("2"))
 			label := "true"
@@ -438,11 +512,14 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(saved).To(Equal(created))
 		}
 	},
-		Entry("When the service owns the transaction it should commit once and publish one event", true, false),
-		Entry("When a different write commits before the retry it should reject the original version", true, true),
-		Entry("When the caller owns the transaction it should return the abort without replay", false, false),
+		Entry("When an update aborts it should retry and publish one event", "40001", false, false),
+		Entry("When a different write commits before the retry it should reject the original version", "40001", false, true),
+		Entry("When the caller owns the transaction it should return the abort without replay", "40001", true, false),
+		Entry("When an update deadlocks it should retry from fresh state", "40P01", false, false),
+		Entry("When a different write commits after a deadlock it should reject the original version", "40P01", false, true),
+		Entry("When a caller-owned attempt deadlocks it should leave rollback to the caller", "40P01", true, false),
 	)
-	DescribeTable("When nullable policy values are patched it should preserve the API contract", func(field, op, value, version string, denyQuota bool, want int) {
+	DescribeTable("When nullable policy values are patched it should preserve the API contract", func(field, op, value, version string, want int) {
 		ctx, cancel := context.WithTimeout(suite.Ctx, 15*time.Second)
 		defer cancel()
 		privileged := makeHandler(policyAPIValidator{})
@@ -479,7 +556,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		req := httptest.NewRequest(http.MethodPatch, "/api/v1/enrollmentapprovalpolicies/west", bytes.NewReader(body)).WithContext(ctx)
 		req.Header.Set("Content-Type", "application/json-patch+json")
 		response := httptest.NewRecorder()
-		makeHandler(policyAPIValidator{}, denyQuota).ServeHTTP(response, req)
+		makeHandler(policyAPIValidator{}).ServeHTTP(response, req)
 		Expect(response.Code).To(Equal(want), response.Body.String())
 		after := request(privileged, http.MethodGet, "/west", nil, ctx)
 		Expect(after.Code).To(Equal(200))
@@ -516,38 +593,36 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(saved.Spec.ApprovalLimit).To(Equal(current.Spec.ApprovalLimit))
 		}
 	},
-		Entry("When replacing the limit with null it should clear it", "approvalLimit", "replace", "null", "current", false, 200),
-		Entry("When adding a null limit it should clear it", "approvalLimit", "add", "null", "current", false, 200),
-		Entry("When removing the limit it should clear it", "approvalLimit", "remove", "missing", "current", false, 200),
-		Entry("When replacing the window with null it should clear it without quota privilege", "autoApprovalWindowDays", "replace", "null", "current", true, 200),
-		Entry("When adding a null window it should clear it", "autoApprovalWindowDays", "add", "null", "current", true, 200),
-		Entry("When removing the window it should clear it", "autoApprovalWindowDays", "remove", "missing", "current", true, 200),
-		Entry("When a limit value is missing it should reject", "approvalLimit", "replace", "missing", "current", false, 400),
-		Entry("When a window value is missing it should reject", "autoApprovalWindowDays", "add", "missing", "current", false, 400),
-		Entry("When a test value is missing it should reject", "approvalLimit", "test", "missing", "current", false, 400),
-		Entry("When quota clear is denied it should preserve the limit", "approvalLimit", "replace", "null", "current", true, 403),
-		Entry("When quota removal is denied it should preserve the limit", "approvalLimit", "remove", "missing", "current", true, 403),
-		Entry("When an unknown policy field is patched it should reject the request", "unknownLimit", "replace", "null", "current", true, 400),
-		Entry("When whole spec clear is denied it should preserve the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", true, 403),
-		Entry("When the version is stale it should preserve both limits", "approvalLimit", "replace", "null", "0", false, 409),
-		Entry("When the version is missing it should preserve both limits", "autoApprovalWindowDays", "replace", "null", "missing", false, 409),
-		Entry("When the limit becomes zero it should remain explicit", "approvalLimit", "replace", "0", "current", false, 200),
-		Entry("When the limit becomes maximal it should remain exact", "approvalLimit", "replace", "2147483647", "current", false, 200),
-		Entry("When the limit is negative it should reject", "approvalLimit", "replace", "-1", "current", false, 400),
-		Entry("When the limit overflows it should reject", "approvalLimit", "replace", "2147483648", "current", false, 400),
-		Entry("When the limit is fractional it should reject", "approvalLimit", "replace", "0.5", "current", false, 400),
-		Entry("When the limit is a string it should reject", "approvalLimit", "replace", `"1"`, "current", false, 400),
-		Entry("When the window becomes maximal it should remain exact", "autoApprovalWindowDays", "replace", "106751", "current", true, 200),
-		Entry("When the window is zero it should reject", "autoApprovalWindowDays", "replace", "0", "current", true, 400),
-		Entry("When the window overflows it should reject", "autoApprovalWindowDays", "replace", "106752", "current", true, 400),
-		Entry("When the window is a string it should reject", "autoApprovalWindowDays", "replace", `"2"`, "current", true, 400),
-		Entry("When enabled is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"enabled":null}`, "current", false, 400),
-		Entry("When TPM is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"requireTPMVerification":null}`, "current", false, 400),
-		Entry("When both limits are null in a whole spec it should clear them", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null,"autoApprovalWindowDays":null}`, "current", false, 200),
-		Entry("When a whole spec is null it should reject", "spec", "replace", "null", "current", false, 400),
-		Entry("When a label value is null it should reject before coercion", "deviceLabels", "replace", `{"region":null}`, "current", false, 400),
-		Entry("When a label key is null it should reject before coercion", "allowedIncomingLabels", "replace", `[null]`, "current", false, 400),
-		Entry("When a finite limit is tested against null it should fail without quota privilege", "approvalLimit", "test", "null", "current", true, 400),
+		Entry("When replacing the limit with null it should clear it", "approvalLimit", "replace", "null", "current", 200),
+		Entry("When adding a null limit it should clear it", "approvalLimit", "add", "null", "current", 200),
+		Entry("When removing the limit it should clear it", "approvalLimit", "remove", "missing", "current", 200),
+		Entry("When replacing the window with null it should clear it with ordinary policy permission", "autoApprovalWindowDays", "replace", "null", "current", 200),
+		Entry("When adding a null window it should clear it", "autoApprovalWindowDays", "add", "null", "current", 200),
+		Entry("When removing the window it should clear it", "autoApprovalWindowDays", "remove", "missing", "current", 200),
+		Entry("When a limit value is missing it should reject", "approvalLimit", "replace", "missing", "current", 400),
+		Entry("When a window value is missing it should reject", "autoApprovalWindowDays", "add", "missing", "current", 400),
+		Entry("When a test value is missing it should reject", "approvalLimit", "test", "missing", "current", 400),
+		Entry("When an unknown policy field is patched it should reject the request", "unknownLimit", "replace", "null", "current", 400),
+		Entry("When whole spec clear is denied it should preserve the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", 403),
+		Entry("When the version is stale it should preserve both limits", "approvalLimit", "replace", "null", "0", 409),
+		Entry("When the version is missing it should preserve both limits", "autoApprovalWindowDays", "replace", "null", "missing", 409),
+		Entry("When the limit becomes zero it should remain explicit", "approvalLimit", "replace", "0", "current", 200),
+		Entry("When the limit becomes maximal it should remain exact", "approvalLimit", "replace", "2147483647", "current", 200),
+		Entry("When the limit is negative it should reject", "approvalLimit", "replace", "-1", "current", 400),
+		Entry("When the limit overflows it should reject", "approvalLimit", "replace", "2147483648", "current", 400),
+		Entry("When the limit is fractional it should reject", "approvalLimit", "replace", "0.5", "current", 400),
+		Entry("When the limit is a string it should reject", "approvalLimit", "replace", `"1"`, "current", 400),
+		Entry("When the window becomes maximal it should remain exact", "autoApprovalWindowDays", "replace", "106751", "current", 200),
+		Entry("When the window is zero it should reject", "autoApprovalWindowDays", "replace", "0", "current", 400),
+		Entry("When the window overflows it should reject", "autoApprovalWindowDays", "replace", "106752", "current", 400),
+		Entry("When the window is a string it should reject", "autoApprovalWindowDays", "replace", `"2"`, "current", 400),
+		Entry("When enabled is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"enabled":null}`, "current", 400),
+		Entry("When TPM is null in a whole spec it should reject before coercion", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"requireTPMVerification":null}`, "current", 400),
+		Entry("When both limits are null in a whole spec it should clear them", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null,"autoApprovalWindowDays":null}`, "current", 200),
+		Entry("When a whole spec is null it should reject", "spec", "replace", "null", "current", 400),
+		Entry("When a label value is null it should reject before coercion", "deviceLabels", "replace", `{"region":null}`, "current", 400),
+		Entry("When a label key is null it should reject before coercion", "allowedIncomingLabels", "replace", `[null]`, "current", 400),
+		Entry("When a finite limit is tested against null it should fail with ordinary policy permission", "approvalLimit", "test", "null", "current", 400),
 	)
 	It("When nullable values are tested after clearing it should retain explicit null through serialization", func() {
 		ctx, cancel := context.WithTimeout(suite.Ctx, 15*time.Second)
@@ -624,21 +699,25 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
 		current, status := service.CreateEnrollmentApprovalPolicy(ctx, suite.OrgID, policy)
 		Expect(status.Code).To(Equal(int32(201)))
-		var fired atomic.Bool
+		var loads int
 		callbackName := "test:accounting_after_policy_load"
 		Expect(suite.DB.Callback().Query().After("gorm:after_query").Register(callbackName, func(query *gorm.DB) {
-			if query.Statement.Context.Value(policyReadRaceKey{}) == nil || query.Statement.Table != "enrollment_approval_policies" || !query.Statement.Unscoped || query.Error != nil || !fired.CompareAndSwap(false, true) {
+			if query.Statement.Context.Value(policyReadRaceKey{}) == nil || query.Statement.Table != "enrollment_approval_policies" || !query.Statement.Unscoped || query.Error != nil {
 				return
 			}
-			Expect(suite.DB.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", suite.OrgID, "west").
-				Updates(map[string]interface{}{"status": model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}), "resource_version": 2}).Error).To(Succeed())
+			loads++
+			if loads == 1 {
+				Expect(suite.DB.WithContext(ctx).Model(&model.EnrollmentApprovalPolicy{}).Where("org_id = ? AND name = ?", suite.OrgID, "west").
+					Updates(map[string]interface{}{"status": model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}), "resource_version": 2}).Error).To(Succeed())
+			}
 		})).To(Succeed())
 		defer func() { Expect(suite.DB.Callback().Query().Remove(callbackName)).To(Succeed()) }()
 		current.Status = nil
 		current.Spec.Enabled = true
 		_, status = service.ReplaceEnrollmentApprovalPolicy(context.WithValue(ctx, policyReadRaceKey{}, true), suite.OrgID, "west", *current)
-		Expect(fired.Load()).To(BeTrue())
+		Expect(loads).To(Equal(2))
 		Expect(status.Code).To(Equal(int32(409)), status.Message)
+		Expect(status.Reason).To(Equal("ResourceVersionConflict"))
 		preserved, err := policies.Get(ctx, suite.OrgID, "west")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(preserved.Status.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
@@ -947,9 +1026,9 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Entry("When a credential is expired it should allow PATCH to disable", "expired", http.MethodPatch),
 		Entry("When a credential is expired it should allow DELETE", "expired", http.MethodDelete),
 	)
-	It("When quota permission is denied it should reject quota mutations and unsupported source operations without writes", func() {
+	It("When policy patch permission is denied it should reject limit changes without writes", func() {
 		privileged := makeHandler(policyAPIValidator{})
-		limited := makeHandler(policyAPIValidator{}, true)
+		limited := makeHandlerWithAuth(policyAPIValidator{}, policyAPIAuthorizer{denyAction: "patch"})
 		response := request(privileged, http.MethodPost, "", policyJSON, suite.Ctx)
 		Expect(response.Code).To(Equal(201), response.Body.String())
 		var created api.EnrollmentApprovalPolicy
@@ -988,11 +1067,11 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			`{"op":"move","from":"/spec/approvalLimit","path":"/spec/autoApprovalWindowDays"}`,
 			`{"op":"copy","from":"/spec/approvalLimit","path":"/spec/autoApprovalWindowDays"}`,
 		} {
-			response = patch(limited, operation)
+			response = patch(privileged, operation)
 			Expect(response.Code).To(Equal(400), response.Body.String())
 			Expect(request(limited, http.MethodGet, "/west", nil, suite.Ctx).Body.String()).To(Equal(before))
 		}
-		response = patch(limited, `{"op":"add","path":"/spec/autoApprovalWindowDays","value":10}`)
+		response = patch(privileged, `{"op":"add","path":"/spec/autoApprovalWindowDays","value":10}`)
 		Expect(response.Code).To(Equal(200), response.Body.String())
 		Expect(json.Unmarshal(response.Body.Bytes(), &created)).To(Succeed())
 		Expect(*created.Spec.ApprovalLimit).To(Equal(int32(10)))
@@ -1055,7 +1134,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		} else {
 			body = fmt.Appendf(nil, `[{"op":"test","path":"/metadata/resourceVersion","value":%q},%s]`, *initial.Metadata.ResourceVersion, patch)
 		}
-		handler := makeHandler(policyservice.UnavailableExpressionValidator{}, true)
+		handler := makeHandler(policyservice.UnavailableExpressionValidator{})
 		response := request(handler, method, "/west", body, suite.Ctx)
 		Expect(response.Code).To(Equal(want), response.Body.String())
 		read := request(handler, http.MethodGet, "/west", nil, suite.Ctx)

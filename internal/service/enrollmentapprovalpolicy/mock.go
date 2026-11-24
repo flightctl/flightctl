@@ -101,41 +101,31 @@ func (mr *MockServiceMockRecorder) ListEnrollmentApprovalPolicies(ctx, orgId, pa
 }
 
 // PatchEnrollmentApprovalPolicy mocks base method.
-func (m *MockService) PatchEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, authorize ...ApprovalLimitAuthorizer) (*domain.EnrollmentApprovalPolicy, domain.Status) {
+func (m *MockService) PatchEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name, patch}
-	for _, a := range authorize {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "PatchEnrollmentApprovalPolicy", varargs...)
+	ret := m.ctrl.Call(m, "PatchEnrollmentApprovalPolicy", ctx, orgId, name, patch)
 	ret0, _ := ret[0].(*domain.EnrollmentApprovalPolicy)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchEnrollmentApprovalPolicy indicates an expected call of PatchEnrollmentApprovalPolicy.
-func (mr *MockServiceMockRecorder) PatchEnrollmentApprovalPolicy(ctx, orgId, name, patch any, authorize ...any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchEnrollmentApprovalPolicy(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name, patch}, authorize...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchEnrollmentApprovalPolicy", reflect.TypeOf((*MockService)(nil).PatchEnrollmentApprovalPolicy), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchEnrollmentApprovalPolicy", reflect.TypeOf((*MockService)(nil).PatchEnrollmentApprovalPolicy), ctx, orgId, name, patch)
 }
 
 // ReplaceEnrollmentApprovalPolicy mocks base method.
-func (m *MockService) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy, authorize ...ApprovalLimitAuthorizer) (*domain.EnrollmentApprovalPolicy, domain.Status) {
+func (m *MockService) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgId uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name, policy}
-	for _, a := range authorize {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "ReplaceEnrollmentApprovalPolicy", varargs...)
+	ret := m.ctrl.Call(m, "ReplaceEnrollmentApprovalPolicy", ctx, orgId, name, policy)
 	ret0, _ := ret[0].(*domain.EnrollmentApprovalPolicy)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceEnrollmentApprovalPolicy indicates an expected call of ReplaceEnrollmentApprovalPolicy.
-func (mr *MockServiceMockRecorder) ReplaceEnrollmentApprovalPolicy(ctx, orgId, name, policy any, authorize ...any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceEnrollmentApprovalPolicy(ctx, orgId, name, policy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name, policy}, authorize...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentApprovalPolicy", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentApprovalPolicy), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentApprovalPolicy", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentApprovalPolicy), ctx, orgId, name, policy)
 }

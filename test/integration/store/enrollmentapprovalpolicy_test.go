@@ -243,6 +243,31 @@ var _ = Describe("EnrollmentApprovalPolicyStore", func() {
 		})
 		Expect(err).To(MatchError(flterrors.ErrResourceVersionConflict))
 	})
+	It("When a concurrent update wins the compare-and-swap it should reapply to the latest version", func() {
+		_, err := create("west", nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		var versions []string
+		updated, before, created, err := policies.Mutate(ctx, orgID, "west", func(m store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
+			current := m.Resource()
+			versions = append(versions, *current.Metadata.ResourceVersion)
+			if len(versions) == 1 {
+				_, _, err := mutatePolicy(ctx, policies, orgID, "west", func(other *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
+					other.Spec.DeviceLabels["region"] = "west"
+					return other, nil
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			current.Spec.DeviceLabels["stage"] = "ready"
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(created).To(BeFalse())
+		Expect(versions).To(Equal([]string{"1", "2"}))
+		Expect(before.Spec.DeviceLabels).To(Equal(map[string]string{"region": "west"}))
+		Expect(*updated.Metadata.ResourceVersion).To(Equal("3"))
+		Expect(updated.Spec.DeviceLabels).To(Equal(map[string]string{"region": "west", "stage": "ready"}))
+	})
 	It("When a mutation changes nested spec maps it should retain the before snapshot and advance generation", func() {
 		_, err := create("west", nil)
 		Expect(err).NotTo(HaveOccurred())

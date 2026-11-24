@@ -3302,8 +3302,7 @@ paths:
       tags:
         - enrollmentapprovalpolicy
       description: >-
-        Create an EnrollmentApprovalPolicy resource. A non-null approvalLimit
-        requires update permission on enrollmentapprovalpolicies/approvallimit.
+        Create an EnrollmentApprovalPolicy resource.
         Creating an enabled policy requires a valid enrollment credential and
         expression validation.
       operationId: createEnrollmentApprovalPolicy
@@ -3443,9 +3442,7 @@ paths:
         - enrollmentapprovalpolicy
       description: >-
         Replace an existing EnrollmentApprovalPolicy. Supply the current
-        metadata.resourceVersion in the request body. Changing or clearing
-        spec.approvalLimit requires update permission on
-        enrollmentapprovalpolicies/approvallimit.
+        metadata.resourceVersion in the request body.
       operationId: replaceEnrollmentApprovalPolicy
       parameters:
         - name: name
@@ -3590,8 +3587,6 @@ paths:
       description: >-
         Patch an existing EnrollmentApprovalPolicy. Include exactly one test
         operation on /metadata/resourceVersion with the current value as a string.
-        Changing the final approvalLimit, including clearing or removing it,
-        requires update permission on enrollmentapprovalpolicies/approvallimit.
       operationId: patchEnrollmentApprovalPolicy
       parameters:
         - name: name

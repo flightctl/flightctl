@@ -78,7 +78,6 @@ var resourcePermissions = map[string]map[string][]string{
 // this list with OpenAPI-derived resources so wildcard ("*") role permissions
 // expand to include them in the generated K8s ClusterRoles.
 var syntheticResources = []string{
-	"enrollmentapprovalpolicies/approvallimit",
 	"alerts", // gated by cmd/flightctl-alertmanager-proxy
 }
 

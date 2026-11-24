@@ -51,7 +51,6 @@ rules:
       - devices/resume
       - devices/status
       - enrollmentapprovalpolicies
-      - enrollmentapprovalpolicies/approvallimit
       - enrollmentconfig
       - enrollmenthookpolicies
       - enrollmentrequests
@@ -146,7 +145,6 @@ rules:
       - devices/resume
       - devices/status
       - enrollmentapprovalpolicies
-      - enrollmentapprovalpolicies/approvallimit
       - enrollmentconfig
       - enrollmentrequests
       - enrollmentrequests/approval

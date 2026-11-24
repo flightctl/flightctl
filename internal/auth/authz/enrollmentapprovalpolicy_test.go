@@ -22,11 +22,9 @@ func TestPolicyAdministrationPermissions(t *testing.T) {
 		t.Run("When the role is "+role+" it should enforce policy administration permissions", func(t *testing.T) {
 			mapped := identity.NewMappedIdentity("test", "test", []*model.Organization{organization}, map[string][]string{orgID.String(): {role}}, false, nil)
 			ctx := util.WithOrganizationID(context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mapped), orgID)
-			for _, resource := range []string{"enrollmentapprovalpolicies", "enrollmentapprovalpolicies/approvallimit"} {
-				allowed, err := authorizer.CheckPermission(ctx, resource, "update")
-				require.NoError(t, err)
-				require.Equal(t, role == api.RoleAdmin, allowed)
-			}
+			allowed, err := authorizer.CheckPermission(ctx, "enrollmentapprovalpolicies", "update")
+			require.NoError(t, err)
+			require.Equal(t, role == api.RoleAdmin, allowed)
 		})
 	}
 }

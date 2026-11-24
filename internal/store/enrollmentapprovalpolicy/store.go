@@ -78,7 +78,8 @@ func (policies *PolicyStore) Mutate(ctx context.Context, orgID uuid.UUID, name s
 	}
 	var persistedBinding string
 	hooks := store.MutateHooks[domain.EnrollmentApprovalPolicy]{
-		MaxRetries: lo.ToPtr(0),
+		MaxRetries:  lo.ToPtr(2),
+		RetryAborts: true,
 		Load: func(ctx context.Context, orgID uuid.UUID, name string) (*domain.EnrollmentApprovalPolicy, error) {
 			record, err := loadPolicy(store.DB(ctx, policies.db), orgID, name)
 			if err != nil || record == nil {
@@ -166,7 +167,7 @@ func (policies *PolicyStore) persistUpdate(ctx context.Context, orgID uuid.UUID,
 		return false, persistenceError(result.Error)
 	}
 	if result.RowsAffected != 1 {
-		return false, flterrors.ErrResourceVersionConflict
+		return true, flterrors.ErrResourceVersionConflict
 	}
 	updated, err := record.ToApiResource()
 	if err != nil {

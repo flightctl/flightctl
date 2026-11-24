@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -98,10 +99,10 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 		}
 	}
 
-	attempt := 0
-	err = RetryUpdate(func() (bool, error) {
-		usePrevious := attempt == 0 && previous != nil
-		attempt++
+	attempts := 0
+	attempt := func() (bool, error) {
+		usePrevious := attempts == 0 && previous != nil
+		attempts++
 		created = false
 
 		var current *A
@@ -191,6 +192,20 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 		}
 		updated = mutation.Resource()
 		return false, nil
+	}
+
+	err = RetryUpdate(func() (bool, error) {
+		retry, err := attempt()
+		if hooks.RetryAborts {
+			if InTransaction(ctx) {
+				return false, err
+			}
+			// A wrapped database cause can be part of a business error.
+			abort, ok := err.(*pgconn.PgError)
+			retryAbort := ok && abort != nil && (abort.Code == "40001" || abort.Code == "40P01")
+			retry = ctx.Err() == nil && (retry || retryAbort)
+		}
+		return retry, err
 	}, lo.FromPtrOr(hooks.MaxRetries, retryIterations-1))
 	return updated, before, created, err
 }

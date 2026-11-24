@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -55,14 +54,11 @@ func policyErrorToAPIStatus(err error, name string, created bool) domain.Status 
 	var selectorFailure *selector.SelectorError
 	var input InvalidPolicyInputError
 	var inputPointer *InvalidPolicyInputError
-	var quotaFailure approvalLimitAuthorizationError
 	switch {
 	case errors.As(err, &invalidPolicy):
 		return domain.NewFailureStatus(400, "InvalidPolicy", invalidPolicy.Error())
 	case errors.As(err, &invalidPolicyPointer):
 		return domain.NewFailureStatus(400, "InvalidPolicy", invalidPolicyPointer.Error())
-	case errors.As(err, &quotaFailure):
-		return quotaFailure.status()
 	case errors.Is(err, ErrValidationUnavailable):
 		return domain.NewFailureStatus(503, "PolicyValidationUnavailable", ErrValidationUnavailable.Error())
 	case errors.As(err, &input):
@@ -174,8 +170,8 @@ func checkCurrentPolicy(current *domain.EnrollmentApprovalPolicy, version string
 	return nil
 }
 
-// Retry only PostgreSQL errors that establish a transaction abort. Each owned
-// attempt reads current state in a new transaction. Callers own any outer transaction.
+// Delete uses its own transaction boundary. Create and update retry in Mutate.
+// A caller-owned transaction must handle its own abort.
 func (handler *ServiceHandler) withPolicyWrite(ctx context.Context, write func(context.Context) error) error {
 	if store.InTransaction(ctx) {
 		return handler.store.WithTransaction(ctx, write)
@@ -202,32 +198,29 @@ func (handler *ServiceHandler) CreateEnrollmentApprovalPolicy(ctx context.Contex
 		return nil, domain.NewFailureStatus(400, "InvalidPolicy", "resourceVersion must be absent on create")
 	}
 	common.NilOutManagedObjectMetaProperties(&policy.Metadata)
-	var result, previous *domain.EnrollmentApprovalPolicy
 	name := *policy.Metadata.Name
-	err := handler.withPolicyWrite(ctx, func(txCtx context.Context) error {
-		if _, err := handler.store.Get(txCtx, orgID, name); err == nil {
+	// A duplicate must allow apply to fall back to update even when validation is unavailable.
+	if _, err := handler.store.Get(ctx, orgID, name); err == nil {
+		return nil, policyErrorToAPIStatus(flterrors.ErrDuplicateName, name, true)
+	} else if !errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil, policyErrorToAPIStatus(err, name, true)
+	}
+	credential, err := handler.store.GetCredential(ctx, orgID, policy.Spec.CertificateName)
+	if err != nil {
+		return nil, policyErrorToAPIStatus(err, name, true)
+	}
+	if err := handler.validateCredentialBinding(credential, policy.Spec.CertificateName); err != nil {
+		return nil, policyErrorToAPIStatus(err, name, true)
+	}
+	if err := handler.validatePolicyChange(ctx, credential, nil, &policy); err != nil {
+		return nil, policyErrorToAPIStatus(err, name, true)
+	}
+	result, previous, _, err := handler.store.Mutate(ctx, orgID, name, func(m store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
+		if m.Resource() != nil {
 			return flterrors.ErrDuplicateName
-		} else if !errors.Is(err, flterrors.ErrResourceNotFound) {
-			return err
 		}
-		credential, err := handler.store.GetCredential(txCtx, orgID, policy.Spec.CertificateName)
-		if err != nil {
-			return err
-		}
-		if err := handler.validateCredentialBinding(credential, policy.Spec.CertificateName); err != nil {
-			return err
-		}
-		if err := handler.validatePolicyChange(txCtx, credential, nil, &policy); err != nil {
-			return err
-		}
-		result, previous, _, err = handler.store.Mutate(txCtx, orgID, name, func(m store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
-			if m.Resource() != nil {
-				return flterrors.ErrDuplicateName
-			}
-			m.SetResource(&policy)
-			return nil
-		})
-		return err
+		m.SetResource(&policy)
+		return nil
 	})
 	if err != nil {
 		if store.IsEnrollmentPolicyCredentialFKViolation(err) {
@@ -253,7 +246,7 @@ func (handler *ServiceHandler) ListEnrollmentApprovalPolicies(ctx context.Contex
 	return result, policyErrorToAPIStatus(err, "", false)
 }
 
-func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy, authorize ...ApprovalLimitAuthorizer) (*domain.EnrollmentApprovalPolicy, domain.Status) {
+func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, policy domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	if policy.Status != nil {
 		return nil, domain.NewFailureStatus(400, "ProtectedField", "status is server-owned")
 	}
@@ -263,7 +256,7 @@ func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Conte
 	if policy.Metadata.ResourceVersion == nil {
 		return nil, domain.NewFailureStatus(409, "ResourceVersionConflict", "current resourceVersion is required")
 	}
-	return handler.updatePolicy(ctx, orgID, name, *policy.Metadata.ResourceVersion, authorize, func(_ context.Context, stored *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
+	return handler.updatePolicy(ctx, orgID, name, *policy.Metadata.ResourceVersion, func(_ context.Context, stored *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
 		candidate := policy
 		common.NilOutManagedObjectMetaProperties(&candidate.Metadata)
 		metadata := stored.Metadata
@@ -273,7 +266,7 @@ func (handler *ServiceHandler) ReplaceEnrollmentApprovalPolicy(ctx context.Conte
 	})
 }
 
-func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, patch domain.PatchRequest, authorize ...ApprovalLimitAuthorizer) (*domain.EnrollmentApprovalPolicy, domain.Status) {
+func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context, orgID uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	version := ""
 	patch = append(domain.PatchRequest(nil), patch...)
 	for i, operation := range patch {
@@ -304,7 +297,7 @@ func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context
 	if version == "" {
 		return nil, domain.NewFailureStatus(409, "ResourceVersionConflict", "patch requires a resourceVersion test")
 	}
-	return handler.updatePolicy(ctx, orgID, name, version, authorize, func(txCtx context.Context, stored *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
+	return handler.updatePolicy(ctx, orgID, name, version, func(txCtx context.Context, stored *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error) {
 		input := *stored
 		input.Status = nil
 		var candidate domain.EnrollmentApprovalPolicy
@@ -315,7 +308,7 @@ func (handler *ServiceHandler) PatchEnrollmentApprovalPolicy(ctx context.Context
 	})
 }
 
-func (handler *ServiceHandler) updatePolicy(ctx context.Context, orgID uuid.UUID, name, version string, authorize []ApprovalLimitAuthorizer, prepare func(context.Context, *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error)) (*domain.EnrollmentApprovalPolicy, domain.Status) {
+func (handler *ServiceHandler) updatePolicy(ctx context.Context, orgID uuid.UUID, name, version string, prepare func(context.Context, *domain.EnrollmentApprovalPolicy) (*domain.EnrollmentApprovalPolicy, error)) (*domain.EnrollmentApprovalPolicy, domain.Status) {
 	current, status := handler.GetEnrollmentApprovalPolicy(ctx, orgID, name)
 	if current == nil {
 		return nil, status
@@ -323,44 +316,33 @@ func (handler *ServiceHandler) updatePolicy(ctx context.Context, orgID uuid.UUID
 	if err := checkCurrentPolicy(current, version); err != nil {
 		return nil, policyErrorToAPIStatus(err, name, false)
 	}
-	var result, previous *domain.EnrollmentApprovalPolicy
-	err := handler.withPolicyWrite(ctx, func(txCtx context.Context) error {
-		var err error
-		result, previous, _, err = handler.store.Mutate(txCtx, orgID, name, func(m store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
-			stored := m.Resource()
-			if err := checkCurrentPolicy(stored, version); err != nil {
-				return err
-			}
-			candidate, err := prepare(txCtx, stored)
+	result, previous, _, err := handler.store.Mutate(ctx, orgID, name, func(m store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
+		stored := m.Resource()
+		if err := checkCurrentPolicy(stored, version); err != nil {
+			return err
+		}
+		candidate, err := prepare(ctx, stored)
+		if err != nil {
+			return err
+		}
+		if candidate.Spec.CertificateName != stored.Spec.CertificateName {
+			return flterrors.ErrImmutableCertificateBinding
+		}
+		var credential *domain.CertificateSigningRequest
+		if candidate.Spec.Enabled {
+			credential, err = handler.store.GetCredential(ctx, orgID, stored.Spec.CertificateName)
 			if err != nil {
 				return err
 			}
-			if candidate.Spec.CertificateName != stored.Spec.CertificateName {
-				return flterrors.ErrImmutableCertificateBinding
-			}
-			var credential *domain.CertificateSigningRequest
-			if candidate.Spec.Enabled {
-				credential, err = handler.store.GetCredential(txCtx, orgID, stored.Spec.CertificateName)
-				if err != nil {
-					return err
-				}
-				if err := handler.validateCredentialBinding(credential, stored.Spec.CertificateName); err != nil {
-					return err
-				}
-			}
-			if len(authorize) > 0 && !reflect.DeepEqual(stored.Spec.ApprovalLimit, candidate.Spec.ApprovalLimit) {
-				allowed, err := authorize[0](ctx)
-				if err != nil || !allowed {
-					return approvalLimitAuthorizationError{cause: err}
-				}
-			}
-			if err := handler.validatePolicyChange(txCtx, credential, stored, candidate); err != nil {
+			if err := handler.validateCredentialBinding(credential, stored.Spec.CertificateName); err != nil {
 				return err
 			}
-			m.SetResource(candidate)
-			return nil
-		})
-		return err
+		}
+		if err := handler.validatePolicyChange(ctx, credential, stored, candidate); err != nil {
+			return err
+		}
+		m.SetResource(candidate)
+		return nil
 	})
 	if err != nil {
 		return nil, policyErrorToAPIStatus(err, name, false)

@@ -2,7 +2,6 @@ package transportv1beta1
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	convert "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	policyservice "github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -21,7 +19,7 @@ func TestApprovalPolicyPatchPreservesJSONNumbers(t *testing.T) {
 	controller := gomock.NewController(t)
 	permissions := auth.NewMockAuthZMiddleware(controller)
 	service := policyservice.NewMockService(controller)
-	service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any(), gomock.Any()).Do(func(_ any, _ any, _ any, patch domain.PatchRequest, _ ...policyservice.ApprovalLimitAuthorizer) {
+	service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any()).Do(func(_ any, _ any, _ any, patch domain.PatchRequest) {
 		require.Equal(t, json.Number("9223372036854775807"), patch[0].Value)
 	}).Return(nil, domain.StatusOK())
 	handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions, enrollmentapprovalpolicy: service}
@@ -45,7 +43,7 @@ func TestApprovalPolicyPatchValuePresence(t *testing.T) {
 			controller := gomock.NewController(t)
 			service := policyservice.NewMockService(controller)
 			if testCase.valid {
-				service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any(), gomock.Any()).Do(func(_ any, _ any, _ any, patch domain.PatchRequest, _ ...policyservice.ApprovalLimitAuthorizer) {
+				service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any()).Do(func(_ any, _ any, _ any, patch domain.PatchRequest) {
 					encoded, err := json.Marshal(patch)
 					require.NoError(t, err)
 					require.JSONEq(t, testCase.body, string(encoded))
@@ -104,31 +102,10 @@ func TestApprovalPolicyTrailingSyntaxCause(t *testing.T) {
 	}
 }
 
-func TestApprovalPolicyQuotaAuthorizationError(t *testing.T) {
-	for _, testCase := range []struct {
-		name string
-		err  error
-		code int
-	}{
-		{"unavailable", errors.New("authorization backend unavailable"), http.StatusServiceUnavailable},
-		{"invalid claims", flterrors.ErrInvalidTokenClaims, http.StatusBadRequest},
-		{"denied", nil, http.StatusForbidden},
-	} {
-		t.Run("When quota authorization is "+testCase.name+" it should preserve the error class", func(t *testing.T) {
-			permissions := auth.NewMockAuthZMiddleware(gomock.NewController(t))
-			permissions.EXPECT().CheckPermission(gomock.Any(), "enrollmentapprovalpolicies/approvallimit", "update").Return(false, testCase.err)
-			handler := &TransportHandler{converter: convert.NewConverter(), authZ: permissions}
-			response := httptest.NewRecorder()
-			require.False(t, handler.quotaAllowed(response, httptest.NewRequest(http.MethodPost, "/", nil)))
-			require.Equal(t, testCase.code, response.Code)
-		})
-	}
-}
-
-func TestApprovalPolicyQuotaTestDoesNotRequireQuotaWritePermission(t *testing.T) {
+func TestApprovalPolicyLimitTestUsesPolicyPermission(t *testing.T) {
 	controller := gomock.NewController(t)
 	service := policyservice.NewMockService(controller)
-	service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any(), gomock.Any()).Return(nil, domain.StatusOK())
+	service.EXPECT().PatchEnrollmentApprovalPolicy(gomock.Any(), gomock.Any(), "west", gomock.Any()).Return(nil, domain.StatusOK())
 	handler := &TransportHandler{converter: convert.NewConverter(), authZ: auth.NewMockAuthZMiddleware(controller), enrollmentapprovalpolicy: service}
 	response := httptest.NewRecorder()
 	body := `[{"op":"test","path":"/metadata/resourceVersion","value":"1"},{"op":"test","path":"/spec/approvalLimit","value":10}]`

@@ -118,7 +118,7 @@ func (probe *policyTransactionProbe) WithTransaction(context.Context, func(conte
 	return probe.abort
 }
 
-func TestPolicyTransactionRetryBoundary(t *testing.T) {
+func TestPolicyDeleteTransactionRetryBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		abort    error
@@ -134,7 +134,7 @@ func TestPolicyTransactionRetryBoundary(t *testing.T) {
 			memory, policy := policyFixture(t)
 			probe := &policyTransactionProbe{Store: memory, abort: tc.abort}
 			service := newTestPolicyService(t, probe, &testPolicyValidator{}, nil)
-			_, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+			status := service.DeleteEnrollmentApprovalPolicy(t.Context(), memory.orgID, *policy.Metadata.Name)
 			require.Equal(t, tc.code, status.Code, status.Message)
 			require.Equal(t, tc.attempts, probe.attempts)
 			require.Zero(t, memory.writes)
@@ -237,20 +237,31 @@ func TestPolicyUnavailableOnCreate(t *testing.T) {
 }
 
 func TestPolicyDuplicateCreateWithUnavailableValidator(t *testing.T) {
-	t.Run("When an enabled policy exists it should return a conflict before expression validation", func(t *testing.T) {
-		memory, policy := policyFixture(t)
-		policy.Spec.Enabled = true
-		stored := policy
-		stored.Metadata.ResourceVersion = lo.ToPtr("1")
-		memory.policy = &stored
-		service := newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, nil)
+	for _, tc := range []struct {
+		name              string
+		missingCredential bool
+	}{
+		{"When an enabled policy exists it should return a conflict before expression validation", false},
+		{"When an enabled policy exists it should return a conflict before credential validation", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memory, policy := policyFixture(t)
+			policy.Spec.Enabled = true
+			stored := policy
+			stored.Metadata.ResourceVersion = lo.ToPtr("1")
+			memory.policy = &stored
+			if tc.missingCredential {
+				memory.credential = nil
+			}
+			service := newTestPolicyService(t, memory, policyservice.UnavailableExpressionValidator{}, nil)
 
-		result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
-		require.Nil(t, result)
-		require.Equal(t, int32(409), status.Code, status.Message)
-		require.Equal(t, "AlreadyExists", status.Reason)
-		require.Zero(t, memory.writes)
-	})
+			result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+			require.Nil(t, result)
+			require.Equal(t, int32(409), status.Code, status.Message)
+			require.Equal(t, "AlreadyExists", status.Reason)
+			require.Zero(t, memory.writes)
+		})
+	}
 }
 
 func TestPolicyUnavailableRejectsActivationWithoutEvents(t *testing.T) {
@@ -298,9 +309,11 @@ func TestPolicyValidationErrorMapping(t *testing.T) {
 					injected = fmt.Errorf("validate: %w", injected)
 				}
 				memory, policy := policyFixture(t)
+				policy.Metadata.ResourceVersion = lo.ToPtr("1")
+				memory.policy = lo.ToPtr(policy)
 				policy.Spec.Enabled = true
 				service := newTestPolicyService(t, memory, &testPolicyValidator{err: injected}, nil)
-				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				result, status := service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", policy)
 				require.Nil(t, result)
 				require.Zero(t, memory.writes)
 				require.ErrorIs(t, memory.lastError, injected)
@@ -533,11 +546,13 @@ func TestPolicySemanticCauseTakesPrecedence(t *testing.T) {
 		} {
 			t.Run("When a wrapped "+testCase.name+" contains "+storageCause.name+" it should preserve policy classification", func(t *testing.T) {
 				memory, policy := policyFixture(t)
+				policy.Metadata.ResourceVersion = lo.ToPtr("1")
+				memory.policy = lo.ToPtr(policy)
 				policy.Spec.Enabled = true
 				injected := fmt.Errorf("validate: %w", testCase.err)
 				validator := &testPolicyValidator{err: injected}
 				service := newTestPolicyService(t, memory, validator, nil)
-				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				result, status := service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", policy)
 				require.Nil(t, result)
 				require.Zero(t, memory.writes)
 				require.ErrorIs(t, memory.lastError, injected)
@@ -569,6 +584,8 @@ func TestPolicySentinelPublicMessages(t *testing.T) {
 		for _, form := range []string{"direct", "wrapped", "joined"} {
 			t.Run("When "+tc.cause.Error()+" is returned in "+form+" form it should expose only the public message", func(t *testing.T) {
 				memory, policy := policyFixture(t)
+				policy.Metadata.ResourceVersion = lo.ToPtr("1")
+				memory.policy = lo.ToPtr(policy)
 				policy.Spec.Enabled = true
 				injected := tc.cause
 				switch form {
@@ -578,7 +595,7 @@ func TestPolicySentinelPublicMessages(t *testing.T) {
 					injected = fmt.Errorf("private persistence context: %w", errors.Join(tc.cause, driverError))
 				}
 				service := newTestPolicyService(t, memory, &testPolicyValidator{err: injected}, nil)
-				result, status := service.CreateEnrollmentApprovalPolicy(t.Context(), memory.orgID, policy)
+				result, status := service.ReplaceEnrollmentApprovalPolicy(t.Context(), memory.orgID, "west", policy)
 				require.Nil(t, result)
 				require.Zero(t, memory.writes)
 				require.Equal(t, tc.code, status.Code)

@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -45,7 +46,7 @@ func (memory *replacePolicyRaceStore) Get(ctx context.Context, orgID uuid.UUID, 
 	return result, err
 }
 
-func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
+func TestApprovalPolicyReplaceVersionAndLimit(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
@@ -58,25 +59,21 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 		limit        string
 		initialLimit *int32
 		race         bool
-		quotaCheck   bool
-		allowQuota   bool
 		unavailable  bool
 		wantStatus   int
 	}{
-		{"When the submitted version was not authorized it should reject", `"2"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
-		{"When the authorized version changes it should conflict under lock", `"1"`, "10", lo.ToPtr(int32(10)), true, false, false, false, 409},
-		{"When the version changes it should conflict before the quota check", `"1"`, "30", lo.ToPtr(int32(10)), true, false, false, false, 409},
-		{"When quota is unchanged it should not require extra permission", `"1"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 200},
-		{"When quota is changed without permission it should reject", `"1"`, "20", lo.ToPtr(int32(10)), false, true, false, false, 403},
-		{"When quota is changed with permission it should replace", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, false, 200},
-		{"When nil becomes zero without permission it should reject", `"1"`, "0", nil, false, true, false, false, 403},
-		{"When nil becomes zero with permission it should replace", `"1"`, "0", nil, false, true, true, false, 200},
-		{"When zero becomes nil without permission it should reject", `"1"`, "null", lo.ToPtr(int32(0)), false, true, false, false, 403},
-		{"When nil remains nil it should not require permission", `"1"`, "null", nil, false, false, false, false, 200},
-		{"When version is missing it should conflict", "null", "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
-		{"When version is stale it should conflict", `"0"`, "10", lo.ToPtr(int32(10)), false, false, false, false, 409},
-		{"When version is not a string it should reject input", "1", "10", lo.ToPtr(int32(10)), false, false, false, false, 400},
-		{"When validation is unavailable it should allow a disabled policy limit change", `"1"`, "20", lo.ToPtr(int32(10)), false, true, true, true, 200},
+		{"When the submitted version differs from the current version it should reject", `"2"`, "10", lo.ToPtr(int32(10)), true, false, 409},
+		{"When the current version changes it should conflict when reloaded", `"1"`, "10", lo.ToPtr(int32(10)), true, false, 409},
+		{"When the version changes it should conflict before changing the limit", `"1"`, "30", lo.ToPtr(int32(10)), true, false, 409},
+		{"When quota is unchanged it should use ordinary policy permission", `"1"`, "10", lo.ToPtr(int32(10)), false, false, 200},
+		{"When quota is changed with ordinary policy permission it should replace", `"1"`, "20", lo.ToPtr(int32(10)), false, false, 200},
+		{"When nil becomes zero with ordinary policy permission it should replace", `"1"`, "0", nil, false, false, 200},
+		{"When zero becomes nil with ordinary policy permission it should replace", `"1"`, "null", lo.ToPtr(int32(0)), false, false, 200},
+		{"When nil remains nil it should use ordinary policy permission", `"1"`, "null", nil, false, false, 200},
+		{"When version is missing it should conflict", "null", "10", lo.ToPtr(int32(10)), false, false, 409},
+		{"When version is stale it should conflict", `"0"`, "10", lo.ToPtr(int32(10)), false, false, 409},
+		{"When version is not a string it should reject input", "1", "10", lo.ToPtr(int32(10)), false, false, 400},
+		{"When validation is unavailable it should allow a disabled policy limit change", `"1"`, "20", lo.ToPtr(int32(10)), false, true, 200},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory := &replacePolicyRaceStore{routePolicyStore: &routePolicyStore{
@@ -84,9 +81,6 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 				credential: &domain.CertificateSigningRequest{Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment"}, Status: &domain.CertificateSigningRequestStatus{Certificate: &certificate}},
 			}, advance: testCase.race}
 			permissions := auth.NewMockAuthZMiddleware(gomock.NewController(t))
-			if testCase.quotaCheck {
-				permissions.EXPECT().CheckPermission(gomock.Any(), "enrollmentapprovalpolicies/approvallimit", "update").Return(testCase.allowQuota, nil)
-			}
 			var validator policyservice.ExpressionValidator = acceptingRoutePolicyValidator{}
 			if testCase.unavailable {
 				validator = policyservice.UnavailableExpressionValidator{}
@@ -115,6 +109,9 @@ func TestApprovalPolicyReplaceVersionAndQuota(t *testing.T) {
 			require.Equal(t, testCase.wantStatus, response.Code, response.Body.String())
 			if testCase.wantStatus == http.StatusOK {
 				require.Equal(t, 1, memory.writes)
+				var wantLimit *int32
+				require.NoError(t, json.Unmarshal([]byte(testCase.limit), &wantLimit))
+				require.Equal(t, wantLimit, memory.policy.Spec.ApprovalLimit)
 			} else {
 				require.Zero(t, memory.writes)
 			}

@@ -72,7 +72,7 @@ func (acceptingRoutePolicyValidator) ValidateExpression(context.Context, string)
 	return nil
 }
 
-func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
+func TestApprovalPolicyPatchRoute(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
@@ -83,34 +83,28 @@ func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
 	for _, testCase := range []struct {
 		name        string
 		operation   string
-		quotaCheck  bool
-		allowQuota  bool
 		unavailable bool
 		wantStatus  int
 		wantLimit   *int32
 		wantLabels  map[string]string
 	}{
-		{"When canonical quota add is denied it should not write", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When lowercase quota alias is denied it should not write", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When an uppercase quota field is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"APPROVALLIMIT":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When a mixed case quota field is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When quota replacement is denied it should not write", `{"op":"replace","path":"/spec/approvalLimit","value":999}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When quota removal is denied it should not write", `{"op":"remove","path":"/spec/approvalLimit"}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When whole spec replacement is denied it should not write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"enabled":false,"approvallimit":999}}`, true, false, false, 403, lo.ToPtr(int32(10)), nil},
-		{"When a whole spec retains the limit it should update without quota permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{"region":"west"},"ApprovalLimit":10}}`, false, false, false, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
-		{"When removing a missing spec member it should reject the patch", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":10}},{"op":"remove","path":"/spec/approvallimit"}`, false, false, false, 400, lo.ToPtr(int32(10)), nil},
-		{"When multiple operations restore the limit it should update without quota permission", `{"op":"remove","path":"/spec/approvalLimit"},{"op":"add","path":"/spec/approvalLimit","value":10}`, false, false, false, 200, lo.ToPtr(int32(10)), nil},
-		{"When canonical quota change is authorized it should write", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
-		{"When lowercase alias is authorized it should write", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
-		{"When an uppercase quota field is authorized it should write", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"APPROVALLIMIT":999}}`, true, true, false, 200, lo.ToPtr(int32(999)), nil},
-		{"When quota removal is authorized it should write", `{"op":"remove","path":"/spec/approvalLimit"}`, true, true, false, 200, nil, nil},
-		{"When quota is only tested it should not require quota permission", `{"op":"test","path":"/spec/approvalLimit","value":10}`, false, false, false, 200, lo.ToPtr(int32(10)), nil},
-		{"When a label resembles quota it should preserve its case without quota permission", `{"op":"add","path":"/spec/deviceLabels/ApprovalLimit","value":"west"}`, false, false, false, 200, lo.ToPtr(int32(10)), map[string]string{"ApprovalLimit": "west"}},
-		{"When status is changed it should remain protected", `{"op":"add","path":"/status","value":{}}`, false, false, false, 400, lo.ToPtr(int32(10)), nil},
-		{"When certificate binding is changed it should remain immutable", `{"op":"replace","path":"/spec/certificateName","value":"other"}`, false, false, false, 409, lo.ToPtr(int32(10)), nil},
-		{"When validation is unavailable it should allow a canonical draft quota change", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, true, true, 200, lo.ToPtr(int32(999)), nil},
-		{"When validation is unavailable it should allow a draft quota alias change", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, true, true, 200, lo.ToPtr(int32(999)), nil},
-		{"When validation is unavailable it should allow a draft label change", `{"op":"add","path":"/spec/deviceLabels/region","value":"west"}`, false, false, true, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
+		{"When applying canonical limit add it should use ordinary policy permission", `{"op":"add","path":"/spec/approvalLimit","value":999}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When applying lowercase limit alias it should use ordinary policy permission", `{"op":"add","path":"/spec/approvallimit","value":999}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When applying an uppercase limit field it should use ordinary policy permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"APPROVALLIMIT":999}}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When applying a mixed case limit field it should use ordinary policy permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":999}}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When applying limit replacement it should use ordinary policy permission", `{"op":"replace","path":"/spec/approvalLimit","value":999}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When applying limit removal it should use ordinary policy permission", `{"op":"remove","path":"/spec/approvalLimit"}`, false, 200, nil, nil},
+		{"When applying whole spec replacement it should use ordinary policy permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"enabled":false,"approvallimit":999}}`, false, 200, lo.ToPtr(int32(999)), nil},
+		{"When a whole spec retains the limit it should update with ordinary policy permission", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{"region":"west"},"ApprovalLimit":10}}`, false, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
+		{"When removing a missing spec member it should reject the patch", `{"op":"replace","path":"/spec","value":{"certificateName":"credential","matchExpression":"true","deviceLabels":{},"ApprovalLimit":10}},{"op":"remove","path":"/spec/approvallimit"}`, false, 400, lo.ToPtr(int32(10)), nil},
+		{"When multiple operations restore the limit it should update with ordinary policy permission", `{"op":"remove","path":"/spec/approvalLimit"},{"op":"add","path":"/spec/approvalLimit","value":10}`, false, 200, lo.ToPtr(int32(10)), nil},
+		{"When the limit is tested it should leave it unchanged", `{"op":"test","path":"/spec/approvalLimit","value":10}`, false, 200, lo.ToPtr(int32(10)), nil},
+		{"When a label resembles quota it should preserve its case with ordinary policy permission", `{"op":"add","path":"/spec/deviceLabels/ApprovalLimit","value":"west"}`, false, 200, lo.ToPtr(int32(10)), map[string]string{"ApprovalLimit": "west"}},
+		{"When status is changed it should remain protected", `{"op":"add","path":"/status","value":{}}`, false, 400, lo.ToPtr(int32(10)), nil},
+		{"When certificate binding is changed it should remain immutable", `{"op":"replace","path":"/spec/certificateName","value":"other"}`, false, 409, lo.ToPtr(int32(10)), nil},
+		{"When validation is unavailable it should allow a canonical draft quota change", `{"op":"add","path":"/spec/approvalLimit","value":999}`, true, 200, lo.ToPtr(int32(999)), nil},
+		{"When validation is unavailable it should allow a draft quota alias change", `{"op":"add","path":"/spec/approvallimit","value":999}`, true, 200, lo.ToPtr(int32(999)), nil},
+		{"When validation is unavailable it should allow a draft label change", `{"op":"add","path":"/spec/deviceLabels/region","value":"west"}`, true, 200, lo.ToPtr(int32(10)), map[string]string{"region": "west"}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			memory := &routePolicyStore{
@@ -122,9 +116,6 @@ func TestApprovalPolicyPatchRouteQuotaAuthorization(t *testing.T) {
 				credential: &domain.CertificateSigningRequest{Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment"}, Status: &domain.CertificateSigningRequestStatus{Certificate: &certificate}},
 			}
 			permissions := auth.NewMockAuthZMiddleware(gomock.NewController(t))
-			if testCase.quotaCheck {
-				permissions.EXPECT().CheckPermission(gomock.Any(), "enrollmentapprovalpolicies/approvallimit", "update").Return(testCase.allowQuota, nil)
-			}
 			var validator policyservice.ExpressionValidator = acceptingRoutePolicyValidator{}
 			if testCase.unavailable {
 				validator = policyservice.UnavailableExpressionValidator{}

@@ -2,9 +2,6 @@ package consts
 
 type ctxKey string
 
-// ApprovalLimitPermissionRequiredMessage identifies the distinct quota denial returned by the policy API.
-const ApprovalLimitPermissionRequiredMessage = "approval limit changes require quota permission"
-
 // UpdateState represents the state of a device update.
 type UpdateState string
 

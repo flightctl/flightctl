@@ -68,6 +68,9 @@ type ApplyFunc[A any] func(m ResourceMutation[A]) error
 // GenericStore.Mutate owns only the load/apply/retry control loop.
 type MutateHooks[A any] struct {
 	MaxRetries *int
+	// RetryAborts retries confirmed PostgreSQL aborts. In a caller-owned
+	// transaction the mutation makes one attempt and returns errors to the owner.
+	RetryAborts bool
 	// Wrap turns a loaded API object into the typed mutation. Wrap(nil) is the create path.
 	// Required.
 	Wrap func(*A) ResourceMutation[A]
@@ -78,7 +81,7 @@ type MutateHooks[A any] struct {
 	// Defaults to GenericStore.Create on m.Resource().
 	PersistCreate func(ctx context.Context, orgId uuid.UUID, m ResourceMutation[A]) (*A, error)
 	// PersistUpdate writes after apply on the update path. Required.
-	// Returns retry=true on conflict / deadlock so Mutate can reload and retry.
+	// Returns retry=true when the write can safely be retried from a fresh load.
 	PersistUpdate func(ctx context.Context, orgId uuid.UUID, name string, before *A, m ResourceMutation[A]) (retry bool, err error)
 }
 

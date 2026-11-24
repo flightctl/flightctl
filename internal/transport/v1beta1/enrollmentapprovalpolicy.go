@@ -2,7 +2,6 @@ package transportv1beta1
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
-	policyservice "github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -49,19 +47,6 @@ func decodePolicy(body io.Reader, target any) error {
 	return strict.Decode(target)
 }
 
-func (handler *TransportHandler) quotaAllowed(w http.ResponseWriter, request *http.Request) bool {
-	status := policyservice.CheckApprovalLimitPermission(request.Context(), handler.authorizeApprovalLimit)
-	if status.Code == http.StatusOK {
-		return true
-	}
-	handler.SetResponse(w, nil, status)
-	return false
-}
-
-func (handler *TransportHandler) authorizeApprovalLimit(ctx context.Context) (bool, error) {
-	return handler.authZ.CheckPermission(ctx, "enrollmentapprovalpolicies/approvallimit", "update")
-}
-
 func (handler *TransportHandler) decodePolicyWrite(w http.ResponseWriter, request *http.Request) (apiv1beta1.EnrollmentApprovalPolicy, bool) {
 	var policy apiv1beta1.EnrollmentApprovalPolicy
 	if err := decodePolicy(request.Body, &policy); err != nil {
@@ -78,9 +63,6 @@ func (handler *TransportHandler) decodePolicyWrite(w http.ResponseWriter, reques
 func (handler *TransportHandler) CreateEnrollmentApprovalPolicy(w http.ResponseWriter, request *http.Request) {
 	policy, ok := handler.decodePolicyWrite(w, request)
 	if !ok {
-		return
-	}
-	if policy.Spec.ApprovalLimit != nil && !handler.quotaAllowed(w, request) {
 		return
 	}
 	result, status := handler.enrollmentapprovalpolicy.CreateEnrollmentApprovalPolicy(request.Context(), transport.OrgIDFromContext(request.Context()), handler.converter.EnrollmentApprovalPolicy().ToDomain(policy))
@@ -102,7 +84,7 @@ func (handler *TransportHandler) ReplaceEnrollmentApprovalPolicy(w http.Response
 	if !ok {
 		return
 	}
-	result, status := handler.enrollmentapprovalpolicy.ReplaceEnrollmentApprovalPolicy(request.Context(), transport.OrgIDFromContext(request.Context()), name, handler.converter.EnrollmentApprovalPolicy().ToDomain(policy), handler.authorizeApprovalLimit)
+	result, status := handler.enrollmentapprovalpolicy.ReplaceEnrollmentApprovalPolicy(request.Context(), transport.OrgIDFromContext(request.Context()), name, handler.converter.EnrollmentApprovalPolicy().ToDomain(policy))
 	handler.SetResponse(w, handler.converter.EnrollmentApprovalPolicy().FromDomain(result), status)
 }
 
@@ -145,7 +127,7 @@ func (handler *TransportHandler) PatchEnrollmentApprovalPolicy(w http.ResponseWr
 		handler.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
 		return
 	}
-	result, status := handler.enrollmentapprovalpolicy.PatchEnrollmentApprovalPolicy(request.Context(), transport.OrgIDFromContext(request.Context()), name, handler.converter.Common().PatchRequestToDomain(patch), handler.authorizeApprovalLimit)
+	result, status := handler.enrollmentapprovalpolicy.PatchEnrollmentApprovalPolicy(request.Context(), transport.OrgIDFromContext(request.Context()), name, handler.converter.Common().PatchRequestToDomain(patch))
 	handler.SetResponse(w, handler.converter.EnrollmentApprovalPolicy().FromDomain(result), status)
 }
 
