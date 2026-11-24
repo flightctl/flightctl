@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	inspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
@@ -417,6 +418,45 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		Expect(refreshed.References).To(ContainElement(HaveField("Reference", "registry.example/images/web:v2")))
 		Expect(inspectResult(second).Inspection.ID).To(Equal(original.Inspection.ID))
 		Expect(downloads.Load()).To(Equal(int32(2)))
+	})
+
+	It("When a live repository update repairs package access it should fence the old claim before retrying", func() {
+		repoName := "inspection-repair"
+		repo := &domain.Repository{Metadata: domain.ObjectMeta{Name: &repoName}}
+		spec := domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", Namespace: lo.ToPtr("team")}
+		Expect(repo.Spec.FromOciRepoSpec(spec)).To(Succeed())
+		repoStore := repositorystore.NewRepositoryStore(db, log)
+		Expect(repoStore.Create(ctx, orgID, repo)).Error().NotTo(HaveOccurred())
+
+		name := lo.FromPtr(createDeviceFor(`{"appType":"compose","image":"registry.example/team/package:v1"}`).Metadata.Name)
+		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), newCoordinator(nil))
+		admit(logic, name, domain.EventReasonResourceCreated)
+		before := current(name)
+		work := inspectResult(name).Inspection.ID
+		claim, err := storeSvc.Claim(ctx, orgID, work, time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(claim.Token).NotTo(BeZero())
+
+		workerCtx, cancel := context.WithCancel(ctx)
+		DeferCleanup(cancel)
+		ordinary, err := provider.NewQueueProducer(ctx, consts.TaskQueue)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(ordinary.Close)
+		eventStore := eventstore.NewEventStore(db, log)
+		emitter := events.NewServiceHandler(eventStore, worker_client.NewWorkerClient(ordinary, log), log)
+		eventSvc := eventservice.NewServiceHandler(eventStore, emitter)
+		repoSvc := repositoryservice.NewServiceHandler(repoStore, emitter, log)
+		Expect(tasks.LaunchConsumers(workerCtx, provider, tasks.TaskConsumer{DeviceRenderer: logic, RepositorySvc: repoSvc, EventSvc: eventSvc}, 1, 1)).To(Succeed())
+
+		spec.Scheme = lo.ToPtr(domain.OciRepoSchemeHttp)
+		Expect(repo.Spec.FromOciRepoSpec(spec)).To(Succeed())
+		_, status := repoSvc.ReplaceRepository(ctx, orgID, repoName, *repo)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+		Eventually(func() uuid.UUID { return current(name).ID }, 5*time.Second).ShouldNot(Equal(before.ID))
+		old, err := storeSvc.GetAttempt(ctx, orgID, work)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(old.Inspection.ClaimToken).To(BeNil())
+		Expect(storeSvc.ListRecoverableWork(ctx, orgID, uuid.Nil, 10)).To(HaveLen(1))
 	})
 
 	DescribeTable("When inspection finishes incomplete it should publish best effort and retry only a distinct signal", func(retryReason domain.EventReason) {

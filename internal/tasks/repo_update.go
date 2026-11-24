@@ -61,14 +61,28 @@ func (t *DeviceRenderLogic) retryRepositoryInspections(ctx context.Context, orgI
 	if err != nil {
 		return err
 	}
-	if event.Metadata.CreationTimestamp != nil {
-		if err := t.inspection.store.FenceRepositoryClaims(ctx, orgID, scope, *event.Metadata.CreationTimestamp); err != nil {
-			return err
-		}
-	}
 	eventID, err := uuid.Parse(lo.FromPtr(event.Metadata.Name))
 	if err != nil {
 		return err
+	}
+	// Live notifications can omit the timestamp. Use the persisted time so
+	// redelivery cannot fence claims acquired after the Repository changed.
+	eventTime := event.Metadata.CreationTimestamp
+	if eventTime == nil {
+		list, status := eventSvc.ListEvents(ctx, orgID, domain.ListEventsParams{
+			FieldSelector: lo.ToPtr("metadata.name=" + eventID.String()), Limit: lo.ToPtr(int32(1)),
+		})
+		if status.Code != http.StatusOK {
+			return fmt.Errorf("look up inspection repair event: %s", status.Message)
+		}
+		if len(list.Items) != 0 {
+			eventTime = list.Items[0].Metadata.CreationTimestamp
+		}
+	}
+	if eventTime != nil {
+		if err := t.inspection.store.FenceRepositoryClaims(ctx, orgID, scope, *eventTime); err != nil {
+			return err
+		}
 	}
 	return t.emitInspectionRetries(ctx, orgID, scope, eventID, event.InvolvedObject.Name, eventSvc)
 }
