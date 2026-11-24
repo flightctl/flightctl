@@ -1083,6 +1083,20 @@ func (mr *MockAnchorMockRecorder) ReadOnlyMount() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadOnlyMount", reflect.TypeOf((*MockAnchor)(nil).ReadOnlyMount))
 }
 
+// RemoveFile mocks base method.
+func (m *MockAnchor) RemoveFile(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveFile", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveFile indicates an expected call of RemoveFile.
+func (mr *MockAnchorMockRecorder) RemoveFile(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveFile", reflect.TypeOf((*MockAnchor)(nil).RemoveFile), name)
+}
+
 // RemoveTree mocks base method.
 func (m *MockAnchor) RemoveTree(ctx context.Context, name string, b RemoveBounds) (RemoveResult, error) {
 	m.ctrl.T.Helper()

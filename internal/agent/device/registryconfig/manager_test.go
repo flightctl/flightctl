@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/registryconfig"
@@ -102,9 +103,10 @@ func TestPrepareRejectsInvalidResourcesAndTargets(t *testing.T) {
 				tc.setup(t, root)
 			}
 			desired := spec(t, strings.ReplaceAll(valid, tc.from, tc.to))
-			err := mgr.Prepare(t.Context(), desired)
-			require.ErrorIs(t, err, deviceerrors.ErrInvalidConfigResource)
-			require.NotContains(t, err.Error(), secret)
+			for _, err := range []error{mgr.Prepare(t.Context(), desired), mgr.Commit(t.Context(), desired)} {
+				require.ErrorIs(t, err, deviceerrors.ErrInvalidConfigResource)
+				require.NotContains(t, err.Error(), secret)
+			}
 			contents, err := os.ReadFile(current)
 			require.NoError(t, err)
 			require.Equal(t, "current bytes", string(contents))
@@ -135,7 +137,7 @@ func assertAuth(t *testing.T, path string, entries map[string]string) {
 	require.JSONEq(t, string(expected), string(actual))
 }
 
-func TestRegistryAuthStagesOwnedCredentials(t *testing.T) {
+func TestRegistryAuthLifecycle(t *testing.T) {
 	mgr, root := fixture(t)
 	desired := spec(t, valid)
 	processFile, namedFile := live(processHome), live(namedHome)
@@ -164,6 +166,74 @@ func TestRegistryAuthStagesOwnedCredentials(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, processStage, again)
 
+	require.NoError(t, mgr.Commit(t.Context(), desired))
+	require.NoFileExists(t, processStage)
+	require.NoFileExists(t, namedStage)
+	assertAuth(t, filepath.Join(root, processFile), processAuth)
+	assertAuth(t, filepath.Join(root, namedFile), namedAuth)
+	info, err := os.Stat(filepath.Dir(filepath.Join(root, namedFile)))
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o700), info.Mode().Perm())
+	record, err := os.ReadFile(filepath.Join(root, dataDir, "registry-config/outputs.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(record), namedFile)
+	require.NotContains(t, string(record), secret)
+
+	fewer := strings.ReplaceAll(valid, `,{"type":"container","user":""}`, "")
+	before, err := os.Stat(filepath.Join(root, processFile))
+	require.NoError(t, err)
+	require.NoError(t, mgr.Commit(t.Context(), spec(t, fewer)))
+	after, err := os.Stat(filepath.Join(root, processFile))
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after))
+
+	removed := strings.ReplaceAll(fewer, `"authentication":{"authType":"docker","username":"test","password":"`+secret+`"},`, "")
+	require.NoError(t, mgr.Commit(t.Context(), spec(t, removed)))
+	require.NoFileExists(t, filepath.Join(root, processFile))
+	assertAuth(t, filepath.Join(root, namedFile), namedAuth)
+	restarted := registryconfig.NewManager(fileio.NewReadWriterFactory(root), dataDir, registryconfig.WithAccountLookup(func(name v1beta1.Username) (registryconfig.Account, error) {
+		t.Errorf("withdrawal looked up account %q", name)
+		return registryconfig.Account{}, fs.ErrNotExist
+	}))
+	require.NoError(t, restarted.Commit(t.Context(), &v1beta1.DeviceSpec{}))
+	require.NoFileExists(t, filepath.Join(root, namedFile))
+}
+
+func TestRegistryAuthPreservesExactAuthoredDestination(t *testing.T) {
+	mgr, root := fixture(t)
+	desired := spec(t, valid)
+	require.NoError(t, mgr.Commit(t.Context(), desired))
+	path := live(namedHome)
+	var err error
+	desired.Config, err = config.FilesToProviderSpec([]v1beta1.FileSpec{{Path: path}})
+	require.NoError(t, err)
+	require.NoError(t, mgr.Prepare(t.Context(), desired))
+	_, ok := mgr.StagedPath(path)
+	require.False(t, ok)
+	require.NoError(t, mgr.Commit(t.Context(), desired))
+	require.NoError(t, mgr.Commit(t.Context(), spec(t)))
+	assertAuth(t, filepath.Join(root, path), map[string]string{"quay.io:5000/team/nested": "test:named"})
+}
+
+func TestRegistryAuthRequiresOutputRecord(t *testing.T) {
+	mgr, root := fixture(t)
+	path := filepath.Join(root, dataDir, "registry-config")
+	require.NoError(t, os.WriteFile(path, []byte("not a directory"), 0o600))
+	require.Error(t, mgr.Commit(t.Context(), spec(t, valid)))
+	require.NoFileExists(t, filepath.Join(root, live(processHome)))
+	require.NoFileExists(t, filepath.Join(root, live(namedHome)))
+}
+
+func TestRegistryAuthWithdrawalPreservesDirectory(t *testing.T) {
+	mgr, root := fixture(t)
+	require.NoError(t, mgr.Commit(t.Context(), spec(t, valid)))
+	path := filepath.Join(root, live(namedHome))
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Mkdir(path, 0o700))
+	keep := filepath.Join(path, "other-data")
+	require.NoError(t, os.WriteFile(keep, []byte("unrelated"), 0o600))
+	require.Error(t, mgr.Commit(t.Context(), spec(t)))
+	require.FileExists(t, keep)
 }
 
 func TestRegistryAuthRetainsStagingUntilCleanup(t *testing.T) {

@@ -98,6 +98,7 @@ type EntryInfo struct {
 	Nlink uint64
 	Size  int64
 	UID   uint32
+	GID   uint32
 	Dev   uint64
 	Ino   uint64
 }
@@ -254,6 +255,8 @@ type Anchor interface {
 	CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error)
 	WriteFileExclusive(name string, data []byte, perm fs.FileMode) error
 	ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...ReplaceOption) error
+	// RemoveFile unlinks a leaf entry and refuses directories.
+	RemoveFile(name string) error
 	// RenameNoReplace atomically renames oldName to newName in newDir and
 	// fails with ErrDestinationExists when newName exists. newDir must be an
 	// Anchor from this package or wrap one and implement Unwrap() Anchor.

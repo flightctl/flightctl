@@ -9,10 +9,13 @@ import (
 	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
+//go:generate go run -modfile=../../../../tools/go.mod go.uber.org/mock/mockgen -source=manager.go -destination=mock_registryconfig.go -package=registryconfig
+
 // Manager stages and applies native authentication from rendered registry resources.
 type Manager interface {
 	Prepare(context.Context, *v1beta1.DeviceSpec) error
 	StagedPath(livePath string) (string, bool)
+	Commit(context.Context, *v1beta1.DeviceSpec) error
 	Cleanup() error
 }
 

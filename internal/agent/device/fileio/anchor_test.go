@@ -280,6 +280,21 @@ func assertOwnership(t *testing.T, path string, owner Ownership, mode fs.FileMod
 	require.Equal(t, mode, info.Mode().Perm())
 }
 
+func TestAnchorRemoveFile(t *testing.T) {
+	rw, root := anchorFixture(t)
+	data := openTrusted(t, rw, "/data")
+	require.NoError(t, data.WriteFileExclusive("auth.json", []byte("old"), 0o600))
+	require.NoError(t, data.RemoveFile("auth.json"))
+	require.NoFileExists(t, filepath.Join(root, "data", "auth.json"))
+	require.NoError(t, data.RemoveFile("auth.json"))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "data", "auth.json"), 0o700))
+	keep := filepath.Join(root, "data", "auth.json", "keep")
+	require.NoError(t, os.WriteFile(keep, []byte("keep"), 0o600))
+	require.Error(t, data.RemoveFile("auth.json"))
+	require.FileExists(t, keep)
+	require.ErrorIs(t, data.RemoveFile("../auth.json"), errors.ErrInvalidPath)
+}
+
 func TestAnchorOpenDir(t *testing.T) {
 	t.Run("When the directory is absent it should create it with the requested mode and open it", func(t *testing.T) {
 		require := require.New(t)

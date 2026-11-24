@@ -335,6 +335,7 @@ func entryInfo(name string, st *unix.Stat_t) EntryInfo {
 		Nlink: uint64(st.Nlink), //nolint:unconvert // Stat_t widths differ by architecture
 		Size:  int64(st.Size),   //nolint:unconvert // Stat_t widths differ by architecture
 		UID:   st.Uid,
+		GID:   st.Gid,
 		Dev:   uint64(st.Dev), //nolint:unconvert // Stat_t widths differ by architecture
 		Ino:   uint64(st.Ino), //nolint:unconvert // Stat_t widths differ by architecture
 	}
@@ -799,6 +800,22 @@ func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, 
 		return fmt.Errorf("sync %w: %w", errors.WithElement(a.path), err)
 	}
 	return nil
+}
+
+func (a *anchor) RemoveFile(name string) error {
+	if a.readOnly {
+		return fmt.Errorf("remove from %w: %w", errors.WithElement(a.path), errors.ErrReadOnlyAnchor)
+	}
+	if err := validName(name); err != nil {
+		return err
+	}
+	if err := a.sys.unlinkat(a.fd, name, 0); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return nil
+		}
+		return fmt.Errorf("remove file %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+	}
+	return a.Sync()
 }
 
 func resolveAnchor(x Anchor) (*anchor, error) {
