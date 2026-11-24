@@ -2,6 +2,7 @@ package registryconfig
 
 import (
 	"context"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -11,6 +12,8 @@ import (
 // Manager stages and applies native authentication from rendered registry resources.
 type Manager interface {
 	Prepare(context.Context, *v1beta1.DeviceSpec) error
+	StagedPath(livePath string) (string, bool)
+	Cleanup() error
 }
 
 type Account struct {
@@ -28,6 +31,11 @@ type manager struct {
 	factory fileio.ReadWriterFactory
 	dataDir string
 	lookup  func(v1beta1.Username) (Account, error)
+
+	mu     sync.RWMutex
+	staged map[string]*stagedOutput
+	// Retain previous paths while in-flight pulls can still use them.
+	all []*stagedOutput
 }
 
 func NewManager(factory fileio.ReadWriterFactory, dataDir string, opts ...Option) Manager {
@@ -43,9 +51,4 @@ func NewManager(factory fileio.ReadWriterFactory, dataDir string, opts ...Option
 		opt(m)
 	}
 	return m
-}
-
-func (m *manager) Prepare(ctx context.Context, desired *v1beta1.DeviceSpec) error {
-	_, err := m.plan(ctx, desired)
-	return err
 }

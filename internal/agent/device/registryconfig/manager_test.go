@@ -1,11 +1,13 @@
 package registryconfig_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -53,6 +55,7 @@ func fixture(t *testing.T) (registryconfig.Manager, string) {
 		}
 		return registryconfig.Account{UID: uid, GID: gid, HomeDir: home}, nil
 	}))
+	t.Cleanup(func() { require.NoError(t, mgr.Cleanup()) })
 	return mgr, root
 }
 
@@ -111,4 +114,76 @@ func TestPrepareRejectsInvalidResourcesAndTargets(t *testing.T) {
 			require.NoFileExists(t, filepath.Join(root, "/home/unknown", consts.ContainersAuthRelativePath))
 		})
 	}
+}
+
+func assertAuth(t *testing.T, path string, entries map[string]string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o600), info.Mode().Perm())
+	stat := info.Sys().(*syscall.Stat_t)
+	require.Equal(t, os.Geteuid(), int(stat.Uid))
+	require.Equal(t, os.Getegid(), int(stat.Gid))
+	want := map[string]map[string]string{}
+	for key, credential := range entries {
+		want[key] = map[string]string{"auth": base64.StdEncoding.EncodeToString([]byte(credential))}
+	}
+	expected, err := json.Marshal(map[string]any{"auths": want})
+	require.NoError(t, err)
+	actual, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(actual))
+}
+
+func TestRegistryAuthStagesOwnedCredentials(t *testing.T) {
+	mgr, root := fixture(t)
+	desired := spec(t, valid)
+	processFile, namedFile := live(processHome), live(namedHome)
+	processAuth := map[string]string{"quay.io:5000": "test:" + secret}
+	namedAuth := map[string]string{"quay.io:5000/team/nested": "test:named"}
+
+	require.NoError(t, mgr.Prepare(t.Context(), desired))
+	processStage, ok := mgr.StagedPath(processFile)
+	require.True(t, ok)
+	namedStage, ok := mgr.StagedPath(namedFile)
+	require.True(t, ok)
+	require.NotEqual(t, processStage, namedStage)
+	require.NotContains(t, processStage, secret)
+	assertAuth(t, processStage, processAuth)
+	assertAuth(t, namedStage, namedAuth)
+	for _, path := range []string{processStage, namedStage} {
+		info, err := os.Stat(filepath.Dir(path))
+		require.NoError(t, err)
+		require.Equal(t, fs.FileMode(0o711), info.Mode().Perm())
+		require.Equal(t, os.Geteuid(), int(info.Sys().(*syscall.Stat_t).Uid))
+	}
+	require.NoFileExists(t, filepath.Join(root, processFile))
+	require.NoFileExists(t, filepath.Join(root, namedFile))
+	require.NoError(t, mgr.Prepare(t.Context(), desired))
+	again, ok := mgr.StagedPath(processFile)
+	require.True(t, ok)
+	require.Equal(t, processStage, again)
+
+}
+
+func TestRegistryAuthRetainsStagingUntilCleanup(t *testing.T) {
+	mgr, _ := fixture(t)
+	desired := spec(t, valid)
+	path := live(processHome)
+	require.NoError(t, mgr.Prepare(t.Context(), desired))
+	old, ok := mgr.StagedPath(path)
+	require.True(t, ok)
+	updated := strings.ReplaceAll(valid, secret, "rotated")
+	updated = strings.ReplaceAll(updated, `"scheme":"https","skipServerVerification":false`, `"scheme":"http","skipServerVerification":true`)
+	require.NoError(t, mgr.Prepare(t.Context(), spec(t, updated)))
+	newPath, ok := mgr.StagedPath(path)
+	require.True(t, ok)
+	require.NotEqual(t, old, newPath)
+	assertAuth(t, old, map[string]string{"quay.io:5000": "test:" + secret})
+	assertAuth(t, newPath, map[string]string{"quay.io:5000": "test:rotated"})
+	require.NoError(t, mgr.Cleanup())
+	require.NoFileExists(t, old)
+	require.NoFileExists(t, newPath)
+	_, ok = mgr.StagedPath(path)
+	require.False(t, ok)
 }
