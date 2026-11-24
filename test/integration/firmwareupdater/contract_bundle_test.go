@@ -87,16 +87,26 @@ func readJSONFile(path string, value any) {
 
 func buildContract(ctx context.Context, arch, dir string) contractBuild {
 	s := newStorage(filepath.Join(dir, "storage"))
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "CONTAINERS_STORAGE_CONF=") })
-	env = append(env, "CONTAINERS_STORAGE_CONF="+s.conf)
+	env := podmanEnv(s, state.DiscoveryHome)
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	Expect(err).NotTo(HaveOccurred())
+	// Keep Go's toolchain and caches when using the isolated Podman home.
+	goEnv := exec.CommandContext(ctx, "go", "env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE", "GOENV")
+	goEnv.Dir = root
+	goOutput, err := goEnv.Output()
+	Expect(err).NotTo(HaveOccurred())
+	var goPaths map[string]string
+	Expect(json.Unmarshal(goOutput, &goPaths)).To(Succeed())
+	buildEnv := slices.Clone(env)
+	for name, value := range goPaths {
+		buildEnv = append(buildEnv, name+"="+value)
+	}
 	out := filepath.Join(dir, "out")
 	cmd := exec.CommandContext(ctx, filepath.Join(root, "packaging", "images", "firmware-updater", "build.sh"), "--arch", arch, "--output", out) //nolint:gosec // G204: the repository build script with test-chosen arguments
-	cmd.Env = env
+	cmd.Env = buildEnv
 	output, err := cmd.CombinedOutput()
 	Expect(err).NotTo(HaveOccurred(), "build.sh --arch %s: %s", arch, output)
-	b := contractBuild{arch: arch, out: out, tag: "localhost/updater-contract-fixture:" + contractVersion + "-linux-" + arch, env: podmanEnv(s, state.DiscoveryHome)}
+	b := contractBuild{arch: arch, out: out, tag: "localhost/updater-contract-fixture:" + contractVersion + "-linux-" + arch, env: env}
 	digest, err := os.ReadFile(filepath.Join(out, "image.digest"))
 	Expect(err).NotTo(HaveOccurred())
 	b.digest = strings.TrimSpace(string(digest))
