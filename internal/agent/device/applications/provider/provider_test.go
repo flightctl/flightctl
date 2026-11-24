@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -21,6 +23,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestContainerPullOptionsExecutionUser(t *testing.T) {
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name string
+		user v1beta1.Username
+	}{
+		{"When the execution user is omitted it should use the process home", v1beta1.CurrentProcessUsername},
+		{"When the execution user is named it should use the named user's home", v1beta1.Username(current.Username)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := dependency.NewMockPullConfigResolver(gomock.NewController(t))
+			resolver.EXPECT().Options(gomock.Cond(func(value any) bool {
+				spec, ok := value.(dependency.PullConfigSpec)
+				return ok && len(spec.Paths) == 1 && spec.Paths[0] == filepath.Join(current.HomeDir, consts.ContainersAuthRelativePath)
+			}))
+			containerPullOptions(resolver, tc.user)
+		})
+	}
+}
 
 func TestExtractQuadletTargets(t *testing.T) {
 	testClientOpts := []client.ClientOption{client.WithPullSecret("/tmp/test-pull-secret")}

@@ -14,15 +14,31 @@ func LookupUser(username v1beta1.Username) (uid uint32, gid uint32, homeDir stri
 		return 0, 0, "", err
 	}
 
-	intUid, err := strconv.Atoi(user.Uid)
+	return accountDetails(user)
+}
+
+// LookupExecutionUser resolves an omitted username to the process account.
+func LookupExecutionUser(username v1beta1.Username) (uid uint32, gid uint32, homeDir string, err error) {
+	if !username.IsCurrentProcessUser() {
+		return LookupUser(username)
+	}
+	account, err := user.Current()
+	if err != nil {
+		return 0, 0, "", err
+	}
+	return accountDetails(account)
+}
+
+func accountDetails(account *user.User) (uid uint32, gid uint32, homeDir string, err error) {
+	intUid, err := strconv.ParseUint(account.Uid, 10, 32)
 	if err != nil {
 		return 0, 0, "", err
 	}
 
-	intGid, err := strconv.Atoi(user.Gid)
+	intGid, err := strconv.ParseUint(account.Gid, 10, 32)
 	if err != nil {
 		return 0, 0, "", err
 	}
 
-	return uint32(intUid), uint32(intGid), user.HomeDir, nil //nolint:gosec
+	return uint32(intUid), uint32(intGid), account.HomeDir, nil //nolint:gosec // IDs are parsed as uint32
 }
