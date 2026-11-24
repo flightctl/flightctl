@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/aap"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 type AAPGatewayUserIdentity interface {
@@ -208,7 +209,12 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 	for _, org := range aapOrganizations {
 		organizations = append(organizations, ApplyOrgPrefix(org.Name, a.spec.OrganizationNamePrefix))
 	}
-	userInfo.organizationIDs = aapOrganizationIDs(aapOrganizations, a.spec.OrganizationNamePrefix)
+	var conflictCount int
+	userInfo.organizationIDs, conflictCount = aapOrganizationIDs(aapOrganizations, a.spec.OrganizationNamePrefix)
+	if conflictCount > 0 {
+		logrus.WithField("conflicting_organization_count", conflictCount).
+			Warn("Conflicting AAP organization mappings; omitting original external IDs")
+	}
 
 	// Map AAP permissions to roles
 	// Superuser and platform auditor are global roles that apply to all orgs
@@ -307,15 +313,25 @@ func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token s
 
 // aapOrganizationIDs keeps only positive, consistent Gateway IDs. Invalid or
 // conflicting evidence suppresses metadata, never membership or role processing.
-func aapOrganizationIDs(organizations []*aap.AAPOrganization, prefix *string) map[string]int64 {
+// The count includes unique organization keys with conflicting positive mappings.
+func aapOrganizationIDs(organizations []*aap.AAPOrganization, prefix *string) (map[string]int64, int) {
 	ids := make(map[string]int64, len(organizations))
 	namesByID := make(map[int64]string, len(organizations))
 	ambiguousIDs := make(map[int64]bool)
+	positiveIDsByName := make(map[string]int64, len(organizations))
+	conflictingNames := make(map[string]bool)
 	for _, org := range organizations {
 		name := ApplyOrgPrefix(org.Name, prefix)
 		id := int64(org.ID)
 		if org.Name == "" || id <= 0 {
 			id = 0
+		}
+		// Invalid observations suppress metadata but must not hide positive conflicts.
+		if id > 0 {
+			if previous, seen := positiveIDsByName[name]; seen && previous != id {
+				conflictingNames[name] = true
+			}
+			positiveIDsByName[name] = id
 		}
 		if previous, seen := ids[name]; seen && previous != id {
 			ids[name] = 0
@@ -324,6 +340,10 @@ func aapOrganizationIDs(organizations []*aap.AAPOrganization, prefix *string) ma
 		}
 		if previous, seen := namesByID[id]; seen && previous != name {
 			ambiguousIDs[id] = true
+			if id > 0 {
+				conflictingNames[previous] = true
+				conflictingNames[name] = true
+			}
 		}
 		namesByID[id] = name
 	}
@@ -332,7 +352,7 @@ func aapOrganizationIDs(organizations []*aap.AAPOrganization, prefix *string) ma
 			delete(ids, name)
 		}
 	}
-	return ids
+	return ids, len(conflictingNames)
 }
 
 // getUserRoleAssignments gets role assignments for a specific user from AAP
