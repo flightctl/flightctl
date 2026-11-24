@@ -70,6 +70,7 @@ type Service interface {
 	// output is left unchanged and the returned status satisfies IsFirmwareHold.
 	// ExpectedGeneration, when supplied, is checked inside the rendered mutation.
 	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status
+	FailInspectionRender(ctx context.Context, orgID uuid.UUID, name string, continuation RenderContinuation, condition domain.Condition) domain.Status
 	SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status
 	ReplaceDeviceRepositoryRefsIfCurrent(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec *domain.DeviceSpec) (common.RepositoryRefsOutcome, domain.Status)
 	GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status)

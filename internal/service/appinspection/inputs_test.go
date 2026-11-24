@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -51,7 +52,9 @@ func TestPreparedPackagePinsBlobs(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", digest.FromBytes(manifest).String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
 			if r.Method == http.MethodGet {
-				_, _ = w.Write(manifest)
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("writing registry manifest: %v", err)
+				}
 			}
 			return
 		}
@@ -60,7 +63,9 @@ func TestPreparedPackagePinsBlobs(t *testing.T) {
 			if ref == digest.FromString(blob).String() {
 				downloads.Add(1)
 				w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
-				_, _ = w.Write([]byte(blob))
+				if _, err := w.Write([]byte(blob)); err != nil {
+					t.Errorf("writing registry blob: %v", err)
+				}
 				return
 			}
 		}
@@ -106,9 +111,14 @@ func TestHelmInspectionIdentity(t *testing.T) {
 		require.NoError(t, err)
 		return key
 	}
-	const source = "repositories:\n- name: child\n  url: https://charts.example/charts\n"
+	const chartURL = "https://charts.example/charts"
+	const source = "repositories:\n- name: child\n  url: " + chartURL + "\n"
 	base := key(`{"enabled":true}`, source)
-	require.Equal(t, base, key(`{"enabled":true}`, strings.ReplaceAll(source, "https://charts.example/charts", "https://reader:password@charts.example/charts?token=secret")))
+	u, err := url.Parse(chartURL)
+	require.NoError(t, err)
+	u.User = url.UserPassword("reader", "placeholder")
+	u.RawQuery = url.Values{"token": {"placeholder"}}.Encode()
+	require.Equal(t, base, key(`{"enabled":true}`, strings.ReplaceAll(source, chartURL, u.String())))
 	require.NotEqual(t, base, key(`{"enabled":false}`, source))
 	require.NotEqual(t, base, key(`{"enabled":true}`, strings.ReplaceAll(source, "charts.example", "other.example")))
 }

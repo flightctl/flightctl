@@ -149,6 +149,20 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
+// FailInspectionRender mocks base method.
+func (m *MockService) FailInspectionRender(ctx context.Context, orgID uuid.UUID, name string, continuation RenderContinuation, condition domain.Condition) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailInspectionRender", ctx, orgID, name, continuation, condition)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// FailInspectionRender indicates an expected call of FailInspectionRender.
+func (mr *MockServiceMockRecorder) FailInspectionRender(ctx, orgID, name, continuation, condition any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInspectionRender", reflect.TypeOf((*MockService)(nil).FailInspectionRender), ctx, orgID, name, continuation, condition)
+}
+
 // FlagDevicesForRevokedEnrollmentCredential mocks base method.
 func (m *MockService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, domain.Status) {
 	m.ctrl.T.Helper()

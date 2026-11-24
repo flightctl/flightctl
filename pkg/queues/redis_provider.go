@@ -997,20 +997,24 @@ func (r *redisQueue) markInFlightTaskCompleteWithQualifiedID(ctx context.Context
 		local entryID = ARGV[1]
 		local timestamp = tonumber(ARGV[2])
 
-		-- Remove the original entry
+		local trackedTimestamp = redis.call('ZSCORE', key, entryID)
+		if not trackedTimestamp then
+			return 0
+		end
+		-- Use the tracked score when the stream entry was unavailable.
+		if timestamp == 0 then
+			timestamp = tonumber(trackedTimestamp)
+		end
 		redis.call('ZREM', key, entryID)
-
-		-- Add the completed entry
 		redis.call('ZADD', key, timestamp, entryID .. ':completed')
 
 		return 1
 	`
 
-	err := r.client.Eval(ctx, luaScript, []string{redisKeyInFlightTasks}, qualifiedEntryID, timestamp).Err()
-
+	completed, err := r.client.Eval(ctx, luaScript, []string{redisKeyInFlightTasks}, qualifiedEntryID, timestamp).Int()
 	if err != nil {
 		r.log.WithError(err).WithField("qualifiedEntryID", qualifiedEntryID).Debug("failed to mark in-flight task as completed")
-	} else {
+	} else if completed != 0 {
 		r.log.WithField("qualifiedEntryID", qualifiedEntryID).Debug("successfully marked in-flight task as completed")
 	}
 }

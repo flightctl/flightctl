@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/helm"
 	"github.com/flightctl/flightctl/internal/oci"
 	inspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
+	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	inspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -84,16 +85,26 @@ func (t *deviceRenderState) inspectionSnapshot(device *domain.Device, rendered R
 			return inspectionSnapshot{}, fmt.Errorf("decode effective applications: %w", err)
 		}
 	}
-	var releases []helm.ReleaseContext
+	var releases []*helm.ReleaseContext
 	for i := range snapshot.apps {
-		if kind, _ := snapshot.apps[i].GetAppType(); kind == domain.AppTypeHelm {
-			app, err := snapshot.apps[i].AsHelmApplication()
-			if err != nil {
-				return inspectionSnapshot{}, err
-			}
-			release, _ := helm.TargetRelease(app, device)
-			releases = append(releases, release)
+		kind, err := snapshot.apps[i].GetAppType()
+		if err != nil {
+			return inspectionSnapshot{}, err
 		}
+		if kind != domain.AppTypeHelm {
+			continue
+		}
+		app, err := snapshot.apps[i].AsHelmApplication()
+		if err != nil {
+			return inspectionSnapshot{}, err
+		}
+		release, err := helm.TargetRelease(app, device)
+		if err != nil {
+			// The inspector records a sanitized diagnostic for an invalid release.
+			releases = append(releases, nil)
+			continue
+		}
+		releases = append(releases, &release)
 	}
 	var aliases []helm.RepositoryAlias
 	var invalidAliases bool
@@ -106,7 +117,7 @@ func (t *deviceRenderState) inspectionSnapshot(device *domain.Device, rendered R
 		Applications   json.RawMessage
 		OSImage        string
 		Platform       any
-		Releases       []helm.ReleaseContext
+		Releases       []*helm.ReleaseContext
 		Aliases        []helm.RepositoryAlias
 		InvalidAliases bool
 	}{rendered.Applications, rendered.OsImage,
@@ -149,12 +160,20 @@ func (t *deviceRenderState) admitInspection(ctx context.Context, snapshot inspec
 	admission := inspectionstore.Admission{Owner: snapshot.owner, Snapshot: snapshot.key, EventID: eventID, PreviousID: previousID, ForceRender: force}
 	for i := range snapshot.apps {
 		app := &snapshot.apps[i]
+		kind, err := app.GetAppType()
+		if err != nil {
+			return err
+		}
 		mechanism := model.InspectionPullContainer
-		if kind, _ := app.GetAppType(); kind == domain.AppTypeHelm {
+		if kind == domain.AppTypeHelm {
 			mechanism = model.InspectionPullHelmChart
 		}
+		user, err := inspectionApplicationUser(app, kind)
+		if err != nil {
+			return err
+		}
 		admission.Applications = append(admission.Applications, inspectionstore.AdmissionApplication{
-			Context: strconv.Itoa(i), User: inspectionApplicationUser(app), Mechanism: mechanism, References: inspectionservice.DeclaredReferences(app),
+			Context: strconv.Itoa(i), User: user, Mechanism: mechanism, References: inspectionservice.DeclaredReferences(app),
 		})
 	}
 	admitted, err := t.inspection.store.Admit(ctx, t.orgId, admission)
@@ -174,17 +193,16 @@ func (t *deviceRenderState) admitInspection(ctx context.Context, snapshot inspec
 	return nil
 }
 
-func inspectionApplicationUser(app *domain.ApplicationProviderSpec) string {
-	kind, _ := app.GetAppType()
+func inspectionApplicationUser(app *domain.ApplicationProviderSpec, kind domain.AppType) (string, error) {
 	switch kind {
 	case domain.AppTypeContainer:
-		spec, _ := app.AsContainerApplication()
-		return spec.RunAs.String()
+		spec, err := app.AsContainerApplication()
+		return spec.RunAs.String(), err
 	case domain.AppTypeQuadlet:
-		spec, _ := app.AsQuadletApplication()
-		return spec.RunAs.String()
+		spec, err := app.AsQuadletApplication()
+		return spec.RunAs.String(), err
 	default:
-		return ""
+		return "", nil
 	}
 }
 
@@ -244,6 +262,16 @@ func (t *DeviceRenderLogic) ResumeInspection(ctx context.Context, orgID, id uuid
 	return state.renderDevice(ctx)
 }
 
+func (t *deviceRenderState) failInspectionRender(ctx context.Context, device *domain.Device, renderErr error) error {
+	owner, current := inspectionOwner(device), t.continuation
+	if current.Invalidated || owner.Generation != current.Generation || !owner.CreatedAt.Equal(current.OwnerCreatedAt) || owner.TemplateIdentity != current.TemplateIdentity {
+		return t.discardInspection(ctx)
+	}
+	guard := deviceservice.RenderContinuation{ID: current.ID, Snapshot: current.Snapshot, ResourceVersion: lo.FromPtr(device.Metadata.ResourceVersion)}
+	status := t.deviceSvc.FailInspectionRender(ctx, t.orgId, owner.Name, guard, invalidRenderCondition(renderErr))
+	return common.ApiStatusToErr(status)
+}
+
 func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device *domain.Device, rendered RenderedSpec, snapshot inspectionSnapshot) (*deviceservice.RenderContinuation, bool, error) {
 	current := t.continuation
 	if !snapshot.owner.CreatedAt.Equal(current.OwnerCreatedAt) {
@@ -281,10 +309,19 @@ func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device 
 			if ctx.Err() != nil {
 				return nil, false, ctx.Err()
 			}
-			if (!matches && err == nil) || (err != nil && result.Inspection.State == model.InspectionComplete) {
+			if err != nil {
+				if result.Inspection.State == model.InspectionComplete {
+					return refresh()
+				}
+				t.log.Debug("Unable to verify OCI revision; resuming with known incomplete inspection results")
+			} else if !matches {
 				return refresh()
 			}
-			if kind, _ := app.Spec.GetAppType(); kind == domain.AppTypeHelm {
+			kind, err := app.Spec.GetAppType()
+			if err != nil {
+				return nil, false, err
+			}
+			if kind == domain.AppTypeHelm {
 				t.recordInspectedHelm(usage.ApplicationContext, result)
 			}
 		}

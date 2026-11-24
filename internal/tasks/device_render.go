@@ -451,6 +451,9 @@ func (t *deviceRenderState) renderEffectiveSpec(ctx context.Context, device *dom
 
 func (t *deviceRenderState) publishRender(ctx context.Context, device *domain.Device, rendered RenderedSpec, renderErr error, specHash string, bypassHashCheck bool, options deviceservice.RenderedDeviceOptions) error {
 	if renderErr != nil && t.continuation != nil {
+		if isPermanentRenderError(renderErr) || errors.Is(renderErr, errIgnitionConversion) {
+			return t.failInspectionRender(ctx, device, renderErr)
+		}
 		return renderErr
 	}
 	if errors.Is(renderErr, errIgnitionConversion) {
@@ -600,17 +603,19 @@ func (t *deviceRenderState) markPermanentRenderFailure(ctx context.Context, spec
 	}
 }
 
-// setErrorStatus records a render failure as SpecValid=False. All call sites already gate
-// on a non-nil error, so renderErr is always expected to be set.
-func (t *deviceRenderState) setErrorStatus(ctx context.Context, renderErr error) error {
-	condition := domain.Condition{
+func invalidRenderCondition(renderErr error) domain.Condition {
+	return domain.Condition{
 		Type:    domain.ConditionTypeDeviceSpecValid,
 		Status:  domain.ConditionStatusFalse,
 		Reason:  "Invalid",
 		Message: renderErr.Error(),
 	}
+}
 
-	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
+// setErrorStatus records a render failure as SpecValid=False. All call sites already gate
+// on a non-nil error, so renderErr is always expected to be set.
+func (t *deviceRenderState) setErrorStatus(ctx context.Context, renderErr error) error {
+	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{invalidRenderCondition(renderErr)})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	} else if err := t.deviceSvc.UpdateServerSideDeviceStatus(ctx, t.orgId, t.event.InvolvedObject.Name); err != nil {

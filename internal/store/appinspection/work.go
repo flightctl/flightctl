@@ -307,6 +307,15 @@ func (s *Store) listWorkIDs(ctx context.Context, table any, orgID, after uuid.UU
 // ConsumeIfCurrent must share the transaction with publication so a rollback
 // leaves the continuation ready for another delivery.
 func (s *Store) ConsumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Owner, id uuid.UUID, snapshot model.InspectionFingerprint) (bool, error) {
+	return s.consumeIfCurrent(ctx, orgID, owner, id, snapshot, true)
+}
+
+// ConsumeForRenderFailure settles a current render independently of inspection result freshness.
+func (s *Store) ConsumeForRenderFailure(ctx context.Context, orgID uuid.UUID, owner Owner, id uuid.UUID, snapshot model.InspectionFingerprint) (bool, error) {
+	return s.consumeIfCurrent(ctx, orgID, owner, id, snapshot, false)
+}
+
+func (s *Store) consumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Owner, id uuid.UUID, snapshot model.InspectionFingerprint, requireFresh bool) (bool, error) {
 	table, column, err := owner.tableAndColumn()
 	if err != nil {
 		return false, err
@@ -329,8 +338,12 @@ func (s *Store) ConsumeIfCurrent(ctx context.Context, orgID uuid.UUID, owner Own
 		if err != nil || !matches {
 			return err
 		}
-		result := tx.Model(&model.ApplicationInspectionContinuation{}).Where("org_id = ? AND id = ?", orgID, id).
-			Where(readyContinuation).Where("NOT invalidated").Where(freshContinuation).Update("consumed_at", gorm.Expr("clock_timestamp()"))
+		current := tx.Model(&model.ApplicationInspectionContinuation{}).Where("org_id = ? AND id = ?", orgID, id).
+			Where(readyContinuation).Where("NOT invalidated")
+		if requireFresh {
+			current = current.Where(freshContinuation)
+		}
+		result := current.Update("consumed_at", gorm.Expr("clock_timestamp()"))
 		applied = result.RowsAffected != 0
 		return result.Error
 	})

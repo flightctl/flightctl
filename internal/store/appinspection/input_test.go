@@ -91,7 +91,7 @@ func TestKeyForInput(t *testing.T) {
 		{"chart identity", chart, func(in *model.ApplicationInspectionInput) { in.Helm = nil }},
 		{"chart refresh identity", refresh, func(in *model.ApplicationInspectionInput) {
 			identity := *in.Helm
-			identity.ChartReference = "https://secret-value@registry.example/chart"
+			identity.ChartReference = "https://registry.example/chart?invalid=secret-value"
 			in.Helm = &identity
 		}},
 		{"chart format", chart, func(in *model.ApplicationInspectionInput) { in.Format = model.InspectionFormatRaw }},

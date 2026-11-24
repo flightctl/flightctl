@@ -43,6 +43,7 @@ func NewInputResolver(inspector *Inspector, renderer inspection.HelmRenderer, ca
 }
 
 func DeclaredReferences(app *domain.ApplicationProviderSpec) []inspectionstore.ReferenceInput {
+	// Admission retains valid references for targeting; execution reports malformed references.
 	refs, _ := referenceInputs(inspection.DeclaredReferences(app))
 	return refs
 }

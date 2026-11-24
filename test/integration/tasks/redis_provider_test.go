@@ -211,6 +211,44 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 	})
 
 	Describe("Basic Queue Operations", func() {
+		DescribeTable("When a delivered message is trimmed it should only complete tracked work", func(timestamp int64, tracked bool) {
+			queueName := "test-queue-" + uuid.NewString()
+			client := redis.NewClient(&redis.Options{Addr: fmt.Sprintf("%s:%d", redisHost, redisPort), Password: string(redisPassword)})
+			DeferCleanup(client.Close)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
+			Expect(err).NotTo(HaveOccurred())
+			producer, err := provider.NewQueueProducer(ctx, queueName)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(producer.Close)
+
+			type completion struct {
+				id  string
+				err error
+			}
+			completed := make(chan completion, 1)
+			Expect(consumer.Consume(ctx, func(ctx context.Context, body []byte, id string, c queues.QueueConsumer, _ logrus.FieldLogger) error {
+				err := client.XDel(ctx, queueName, id).Err()
+				if err == nil {
+					err = c.Complete(ctx, id, body, nil)
+				}
+				completed <- completion{id, err}
+				return err
+			})).To(Succeed())
+			Expect(producer.Enqueue(ctx, []byte("test"), timestamp)).To(Succeed())
+			var result completion
+			Eventually(completed, 5*time.Second).Should(Receive(&result))
+			Expect(result.err).NotTo(HaveOccurred())
+			key := queueName + "|" + result.id
+			members, err := client.ZRangeWithScores(ctx, "in_flight_tasks", 0, -1).Result()
+			Expect(err).NotTo(HaveOccurred())
+			if tracked {
+				Expect(members).To(ContainElement(redis.Z{Member: key + ":completed", Score: float64(timestamp)}))
+			} else {
+				Expect(members).NotTo(ContainElement(HaveField("Member", key+":completed")))
+			}
+			Expect(members).NotTo(ContainElement(HaveField("Member", key)))
+		}, Entry("durable wakeup", queues.DurableWakeupTimestamp, false), Entry("ordinary event", int64(42), true))
+
 		It("should Enqueue and consume messages", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 

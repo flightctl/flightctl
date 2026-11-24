@@ -69,6 +69,11 @@ func (e *deadlineEventRecorder) CreateEvent(_ context.Context, _ uuid.UUID, even
 	e.events = append(e.events, &cp)
 }
 
+func (e *deadlineEventRecorder) CreateEventOnce(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	e.CreateEvent(ctx, orgID, event)
+	return nil
+}
+
 func (e *deadlineEventRecorder) ListEvents(context.Context, uuid.UUID, domain.ListEventsParams) (*domain.EventList, domain.Status) {
 	return nil, domain.StatusOK()
 }

@@ -1261,7 +1261,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		Reason: "Valid",
 	}
 	var previous, updated *domain.Device
-	var oldConditions, oldHoldConditions, newHoldConditions []domain.Condition
+	var oldConditions, oldRenderConditions, newRenderConditions []domain.Condition
 	var renderedVersion string
 	var held bool
 	var continuation *RenderContinuation
@@ -1288,17 +1288,21 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 			oldConditions = nil
 			updated = nil
 			renderedVersion = ""
-			held, oldHoldConditions, newHoldConditions = false, nil, nil
+			held, oldRenderConditions, newRenderConditions = false, nil, nil
 			if m.Device.Status != nil {
 				oldConditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
 			}
 			if domain.DeviceRequiresFirmwareHold(m.Device) {
 				held = true
 				var err error
-				oldHoldConditions, newHoldConditions, err = h.holdForFirmware(ctx, orgId, m.Device)
+				oldRenderConditions, newRenderConditions, err = h.holdForFirmware(ctx, orgId, m.Device)
 				return err
 			}
 			version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
+			if continuation != nil && errors.Is(err, store.ErrMutateSkipWrite) {
+				oldRenderConditions, newRenderConditions, err = h.updateRenderCondition(ctx, orgId, m.Device, specValid)
+				return err
+			}
 			if err != nil {
 				return err
 			}
@@ -1320,7 +1324,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		}, devicestore.WithTimestamp())
 		return renderedVersion, err
 	}
-	applied, err := h.mutateRenderedDevice(ctx, orgId, name, continuation, mutate)
+	applied, err := h.mutateRenderedDevice(ctx, orgId, name, continuation, false, mutate)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -1328,14 +1332,17 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	if !applied {
 		return domain.StatusOK()
 	}
+	if newRenderConditions != nil {
+		h.diffAndEmitConditionEvents(ctx, orgId, previous, oldRenderConditions, newRenderConditions)
+	}
 	if held {
-		if newHoldConditions != nil {
-			h.diffAndEmitConditionEvents(ctx, orgId, previous, oldHoldConditions, newHoldConditions)
-		}
 		return firmwareHoldStatus(name)
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
+		if continuation != nil {
+			return domain.StatusOK()
+		}
 		// A separate mutation, so firmware state that appeared since the
 		// rendered write was decided is checked again on its own attempts.
 		var heldUnchanged bool
@@ -1389,7 +1396,40 @@ func NotifyInspectionRender(ctx context.Context, inspections *inspectionstore.St
 	return inspections.AcknowledgePublication(ctx, orgID, id, version)
 }
 
-func (h *DeviceServiceHandler) mutateRenderedDevice(ctx context.Context, orgID uuid.UUID, name string, continuation *RenderContinuation, mutate func(context.Context) (string, error)) (bool, error) {
+// FailInspectionRender records a permanent render failure without replacing the last rendered version.
+func (h *DeviceServiceHandler) FailInspectionRender(ctx context.Context, orgID uuid.UUID, name string, continuation RenderContinuation, condition domain.Condition) domain.Status {
+	var updated *domain.Device
+	var oldConditions, newConditions []domain.Condition
+	_, err := h.mutateRenderedDevice(ctx, orgID, name, &continuation, true, func(txCtx context.Context) (string, error) {
+		var err error
+		updated, _, _, err = h.deviceStore.Mutate(txCtx, orgID, name, nil, func(m *devicestore.DeviceMutation) error {
+			oldConditions, newConditions = nil, nil
+			if err := m.RequireExisting(); err != nil {
+				return err
+			}
+			if lo.FromPtr(m.Device.Metadata.ResourceVersion) != continuation.ResourceVersion {
+				return flterrors.ErrResourceVersionConflict
+			}
+			currentCondition := condition
+			if domain.DeviceRequiresFirmwareHold(m.Device) {
+				currentCondition = firmwareHoldCondition()
+			}
+			var applyErr error
+			oldConditions, newConditions, applyErr = h.updateRenderCondition(txCtx, orgID, m.Device, currentCondition)
+			return applyErr
+		}, devicestore.WithTimestamp())
+		return "", err
+	})
+	if err != nil {
+		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	if updated != nil && newConditions != nil {
+		h.diffAndEmitConditionEvents(ctx, orgID, updated, oldConditions, newConditions)
+	}
+	return domain.StatusOK()
+}
+
+func (h *DeviceServiceHandler) mutateRenderedDevice(ctx context.Context, orgID uuid.UUID, name string, continuation *RenderContinuation, failed bool, mutate func(context.Context) (string, error)) (bool, error) {
 	if continuation == nil {
 		_, err := mutate(ctx)
 		return true, err
@@ -1398,10 +1438,14 @@ func (h *DeviceServiceHandler) mutateRenderedDevice(ctx context.Context, orgID u
 		return false, errors.New("device render continuation store is required")
 	}
 	owner := inspectionstore.Owner{Kind: inspectionstore.OwnerDevice, Name: name}
+	consume := h.inspectionStore.ConsumeIfCurrent
+	if failed {
+		consume = h.inspectionStore.ConsumeForRenderFailure
+	}
 	var consumed bool
 	err := h.deviceStore.WithTransaction(ctx, func(txCtx context.Context) error {
 		var err error
-		consumed, err = h.inspectionStore.ConsumeIfCurrent(txCtx, orgID, owner, continuation.ID, continuation.Snapshot)
+		consumed, err = consume(txCtx, orgID, owner, continuation.ID, continuation.Snapshot)
 		if err != nil || !consumed {
 			return err
 		}
@@ -1412,6 +1456,22 @@ func (h *DeviceServiceHandler) mutateRenderedDevice(ctx context.Context, orgID u
 		return h.inspectionStore.RecordPublication(txCtx, orgID, continuation.ID, version)
 	})
 	return consumed, err
+}
+
+func (h *DeviceServiceHandler) updateRenderCondition(ctx context.Context, orgID uuid.UUID, device *domain.Device, condition domain.Condition) ([]domain.Condition, []domain.Condition, error) {
+	existing := serviceConditionsFromDevice(device)
+	merged, changed := common.MergeStatusConditions(existing, []domain.Condition{condition})
+	if changed {
+		replaceServiceConditionsOnDevice(device, merged)
+	}
+	statusChanged := common.UpdateServiceSideStatus(ctx, orgID, device, h.fleetStore, h.log)
+	if changed {
+		return existing, merged, nil
+	}
+	if statusChanged {
+		return nil, nil, nil
+	}
+	return nil, nil, store.ErrMutateSkipWrite
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {

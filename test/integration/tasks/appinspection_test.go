@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -50,6 +51,49 @@ type inspectionHelmRenderer func(context.Context) (string, error)
 
 func (f inspectionHelmRenderer) RenderManifests(ctx context.Context, _ api.HelmApplication, _ *domain.Device, _ []byte, _ *domain.OciRepoSpec) (string, error) {
 	return f(ctx)
+}
+
+type inspectionCommitHookStore struct {
+	devicestore.Store
+	afterCommit func()
+}
+
+func (s inspectionCommitHookStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	err := s.Store.WithTransaction(ctx, fn)
+	if err == nil {
+		s.afterCommit()
+	}
+	return err
+}
+
+type inspectionRetryEventStore struct {
+	eventstore.Store
+	failID string
+	failed atomic.Bool
+}
+
+func (s *inspectionRetryEventStore) Create(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	if lo.FromPtr(event.Metadata.Name) == s.failID && s.failed.CompareAndSwap(false, true) {
+		return errors.New("retry event storage unavailable")
+	}
+	return s.Store.Create(ctx, orgID, event)
+}
+
+type inspectionRetryProducer struct {
+	queues.QueueProducer
+	failID string
+	repair atomic.Bool
+}
+
+func (p *inspectionRetryProducer) Enqueue(ctx context.Context, body []byte, timestamp int64) error {
+	var payload worker_client.EventWithOrgId
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	if lo.FromPtr(payload.Event.Metadata.Name) == p.failID && !p.repair.Load() {
+		return errors.New("retry event publication unavailable")
+	}
+	return p.QueueProducer.Enqueue(ctx, body, timestamp)
 }
 
 var _ = Describe("QueuedApplicationInspection", func() {
@@ -109,6 +153,11 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		device, status := deviceSvc.GetDevice(ctx, orgID, name)
 		Expect(status.Code).To(BeEquivalentTo(200))
 		return lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion]
+	}
+	specValidity := func(name string) *domain.Condition {
+		device, status := deviceSvc.GetDevice(ctx, orgID, name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		return domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceSpecValid)
 	}
 	inspectResult := func(name string) inspectionstore.Result {
 		page, err := storeSvc.ListUsages(ctx, orgID, inspectionstore.Owner{Kind: inspectionstore.OwnerDevice, Name: name}, 1, "")
@@ -293,6 +342,76 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		Expect(version(name)).To(Equal(published))
 	}, Entry("with a same-generation input change", true), Entry("after the generation advances", false))
 
+	It("When a no-change continuation commits it should leave a newer validity condition intact", func() {
+		name := lo.FromPtr(createDevice().Metadata.Name)
+		coordinator := newCoordinator(func(context.Context) (string, error) { return fixtureManifest, nil })
+		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), coordinator)
+		admit(logic, name, domain.EventReasonResourceCreated)
+		process(coordinator, logic)
+		Expect(logic.ResumeInspection(ctx, orgID, current(name).ID)).To(Succeed())
+		previous := version(name)
+		admit(logic, name, domain.EventReasonDependencyChangeDetected)
+		process(coordinator, logic)
+		ready := current(name)
+		invalid := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse, Reason: "Invalid", Message: "newer invalidation"}
+		Expect(deviceSvc.SetDeviceServiceConditions(ctx, orgID, name, []domain.Condition{invalid}).Code).To(BeEquivalentTo(http.StatusOK))
+		device, status := deviceSvc.GetDevice(ctx, orgID, name)
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		newer := invalid
+		newer.Message = "concurrent invalidation"
+		storeWithHook := inspectionCommitHookStore{devices, func() {
+			Expect(specValidity(name)).To(HaveField("Status", domain.ConditionStatusTrue))
+			Expect(deviceSvc.SetDeviceServiceConditions(ctx, orgID, name, []domain.Condition{newer}).Code).To(BeEquivalentTo(http.StatusOK))
+		}}
+		svc := deviceservice.NewDeviceServiceHandler(storeWithHook, nil, fleetstore.NewFleetStore(db, log), events.NewServiceHandler(eventstore.NewEventStore(db, log), nil, log), kv, "", log, deviceservice.WithInspectionStore(storeSvc))
+		status = svc.UpdateRenderedDevice(ctx, orgID, name, "", "[]", lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationRenderedSpecHash], "", nil, false, nil, deviceservice.RenderedDeviceOptions{
+			Inspection: &deviceservice.RenderContinuation{ID: ready.ID, Snapshot: ready.Snapshot, ResourceVersion: lo.FromPtr(device.Metadata.ResourceVersion)},
+		})
+		Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		Expect(specValidity(name)).To(HaveField("Message", newer.Message))
+		Expect(version(name)).To(Equal(previous))
+		Expect(current(name).ConsumedAt).NotTo(BeNil())
+	})
+
+	DescribeTable("When an interrupted render fails during resume it should settle only permanent failures on the current device", func(configJSON string, wantInvalid, retainReady, preserveGeneration bool) {
+		name := lo.FromPtr(createDevice().Metadata.Name)
+		admit(origin, name, domain.EventReasonResourceCreated)
+		previous := version(name)
+		coordinator := newCoordinator(func(context.Context) (string, error) { return fixtureManifest, nil })
+		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), coordinator)
+		admit(logic, name, domain.EventReasonDependencyChangeDetected)
+		process(coordinator, logic)
+		ready := current(name)
+
+		var configSpec domain.ConfigProviderSpec
+		Expect(json.Unmarshal([]byte(configJSON), &configSpec)).To(Succeed())
+		_, _, _, err := devices.Mutate(ctx, orgID, name, nil, func(m *devicestore.DeviceMutation) error {
+			m.PreserveGeneration = preserveGeneration
+			m.Device.Spec.Config = &[]domain.ConfigProviderSpec{configSpec}
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+		if retainReady {
+			Expect(logic.ResumeInspection(ctx, orgID, ready.ID)).NotTo(Succeed())
+			Expect(storeSvc.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)).To(ContainElement(ready.ID))
+		} else {
+			Expect(logic.ResumeInspection(ctx, orgID, ready.ID)).To(Succeed())
+			Expect(storeSvc.ListReadyContinuations(ctx, orgID, uuid.Nil, 10)).NotTo(ContainElement(ready.ID))
+			Expect(logic.ResumeInspection(ctx, orgID, ready.ID)).To(Succeed())
+		}
+		if wantInvalid {
+			Expect(specValidity(name)).To(HaveField("Status", domain.ConditionStatusFalse))
+			Expect(specValidity(name)).To(HaveField("Reason", "Invalid"))
+		} else {
+			Expect(specValidity(name)).To(HaveField("Status", domain.ConditionStatusTrue))
+		}
+		Expect(version(name)).To(Equal(previous))
+	},
+		Entry("permanent error", `{"name":"invalid","configType":"unknown"}`, true, false, true),
+		Entry("transient error", `{"name":"http","configType":"HttpConfigProvider","httpRef":{"repository":"missing","filePath":"/etc/test"}}`, false, true, true),
+		Entry("stale continuation", `{"name":"invalid","configType":"unknown"}`, false, false, false),
+	)
+
 	It("When Helm freshness expires it should refresh the child refs under the unchanged parent and keep older usages intact", func() {
 		var renders int
 		coordinator := newCoordinator(func(context.Context) (string, error) {
@@ -373,12 +492,14 @@ var _ = Describe("QueuedApplicationInspection", func() {
 					w.Header().Set("Docker-Content-Digest", item.parent.String())
 					w.Header().Set("Content-Length", strconv.Itoa(len(item.manifest)))
 					if r.Method == http.MethodGet {
+						// The client verifies the manifest against its digest.
 						_, _ = w.Write(item.manifest)
 					}
 					return
 				case "/v2/team/package/blobs/" + item.layer.String():
 					downloads.Add(1)
 					w.Header().Set("Content-Length", strconv.Itoa(len(item.blob)))
+					// The client verifies the blob against its digest.
 					_, _ = w.Write(item.blob)
 					return
 				}
@@ -420,15 +541,14 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		Expect(downloads.Load()).To(Equal(int32(2)))
 	})
 
-	It("When a live repository update repairs package access it should fence the old claim before retrying", func() {
+	DescribeTable("When a live repository update repairs package access it should fence the old claim before retrying", func(spec domain.OciRepoSpec, image string) {
 		repoName := "inspection-repair"
 		repo := &domain.Repository{Metadata: domain.ObjectMeta{Name: &repoName}}
-		spec := domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", Namespace: lo.ToPtr("team")}
 		Expect(repo.Spec.FromOciRepoSpec(spec)).To(Succeed())
 		repoStore := repositorystore.NewRepositoryStore(db, log)
 		Expect(repoStore.Create(ctx, orgID, repo)).Error().NotTo(HaveOccurred())
 
-		name := lo.FromPtr(createDeviceFor(`{"appType":"compose","image":"registry.example/team/package:v1"}`).Metadata.Name)
+		name := lo.FromPtr(createDeviceFor(`{"appType":"compose","image":` + strconv.Quote(image) + `}`).Metadata.Name)
 		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), newCoordinator(nil))
 		admit(logic, name, domain.EventReasonResourceCreated)
 		before := current(name)
@@ -457,7 +577,69 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(old.Inspection.ClaimToken).To(BeNil())
 		Expect(storeSvc.ListRecoverableWork(ctx, orgID, uuid.Nil, 10)).To(HaveLen(1))
-	})
+	},
+		Entry("namespace", domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", Namespace: lo.ToPtr("team")}, "registry.example/team/package:v1"),
+		Entry("Docker Hub short repository", domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: "docker.io", Repository: lo.ToPtr("nginx")}, "docker.io/library/nginx:v1"),
+	)
+
+	DescribeTable("When an inspection retry trigger cannot be delivered it should redeliver without duplicating stored events", Serial, func(failPersist bool) {
+		repoName := "inspection-repair"
+		repo := &domain.Repository{Metadata: domain.ObjectMeta{Name: &repoName}}
+		Expect(repo.Spec.FromOciRepoSpec(domain.OciRepoSpec{
+			Type: domain.OciRepoSpecTypeOci, Registry: "registry.example", Namespace: lo.ToPtr("team"),
+		})).To(Succeed())
+		repoStore := repositorystore.NewRepositoryStore(db, log)
+		Expect(repoStore.Create(ctx, orgID, repo)).Error().NotTo(HaveOccurred())
+		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), newCoordinator(nil))
+		names := []string{
+			lo.FromPtr(createDeviceFor(`{"appType":"compose","image":"registry.example/team/package:v1"}`).Metadata.Name),
+			lo.FromPtr(createDeviceFor(`{"appType":"compose","image":"registry.example/team/package:v1"}`).Metadata.Name),
+		}
+		slices.Sort(names)
+		before := make([]uuid.UUID, len(names))
+		for i, name := range names {
+			admit(logic, name, domain.EventReasonResourceCreated)
+			before[i] = current(name).ID
+		}
+
+		workerCtx, cancel := context.WithCancel(ctx)
+		DeferCleanup(cancel)
+		queue, err := provider.NewQueueProducer(ctx, consts.TaskQueue)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(queue.Close)
+		var details domain.EventDetails
+		Expect(details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.Spec}})).To(Succeed())
+		event := domain.GetBaseEvent(ctx, domain.RepositoryKind, repoName, domain.EventReasonResourceUpdated, "", &details)
+		eventID := uuid.MustParse(lo.FromPtr(event.Metadata.Name))
+		triggerID := func(name string) string { return uuid.NewSHA1(eventID, []byte(name)).String() }
+		retryStore := &inspectionRetryEventStore{Store: eventstore.NewEventStore(db, log)}
+		retryQueue := &inspectionRetryProducer{QueueProducer: queue}
+		if failPersist {
+			retryStore.failID = triggerID(names[1])
+		} else {
+			retryQueue.failID = triggerID(names[1])
+		}
+		emitter := events.NewServiceHandler(retryStore, worker_client.NewWorkerClient(retryQueue, log), log)
+		eventSvc := eventservice.NewServiceHandler(retryStore, emitter)
+		repoSvc := repositoryservice.NewServiceHandler(repoStore, emitter, log)
+		Expect(tasks.LaunchConsumers(workerCtx, provider, tasks.TaskConsumer{DeviceRenderer: logic, RepositorySvc: repoSvc, EventSvc: eventSvc}, 1, 1)).To(Succeed())
+		eventSvc.CreateEvent(ctx, orgID, event)
+		Expect(waitForRedisFailedMessagesState(ctx, consts.TaskQueue, 1, 5*time.Second)).To(BeTrue(), "Repository event should be eligible for redelivery")
+		Eventually(func() uuid.UUID { return current(names[0]).ID }, 5*time.Second).ShouldNot(Equal(before[0]))
+		Expect(current(names[1]).ID).To(Equal(before[1]))
+		retryQueue.repair.Store(true)
+		Eventually(func(g Gomega) {
+			count, err := provider.RetryFailedMessages(ctx, consts.TaskQueue, queues.DefaultRetryConfig(), nil)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(count).To(Equal(1))
+		}, 12*time.Second, 100*time.Millisecond).Should(Succeed())
+		Eventually(func() uuid.UUID { return current(names[1]).ID }, 5*time.Second).ShouldNot(Equal(before[1]))
+		for _, name := range names {
+			list, status := eventSvc.ListEvents(ctx, orgID, domain.ListEventsParams{FieldSelector: lo.ToPtr("metadata.name=" + triggerID(name))})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(list.Items).To(HaveLen(1))
+		}
+	}, Entry("event persistence fails", true), Entry("publication fails after persistence", false))
 
 	DescribeTable("When inspection finishes incomplete it should publish best effort and retry only a distinct signal", func(retryReason domain.EventReason) {
 		var accessible bool

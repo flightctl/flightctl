@@ -275,14 +275,17 @@ var _ = Describe("ApplicationInspectionStore", func() {
 		}
 		start := make(chan struct{})
 		promoted := make(chan promotion, 2)
-		for _, admitted := range admissions {
-			id := admitted.WorkIDs[0]
-			claim, err := inspections.Claim(ctx, orgID, id, time.Minute)
+		tokens := make([]uuid.UUID, len(admissions))
+		for i, admitted := range admissions {
+			claim, err := inspections.Claim(ctx, orgID, admitted.WorkIDs[0], time.Minute)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(claim.Token).NotTo(BeZero())
+			tokens[i] = claim.Token
+		}
+		for i, admitted := range admissions {
 			go func() {
 				<-start
-				id, err := inspections.PromoteOrAttach(ctx, orgID, id, claim.Token, attempt.Input)
+				id, err := inspections.PromoteOrAttach(ctx, orgID, admitted.WorkIDs[0], tokens[i], attempt.Input)
 				promoted <- promotion{id, err}
 			}()
 		}

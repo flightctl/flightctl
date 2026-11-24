@@ -88,17 +88,22 @@ func (t *DeviceRenderLogic) retryRepositoryInspections(ctx context.Context, orgI
 }
 
 func inspectionRepositoryScope(spec domain.OciRepoSpec) (inspectionstore.RepositoryScope, error) {
-	host, err := inspectionstore.NormalizeReference(inspectionstore.ReferenceInput{
-		Reference: spec.Registry + "/placeholder", Role: model.InspectionRolePackage, Mechanism: model.InspectionPullContainer,
+	repository := strings.Trim(lo.FromPtr(spec.Repository), "/")
+	path := repository
+	if path == "" {
+		path = "placeholder"
+	}
+	ref, err := inspectionstore.NormalizeReference(inspectionstore.ReferenceInput{
+		Reference: spec.Registry + "/" + path, Role: model.InspectionRolePackage, Mechanism: model.InspectionPullContainer,
 	})
 	if err != nil {
 		return inspectionstore.RepositoryScope{}, err
 	}
-	scope := inspectionstore.RepositoryScope{Registry: host.Registry, Port: host.Port}
-	if path := strings.Trim(lo.FromPtr(spec.Repository), "/"); path != "" {
-		scope.Path, scope.Exact = strings.Split(path, "/"), true
-	} else if path := strings.Trim(lo.FromPtr(spec.Namespace), "/"); path != "" {
-		scope.Path = strings.Split(path, "/")
+	scope := inspectionstore.RepositoryScope{Registry: ref.Registry, Port: ref.Port}
+	if repository != "" {
+		scope.Path, scope.Exact = ref.Path, true
+	} else if namespace := strings.Trim(lo.FromPtr(spec.Namespace), "/"); namespace != "" {
+		scope.Path = strings.Split(namespace, "/")
 	}
 	return scope, nil
 }
@@ -112,7 +117,9 @@ func (t *DeviceRenderLogic) emitInspectionRetries(ctx context.Context, orgID uui
 		for _, name := range names {
 			event := servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, domain.DeviceKind, name, repository)
 			event.Metadata.Name = lo.ToPtr(uuid.NewSHA1(eventID, []byte(name)).String())
-			eventSvc.CreateEvent(ctx, orgID, event)
+			if err := eventSvc.CreateEventOnce(ctx, orgID, event); err != nil {
+				return fmt.Errorf("emit inspection retry for device %s: %w", name, err)
+			}
 		}
 		if len(names) < inspectionWakeupBatch {
 			return nil

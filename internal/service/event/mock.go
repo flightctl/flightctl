@@ -54,6 +54,20 @@ func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, orgId, event)
 }
 
+// CreateEventOnce mocks base method.
+func (m *MockService) CreateEventOnce(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEventOnce", ctx, orgID, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateEventOnce indicates an expected call of CreateEventOnce.
+func (mr *MockServiceMockRecorder) CreateEventOnce(ctx, orgID, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventOnce", reflect.TypeOf((*MockService)(nil).CreateEventOnce), ctx, orgID, event)
+}
+
 // DeleteEventsOlderThan mocks base method.
 func (m *MockService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, domain.Status) {
 	m.ctrl.T.Helper()
