@@ -80,3 +80,41 @@ func (mr *MockPullConfigResolverMockRecorder) Options(specs ...any) *gomock.Call
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Options", reflect.TypeOf((*MockPullConfigResolver)(nil).Options), specs...)
 }
+
+// MockGeneratedConfigSource is a mock of GeneratedConfigSource interface.
+type MockGeneratedConfigSource struct {
+	ctrl     *gomock.Controller
+	recorder *MockGeneratedConfigSourceMockRecorder
+}
+
+// MockGeneratedConfigSourceMockRecorder is the mock recorder for MockGeneratedConfigSource.
+type MockGeneratedConfigSourceMockRecorder struct {
+	mock *MockGeneratedConfigSource
+}
+
+// NewMockGeneratedConfigSource creates a new mock instance.
+func NewMockGeneratedConfigSource(ctrl *gomock.Controller) *MockGeneratedConfigSource {
+	mock := &MockGeneratedConfigSource{ctrl: ctrl}
+	mock.recorder = &MockGeneratedConfigSourceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockGeneratedConfigSource) EXPECT() *MockGeneratedConfigSourceMockRecorder {
+	return m.recorder
+}
+
+// StagedPath mocks base method.
+func (m *MockGeneratedConfigSource) StagedPath(livePath string) (string, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StagedPath", livePath)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// StagedPath indicates an expected call of StagedPath.
+func (mr *MockGeneratedConfigSourceMockRecorder) StagedPath(livePath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StagedPath", reflect.TypeOf((*MockGeneratedConfigSource)(nil).StagedPath), livePath)
+}
