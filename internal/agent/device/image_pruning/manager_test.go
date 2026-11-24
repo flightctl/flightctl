@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -1217,95 +1218,415 @@ func TestPrune_keepsPrunePendingOnRemovalErrors(t *testing.T) {
 	require.True(m.PrunePending(), "after Prune with removal errors, PrunePending should stay true (retry until timeout or success)")
 }
 
-type fakeRetainedReferences struct {
-	refs []string
-	err  error
+// podmanStore fakes one podman storage: the images and artifacts it holds and
+// the removals the pruner dispatches to it.
+type podmanStore struct {
+	images    map[string]bool
+	artifacts map[string]bool
+	removed   []string
 }
 
-func (f *fakeRetainedReferences) RetainedImageReferences(context.Context) ([]string, error) {
-	return f.refs, f.err
+func newPodmanStore() *podmanStore {
+	return &podmanStore{images: map[string]bool{}, artifacts: map[string]bool{}}
 }
 
-func TestManager_retainedUpdaterImages(t *testing.T) {
-	const updater = "quay.io/example/updater@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+func (s *podmanStore) addImages(images ...string) {
+	for _, image := range images {
+		s.images[image] = true
+	}
+}
+
+// podman answers the podman commands the pruner issues against this store.
+func (s *podmanStore) podman(ctrl *gomock.Controller) *executer.MockExecuter {
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, args ...string) (string, string, int) {
+			if len(args) != 3 {
+				return "", "unexpected podman call", 125
+			}
+			name := args[2]
+			switch args[0] + " " + args[1] {
+			case "image exists":
+				return "", "", exitCodeFor(s.images[name])
+			case "artifact inspect":
+				return "", "", exitCodeFor(s.artifacts[name])
+			case "image rm":
+				delete(s.images, name)
+			case "artifact rm":
+				delete(s.artifacts, name)
+			default:
+				return "", "unexpected podman call", 125
+			}
+			s.removed = append(s.removed, name)
+			return "", "", 0
+		}).AnyTimes()
+	return exec
+}
+
+func exitCodeFor(present bool) int {
+	if present {
+		return 0
+	}
+	return 1
+}
+
+// prunerUser owns the second, rootless podman store of a prunerFixture.
+const prunerUser v1beta1.Username = "alice"
+
+// prunerFixture is a pruning manager over a temporary data directory, a root
+// and a rootless podman store, and current and desired specs the test controls.
+type prunerFixture struct {
+	m       *manager
+	dir     string
+	root    *podmanStore
+	user    *podmanStore
+	current *v1beta1.Device
+	desired *v1beta1.Device
+}
+
+// newPrunerFixture starts with the given reference history; a nil history
+// leaves no references file.
+func newPrunerFixture(t *testing.T, history []ImageRef, opts ...Option) *prunerFixture {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	f := &prunerFixture{
+		dir:     t.TempDir(),
+		root:    newPodmanStore(),
+		user:    newPodmanStore(),
+		current: &v1beta1.Device{Spec: &v1beta1.DeviceSpec{}},
+	}
+	logger := log.NewPrefixLogger("test")
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(f.dir)), fileio.NewWriter(fileio.WithWriterRootDir(f.dir)))
+	require.NoError(t, rw.MkdirAll(f.dir, fileio.DefaultDirectoryPermissions))
+	if history != nil {
+		data, err := json.Marshal(ImageArtifactReferences{Timestamp: "2025-01-01T00:00:00Z", References: history})
+		require.NoError(t, err)
+		require.NoError(t, rw.WriteFile(filepath.Join(f.dir, ReferencesFileName), data, fileio.DefaultFilePermissions))
+	}
+	specs := spec.NewMockManager(ctrl)
+	specs.EXPECT().Read(spec.Current).DoAndReturn(func(spec.Type) (*v1beta1.Device, error) {
+		return f.current, nil
+	}).AnyTimes()
+	specs.EXPECT().Read(spec.Desired).DoAndReturn(func(spec.Type) (*v1beta1.Device, error) {
+		if f.desired == nil {
+			return nil, errors.New("desired not found")
+		}
+		return f.desired, nil
+	}).AnyTimes()
+	root := client.NewPodman(logger, f.root.podman(ctrl), rw, poll.Config{})
+	user := client.NewPodman(logger, f.user.podman(ctrl), rw, poll.Config{})
+	factory := func(owner v1beta1.Username) (*client.Podman, error) {
+		switch {
+		case owner.IsCurrentProcessUser() || owner.IsRootUser():
+			return root, nil
+		case owner == prunerUser:
+			return user, nil
+		}
+		return nil, errors.New("no podman store for " + string(owner))
+	}
+	rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
 	enabled := true
 	cfg := config.ImagePruning{Enabled: &enabled}
-	logger := log.NewPrefixLogger("test")
-	newManager := func(t *testing.T, provider RetainedReferenceProvider) (*manager, string) {
-		t.Helper()
-		ctrl := gomock.NewController(t)
-		mockExec := executer.NewMockExecuter(ctrl)
-		mockSpec := spec.NewMockManager(ctrl)
-		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(tmpDir)), fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)))
-		previous, err := json.Marshal(ImageArtifactReferences{Timestamp: "2025-01-01T00:00:00Z", References: []ImageRef{{Image: updater, Type: RefTypePodman}}})
-		require.NoError(t, err)
-		require.NoError(t, rw.MkdirAll(tmpDir, fileio.DefaultDirectoryPermissions))
-		require.NoError(t, rw.WriteFile(filepath.Join(tmpDir, ReferencesFileName), previous, fileio.DefaultFilePermissions))
-		mockSpec.EXPECT().Read(spec.Current).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil).AnyTimes()
-		mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).AnyTimes()
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", updater}).Return("", "", 0).AnyTimes()
-		root := client.NewPodman(logger, mockExec, rw, poll.Config{})
-		factory := func(v1beta1.Username) (*client.Podman, error) { return root, nil }
-		rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
-		var opts []Option
-		if provider != nil {
-			opts = append(opts, WithRetainedReferences(provider))
-		}
-		return New(factory, root, nil, mockSpec, rwFactory, rw, logger, cfg, tmpDir, opts...).(*manager), tmpDir
-	}
-	retainedRef := ImageRef{Image: updater, Type: RefTypePodman}
+	f.m = New(factory, root, client.NewCLIClients(), specs, rwFactory, rw, logger, cfg, f.dir, opts...).(*manager)
+	return f
+}
 
-	t.Run("When an updater image is retained it should not be eligible for pruning", func(t *testing.T) {
-		m, _ := newManager(t, &fakeRetainedReferences{refs: []string{updater}})
-		got, err := m.determineEligibleImages(context.Background())
-		require.NoError(t, err)
-		require.NotContains(t, got.Images, retainedRef)
+// prune requests and runs one pruning pass and reports whether a retry is
+// still pending.
+func (f *prunerFixture) prune(t *testing.T) bool {
+	t.Helper()
+	f.m.RequestPrune()
+	require.NoError(t, f.m.Prune(context.Background()))
+	return f.m.PrunePending()
+}
+
+func (f *prunerFixture) history(t *testing.T) []ImageRef {
+	t.Helper()
+	data, err := f.m.readWriter.ReadFile(filepath.Join(f.dir, ReferencesFileName))
+	require.NoError(t, err)
+	var recorded ImageArtifactReferences
+	require.NoError(t, json.Unmarshal(data, &recorded))
+	return recorded.References
+}
+
+// requiredSource is a required reference source whose snapshot can change
+// between passes. It counts how often it is queried.
+type requiredSource struct {
+	refs  []ImageRef
+	err   error
+	calls int
+}
+
+func (s *requiredSource) snapshot(context.Context) ([]ImageRef, error) {
+	s.calls++
+	return s.refs, s.err
+}
+
+func TestManager_requiredReferenceSources(t *testing.T) {
+	const (
+		updater = "quay.io/example/updater@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		shared  = "quay.io/example/shared:v1"
+		unused  = "quay.io/example/unused:v1"
+		osImage = "quay.io/example/os:v1"
+		nextOS  = "quay.io/example/os:v2"
+	)
+	rootRef := func(image string) ImageRef { return ImageRef{Image: image, Type: RefTypePodman} }
+
+	t.Run("When sources require overlapping images it should keep each image until no source requires it", func(t *testing.T) {
+		require := require.New(t)
+		a := &requiredSource{refs: []ImageRef{rootRef(updater), rootRef(shared)}}
+		b := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(shared), rootRef(unused)},
+			WithRequiredReferenceSource("a", a.snapshot), WithRequiredReferenceSource("b", b.snapshot))
+		f.root.addImages(updater, shared, unused)
+
+		require.False(f.prune(t))
+		require.Equal([]string{unused}, f.root.removed, "only the image no source requires is removed")
+
+		b.refs = nil
+		require.False(f.prune(t))
+		require.Equal([]string{unused}, f.root.removed, "the other source still requires the updater")
+
+		a.refs = []ImageRef{rootRef(shared)}
+		require.False(f.prune(t))
+		require.Equal([]string{unused, updater}, f.root.removed, "the recorded updater is removed once no source requires it")
+		require.ElementsMatch([]ImageRef{rootRef(shared)}, f.history(t))
 	})
-	t.Run("When the updater image is no longer retained it should become eligible", func(t *testing.T) {
-		m, _ := newManager(t, &fakeRetainedReferences{})
-		got, err := m.determineEligibleImages(context.Background())
-		require.NoError(t, err)
-		require.Contains(t, got.Images, retainedRef)
+
+	t.Run("When the current and desired specs reference images it should still protect them", func(t *testing.T) {
+		require := require.New(t)
+		source := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, []ImageRef{rootRef(osImage), rootRef(nextOS), rootRef(unused)},
+			WithRequiredReferenceSource("firmware", source.snapshot))
+		f.current = &v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: osImage}}}
+		f.desired = &v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: nextOS}}}
+		f.root.addImages(osImage, nextOS, unused, updater)
+
+		require.False(f.prune(t))
+		require.Equal([]string{unused}, f.root.removed)
 	})
-	t.Run("When the retained references cannot be read it should skip the pruning cycle", func(t *testing.T) {
-		m, _ := newManager(t, &fakeRetainedReferences{err: errors.New("registry unreadable")})
-		_, err := m.determineEligibleImages(context.Background())
-		require.Error(t, err)
+
+	t.Run("When a source names root either way it should protect the image recorded for the current process", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			required v1beta1.Username
+			recorded v1beta1.Username
+		}{
+			{name: "root required, current process recorded", required: v1beta1.RootUsername, recorded: v1beta1.CurrentProcessUsername},
+			{name: "current process required, root recorded", required: v1beta1.CurrentProcessUsername, recorded: v1beta1.RootUsername},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				require := require.New(t)
+				source := &requiredSource{refs: []ImageRef{{Image: updater, Owner: tc.required, Type: RefTypePodman}}}
+				f := newPrunerFixture(t, []ImageRef{{Image: updater, Owner: tc.recorded, Type: RefTypePodman}, rootRef(unused)},
+					WithRequiredReferenceSource("firmware", source.snapshot))
+				f.root.addImages(updater, unused)
+
+				require.False(f.prune(t))
+				require.Equal([]string{unused}, f.root.removed)
+			})
+		}
 	})
-	t.Run("When the retained references cannot be read it should keep the prune pending and retry once they can", func(t *testing.T) {
-		provider := &fakeRetainedReferences{err: errors.New("registry unreadable")}
-		m, _ := newManager(t, provider)
-		m.RequestPrune()
-		require.NoError(t, m.Prune(context.Background()))
-		require.True(t, m.PrunePending(), "a failed retained-reference read keeps the prune pending")
-		provider.err, provider.refs = nil, []string{updater}
-		require.NoError(t, m.Prune(context.Background()))
-		require.False(t, m.PrunePending(), "the retried prune completes once the references can be read")
+
+	t.Run("When a source requires an image as one type it should protect the same image and owner recorded as another type", func(t *testing.T) {
+		require := require.New(t)
+		source := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, []ImageRef{{Image: updater, Type: RefTypeArtifact}, rootRef(unused)},
+			WithRequiredReferenceSource("firmware", source.snapshot))
+		f.root.artifacts[updater] = true
+		f.root.addImages(unused)
+
+		require.False(f.prune(t))
+		require.Equal([]string{unused}, f.root.removed)
+		require.True(f.root.artifacts[updater])
 	})
-	t.Run("When no provider is configured it should behave as before", func(t *testing.T) {
-		m, _ := newManager(t, nil)
-		got, err := m.determineEligibleImages(context.Background())
-		require.NoError(t, err)
-		require.Contains(t, got.Images, retainedRef)
+
+	t.Run("When the same image is recorded in two podman stores it should protect only the store the source names", func(t *testing.T) {
+		require := require.New(t)
+		source := &requiredSource{refs: []ImageRef{{Image: shared, Owner: prunerUser, Type: RefTypePodman}}}
+		f := newPrunerFixture(t, []ImageRef{rootRef(shared), {Image: shared, Owner: prunerUser, Type: RefTypePodman}},
+			WithRequiredReferenceSource("user-cache", source.snapshot))
+		f.root.addImages(shared)
+		f.user.addImages(shared)
+
+		require.False(f.prune(t))
+		require.Equal([]string{shared}, f.root.removed, "the root copy is not required")
+		require.Empty(f.user.removed, "the rootless copy is required")
 	})
-	t.Run("When the retained references cannot be read while recording it should keep the recorded references", func(t *testing.T) {
-		m, dir := newManager(t, &fakeRetainedReferences{err: errors.New("registry unreadable")})
-		require.NoError(t, m.RecordReferences(context.Background(), &v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil))
-		data, err := m.readWriter.ReadFile(filepath.Join(dir, ReferencesFileName))
-		require.NoError(t, err)
-		var recorded ImageArtifactReferences
-		require.NoError(t, json.Unmarshal(data, &recorded))
-		require.Contains(t, recorded.References, retainedRef)
+
+	t.Run("When no source is registered it should prune recorded images as before", func(t *testing.T) {
+		require := require.New(t)
+		f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(unused)})
+		f.root.addImages(updater, unused)
+
+		require.False(f.prune(t))
+		require.ElementsMatch([]string{updater, unused}, f.root.removed)
+		require.Empty(f.history(t))
 	})
-	t.Run("When references are recorded it should record retained updater images", func(t *testing.T) {
-		m, dir := newManager(t, &fakeRetainedReferences{refs: []string{updater}})
-		require.NoError(t, m.readWriter.RemoveFile(filepath.Join(dir, ReferencesFileName)))
-		require.NoError(t, m.RecordReferences(context.Background(), &v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil))
-		data, err := m.readWriter.ReadFile(filepath.Join(dir, ReferencesFileName))
-		require.NoError(t, err)
-		var recorded ImageArtifactReferences
-		require.NoError(t, json.Unmarshal(data, &recorded))
-		require.Contains(t, recorded.References, retainedRef)
+
+	t.Run("When only a source requires an image it should never record it or remove it after the source stops requiring it", func(t *testing.T) {
+		require := require.New(t)
+		source := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, nil, WithRequiredReferenceSource("firmware", source.snapshot))
+		f.current = &v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: osImage}}}
+		f.root.addImages(updater, osImage)
+
+		require.NoError(f.m.RecordReferences(context.Background(), f.current, nil))
+		require.Equal([]ImageRef{rootRef(osImage)}, f.history(t))
+		require.False(f.prune(t))
+
+		source.refs = nil
+		require.NoError(f.m.RecordReferences(context.Background(), f.current, nil))
+		require.False(f.prune(t))
+		require.Empty(f.root.removed, "an image no spec ever referenced is not a pruning candidate")
+		require.Equal([]ImageRef{rootRef(osImage)}, f.history(t))
+	})
+
+	t.Run("When references are recorded it should keep the history spec-derived without querying sources", func(t *testing.T) {
+		require := require.New(t)
+		const old = "quay.io/example/old:v1"
+		source := &requiredSource{refs: []ImageRef{rootRef(updater)}}
+		f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(old)}, WithRequiredReferenceSource("firmware", source.snapshot))
+		f.current = &v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: osImage}}}
+		f.root.addImages(updater, old, osImage)
+
+		require.NoError(f.m.RecordReferences(context.Background(), f.current, nil))
+		require.Zero(source.calls, "recording does not query required reference sources")
+		require.ElementsMatch([]ImageRef{rootRef(updater), rootRef(old), rootRef(osImage)}, f.history(t), "existing rows are kept")
+
+		require.False(f.prune(t))
+		require.Equal([]string{old}, f.root.removed, "a recorded image that a source requires is kept")
+
+		source.refs = nil
+		require.False(f.prune(t))
+		require.Equal([]string{old, updater}, f.root.removed, "the recorded image is removed by the normal rules once nothing requires it")
+		require.Equal([]ImageRef{rootRef(osImage)}, f.history(t))
+	})
+
+	t.Run("When any source cannot provide a complete snapshot it should remove nothing and keep the prune pending", func(t *testing.T) {
+		ok := func() *requiredSource { return &requiredSource{refs: []ImageRef{rootRef(updater)}} }
+		failing := &requiredSource{err: errors.New("registry unreadable")}
+		testCases := []struct {
+			name string
+			opts func(cancel context.CancelFunc) []Option
+		}{
+			{
+				name: "a source fails after another succeeded",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("ok", ok().snapshot), WithRequiredReferenceSource("failing", failing.snapshot)}
+				},
+			},
+			{
+				name: "a source fails before another succeeds",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("failing", failing.snapshot), WithRequiredReferenceSource("ok", ok().snapshot)}
+				},
+			},
+			{
+				name: "the pass is cancelled while a source runs",
+				opts: func(cancel context.CancelFunc) []Option {
+					return []Option{
+						WithRequiredReferenceSource("cancelled", func(context.Context) ([]ImageRef, error) {
+							cancel()
+							return []ImageRef{rootRef(updater)}, nil
+						}),
+					}
+				},
+			},
+			{
+				name: "a source returns a reference without an image",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("firmware", (&requiredSource{refs: []ImageRef{rootRef(updater), {Type: RefTypePodman}}}).snapshot)}
+				},
+			},
+			{
+				name: "a source returns a reference of an unknown type",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("firmware", (&requiredSource{refs: []ImageRef{{Image: updater, Type: "oci"}}}).snapshot)}
+				},
+			},
+			{
+				name: "a source is registered without a name",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource(" ", ok().snapshot)}
+				},
+			},
+			{
+				name: "a source is registered without a function",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("firmware", nil)}
+				},
+			},
+			{
+				name: "two sources are registered with the same name",
+				opts: func(context.CancelFunc) []Option {
+					return []Option{WithRequiredReferenceSource("firmware", ok().snapshot), WithRequiredReferenceSource("firmware", ok().snapshot)}
+				},
+			},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				require := require.New(t)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(unused)}, tc.opts(cancel)...)
+				f.root.addImages(updater, unused)
+
+				f.m.RequestPrune()
+				require.NoError(f.m.Prune(ctx))
+				require.Empty(f.root.removed, "no removal is attempted")
+				require.True(f.m.PrunePending(), "the prune stays pending for a retry")
+				require.ElementsMatch([]ImageRef{rootRef(updater), rootRef(unused)}, f.history(t))
+			})
+		}
+	})
+
+	t.Run("When the pass is cancelled while a source runs it should not query later sources", func(t *testing.T) {
+		require := require.New(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		later := &requiredSource{}
+		f := newPrunerFixture(t, []ImageRef{rootRef(unused)},
+			WithRequiredReferenceSource("cancelled", func(context.Context) ([]ImageRef, error) {
+				cancel()
+				return nil, nil
+			}),
+			WithRequiredReferenceSource("later", later.snapshot))
+		f.root.addImages(unused)
+
+		f.m.RequestPrune()
+		require.NoError(f.m.Prune(ctx))
+		require.Zero(later.calls)
+		require.Empty(f.root.removed)
+		require.True(f.m.PrunePending())
+	})
+
+	t.Run("When a source fails it should report the source name and keep the cause", func(t *testing.T) {
+		require := require.New(t)
+		cause := errors.New("registry unreadable")
+		f := newPrunerFixture(t, []ImageRef{rootRef(unused)},
+			WithRequiredReferenceSource("firmware", (&requiredSource{err: cause}).snapshot))
+
+		_, err := f.m.determineEligibleImages(context.Background())
+		require.ErrorIs(err, errRequiredReferences)
+		require.ErrorIs(err, cause)
+		require.Equal("firmware", deviceerrors.GetElement(err))
+		require.ErrorContains(err, "firmware")
+	})
+
+	t.Run("When a failed source recovers it should prune on the pending retry", func(t *testing.T) {
+		require := require.New(t)
+		source := &requiredSource{err: errors.New("registry unreadable")}
+		f := newPrunerFixture(t, []ImageRef{rootRef(updater), rootRef(unused)}, WithRequiredReferenceSource("firmware", source.snapshot))
+		f.root.addImages(updater, unused)
+
+		require.True(f.prune(t))
+		require.Empty(f.root.removed)
+
+		source.err, source.refs = nil, []ImageRef{rootRef(updater)}
+		require.NoError(f.m.Prune(context.Background()))
+		require.Equal([]string{unused}, f.root.removed)
+		require.False(f.m.PrunePending(), "the retried prune completes once every source answers")
 	})
 }

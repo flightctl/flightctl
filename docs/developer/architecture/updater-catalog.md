@@ -705,9 +705,14 @@ unpinned verified copy is reused, an unpinned copy proven changed is
 quarantined before a fresh extraction, and an unpinned copy that cannot be
 verified is left in place and the call fails.
 
-Image pruning treats the image references of pinned payloads as required root
-podman references and records them with the other references; a registry read
-failure skips that pruning cycle. Cleanup syncs the registry directory before
+The agent registers the retention registry with image pruning as a required
+reference source named `firmware`. It reports the image references of pinned
+payloads as root podman references. Required references only protect images
+from removal and are never added to the pruning reference history. An image
+that only a pin ever referenced therefore does not become a pruning candidate
+after its release, while an image already in the history becomes eligible again
+once nothing protects it. If any source cannot be read, the pass removes nothing
+and the prune stays pending for a retry. Cleanup syncs the registry directory before
 removing any payload or evidence. It removes only `.staging-*` and
 `.quarantine-*` directories, unpinned and unleased version directories and
 evidence records of removed versions. It removes at most four trees per pass;

@@ -486,7 +486,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		a.config.ImagePruning,
 		a.config.DataDir,
-		imagepruning.WithRetainedReferences(firmware.NewRetention(a.config.DataDir, rootReadWriter, a.log)),
+		imagepruning.WithRequiredReferenceSource("firmware", firmwareRequiredReferences(firmware.NewRetention(a.config.DataDir, rootReadWriter, a.log))),
 	)
 
 	firmwarePolicy, err := firmwarepolicy.New(deviceName, a.config.DataDir, rootReadWriter, bootstrap.ManagementClient(), a.log)
@@ -563,6 +563,27 @@ func (a *Agent) Run(ctx context.Context) error {
 	wg.Wait()
 
 	return err
+}
+
+// retainedImageLister lists the image references of retained updater payloads.
+type retainedImageLister interface {
+	RetainedImageReferences(ctx context.Context) ([]string, error)
+}
+
+// firmwareRequiredReferences reports the images of pinned updater payloads as
+// required references in the root podman store, where they were pulled.
+func firmwareRequiredReferences(retention retainedImageLister) func(context.Context) ([]imagepruning.ImageRef, error) {
+	return func(ctx context.Context) ([]imagepruning.ImageRef, error) {
+		images, err := retention.RetainedImageReferences(ctx)
+		if err != nil {
+			return nil, err
+		}
+		refs := make([]imagepruning.ImageRef, 0, len(images))
+		for _, image := range images {
+			refs = append(refs, imagepruning.ImageRef{Image: image, Owner: v1beta1.CurrentProcessUsername, Type: imagepruning.RefTypePodman})
+		}
+		return refs, nil
+	}
 }
 
 func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (client.Enrollment, error) {
