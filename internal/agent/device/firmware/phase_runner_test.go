@@ -291,6 +291,12 @@ func TestPhaseRunnerHoldsProjectionOnUncertainResultWrite(t *testing.T) {
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 	state, err := rw.OpenAnchor("/", fileio.DirOptions{Trusted: true})
 	require.NoError(t, err)
+	stateOwned := true
+	t.Cleanup(func() {
+		if stateOwned {
+			require.NoError(t, state.Close())
+		}
+	})
 	m, d, req := phaseProtocolFixture(t)
 	req.Identity.CallID = phaseCallID(1)
 	ctx, err := newPhaseValidationContext(m, d, req, nil)
@@ -299,6 +305,7 @@ func TestPhaseRunnerHoldsProjectionOnUncertainResultWrite(t *testing.T) {
 	require.NoError(t, store.save(phaseRecord{AttemptID: req.Identity.AttemptID, Checkpoint: req.Checkpoint}))
 	execution := verifiedExecution{state: state, manifest: &Manifest{}}
 	require.NoError(t, execution.project(t.Context(), req.Identity.AttemptID, []byte("fixture")))
+	require.NoError(t, execution.activateProjection())
 	var job phaseTestJob
 	job.onWait = func() (executer.PhaseExecOutput, error) {
 		data, err := json.Marshal(phaseResult{Identity: req.Identity, Kind: phasePending})
@@ -308,7 +315,9 @@ func TestPhaseRunnerHoldsProjectionOnUncertainResultWrite(t *testing.T) {
 	require.ErrorIs(t, err, errPhaseDurabilityUncertain)
 	require.Empty(t, got.Kind)
 	require.True(t, phaseOutcomeUncertain(err))
-	require.NoError(t, execution.close(phaseOutcomeUncertain(err)))
+	closeErr := execution.close(phaseOutcomeUncertain(err))
+	stateOwned = false
+	require.NoError(t, closeErr)
 
 	reopened, err := rw.OpenAnchor("/", fileio.DirOptions{Trusted: true})
 	require.NoError(t, err)
@@ -343,4 +352,34 @@ func TestPhaseRunnerRejectsEarlierCallReplay(t *testing.T) {
 	}
 	err := checkRecordedPhase(record, phaseValidationContext{request: req, limits: policy.ExecutionLimits{MaxCycles: 2}}, 3)
 	require.ErrorContains(t, err, "stale or out of order")
+}
+
+type projectionRemovalFault struct {
+	fileio.Anchor
+	err error
+}
+
+func (a projectionRemovalFault) RemoveTree(context.Context, string, fileio.RemoveBounds) (fileio.RemoveResult, error) {
+	return fileio.RemoveResult{}, a.err
+}
+
+func TestPhaseProjectionReclaimsInterruptedStaging(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	state, err := rw.OpenAnchor("/", fileio.DirOptions{Trusted: true})
+	require.NoError(t, err)
+	first := verifiedExecution{state: state, manifest: &Manifest{}}
+	require.NoError(t, first.project(t.Context(), "first", []byte("first request")))
+	fault := errors.New("temporary removal failure")
+	first.roots = projectionRemovalFault{Anchor: first.roots, err: fault}
+	require.ErrorIs(t, first.close(false), fault)
+
+	reopened, err := rw.OpenAnchor("/", fileio.DirOptions{Trusted: true})
+	require.NoError(t, err)
+	next := verifiedExecution{state: reopened, manifest: &Manifest{}}
+	t.Cleanup(func() { require.NoError(t, next.close(false)) })
+	require.NoError(t, next.project(t.Context(), "second", []byte("second request")))
+	data, err := next.root.ReadFile("request.json", 64)
+	require.NoError(t, err)
+	require.Equal(t, "second request", string(data))
 }

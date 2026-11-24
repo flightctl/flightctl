@@ -439,13 +439,6 @@ func (r *Retention) Release(attemptID string) error {
 		return fmt.Errorf("attempt %q has unresolved runner state: %w", attemptID, ErrPinConflict)
 	}
 	store := phaseRecordStore{dir: c.firmware, attemptID: attemptID}
-	hasPin := false
-	for _, pin := range pins {
-		if pin.AttemptID == attemptID {
-			hasPin = true
-			break
-		}
-	}
 	hasRunnerState := false
 	if c.firmware != nil {
 		record, err := store.load()
@@ -454,7 +447,7 @@ func (r *Retention) Release(attemptID string) error {
 		}
 		hasRunnerState = record.AttemptID != ""
 	}
-	if hasPin || hasRunnerState {
+	if hasRunnerState {
 		if err := store.retire(); err != nil {
 			return fmt.Errorf("retire firmware runner state: %w", err)
 		}

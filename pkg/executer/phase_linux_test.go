@@ -279,8 +279,7 @@ func TestLinuxPhaseBoundary(t *testing.T) {
 					require.ErrorContains(t, err, "oom-kill")
 				}
 				if tc.proofFail {
-					_, statErr := os.Stat(filepath.Join(root, "work", "updater-ran"))
-					require.ErrorIs(t, statErr, os.ErrNotExist)
+					require.ErrorContains(t, err, "main status 20")
 				}
 			} else {
 				require.NoError(t, err, "%s", out.Stderr)
@@ -460,5 +459,21 @@ func checkPhaseFixtureSource() {
 	if err == nil {
 		_ = syscall.Close(fd)
 		os.Exit(10)
+	}
+}
+
+func TestTrustedPhaseLauncherRejectsFIFOWithoutWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launcher")
+	require.NoError(t, unix.Mkfifo(path, 0o600))
+	rejected := make(chan error, 1)
+	go func() {
+		_, _, err := openTrustedPhaseLauncher(path)
+		rejected <- err
+	}()
+	select {
+	case err := <-rejected:
+		require.ErrorContains(t, err, "root-owned executable")
+	case <-time.After(time.Second):
+		t.Fatal("opening the launcher blocked on a FIFO")
 	}
 }

@@ -38,7 +38,7 @@ type Manager struct {
 	client     client.Management
 	log        *log.PrefixLogger
 	poll       poll.Config
-	acceptMu   sync.Mutex
+	acceptGate chan struct{}
 	state      atomic.Pointer[retained]
 	required   chan struct{}
 	require    sync.Once
@@ -59,7 +59,7 @@ func New(name, dataDir string, rw fileio.ReadWriter, management client.Managemen
 	if o.poll.MaxDelay <= 0 {
 		return nil, errors.New("firmware policy retry delay must be bounded")
 	}
-	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, required: make(chan struct{})}
+	m := &Manager{name: name, path: filepath.Join(dataDir, "firmware", "policy.json"), rw: rw, client: management, log: logger, poll: o.poll, required: make(chan struct{}), acceptGate: make(chan struct{}, 1)}
 	state := &retained{}
 	data, err := rw.ReadFileLimited(m.path, policy.MaxWireBytes)
 	if !os.IsNotExist(err) {
@@ -131,8 +131,12 @@ func (m *Manager) IsApproved(name, version, digest string) bool {
 
 // WithApprovedRelease runs a bounded operation ordered against policy acceptance.
 func (m *Manager) WithApprovedRelease(ctx context.Context, name, version, digest string, fn func(policy.Receipt) error) error {
-	m.acceptMu.Lock()
-	defer m.acceptMu.Unlock()
+	select {
+	case m.acceptGate <- struct{}{}:
+		defer func() { <-m.acceptGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -154,8 +158,12 @@ func (m *Manager) receipt() policy.Receipt {
 // A successful receipt means the view was validated and durably retained; only
 // then may a delivery transport acknowledge it to the service.
 func (m *Manager) Receive(ctx context.Context, view policy.View) (policy.Receipt, error) {
-	m.acceptMu.Lock()
-	defer m.acceptMu.Unlock()
+	select {
+	case m.acceptGate <- struct{}{}:
+		defer func() { <-m.acceptGate }()
+	case <-ctx.Done():
+		return policy.Receipt{}, ctx.Err()
+	}
 	if err := ctx.Err(); err != nil {
 		return policy.Receipt{}, err
 	}

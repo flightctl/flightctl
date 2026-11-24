@@ -119,10 +119,11 @@ func TestPhaseProtocolResult(t *testing.T) {
 	expected := []phaseTarget{{Kind: phaseComponent, Name: "system", Version: "2.0", Digest: selected},
 		{Kind: phaseOverlay, Name: "carrier", Version: "3.0", Digest: selected}}
 	for _, tc := range []struct {
-		name  string
-		edit  func(*phaseResult)
-		wire  func([]byte) []byte
-		valid bool
+		name      string
+		edit      func(*phaseResult)
+		wire      func([]byte) []byte
+		valid     bool
+		wantError string
 	}{
 		{name: "When verification matches every expected member it should accept", valid: true},
 		{name: "When verification omits schema-bound observation evidence it should reject", edit: func(r *phaseResult) { r.Evidence = nil }},
@@ -142,8 +143,9 @@ func TestPhaseProtocolResult(t *testing.T) {
 		{name: "When a case-insensitive alias could override the result kind it should reject", wire: func(data []byte) []byte {
 			return append(data[:len(data)-1], []byte(`,"Kind":"Pending"}`)...)
 		}},
-		{name: "When MoreWork lacks trusted prior-effect evidence it should reject", edit: func(r *phaseResult) { r.Kind = phaseMoreWork }},
-		{name: "When an activation receipt has no prior authorization to correlate it should reject", edit: func(r *phaseResult) {
+		{name: "When MoreWork lacks trusted prior-effect evidence it should reject", wantError: "requires evidence of a prior apply", edit: func(r *phaseResult) { r.Kind = phaseMoreWork; r.Observations = nil }},
+		{name: "When an activation receipt has no prior authorization to correlate it should reject", wantError: "requires evidence of a prior apply", edit: func(r *phaseResult) {
+			r.Observations = nil
 			r.Kind = phaseActivationArmed
 			r.ActivationReceipt = json.RawMessage(`{}`)
 		}},
@@ -170,6 +172,8 @@ func TestPhaseProtocolResult(t *testing.T) {
 			if tc.valid {
 				require.NoError(t, err)
 				require.Equal(t, r.Kind, got.Kind)
+			} else if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
 			} else {
 				require.Error(t, err)
 			}
@@ -305,6 +309,23 @@ func TestPhaseProtocolPrepare(t *testing.T) {
 			} else {
 				require.Error(t, err)
 			}
+		})
+	}
+}
+
+func TestPhaseValidationRejectsOversizedRawInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*phaseRequest, []byte)
+	}{
+		{name: "When the raw config is oversized it should fail before parsing", set: func(r *phaseRequest, b []byte) { r.Config = b }},
+		{name: "When the raw observation is oversized it should fail before parsing", set: func(r *phaseRequest, b []byte) { r.Observation = b }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, d, req := phaseProtocolFixture(t)
+			tc.set(&req, []byte(strings.Repeat("!", int(d.Limits.MaxRequestBytes)+1)))
+			_, err := newPhaseValidationContext(m, d, req, nil)
+			require.ErrorContains(t, err, "input exceeds request limit")
 		})
 	}
 }

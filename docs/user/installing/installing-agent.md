@@ -94,7 +94,7 @@ Use this procedure to install the agent on 32-bit ARM (ARMv7) devices where the 
    curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-agent-linux-armv7-sha256.txt
    ```
 
-2. Download the phase launcher and its checksum:
+2. Download the phase launcher and its checksum. The launcher is required for firmware management.
 
    ```bash
    curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-phase-launcher-linux-armv7

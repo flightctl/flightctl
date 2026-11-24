@@ -222,10 +222,12 @@ func (r *phaseRunner) runPhase(ctx context.Context, invocation phaseInvocation) 
 		return phaseResult{}, err
 	}
 	defer func() {
-		err = errors.Join(err, payload.close(phaseOutcomeUncertain(err)))
-		if err != nil {
-			result = phaseResult{}
+		cleanupErr := payload.close(phaseOutcomeUncertain(err))
+		if cleanupErr != nil && err == nil && result.Kind != "" {
+			r.retention.log.Warnf("Firmware phase %s committed but projection cleanup failed: %v", req.Identity.CallID, cleanupErr)
+			return
 		}
+		err = errors.Join(err, cleanupErr)
 	}()
 	validation, err := newPhaseValidationContext(payload.manifest, descriptor, req, invocation.targets)
 	if err != nil {
@@ -247,6 +249,9 @@ func (r *phaseRunner) runPhase(ctx context.Context, invocation phaseInvocation) 
 		return phaseResult{}, errPhasePending
 	}
 	if err := payload.project(ctx, req.Identity.AttemptID, requestBytes); err != nil {
+		return phaseResult{}, err
+	}
+	if err := payload.activateProjection(); err != nil {
 		return phaseResult{}, err
 	}
 	spec, err := phaseExecutionSpec(payload.root.Path(), payload.manifest.Entrypoint, req.Identity.Action, grant, invocation.source, r.launcherPath, descriptor.Limits)

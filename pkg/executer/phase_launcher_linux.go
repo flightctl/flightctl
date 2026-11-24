@@ -87,7 +87,7 @@ func validatePhaseLauncher(path string) error {
 }
 
 func openTrustedPhaseLauncher(path string) (*os.File, os.FileInfo, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open trusted phase launcher: %w", err)
 	}
@@ -140,10 +140,12 @@ func stagePhaseLauncher(root, source string) (string, error) {
 	targetPath := filepath.Join(root, phaseLauncherRelativePath)
 	staged := os.NewFile(uintptr(targetFD), targetPath)
 	cleanup := func(cause error) (string, error) {
-		_ = staged.Close()
-		_ = unix.Unlinkat(rootFD, phaseLauncherRelativePath, 0)
-		_ = unix.Fsync(rootFD)
-		return "", cause
+		closeErr := staged.Close()
+		if errors.Is(closeErr, os.ErrClosed) {
+			closeErr = nil
+		}
+		unlinkErr := unix.Unlinkat(rootFD, phaseLauncherRelativePath, 0)
+		return "", errors.Join(cause, closeErr, unlinkErr, unix.Fsync(rootFD))
 	}
 	hash := sha256.New()
 	written, err := io.CopyN(io.MultiWriter(staged, hash), input, before.Size())

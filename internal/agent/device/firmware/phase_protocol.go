@@ -173,6 +173,9 @@ func newPhaseValidationContext(manifest *Manifest, descriptor *policy.ReleaseDes
 		}
 		*schema.target = compiled
 	}
+	if int64(len(req.Config)) > limits.MaxRequestBytes || int64(len(req.Observation)) > limits.MaxRequestBytes {
+		return phaseValidationContext{}, errors.New("firmware phase input exceeds request limit")
+	}
 	ctx.request.Config = bytes.Clone(req.Config)
 	ctx.request.Observation = bytes.Clone(req.Observation)
 	if req.Identity.Action == phaseVerify {

@@ -102,10 +102,14 @@ func (*LinuxPhaseExecutor) PreparePhase(ctx context.Context, spec PhaseExecSpec)
 		bus.Close()
 		return nil, err
 	}
-	return &PhaseJob{
+	job := &PhaseJob{
 		spec: spec, bus: bus, cancelBus: cancelBus, source: source,
 		unit: "flightctl-updater-" + hex.EncodeToString(token) + ".service", launcher: launcher,
-	}, nil
+	}
+	if err := job.prepareStreams(); err != nil {
+		return nil, errors.Join(err, job.Close())
+	}
+	return job, nil
 }
 
 func checkPhaseHost() error {
@@ -298,12 +302,7 @@ func phaseManagerTimeouts(invocation time.Duration) (queue, startup, runtime tim
 		time.Duration(runtimeUSec) * time.Microsecond
 }
 
-// Start launches the helper only under the configured service and waits for systemd's exec job.
-func (j *PhaseJob) Start(ctx context.Context) error {
-	if j.started || j.bus == nil {
-		return errors.New("phase job has already started or closed")
-	}
-	j.started = true
+func (j *PhaseJob) prepareStreams() error {
 	var err error
 	j.stdout, j.result, err = os.Pipe()
 	if err != nil {
@@ -313,12 +312,21 @@ func (j *PhaseJob) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// Start launches the helper only under the configured service and waits for systemd's exec job.
+func (j *PhaseJob) Start(ctx context.Context) error {
+	if j.started || j.bus == nil {
+		return errors.New("phase job has already started or closed")
+	}
+	j.started = true
 	j.deadline = time.Now().Add(j.spec.Limits.Invocation)
 	startCtx, cancel := context.WithDeadline(ctx, j.deadline)
 	defer cancel()
 	started := make(chan string, 1)
 	j.submitted = true
-	_, err = j.bus.StartTransientUnitContext(startCtx, j.unit, "fail", j.properties(), started)
+	_, err := j.bus.StartTransientUnitContext(startCtx, j.unit, "fail", j.properties(), started)
 	_ = j.result.Close()
 	_ = j.diagnostic.Close()
 	j.closeSource()

@@ -258,6 +258,9 @@ func (s phaseRecordStore) retire() error {
 	} else if err != nil {
 		return err
 	}
+	if err := s.dir.Sync(); err != nil {
+		return fmt.Errorf("sync retirement marker before removing runner record: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := s.dir.RemoveTree(ctx, name, cleanupBounds()); err != nil {

@@ -418,9 +418,33 @@ func TestPolicyGuardOrdersDurableResultAgainstRevocation(t *testing.T) {
 		received <- err
 	}()
 	require.Never(t, func() bool { return len(received) != 0 }, 25*time.Millisecond, time.Millisecond)
+	waitCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	cancelled := make(chan error, 1)
+	go func() {
+		cancelled <- m.WithApprovedRelease(waitCtx, binding.Name, binding.Version, binding.DescriptorDigest, func(policy.Receipt) error {
+			return errors.New("cancelled approval reached callback")
+		})
+	}()
+	select {
+	case err := <-cancelled:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled approval still waiting for policy gate")
+	}
+
 	release()
-	require.NoError(t, <-accepted)
-	require.NoError(t, <-received)
+	for _, operation := range []struct {
+		name string
+		done <-chan error
+	}{{"approval", accepted}, {"policy receive", received}} {
+		select {
+		case err := <-operation.done:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatalf("%s did not complete", operation.name)
+		}
+	}
 	err = m.WithApprovedRelease(t.Context(), binding.Name, binding.Version, binding.DescriptorDigest, func(policy.Receipt) error {
 		t.Fatal("revoked release reached result acceptance")
 		return nil

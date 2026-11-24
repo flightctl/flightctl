@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -21,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util/firmwarecatalog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -101,6 +103,8 @@ func TestPhaseRunnerHelperInputs(t *testing.T) {
 		t.Skip("requires an explicit privileged Linux profile test")
 	}
 	require.Equal(t, 0, os.Geteuid())
+	// A root-owned base under libexec supplies the executable SELinux label.
+	t.Setenv("TMPDIR", "/usr/libexec")
 	t.Run("When revocation arrives before acceptance it should retain the previous result", func(t *testing.T) {
 		testPhaseRunnerHelperInputs(t, false, false)
 	})
@@ -114,11 +118,7 @@ func TestPhaseRunnerHelperInputs(t *testing.T) {
 
 func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool) {
 	t.Helper()
-	// A fixture beneath libexec inherits an executable SELinux label without
-	// changing host enforcement or relabeling the deployment's cache.
-	dataDir, err := os.MkdirTemp("/usr/libexec", "flightctl-phase-test-")
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dataDir)) })
+	dataDir := t.TempDir()
 
 	m, d, req := phaseProtocolFixture(t)
 	if omitMember {
@@ -157,7 +157,7 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 	leaseOpen := true
 	t.Cleanup(func() {
 		if leaseOpen {
-			_ = lease.close(false)
+			assert.NoError(t, lease.close(false))
 		}
 	})
 	require.ErrorIs(t, retention.Release(pin.AttemptID), ErrPinConflict)
@@ -193,6 +193,20 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 	require.NoError(t, err)
 	prepare.GrantDigest = policy.Hash(grant)
 	invocation.request.Identity = prepare
+	t.Run("When setup fails before submission reopening should preserve the dispatch budget", func(t *testing.T) {
+		t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+filepath.Join(dataDir, "missing-bus"))
+		result, err := runner.runPhase(t.Context(), invocation)
+		require.ErrorContains(t, err, "connect to system manager")
+		require.Empty(t, result.Kind)
+
+		reopened, err := retention.openCache(false)
+		require.NoError(t, err)
+		t.Cleanup(reopened.Close)
+		record, err := (phaseRecordStore{dir: reopened.firmware, attemptID: prepare.AttemptID}).load()
+		require.NoError(t, err)
+		require.Zero(t, record.Dispatches)
+		require.Nil(t, record.Pending)
+	})
 	got, err := runner.runPhase(t.Context(), invocation)
 	require.NoError(t, err)
 	require.Equal(t, phasePrepared, got.Kind)
@@ -221,6 +235,7 @@ func testPhaseRunnerHelperInputs(t *testing.T, omitMember, releaseCompleted bool
 		retired, err := recordStore.load()
 		require.NoError(t, err)
 		require.Equal(t, req.Identity.AttemptID, retired.AttemptID)
+		require.True(t, retired.Retired)
 		require.ErrorIs(t, retention.Pin(pin), ErrPinConflict, "a completed attempt ID cannot be pinned again")
 		newAttempt := "next-attempt"
 		invocation.pin.AttemptID = newAttempt
@@ -283,13 +298,13 @@ func stagePhaseLauncher(t *testing.T) string {
 	require.NoError(t, err)
 	data, err := os.ReadFile(executable)
 	require.NoError(t, err)
-	dir, err := os.MkdirTemp("/usr/libexec", "flightctl-phase-launcher-")
+	dir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	root, err := rw.OpenAnchor(dir, fileio.DirOptions{Trusted: true})
 	require.NoError(t, err)
-	require.NoError(t, os.Chmod(dir, 0o755))
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+	t.Cleanup(func() { assert.NoError(t, root.Close()) })
+	require.NoError(t, root.WriteFileExclusive("phase-launcher", data, 0o555))
 	path := filepath.Join(dir, "phase-launcher")
-	require.NoError(t, os.WriteFile(path, data, 0o600))
-	require.NoError(t, os.Chmod(path, 0o555))
 	return path
 }
 
@@ -359,7 +374,11 @@ func publishPhaseTestPayload(t *testing.T, rw fileio.ReadWriter, dir string, man
 	}
 	staged, err := StageTree(t.Context(), source, cache, raw, manifest, limits, runtime.GOARCH)
 	require.NoError(t, err)
-	defer func() { _ = staged.Discard(t.Context()) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		assert.NoError(t, staged.Discard(ctx))
+	}()
 	name := strings.TrimPrefix(descriptor.PackageDigest, "sha256:")
 	_, err = staged.Publish(t.Context(), name)
 	require.NoError(t, err)

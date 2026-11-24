@@ -25,7 +25,10 @@ type verifiedExecution struct {
 }
 
 func (r *Retention) acquireExecution(ctx context.Context, pin Pin) (*verifiedExecution, error) {
-	if err := validatePin(pin); err != nil || pin.Role != PinRoleActive {
+	if err := validatePin(pin); err != nil {
+		return nil, fmt.Errorf("validate phase pin: %w: %w", ErrPinConflict, err)
+	}
+	if pin.Role != PinRoleActive {
 		return nil, ErrPinConflict
 	}
 	if err := r.acquire(ctx); err != nil {
@@ -81,8 +84,17 @@ func (e *verifiedExecution) project(ctx context.Context, attemptID string, reque
 	if err != nil {
 		return err
 	}
-	// A crash during setup leaves the occupied slot and blocks later dispatch.
-	const name = "active"
+	// Only the active slot can be passed to an executor. A leftover staging
+	// directory is therefore safe to reclaim, including after restart.
+	if _, err := e.roots.Lstat("active"); err == nil {
+		return errPhasePending
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	const name = "staging"
+	if err := e.removeProjection(ctx, name); err != nil {
+		return err
+	}
 	e.root, err = e.roots.OpenDir(name, fileio.DirOptions{Create: true, Exclusive: true, Trusted: true, Perm: 0o755})
 	if errors.Is(err, fs.ErrExist) {
 		return errPhasePending
@@ -105,7 +117,34 @@ func (e *verifiedExecution) project(ctx context.Context, attemptID string, reque
 	return e.root.Revalidate()
 }
 
-func (e *verifiedExecution) copyFile(ctx context.Context, file ManifestFile) error {
+func (e *verifiedExecution) activateProjection() error {
+	if err := e.root.Close(); err != nil {
+		e.root = nil
+		return err
+	}
+	e.root = nil
+	if err := e.roots.RenameNoReplace(e.name, e.roots, "active"); err != nil {
+		return err
+	}
+	e.name = "active"
+	if err := e.roots.Sync(); err != nil {
+		return err
+	}
+	root, err := e.roots.OpenDir(e.name, fileio.DirOptions{Trusted: true})
+	e.root = root
+	return err
+}
+
+func (e *verifiedExecution) removeProjection(ctx context.Context, name string) error {
+	cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if _, err := e.roots.RemoveTree(cleanupCtx, name, cleanupBounds()); err != nil {
+		return fmt.Errorf("remove phase projection: %w", err)
+	}
+	return e.roots.Sync()
+}
+
+func (e *verifiedExecution) copyFile(ctx context.Context, file ManifestFile) (retErr error) {
 	parent, name := path.Split(file.Path)
 	dir := e.root
 	for component := range strings.SplitSeq(strings.TrimSuffix(parent, "/"), "/") {
@@ -113,7 +152,7 @@ func (e *verifiedExecution) copyFile(ctx context.Context, file ManifestFile) err
 		if err != nil {
 			return err
 		}
-		defer child.Close()
+		defer func() { retErr = errors.Join(retErr, child.Close()) }()
 		dir = child
 	}
 	mode := os.FileMode(0o444)
@@ -136,17 +175,14 @@ func (e *verifiedExecution) close(uncertain bool) error {
 		err = e.root.Close()
 	}
 	if !uncertain && e.name != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, removeErr := e.roots.RemoveTree(ctx, e.name, cleanupBounds())
-		err = errors.Join(err, removeErr)
+		err = errors.Join(err, e.removeProjection(context.Background(), e.name))
 	}
 	for _, anchor := range []fileio.Anchor{e.roots, e.state, e.source} {
 		if anchor != nil {
 			err = errors.Join(err, anchor.Close())
 		}
 	}
-	if !uncertain {
+	if !uncertain && e.lease != nil {
 		e.retention.ReleaseLease(&PublishedPayload{lease: e.lease})
 	}
 	return err
