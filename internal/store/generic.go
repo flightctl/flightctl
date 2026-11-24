@@ -200,14 +200,17 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 			if InTransaction(ctx) {
 				return false, err
 			}
-			// A wrapped database cause can be part of a business error.
-			abort, ok := err.(*pgconn.PgError)
-			retryAbort := ok && abort != nil && (abort.Code == "40001" || abort.Code == "40P01")
-			retry = ctx.Err() == nil && (retry || retryAbort)
+			retry = ctx.Err() == nil && (retry || isRetryablePostgresAbort(err))
 		}
 		return retry, err
 	}, lo.FromPtrOr(hooks.MaxRetries, retryIterations-1))
 	return updated, before, created, err
+}
+
+func isRetryablePostgresAbort(err error) bool {
+	// A wrapped database cause can be part of a business error.
+	abort, ok := err.(*pgconn.PgError)
+	return ok && abort != nil && (abort.Code == "40001" || abort.Code == "40P01")
 }
 
 func (s *GenericStore[P, M, A, AL]) loadByName(ctx context.Context, orgId uuid.UUID, name string) (P, error) {

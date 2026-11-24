@@ -603,7 +603,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		Entry("When a window value is missing it should reject", "autoApprovalWindowDays", "add", "missing", "current", 400),
 		Entry("When a test value is missing it should reject", "approvalLimit", "test", "missing", "current", 400),
 		Entry("When an unknown policy field is patched it should reject the request", "unknownLimit", "replace", "null", "current", 400),
-		Entry("When whole spec clear is denied it should preserve the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", 403),
+		Entry("When replacing the whole spec it should allow clearing the limit", "spec", "replace", `{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{},"approvalLimit":null}`, "current", 200),
 		Entry("When the version is stale it should preserve both limits", "approvalLimit", "replace", "null", "0", 409),
 		Entry("When the version is missing it should preserve both limits", "autoApprovalWindowDays", "replace", "null", "missing", 409),
 		Entry("When the limit becomes zero it should remain explicit", "approvalLimit", "replace", "0", "current", 200),
