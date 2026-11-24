@@ -104,7 +104,8 @@ var (
 	ErrInvalidPath = errors.New("invalid path")
 
 	// configuration
-	ErrReservedConfigPath = errors.New("configuration file path is reserved for agent-managed firmware state")
+	ErrReservedConfigPath    = errors.New("configuration file path is reserved for agent-managed firmware state")
+	ErrInvalidConfigResource = errors.New("invalid config resource")
 
 	// anchored file access
 	ErrUnsafeFileType     = errors.New("unsafe file type")
