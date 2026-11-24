@@ -165,17 +165,13 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) error {
-	return a.syncUpdate(ctx, current, desired, true)
-}
-
-func (a *Agent) syncUpdate(ctx context.Context, current, desired *v1beta1.Device, applyRegistry bool) error {
 	if !spec.IsRollback(current, desired) {
 		if err := a.beforeUpdate(ctx, current, desired); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrPhasePreparing, err)
 		}
 	}
 
-	if err := a.syncDevice(ctx, current, desired, applyRegistry); err != nil {
+	if err := a.syncDevice(ctx, current, desired); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
 	}
 
@@ -394,10 +390,8 @@ func (a *Agent) handleMissingSpec(ctx context.Context, err error) bool {
 }
 
 func (a *Agent) handleFailedUpgrade(ctx context.Context, current, desired *v1beta1.Device, syncErr error) {
-	// A rollback from preparation preserves the registry files and staging for policy retries.
-	applyRegistry := errors.Is(syncErr, errors.ErrPhaseApplyingUpdate) || errors.Is(syncErr, errors.ErrPhaseActivatingConfig)
-	rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, func(ctx context.Context, current, desired *v1beta1.Device) error {
-		return a.syncUpdate(ctx, current, desired, applyRegistry)
+	rebootPending, rollbackErr := a.rollbackDevice(ctx, current, desired, syncErr, func(ctx context.Context, from, to *v1beta1.Device) error {
+		return a.sync(registryconfig.WithRollbackCause(ctx, syncErr), from, to)
 	})
 	if rollbackErr != nil {
 		a.log.Errorf("Rollback did not complete cleanly: %v", rollbackErr)
@@ -578,7 +572,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	a.pullConfigResolver.BeforeUpdate(desired.Spec)
-	if err := a.registryConfig.Prepare(ctx, desired.Spec); err != nil {
+	if err := a.registryConfig.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
 	}
 
@@ -644,7 +638,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	return nil
 }
 
-func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device, applyRegistry bool) error {
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device) error {
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
 			Type:    v1beta1.ConditionTypeDeviceUpdating,
@@ -657,10 +651,8 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 		}
 	}
 
-	if applyRegistry {
-		if err := a.registryConfig.Commit(ctx, desired.Spec); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
-		}
+	if err := a.registryConfig.Sync(ctx, desired.Spec); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
 	}
 
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
@@ -705,6 +697,10 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1beta1.Device
 func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
+
+	if err := a.registryConfig.AfterUpdate(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+	}
 
 	// execute after update for lifecycle
 	if err := a.lifecycleManager.AfterUpdate(ctx, current, desired); err != nil {

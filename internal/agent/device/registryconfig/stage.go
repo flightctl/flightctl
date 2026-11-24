@@ -23,7 +23,10 @@ type stagedOutput struct {
 	base string
 }
 
-func (m *manager) Prepare(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	if rollbackBeforeSync(ctx) {
+		return nil
+	}
 	plan, err := m.plan(ctx, desired)
 	if err != nil {
 		return err
@@ -89,15 +92,15 @@ func openStageParent(rw fileio.ReadWriter, base string) (fileio.Anchor, error) {
 	}
 	info, err := a.Lstat(".")
 	if err != nil {
-		_ = a.Close()
+		_ = a.Close() // Preserve the staging directory stat error.
 		return nil, err
 	}
 	if (info.UID != 0 && int(info.UID) != os.Geteuid()) || (info.Perm&0o022 != 0 && info.Perm&fs.ModeSticky == 0) {
-		_ = a.Close()
+		_ = a.Close() // Release the rejected staging directory.
 		return nil, fmt.Errorf("untrusted registry authentication staging directory %q", base)
 	}
 	if err := a.Revalidate(); err != nil {
-		_ = a.Close()
+		_ = a.Close() // Preserve the staging path validation error.
 		return nil, err
 	}
 	return a, nil
@@ -110,6 +113,13 @@ func (m *manager) StagedPath(livePath string) (string, bool) {
 		return staged.path, true
 	}
 	return "", false
+}
+
+func (m *manager) AfterUpdate(ctx context.Context) error {
+	if rollbackBeforeSync(ctx) {
+		return nil // Retain staged auth for the next preparation attempt.
+	}
+	return m.Cleanup()
 }
 
 func (m *manager) Cleanup() error {

@@ -107,11 +107,12 @@ type ApplicationSpec struct {
 }
 
 func pullAuthPathForUser(username v1beta1.Username) string {
-	_, _, home, err := userutil.LookupExecutionUser(username)
-	if err != nil || home == "" {
+	account, err := userutil.LookupExecutionUser(username)
+	if err != nil || account.HomeDir == "" {
+		// An unresolved home leaves authentication to the container client's default lookup.
 		return ""
 	}
-	return filepath.Join(home, consts.ContainersAuthRelativePath)
+	return filepath.Join(account.HomeDir, consts.ContainersAuthRelativePath)
 }
 
 // containerPullOptions returns a lazy function for resolving container pull options.

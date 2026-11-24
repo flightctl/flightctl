@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -43,7 +44,6 @@ import (
 
 const (
 	registryUser    = "prefetch"
-	registrySecret  = "fixture-private-password"
 	applicationRepo = "private/container"
 	quadletRepo     = "private/quadlet"
 	vmLauncherRepo  = "private/vm-launcher"
@@ -88,7 +88,8 @@ func (c *appCollector) CollectOCITargets(ctx context.Context, _, desired *v1beta
 var _ = Describe("Container registry credentials", Serial, func() {
 	It("When private workloads are prefetched it should authenticate with staged auth before applying configuration", func(ctx SpecContext) {
 		work := GinkgoT().TempDir()
-		registry, endpoint := startRegistry(ctx, work)
+		password := rand.Text()
+		registry, endpoint := startRegistry(ctx, work, password)
 		configurePodman(work, endpoint)
 		setStorage(work, "publisher")
 		logger := log.NewPrefixLogger("registry-auth-it")
@@ -100,15 +101,15 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		Expect(err).NotTo(HaveOccurred())
 		version, err := podman.Version(ctx)
 		Expect(err).NotTo(HaveOccurred())
-		desired, repos := renderedSpec(endpoint, version)
-		publishFixtures(ctx, executer.NewCommonExecuter(), work, endpoint, repos)
+		desired, repos := renderedSpec(endpoint, password, version)
+		publishFixtures(ctx, executer.NewCommonExecuter(), work, endpoint, password, repos)
 		publisherLogs := readRegistryLogs(ctx, registry)
 		setStorage(work, "device")
 
 		root := filepath.Join(work, "device-root")
-		_, _, home, err := userutil.LookupExecutionUser(v1beta1.CurrentProcessUsername)
+		account, err := userutil.LookupExecutionUser(v1beta1.CurrentProcessUsername)
 		Expect(err).NotTo(HaveOccurred())
-		for _, dir := range []string{home, dataDir, os.TempDir()} {
+		for _, dir := range []string{account.HomeDir, dataDir, os.TempDir()} {
 			Expect(os.MkdirAll(filepath.Join(root, dir), 0o700)).To(Succeed())
 		}
 		factory := fileio.NewReadWriterFactory(root)
@@ -116,9 +117,9 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		Expect(err).NotTo(HaveOccurred())
 		var agentLogs bytes.Buffer
 		logger.SetOutput(&agentLogs)
-		encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + registrySecret))
+		encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + password))
 		DeferCleanup(func() {
-			Expect(agentLogs.String()).NotTo(ContainSubstring(registrySecret))
+			Expect(agentLogs.String()).NotTo(ContainSubstring(password))
 			Expect(agentLogs.String()).NotTo(ContainSubstring(encoded))
 		})
 		manager := registryconfig.NewManager(factory, dataDir)
@@ -142,10 +143,10 @@ var _ = Describe("Container registry credentials", Serial, func() {
 			return provider.CollectOCITargets(ctx, logger, podmanFactory, nil, factory, desired, provider.WithPullConfigResolver(resolver))
 		}}
 		current := &v1beta1.DeviceSpec{}
-		live := filepath.Join(home, consts.ContainersAuthRelativePath)
+		live := filepath.Join(account.HomeDir, consts.ContainersAuthRelativePath)
 
 		resolver.BeforeUpdate(desired)
-		Expect(manager.Prepare(ctx, desired)).To(Succeed())
+		Expect(manager.BeforeUpdate(ctx, desired)).To(Succeed())
 		stage, ok := manager.StagedPath(live)
 		Expect(ok).To(BeTrue())
 		Expect(stage).To(BeAnExistingFile())
@@ -168,10 +169,11 @@ var _ = Describe("Container registry credentials", Serial, func() {
 				ContainSubstring(`msg="authorized request"`), ContainSubstring("http.request.method=GET"), ContainSubstring("/v2/"+repo+"/manifests/"),
 			)))
 		}
-		Expect(registryLogs).NotTo(ContainSubstring(registrySecret))
+		Expect(registryLogs).NotTo(ContainSubstring(password))
 
-		Expect(manager.Commit(ctx, desired)).To(Succeed())
+		Expect(manager.Sync(ctx, desired)).To(Succeed())
 		Expect(config.NewController(rw, dataDir, logger).Sync(ctx, current, desired)).To(Succeed())
+		Expect(manager.AfterUpdate(ctx)).To(Succeed())
 		info, err := os.Stat(rw.PathFor(live))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o600)))
@@ -181,10 +183,10 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		// A fresh store and an empty desired resource collection exercise the pull failure path.
 		prefetch.Cleanup()
 		setStorage(work, "unauthenticated")
-		Expect(manager.Commit(ctx, &v1beta1.DeviceSpec{})).To(Succeed())
+		Expect(manager.Sync(ctx, &v1beta1.DeviceSpec{})).To(Succeed())
 		desired.ConfigResources = nil
 		resolver.BeforeUpdate(desired)
-		Expect(manager.Prepare(ctx, desired)).To(Succeed())
+		Expect(manager.BeforeUpdate(ctx, desired)).To(Succeed())
 		prefetch.RegisterOCICollector(collector)
 		var pullErr error
 		Eventually(func() bool {
@@ -192,7 +194,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 			return pullErr != nil && !errors.Is(pullErr, deviceerrors.ErrPrefetchNotReady)
 		}, 45*time.Second, 100*time.Millisecond).Should(BeTrue())
 		Expect(errors.Is(pullErr, deviceerrors.ErrAuthenticationFailed)).To(BeTrue(), "expected an authentication failure: %v", pullErr)
-		Expect(pullErr.Error()).NotTo(ContainSubstring(registrySecret))
+		Expect(pullErr.Error()).NotTo(ContainSubstring(password))
 		Expect(pullErr.Error()).NotTo(ContainSubstring(encoded))
 	})
 
@@ -208,15 +210,15 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		Expect(os.MkdirAll(filepath.Join(root, dataDir), 0o700)).To(Succeed())
 		Expect(os.Chown(filepath.Join(root, home), uid, gid)).To(Succeed())
 		factory := fileio.NewReadWriterFactory(root)
-		manager := registryconfig.NewManager(factory, dataDir, registryconfig.WithAccountLookup(func(name v1beta1.Username) (registryconfig.Account, error) {
+		manager := registryconfig.NewManager(factory, dataDir, registryconfig.WithAccountLookup(func(name v1beta1.Username) (userutil.Account, error) {
 			Expect(name).To(Equal(v1beta1.Username("workload")))
-			return registryconfig.Account{UID: uid, GID: gid, HomeDir: home}, nil
+			return userutil.Account{UID: uid, GID: gid, HomeDir: home}, nil
 		}))
 		DeferCleanup(manager.Cleanup)
-		resource := authResource("quay.io:5000", lo.ToPtr(v1beta1.Username("workload")))
+		resource := authResource("quay.io:5000", rand.Text(), lo.ToPtr(v1beta1.Username("workload")))
 		desired := &v1beta1.DeviceSpec{ConfigResources: &[]v1beta1.ConfigResource{resource}}
 		live := filepath.Join(home, consts.ContainersAuthRelativePath)
-		Expect(manager.Prepare(ctx, desired)).To(Succeed())
+		Expect(manager.BeforeUpdate(ctx, desired)).To(Succeed())
 		stage, ok := manager.StagedPath(live)
 		Expect(ok).To(BeTrue())
 		parent, err := os.Stat(filepath.Dir(stage))
@@ -235,7 +237,9 @@ var _ = Describe("Container registry credentials", Serial, func() {
 		Expect(canReadAs(uid, gid)).To(Succeed())
 		Expect(canReadAs(uid+1, gid+1)).To(BeAssignableToTypeOf(&exec.ExitError{}))
 
-		Expect(manager.Commit(ctx, desired)).To(Succeed())
+		Expect(manager.Sync(ctx, desired)).To(Succeed())
+		Expect(stage).To(BeAnExistingFile())
+		Expect(manager.AfterUpdate(ctx)).To(Succeed())
 		Expect(stage).NotTo(BeAnExistingFile())
 		installed, err := os.Stat(filepath.Join(root, live))
 		Expect(err).NotTo(HaveOccurred())
@@ -245,7 +249,7 @@ var _ = Describe("Container registry credentials", Serial, func() {
 	})
 })
 
-func renderedSpec(endpoint string, version *client.PodmanVersion) (*v1beta1.DeviceSpec, []string) {
+func renderedSpec(endpoint, password string, version *client.PodmanVersion) (*v1beta1.DeviceSpec, []string) {
 	image := func(repo string) string { return endpoint + "/" + repo + ":latest" }
 	repos := []string{applicationRepo}
 	container := v1beta1.ContainerApplication{Name: lo.ToPtr("container"), AppType: v1beta1.AppTypeContainer}
@@ -289,7 +293,7 @@ func renderedSpec(endpoint string, version *client.PodmanVersion) (*v1beta1.Devi
 		By("Leaving out the Compose pull when a Compose provider or Skopeo is unavailable")
 	}
 
-	registry := authResource(endpoint, nil)
+	registry := authResource(endpoint, password, nil)
 	files, err := config.FilesToProviderSpec([]v1beta1.FileSpec{{Path: ordinaryFile, Content: "after approval"}})
 	Expect(err).NotTo(HaveOccurred())
 	return &v1beta1.DeviceSpec{Config: files, Applications: &apps, ConfigResources: &[]v1beta1.ConfigResource{registry}}, repos
@@ -302,9 +306,9 @@ func composeAvailable() bool {
 	return skopeoErr == nil && (podmanComposeErr == nil || dockerComposeErr == nil)
 }
 
-func authResource(endpoint string, user *v1beta1.Username) v1beta1.ConfigResource {
+func authResource(endpoint, password string, user *v1beta1.Username) v1beta1.ConfigResource {
 	var authentication v1beta1.OciAuth
-	Expect(authentication.FromDockerAuth(v1beta1.DockerAuth{AuthType: v1beta1.Docker, Username: registryUser, Password: registrySecret})).To(Succeed())
+	Expect(authentication.FromDockerAuth(v1beta1.DockerAuth{AuthType: v1beta1.Docker, Username: registryUser, Password: password})).To(Succeed())
 	var registry v1beta1.ConfigResource
 	Expect(registry.FromRegistryConfigResource(v1beta1.RegistryConfigResource{
 		Name: "registry:" + endpoint, Registry: endpoint, Type: v1beta1.Registry, Scheme: v1beta1.RegistrySchemeHTTP, SkipServerVerification: lo.ToPtr(false),
@@ -313,8 +317,8 @@ func authResource(endpoint string, user *v1beta1.Username) v1beta1.ConfigResourc
 	return registry
 }
 
-func startRegistry(ctx context.Context, dir string) (testcontainers.Container, string) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(registrySecret), bcrypt.DefaultCost)
+func startRegistry(ctx context.Context, dir, password string) (testcontainers.Container, string) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	Expect(err).NotTo(HaveOccurred())
 	passwd := filepath.Join(dir, "htpasswd")
 	Expect(os.WriteFile(passwd, []byte(registryUser+":"+string(hash)+"\n"), 0o600)).To(Succeed())
@@ -327,7 +331,7 @@ func startRegistry(ctx context.Context, dir string) (testcontainers.Container, s
 			"REGISTRY_AUTH_HTPASSWD_PATH":  "/auth/htpasswd",
 		},
 		Files:      []testcontainers.ContainerFile{{HostFilePath: passwd, ContainerFilePath: "/auth/htpasswd", FileMode: 0o644}},
-		WaitingFor: wait.ForHTTP("/v2/").WithPort("5000/tcp").WithBasicAuth(registryUser, registrySecret),
+		WaitingFor: wait.ForHTTP("/v2/").WithPort("5000/tcp").WithBasicAuth(registryUser, password),
 	}, false)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(registry.Terminate)
@@ -356,7 +360,7 @@ func setStorage(dir, name string) {
 	GinkgoT().Setenv("CONTAINERS_STORAGE_CONF", path)
 }
 
-func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint string, repos []string) {
+func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint, password string, repos []string) {
 	fixture := filepath.Join(dir, "fixture")
 	Expect(os.WriteFile(fixture, []byte("test payload"), 0o600)).To(Succeed())
 	var archive bytes.Buffer
@@ -367,7 +371,7 @@ func publishFixtures(ctx context.Context, exec executer.Executer, dir, endpoint 
 	Expect(tw.Close()).To(Succeed())
 	archivePath := filepath.Join(dir, "rootfs.tar")
 	Expect(os.WriteFile(archivePath, archive.Bytes(), 0o600)).To(Succeed())
-	encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + registrySecret))
+	encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + password))
 	data, err := json.Marshal(map[string]any{"auths": map[string]map[string]string{endpoint: {"auth": encoded}}})
 	Expect(err).NotTo(HaveOccurred())
 	auth := filepath.Join(dir, "publisher-auth.json")

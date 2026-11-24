@@ -107,7 +107,7 @@ When the rendered configuration includes registry credentials for a container wo
 
 After download approval, prefetch passes a private staged auth file directly to existing container pulls. The live auth file and ordinary device configuration stay gated until update approval. An authored auth file at the same destination takes precedence.
 
-After update approval, the agent installs the generated auth file and removes the staged copy. When a rendered update removes the last consumer of a credential, the agent removes its entry and deletes the generated file if it becomes empty. Without a usable credential, a private pull fails through the existing update error path.
+After update approval, the agent installs the generated auth file while applying device configuration and removes the staged copy in the after-update phase. The file's filesystem must support user extended attributes, which let the agent distinguish the files it installed from unrelated files at the same path. When a rendered update removes the last consumer of a credential, the agent removes its entry and deletes the generated file if it becomes empty. Without a usable credential, a private pull fails through the existing update error path.
 
 ## Update Policy
 

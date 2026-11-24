@@ -22,16 +22,16 @@ func TestLookupExecutionUser(t *testing.T) {
 		{"When the execution user is named it should resolve the named account", v1beta1.Username(current.Username)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			uid, gid, home, err := userutil.LookupExecutionUser(tc.user)
+			account, err := userutil.LookupExecutionUser(tc.user)
 			require.NoError(t, err)
-			require.Equal(t, current.Uid, strconv.FormatUint(uint64(uid), 10))
-			require.Equal(t, current.Gid, strconv.FormatUint(uint64(gid), 10))
-			require.Equal(t, current.HomeDir, home)
+			require.Equal(t, current.Uid, strconv.FormatUint(uint64(account.UID), 10))
+			require.Equal(t, current.Gid, strconv.FormatUint(uint64(account.GID), 10))
+			require.Equal(t, current.HomeDir, account.HomeDir)
 		})
 	}
 
 	t.Run("When the named account is missing it should return a lookup error", func(t *testing.T) {
-		_, _, _, err := userutil.LookupExecutionUser("flightctl-nonexistent-test-account")
+		_, err := userutil.LookupExecutionUser("flightctl-nonexistent-test-account")
 		require.Error(t, err)
 	})
 }

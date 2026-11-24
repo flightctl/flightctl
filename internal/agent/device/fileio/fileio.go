@@ -132,7 +132,9 @@ type DirOptions struct {
 type Ownership struct{ UID, GID uint32 }
 
 type replaceOptions struct {
-	owner *Ownership
+	owner      *Ownership
+	xattrName  string
+	xattrValue []byte
 }
 
 type ReplaceOption func(*replaceOptions)
@@ -140,6 +142,13 @@ type ReplaceOption func(*replaceOptions)
 // WithOwner sets ownership before publication of a replacement file.
 func WithOwner(owner Ownership) ReplaceOption {
 	return func(opts *replaceOptions) { opts.owner = &owner }
+}
+
+// WithXattr sets an extended attribute before publication of a replacement file.
+func WithXattr(name string, value []byte) ReplaceOption {
+	return func(opts *replaceOptions) {
+		opts.xattrName, opts.xattrValue = name, value
+	}
 }
 
 // WalkBounds limits a read-only streaming walk.

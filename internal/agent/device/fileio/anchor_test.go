@@ -280,6 +280,30 @@ func assertOwnership(t *testing.T, path string, owner Ownership, mode fs.FileMod
 	require.Equal(t, mode, info.Mode().Perm())
 }
 
+func TestAnchorReplaceMetadataAndCleanup(t *testing.T) {
+	rw, root := anchorFixture(t)
+	const attr = "user.test-publication"
+	t.Run("When replacing a file it should publish the attribute with the new contents", func(t *testing.T) {
+		dir := openTrusted(t, rw, "/data")
+		require.NoError(t, dir.ReplaceFileDurable("auth.json", []byte("replacement"), 0o600, WithXattr(attr, []byte("marker"))))
+		value, state, err := dir.GetXattr("auth.json", attr, 64)
+		require.NoError(t, err)
+		require.Equal(t, XattrPresent, state)
+		require.Equal(t, "marker", string(value))
+	})
+	t.Run("When replacing and removing the temporary file both fail it should report both errors", func(t *testing.T) {
+		require.NoError(t, os.Mkdir(filepath.Join(root, "data", "existing"), 0o700))
+		sys := *defaultSysOps
+		sys.unlinkat = func(int, string, int) error { return unix.EIO }
+		dir := openWithSys(t, rw, "/data", &sys)
+		err := dir.ReplaceFileDurable("existing", []byte("replacement"), 0o600)
+		require.ErrorIs(t, err, unix.EISDIR)
+		require.ErrorIs(t, err, unix.EIO)
+		require.ErrorContains(t, err, "remove temporary file")
+		require.DirExists(t, filepath.Join(root, "data", "existing"))
+	})
+}
+
 func TestAnchorRemoveFile(t *testing.T) {
 	rw, root := anchorFixture(t)
 	data := openTrusted(t, rw, "/data")

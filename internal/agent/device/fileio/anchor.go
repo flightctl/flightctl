@@ -666,14 +666,9 @@ func (a *anchor) createExclusive(name string) (*os.File, error) {
 // finishFile sets the final mode, syncs and closes a file this anchor created.
 func finishFile(f *os.File, perm fs.FileMode) error {
 	if err := f.Chmod(perm.Perm()); err != nil {
-		_ = f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return errors.Join(f.Sync(), f.Close())
 }
 
 func (a *anchor) CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error) {
@@ -772,29 +767,35 @@ func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, 
 	if out == nil {
 		return fmt.Errorf("replace %w: no unused temporary name", errors.WithElement(path.Join(a.path, name)))
 	}
+	discard := func(err error) error {
+		if unlinkErr := a.sys.unlinkat(a.fd, tmp, 0); unlinkErr != nil && !errors.Is(unlinkErr, unix.ENOENT) {
+			return errors.Join(err, fmt.Errorf("remove temporary file %w: %w", errors.WithElement(path.Join(a.path, tmp)), unlinkErr))
+		}
+		return err
+	}
+	destination := errors.WithElement(path.Join(a.path, name))
 	if _, err := out.Write(data); err != nil {
-		_ = out.Close()
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("write %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("write %w: %w", destination, errors.Join(err, out.Close())))
 	}
 	options := replaceOptions{}
 	for _, opt := range opts {
 		opt(&options)
 	}
+	if options.xattrName != "" {
+		if err := unix.Fsetxattr(int(out.Fd()), options.xattrName, options.xattrValue, 0); err != nil {
+			return discard(fmt.Errorf("set file attribute %w: %w", destination, errors.Join(err, out.Close())))
+		}
+	}
 	if options.owner != nil {
 		if err := out.Chown(int(options.owner.UID), int(options.owner.GID)); err != nil {
-			_ = out.Close()
-			_ = a.sys.unlinkat(a.fd, tmp, 0)
-			return fmt.Errorf("set file owner %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+			return discard(fmt.Errorf("set file owner %w: %w", destination, errors.Join(err, out.Close())))
 		}
 	}
 	if err := finishFile(out, perm); err != nil {
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("finish %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("finish %w: %w", destination, err))
 	}
 	if err := unix.Renameat(a.fd, tmp, a.fd, name); err != nil {
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("replace %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("replace %w: %w", destination, err))
 	}
 	if err := unix.Fsync(a.fd); err != nil {
 		return fmt.Errorf("sync %w: %w", errors.WithElement(a.path), err)

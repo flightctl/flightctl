@@ -124,11 +124,9 @@ func (r *pullConfigResolver) Options(specs ...PullConfigSpec) ClientOptsFn {
 		var opts []client.ClientOption
 		for _, spec := range specs {
 			for _, path := range spec.Paths {
-				if spec.UseGenerated && r.generated != nil && r.authFromSpec(r.desired, path) == nil {
-					if staged, ok := r.generated.StagedPath(path); ok {
-						opts = append(opts, spec.OptionFn(staged))
-						break
-					}
+				if staged, ok := r.stagedPath(path, spec.UseGenerated); ok {
+					opts = append(opts, spec.OptionFn(staged))
+					break
 				}
 				if cached, ok := r.resolved[path]; ok {
 					r.log.Debugf("Using cached inline config from device spec for %s", path)
@@ -148,6 +146,16 @@ func (r *pullConfigResolver) Options(specs ...PullConfigSpec) ClientOptsFn {
 		}
 		return opts
 	}
+}
+
+func (r *pullConfigResolver) stagedPath(path string, enabled bool) (string, bool) {
+	if !enabled || r.generated == nil {
+		return "", false
+	}
+	if r.authFromSpec(r.desired, path) != nil {
+		return "", false // Exact-path authored auth takes precedence.
+	}
+	return r.generated.StagedPath(path)
 }
 
 func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) {

@@ -17,6 +17,7 @@ import (
 	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
 const (
@@ -25,7 +26,7 @@ const (
 )
 
 type output struct {
-	account Account
+	account userutil.Account
 	data    []byte
 }
 
@@ -39,7 +40,7 @@ type authEntry struct {
 }
 
 type accountAuth struct {
-	account Account
+	account userutil.Account
 	entries map[string]authEntry
 }
 
@@ -71,7 +72,7 @@ func (m *manager) plan(ctx context.Context, desired *v1beta1.DeviceSpec) (desire
 			return desiredOutputs{}, fmt.Errorf("%w: resolve destination: %w", deviceerrors.ErrInvalidConfigResource, err)
 		}
 		if a != nil {
-			_ = a.Close()
+			_ = a.Close() // The read-only destination check has finished.
 		}
 		if len(group.entries) == 0 || authored[path] {
 			continue
@@ -126,7 +127,7 @@ func authoredPaths(specs *[]v1beta1.ConfigProviderSpec) (map[string]bool, error)
 
 func (m *manager) groupAccess(ctx context.Context, registries []v1beta1.RegistryConfigResource) (map[string]*accountAuth, error) {
 	groups := make(map[string]*accountAuth)
-	accounts := make(map[v1beta1.Username]Account)
+	accounts := make(map[v1beta1.Username]userutil.Account)
 	for _, reg := range registries {
 		for _, access := range reg.Access {
 			key := reg.Registry
@@ -167,7 +168,7 @@ func (m *manager) groupAccess(ctx context.Context, registries []v1beta1.Registry
 	return groups, nil
 }
 
-func (m *manager) addAccess(groups map[string]*accountAuth, account Account, key string, entry authEntry) error {
+func (m *manager) addAccess(groups map[string]*accountAuth, account userutil.Account, key string, entry authEntry) error {
 	path := filepath.Join(account.HomeDir, consts.ContainersAuthRelativePath)
 	if !m.allowedHome(account.HomeDir) {
 		return fmt.Errorf("%w: invalid or protected home %w", deviceerrors.ErrInvalidConfigResource, deviceerrors.WithElement(account.HomeDir))
@@ -215,7 +216,7 @@ func openDirectory(rw fileio.ReadWriter, path string, readOnly bool) (fileio.Anc
 	}
 	for part := range strings.SplitSeq(strings.TrimPrefix(path, "/"), "/") {
 		next, err := a.OpenDir(part, opts)
-		_ = a.Close()
+		_ = a.Close() // The child has its own descriptor.
 		if err != nil {
 			return nil, err
 		}
@@ -225,14 +226,14 @@ func openDirectory(rw fileio.ReadWriter, path string, readOnly bool) (fileio.Anc
 }
 
 // openDestination returns a nil anchor when only the auth subdirectories are absent.
-func openDestination(rw fileio.ReadWriter, account Account, create, readOnly bool) (fileio.Anchor, error) {
+func openDestination(rw fileio.ReadWriter, account userutil.Account, create, readOnly bool) (fileio.Anchor, error) {
 	a, err := openDirectory(rw, account.HomeDir, readOnly)
 	if err != nil {
 		return nil, err
 	}
 	info, err := a.Lstat(".")
 	if err != nil || info.UID != account.UID {
-		_ = a.Close()
+		_ = a.Close() // Preserve the home validation error.
 		if err != nil {
 			return nil, err
 		}
@@ -242,12 +243,12 @@ func openDestination(rw fileio.ReadWriter, account Account, create, readOnly boo
 	for _, component := range []string{".config", "containers"} {
 		if create {
 			if err := a.Revalidate(); err != nil {
-				_ = a.Close()
+				_ = a.Close() // Preserve the path validation error.
 				return nil, err
 			}
 		}
 		next, err := a.OpenDir(component, fileio.DirOptions{Create: create, Owner: &owner})
-		_ = a.Close()
+		_ = a.Close() // OpenDir handles durability before returning.
 		if !create && errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
@@ -260,7 +261,7 @@ func openDestination(rw fileio.ReadWriter, account Account, create, readOnly boo
 	if errors.Is(err, fs.ErrNotExist) || (err == nil && info.IsRegular() && info.Nlink == 1) {
 		return a, nil
 	}
-	_ = a.Close()
+	_ = a.Close() // Preserve the auth file validation error.
 	if err != nil {
 		return nil, err
 	}

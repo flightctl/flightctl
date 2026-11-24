@@ -40,6 +40,34 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// AfterUpdate mocks base method.
+func (m *MockManager) AfterUpdate(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AfterUpdate", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AfterUpdate indicates an expected call of AfterUpdate.
+func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AfterUpdate", reflect.TypeOf((*MockManager)(nil).AfterUpdate), ctx)
+}
+
+// BeforeUpdate mocks base method.
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BeforeUpdate indicates an expected call of BeforeUpdate.
+func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, desired)
+}
+
 // Cleanup mocks base method.
 func (m *MockManager) Cleanup() error {
 	m.ctrl.T.Helper()
@@ -52,34 +80,6 @@ func (m *MockManager) Cleanup() error {
 func (mr *MockManagerMockRecorder) Cleanup() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cleanup", reflect.TypeOf((*MockManager)(nil).Cleanup))
-}
-
-// Commit mocks base method.
-func (m *MockManager) Commit(arg0 context.Context, arg1 *v1beta1.DeviceSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Commit", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Commit indicates an expected call of Commit.
-func (mr *MockManagerMockRecorder) Commit(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockManager)(nil).Commit), arg0, arg1)
-}
-
-// Prepare mocks base method.
-func (m *MockManager) Prepare(arg0 context.Context, arg1 *v1beta1.DeviceSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Prepare", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Prepare indicates an expected call of Prepare.
-func (mr *MockManagerMockRecorder) Prepare(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prepare", reflect.TypeOf((*MockManager)(nil).Prepare), arg0, arg1)
 }
 
 // StagedPath mocks base method.
@@ -95,4 +95,18 @@ func (m *MockManager) StagedPath(livePath string) (string, bool) {
 func (mr *MockManagerMockRecorder) StagedPath(livePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StagedPath", reflect.TypeOf((*MockManager)(nil).StagedPath), livePath)
+}
+
+// Sync mocks base method.
+func (m *MockManager) Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sync", ctx, desired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Sync indicates an expected call of Sync.
+func (mr *MockManagerMockRecorder) Sync(ctx, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockManager)(nil).Sync), ctx, desired)
 }
