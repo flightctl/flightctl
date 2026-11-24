@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -112,6 +113,8 @@ func (e *Engine) Compile(expression string) (*Program, error) {
 		return cached.program, cached.err
 	}
 
+	// The caller may have sliced the expression from a much larger buffer.
+	expression = strings.Clone(expression)
 	program, err := e.compile(expression)
 	item, _ := e.programs.GetOrSet(expression, cachedProgram{program: program, err: err})
 	cached := item.Value()
