@@ -244,6 +244,12 @@ func (a *anchor) OpenDir(name string, opts DirOptions) (Anchor, error) {
 		if perm == 0 {
 			perm = 0o700
 		}
+		if opts.Owner != nil {
+			if err := unix.Fchown(fd, int(opts.Owner.UID), int(opts.Owner.GID)); err != nil {
+				_ = unix.Close(fd)
+				return nil, fmt.Errorf("set directory owner %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+			}
+		}
 		if err := unix.Fchmod(fd, uint32(perm)); err != nil {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("set directory mode %w: %w", errors.WithElement(path.Join(a.path, name)), err)
@@ -740,7 +746,7 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error {
+func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...ReplaceOption) error {
 	if a.readOnly {
 		return fmt.Errorf("replace in %w: %w", errors.WithElement(a.path), errors.ErrReadOnlyAnchor)
 	}
@@ -769,6 +775,17 @@ func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) 
 		_ = out.Close()
 		_ = a.sys.unlinkat(a.fd, tmp, 0)
 		return fmt.Errorf("write %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+	}
+	options := replaceOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.owner != nil {
+		if err := out.Chown(int(options.owner.UID), int(options.owner.GID)); err != nil {
+			_ = out.Close()
+			_ = a.sys.unlinkat(a.fd, tmp, 0)
+			return fmt.Errorf("set file owner %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		}
 	}
 	if err := finishFile(out, perm); err != nil {
 		_ = a.sys.unlinkat(a.fd, tmp, 0)

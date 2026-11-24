@@ -118,11 +118,27 @@ type DirOptions struct {
 	Exclusive bool
 	// Perm is the creation mode.
 	Perm fs.FileMode
+	// Owner applies to newly created directories.
+	Owner *Ownership
 	// Trusted requires a real directory owned by root or the effective user
 	// without group or other write access.
 	Trusted bool
 	// ReadOnly makes every mutating method fail with ErrReadOnlyAnchor.
 	ReadOnly bool
+}
+
+// Ownership is the numeric owner of an entry.
+type Ownership struct{ UID, GID uint32 }
+
+type replaceOptions struct {
+	owner *Ownership
+}
+
+type ReplaceOption func(*replaceOptions)
+
+// WithOwner sets ownership before publication of a replacement file.
+func WithOwner(owner Ownership) ReplaceOption {
+	return func(opts *replaceOptions) { opts.owner = &owner }
 }
 
 // WalkBounds limits a read-only streaming walk.
@@ -237,7 +253,7 @@ type Anchor interface {
 	// with mode perm, and syncs it.
 	CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error)
 	WriteFileExclusive(name string, data []byte, perm fs.FileMode) error
-	ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error
+	ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...ReplaceOption) error
 	// RenameNoReplace atomically renames oldName to newName in newDir and
 	// fails with ErrDestinationExists when newName exists. newDir must be an
 	// Anchor from this package or wrap one and implement Unwrap() Anchor.

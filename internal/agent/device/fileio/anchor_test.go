@@ -220,6 +220,66 @@ func TestAnchorForeignOwner(t *testing.T) {
 	require.ErrorIs(err, errors.ErrUntrustedDirectory)
 }
 
+func TestAnchorOwnership(t *testing.T) {
+	current := Ownership{UID: uint32(os.Geteuid()), GID: uint32(os.Getegid())} //nolint:gosec // effective IDs are nonnegative
+	owner := current
+	if current.UID == 0 {
+		owner = Ownership{UID: 65534, GID: 65534}
+	}
+
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, data Anchor, root string)
+	}{
+		{
+			name: "When a directory is created it should use the requested owner and preserve existing ownership",
+			run: func(t *testing.T, data Anchor, root string) {
+				dir, err := data.OpenDir("new", DirOptions{Create: true, Owner: &owner})
+				require.NoError(t, err)
+				require.NoError(t, dir.Close())
+				dir, err = data.OpenDir("new", DirOptions{Create: true, Owner: &current})
+				require.NoError(t, err)
+				require.NoError(t, dir.Close())
+				assertOwnership(t, filepath.Join(root, "data", "new"), owner, 0o700)
+			},
+		},
+		{
+			name: "When replacing a file it should set ownership and mode before publication",
+			run: func(t *testing.T, data Anchor, root string) {
+				file := filepath.Join(root, "data", "auth.json")
+				require.NoError(t, data.ReplaceFileDurable("auth.json", []byte("first"), 0o600, WithOwner(owner)))
+				assertOwnership(t, file, owner, 0o600)
+				require.NoError(t, data.ReplaceFileDurable("auth.json", []byte("second"), 0o640))
+				assertOwnership(t, file, current, 0o640)
+			},
+		},
+		{
+			name: "When an owned directory path is a symlink it should reject it",
+			run: func(t *testing.T, data Anchor, root string) {
+				outside := sentinelDir(t, root)
+				require.NoError(t, os.Symlink(outside, filepath.Join(root, "data", "link")))
+				_, err := data.OpenDir("link", DirOptions{Create: true, Owner: &owner})
+				require.ErrorIs(t, err, errors.ErrUnsafeFileType)
+				assertOwnership(t, outside, current, 0o700)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rw, root := anchorFixture(t)
+			tc.run(t, openTrusted(t, rw, "/data"), root)
+		})
+	}
+}
+
+func assertOwnership(t *testing.T, path string, owner Ownership, mode fs.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	stat := info.Sys().(*syscall.Stat_t)
+	require.Equal(t, owner, Ownership{UID: stat.Uid, GID: stat.Gid})
+	require.Equal(t, mode, info.Mode().Perm())
+}
+
 func TestAnchorOpenDir(t *testing.T) {
 	t.Run("When the directory is absent it should create it with the requested mode and open it", func(t *testing.T) {
 		require := require.New(t)

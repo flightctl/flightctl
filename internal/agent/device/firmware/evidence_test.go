@@ -26,13 +26,13 @@ func (a hooked) GetXattr(rel, attr string, limit int) ([]byte, fileio.XattrState
 	return a.Anchor.GetXattr(rel, attr, limit)
 }
 
-func (a hooked) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error {
+func (a hooked) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...fileio.ReplaceOption) error {
 	if a.h.replace != nil {
 		if err := a.h.replace(a.Path(), name); err != nil {
 			return err
 		}
 	}
-	return a.Anchor.ReplaceFileDurable(name, data, perm)
+	return a.Anchor.ReplaceFileDurable(name, data, perm, opts...)
 }
 
 // hookedRW opens every anchor through the hooks.
