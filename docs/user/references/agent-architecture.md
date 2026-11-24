@@ -101,6 +101,14 @@ The agent installs retained parent contents with their observed digest. A cached
 
 History protects the previous complete observed set and the current update. Replacing pending content behind a mutable reference releases superseded content for eviction, including when observation is incomplete. OS history protects the booted identity and the latest accepted identity for the active target. Protected records may temporarily exceed the capacity limit.
 
+## Generated container registry authentication
+
+When the rendered configuration includes registry credentials for a container workload, the agent selects the credentials scoped to its execution account. The agent resolves the local home directory and manages `.config/containers/auth.json` there. Workloads without a named account use the agent’s execution account. The auth file belongs to that account and has mode `0600`.
+
+After download approval, prefetch passes a private staged auth file directly to existing container pulls. The live auth file and ordinary device configuration stay gated until update approval. An authored auth file at the same destination takes precedence.
+
+After update approval, the agent installs the generated auth file and removes the staged copy. When a rendered update removes the last consumer of a credential, the agent removes its entry and deletes the generated file if it becomes empty. Without a usable credential, a private pull fails through the existing update error path.
+
 ## Update Policy
 
 * **Maintenance windows**: Independently define windows for download, update, and install operations
