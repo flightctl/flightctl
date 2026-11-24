@@ -456,7 +456,58 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		Expect(inspectResult(first).References).To(ContainElement(HaveField("Reference", "registry.example/images/web:v1")))
 	})
 
-	It("When an OCI tag is resolved again it should reuse an unchanged digest and inspect a changed digest", func() {
+	DescribeTable("When an inspection reloads device inputs it should only fetch configuration needed for inspection", func(app, path, contents string, reloadRequests int32, wantIncomplete bool) {
+		var requests atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			defer GinkgoRecover()
+			requests.Add(1)
+			_, err := w.Write([]byte(contents))
+			Expect(err).NotTo(HaveOccurred())
+		}))
+		DeferCleanup(server.Close)
+		repo := &domain.Repository{Metadata: domain.ObjectMeta{Name: lo.ToPtr("inspection-config")}}
+		Expect(repo.Spec.FromHttpRepoSpec(domain.HttpRepoSpec{Type: domain.HttpRepoSpecTypeHttp, Url: server.URL})).To(Succeed())
+		Expect(repositorystore.NewRepositoryStore(db, log).Create(ctx, orgID, repo)).Error().NotTo(HaveOccurred())
+		name := lo.FromPtr(createDeviceFor(app).Metadata.Name)
+		provider := domain.HttpConfigProviderSpec{Name: "inspection-config"}
+		provider.HttpRef.Repository = *repo.Metadata.Name
+		provider.HttpRef.FilePath = path
+		var item domain.ConfigProviderSpec
+		Expect(item.FromHttpConfigProviderSpec(provider)).To(Succeed())
+		_, _, _, err := devices.Mutate(ctx, orgID, name, nil, func(m *devicestore.DeviceMutation) error {
+			m.Device.Spec.Config = &[]domain.ConfigProviderSpec{item}
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+		var helmCalls int
+		coordinator := newCoordinator(func(context.Context) (string, error) {
+			helmCalls++
+			return fixtureManifest, nil
+		})
+		logic := origin.WithInspection(storeSvc, disconnectedWakeups(), coordinator)
+		admit(logic, name, domain.EventReasonResourceCreated)
+		Expect(requests.Load()).To(BeEquivalentTo(1))
+		process(coordinator, logic)
+		Expect(requests.Load()).To(Equal(1 + reloadRequests))
+		result := inspectResult(name)
+		if wantIncomplete {
+			Expect(helmCalls).To(BeZero())
+			Expect(result.Inspection.State).To(Equal(model.InspectionFinishedIncomplete))
+			Expect(result.Inspection.DiagnosticCodes).To(ConsistOf(model.InspectionParseFailed))
+			Expect(result.References).To(ConsistOf(HaveField("Reference", "registry.example/charts/app:v1")))
+		} else {
+			Expect(result.Inspection.State).To(Equal(model.InspectionComplete))
+		}
+		Expect(logic.ResumeInspection(ctx, orgID, current(name).ID)).To(Succeed())
+		Expect(requests.Load()).To(Equal(2 + reloadRequests))
+		Expect(version(name)).NotTo(BeEmpty())
+	},
+		Entry("non-Helm application", `{"appType":"container","image":"registry.example/images/web:v1"}`, "/etc/app.conf", "setting=yes", int32(0), false),
+		Entry("Helm alias", `{"appType":"helm","name":"demo","image":"oci://registry.example/charts/app:v1"}`, "/root/.config/helm/repositories.yaml", "repositories:\n- name: child\n  url: https://charts.example/charts\n", int32(1), false),
+		Entry("Helm alias with a query", `{"appType":"helm","name":"demo","image":"oci://registry.example/charts/app:v1"}`, "/root/.config/helm/repositories.yaml", "repositories:\n- name: child\n  url: https://charts.example/charts?channel=stable\n", int32(1), true),
+	)
+
+	It("When an OCI tag is resolved again it should reuse an unchanged digest across reference spellings and inspect a changed digest", func() {
 		type artifact struct {
 			blob, manifest []byte
 			parent, layer  digest.Digest
@@ -476,6 +527,7 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		var tagLookups, downloads atomic.Int32
 		var retargeted atomic.Bool
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer GinkgoRecover()
 			path := r.URL.Path
 			if path == "/v2/team/package/manifests/stable" {
 				tagLookups.Add(1)
@@ -492,15 +544,15 @@ var _ = Describe("QueuedApplicationInspection", func() {
 					w.Header().Set("Docker-Content-Digest", item.parent.String())
 					w.Header().Set("Content-Length", strconv.Itoa(len(item.manifest)))
 					if r.Method == http.MethodGet {
-						// The client verifies the manifest against its digest.
-						_, _ = w.Write(item.manifest)
+						_, err := w.Write(item.manifest)
+						Expect(err).NotTo(HaveOccurred())
 					}
 					return
 				case "/v2/team/package/blobs/" + item.layer.String():
 					downloads.Add(1)
 					w.Header().Set("Content-Length", strconv.Itoa(len(item.blob)))
-					// The client verifies the blob against its digest.
-					_, _ = w.Write(item.blob)
+					_, err := w.Write(item.blob)
+					Expect(err).NotTo(HaveOccurred())
 					return
 				}
 			}
@@ -511,9 +563,12 @@ var _ = Describe("QueuedApplicationInspection", func() {
 		repo := &domain.Repository{Metadata: domain.ObjectMeta{Name: lo.ToPtr("package-registry")}}
 		Expect(repo.Spec.FromOciRepoSpec(domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: host, Scheme: lo.ToPtr(domain.OciRepoSchemeHttp)})).To(Succeed())
 		Expect(repositorystore.NewRepositoryStore(db, log).Create(ctx, orgID, repo)).Error().NotTo(HaveOccurred())
-		app := `{"appType":"compose","image":"` + host + `/team/package:stable"}`
+		app := func(prefix string) string {
+			return `{"appType":"compose","image":"` + prefix + host + `/team/package:stable"}`
+		}
 		wakeups := disconnectedWakeups()
-		first, second := lo.FromPtr(createDeviceFor(app).Metadata.Name), lo.FromPtr(createDeviceFor(app).Metadata.Name)
+		first := lo.FromPtr(createDeviceFor(app("")).Metadata.Name)
+		second := lo.FromPtr(createDeviceFor(app("docker://")).Metadata.Name)
 		for _, name := range []string{first, second} {
 			// Each coordinator resolves through an empty digest cache.
 			coordinator := newCoordinator(nil)
@@ -521,10 +576,10 @@ var _ = Describe("QueuedApplicationInspection", func() {
 			admit(logic, name, domain.EventReasonResourceCreated)
 			process(coordinator, logic)
 		}
-		original, reused := inspectResult(first), inspectResult(second)
+		original := inspectResult(first)
 		Expect(original.Inspection.State).To(Equal(model.InspectionComplete))
 		Expect(original.Inspection.Input.ParentDigest).To(Equal(firstArtifact.parent))
-		Expect(reused.Inspection.ID).To(Equal(original.Inspection.ID))
+		Expect(inspectResult(second).Inspection.ID).To(Equal(original.Inspection.ID))
 		Expect(tagLookups.Load()).To(Equal(int32(2)))
 		Expect(downloads.Load()).To(Equal(int32(1)))
 

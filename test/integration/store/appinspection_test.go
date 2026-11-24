@@ -282,15 +282,25 @@ var _ = Describe("ApplicationInspectionStore", func() {
 			Expect(claim.Token).NotTo(BeZero())
 			tokens[i] = claim.Token
 		}
+		promoteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 		for i, admitted := range admissions {
 			go func() {
 				<-start
-				id, err := inspections.PromoteOrAttach(ctx, orgID, admitted.WorkIDs[0], tokens[i], attempt.Input)
+				id, err := inspections.PromoteOrAttach(promoteCtx, orgID, admitted.WorkIDs[0], tokens[i], attempt.Input)
 				promoted <- promotion{id, err}
 			}()
 		}
 		close(start)
-		first, second := <-promoted, <-promoted
+		results := make([]promotion, len(admissions))
+		for i := range results {
+			select {
+			case results[i] = <-promoted:
+			case <-promoteCtx.Done():
+				Fail("timed out waiting for concurrent inspection promotions")
+			}
+		}
+		first, second := results[0], results[1]
 		Expect(first.err).NotTo(HaveOccurred())
 		Expect(second.err).NotTo(HaveOccurred())
 		Expect(first.id).NotTo(BeZero())

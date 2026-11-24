@@ -110,7 +110,7 @@ Device renders that need application inspection persist the work and its render 
 
 The `application-inspection-queue` stream carries only the operation and record identifiers. Periodic recovery republishes unclaimed or expired work and ready continuations from PostgreSQL, independently of event checkpoints. The rendered write and continuation consumption commit together so duplicate deliveries cannot publish a second version. Device validity updates also commit with the continuation when the rendered version stays the same. A permanent render failure records invalidity and settles the current continuation while preserving the last published render; transient failures remain eligible for recovery. Recovery also retries notifications for versions committed before a worker stopped.
 
-OCI packages reuse inspection results after resolving the package digest through the existing metadata cache. Helm results retain their original freshness deadline in PostgreSQL. After expiry, a new inspection runs the chart dependency update and template steps again.
+OCI packages reuse inspection results after resolving the package digest through the existing metadata cache. Helm results retain their original freshness deadline in PostgreSQL. After expiry, a new inspection runs the chart dependency update and template steps again. A query in a Helm dependency repository URL can affect the chart fetched or carry credentials. Inspections with those repository configurations retain declared references and finish incomplete, allowing the device render to resume without persisting query values or reusing dependency results.
 
 ## Resilience and Recovery
 

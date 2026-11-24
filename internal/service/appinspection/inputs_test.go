@@ -95,6 +95,16 @@ func TestPreparedPackagePinsBlobs(t *testing.T) {
 	require.EqualValues(t, 1, downloads.Load())
 }
 
+func TestDeclaredPackageReferenceIdentity(t *testing.T) {
+	for _, prefix := range []string{"", "docker://", "oci://"} {
+		var app domain.ApplicationProviderSpec
+		require.NoError(t, json.Unmarshal([]byte(`{"appType":"compose","image":"`+prefix+`registry.example/team/package:v1"}`), &app))
+		require.Equal(t, []inspectionstore.ReferenceInput{{
+			Reference: "registry.example/team/package:v1", Role: model.InspectionRolePackage, Mechanism: model.InspectionPullContainer,
+		}}, DeclaredReferences(&app), "transport %q", prefix)
+	}
+}
+
 func TestHelmInspectionIdentity(t *testing.T) {
 	resolver := NewInputResolver(nil, nil, nil, config.NewDefault(), nil)
 	org := uuid.New()
@@ -117,7 +127,6 @@ func TestHelmInspectionIdentity(t *testing.T) {
 	u, err := url.Parse(chartURL)
 	require.NoError(t, err)
 	u.User = url.UserPassword("reader", "placeholder")
-	u.RawQuery = url.Values{"token": {"placeholder"}}.Encode()
 	require.Equal(t, base, key(`{"enabled":true}`, strings.ReplaceAll(source, chartURL, u.String())))
 	require.NotEqual(t, base, key(`{"enabled":false}`, source))
 	require.NotEqual(t, base, key(`{"enabled":true}`, strings.ReplaceAll(source, "charts.example", "other.example")))

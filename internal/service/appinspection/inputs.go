@@ -25,9 +25,10 @@ import (
 // EffectiveApplication supplies execution inputs in memory. Durable work holds
 // only identities and reference facts; callers reload the application on delivery.
 type EffectiveApplication struct {
-	Spec           domain.ApplicationProviderSpec
-	Device         *domain.Device
-	RenderedConfig []byte
+	Spec              domain.ApplicationProviderSpec
+	Device            *domain.Device
+	RenderedConfig    []byte
+	InvalidHelmConfig bool
 }
 
 type InputResolver struct {
@@ -52,8 +53,12 @@ func referenceInputs(refs []inspection.Reference) ([]inspectionstore.ReferenceIn
 	var inputs []inspectionstore.ReferenceInput
 	valid := true
 	for _, ref := range refs {
+		image, hasOCITransport := strings.CutPrefix(ref.Image, "oci://")
+		if !hasOCITransport {
+			image = strings.TrimPrefix(image, "docker://")
+		}
 		input := inspectionstore.ReferenceInput{
-			Reference: strings.TrimPrefix(ref.Image, "oci://"), Role: model.InspectionArtifactRole(ref.Role), Mechanism: model.InspectionPullMechanism(ref.ConsumerKind),
+			Reference: image, Role: model.InspectionArtifactRole(ref.Role), Mechanism: model.InspectionPullMechanism(ref.ConsumerKind),
 		}
 		normalized, err := inspectionstore.NormalizeReference(input)
 		if err != nil {
@@ -122,7 +127,7 @@ func (r *InputResolver) prepare(ctx context.Context, orgID uuid.UUID, app Effect
 
 func (r *InputResolver) prepareHelm(orgID uuid.UUID, app EffectiveApplication, identity model.ApplicationInspectionInput, refs []inspectionstore.ReferenceInput) (preparedInput, model.InspectionDiagnostic) {
 	spec, err := app.Spec.AsHelmApplication()
-	if err != nil || len(refs) != 1 || refs[0].Mechanism != model.InspectionPullHelmChart {
+	if err != nil || app.InvalidHelmConfig || len(refs) != 1 || refs[0].Mechanism != model.InspectionPullHelmChart {
 		return preparedInput{}, model.InspectionParseFailed
 	}
 	release, err := helm.TargetRelease(spec, app.Device)

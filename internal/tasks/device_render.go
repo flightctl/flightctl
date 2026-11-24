@@ -416,6 +416,10 @@ func (t *deviceRenderState) bindRenderOwner(device *domain.Device) error {
 }
 
 func (t *deviceRenderState) renderEffectiveSpec(ctx context.Context, device *domain.Device) (RenderedSpec, error) {
+	return t.renderSpec(ctx, t.effectiveRenderSpec(device))
+}
+
+func (t *deviceRenderState) effectiveRenderSpec(device *domain.Device) *domain.DeviceSpec {
 	// Overlay the fleet-level application lifecycle default and the device-level override on
 	// top of the declarative application specs, baking the result into RenderedApplications
 	// only; neither is ever persisted back into the device's Spec. A malformed annotation is
@@ -446,7 +450,7 @@ func (t *deviceRenderState) renderEffectiveSpec(ctx context.Context, device *dom
 		spec = &specCopy
 	}
 
-	return t.renderSpec(ctx, spec)
+	return spec
 }
 
 func (t *deviceRenderState) publishRender(ctx context.Context, device *domain.Device, rendered RenderedSpec, renderErr error, specHash string, bypassHashCheck bool, options deviceservice.RenderedDeviceOptions) error {
@@ -527,6 +531,7 @@ type RenderedSpec struct {
 	Applications []byte
 
 	configFingerprints []ConfigRefFingerprint
+	inspectionFiles    []config_latest_types.File
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
 	// delta payload size.
 	appDeltaSizes map[string]*string
@@ -567,6 +572,9 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 	}
 	if renderErr != nil {
 		return result, renderErr
+	}
+	if t.inspection != nil && ignitionConfig != nil {
+		result.inspectionFiles = ignitionConfig.Storage.Files
 	}
 
 	if spec != nil && spec.Os != nil {

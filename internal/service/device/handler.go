@@ -1343,26 +1343,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		if continuation != nil {
 			return domain.StatusOK()
 		}
-		// A separate mutation, so firmware state that appeared since the
-		// rendered write was decided is checked again on its own attempts.
-		var heldUnchanged bool
-		status := h.setServiceConditions(ctx, orgId, name, func(device *domain.Device) []domain.Condition {
-			heldUnchanged = domain.DeviceRequiresFirmwareHold(device)
-			if heldUnchanged {
-				return []domain.Condition{firmwareHoldCondition()}
-			}
-			return []domain.Condition{specValid}
-		})
-		if status.Code != http.StatusOK {
-			return status
-		}
-		if err := h.UpdateServerSideDeviceStatus(ctx, orgId, name); err != nil {
-			h.log.Errorf("Failed updating device status for device %s/%s: %v", orgId, name, err)
-		}
-		if heldUnchanged {
-			return firmwareHoldStatus(name)
-		}
-		return status
+		return h.reconcileUnchangedRender(ctx, orgId, name, specValid)
 	}
 	if updated != nil {
 		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, previous, updated, false, nil)
@@ -1386,6 +1367,28 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
 	}
 	return domain.StatusOK()
+}
+
+// reconcileUnchangedRender checks firmware state on each attempt of the status write.
+func (h *DeviceServiceHandler) reconcileUnchangedRender(ctx context.Context, orgID uuid.UUID, name string, specValid domain.Condition) domain.Status {
+	var held bool
+	status := h.setServiceConditions(ctx, orgID, name, func(device *domain.Device) []domain.Condition {
+		held = domain.DeviceRequiresFirmwareHold(device)
+		if held {
+			return []domain.Condition{firmwareHoldCondition()}
+		}
+		return []domain.Condition{specValid}
+	})
+	if status.Code != http.StatusOK {
+		return status
+	}
+	if err := h.UpdateServerSideDeviceStatus(ctx, orgID, name); err != nil {
+		h.log.Errorf("Failed updating device status for device %s/%s: %v", orgID, name, err)
+	}
+	if held {
+		return firmwareHoldStatus(name)
+	}
+	return status
 }
 
 // NotifyInspectionRender exposes a committed version without repeating the rendered write.

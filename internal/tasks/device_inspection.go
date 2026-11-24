@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -73,9 +74,11 @@ func (t *deviceRenderState) discardInspection(ctx context.Context) error {
 }
 
 type inspectionSnapshot struct {
-	owner inspectionstore.OwnerVersion
-	apps  []domain.ApplicationProviderSpec
-	key   model.InspectionFingerprint
+	owner             inspectionstore.OwnerVersion
+	apps              []domain.ApplicationProviderSpec
+	key               model.InspectionFingerprint
+	helmConfig        []byte
+	invalidHelmConfig bool
 }
 
 func (t *deviceRenderState) inspectionSnapshot(device *domain.Device, rendered RenderedSpec) (inspectionSnapshot, error) {
@@ -110,7 +113,11 @@ func (t *deviceRenderState) inspectionSnapshot(device *domain.Device, rendered R
 	var invalidAliases bool
 	if len(releases) > 0 {
 		var err error
-		aliases, err = helm.TargetRepositoryAliases(rendered.Config)
+		snapshot.helmConfig, err = helm.InspectionConfig(rendered.inspectionFiles)
+		snapshot.invalidHelmConfig = err != nil
+		if err == nil {
+			aliases, err = helm.TargetRepositoryAliases(snapshot.helmConfig)
+		}
 		invalidAliases = err != nil
 	}
 	identity, err := json.Marshal(struct {
@@ -129,6 +136,12 @@ func (t *deviceRenderState) inspectionSnapshot(device *domain.Device, rendered R
 	return snapshot, nil
 }
 
+func (s inspectionSnapshot) application(index int, device *domain.Device) inspectionservice.EffectiveApplication {
+	return inspectionservice.EffectiveApplication{
+		Spec: s.apps[index], Device: device, RenderedConfig: s.helmConfig, InvalidHelmConfig: s.invalidHelmConfig,
+	}
+}
+
 func (s inspectionSnapshot) matches(c model.ApplicationInspectionContinuation) bool {
 	return s.owner.Generation == c.Generation && s.owner.CreatedAt.Equal(c.OwnerCreatedAt) &&
 		s.owner.TemplateIdentity == c.TemplateIdentity && s.key == c.Snapshot
@@ -140,7 +153,7 @@ func (t *deviceRenderState) advanceInspection(ctx context.Context, device *domai
 		return nil, false, err
 	}
 	if t.continuation != nil {
-		return t.prepareInspectionResume(ctx, device, rendered, snapshot)
+		return t.prepareInspectionResume(ctx, device, snapshot)
 	}
 	if len(snapshot.apps) == 0 && current.ID == uuid.Nil {
 		return nil, false, nil
@@ -230,7 +243,15 @@ func (t *DeviceRenderLogic) ReloadInspectionApplication(ctx context.Context, org
 	if err := state.bindRenderOwner(device); err != nil {
 		return app, false, err
 	}
-	rendered, err := state.renderEffectiveSpec(ctx, device)
+	spec := state.effectiveRenderSpec(device)
+	if spec != nil && !slices.ContainsFunc(lo.FromPtr(spec.Applications), func(app domain.ApplicationProviderSpec) bool {
+		kind, err := app.GetAppType()
+		return err == nil && kind == domain.AppTypeHelm
+	}) {
+		// Only Helm applications contribute device configuration to the inspection snapshot.
+		spec.Config = nil
+	}
+	rendered, err := state.renderSpec(ctx, spec)
 	if err != nil {
 		return app, false, err
 	}
@@ -242,7 +263,7 @@ func (t *DeviceRenderLogic) ReloadInspectionApplication(ctx context.Context, org
 	if err != nil || i < 0 || i >= len(snapshot.apps) {
 		return app, false, nil
 	}
-	return inspectionservice.EffectiveApplication{Spec: snapshot.apps[i], Device: device, RenderedConfig: rendered.Config}, true, nil
+	return snapshot.application(i, device), true, nil
 }
 
 func (t *DeviceRenderLogic) ResumeInspection(ctx context.Context, orgID, id uuid.UUID) error {
@@ -272,7 +293,7 @@ func (t *deviceRenderState) failInspectionRender(ctx context.Context, device *do
 	return common.ApiStatusToErr(status)
 }
 
-func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device *domain.Device, rendered RenderedSpec, snapshot inspectionSnapshot) (*deviceservice.RenderContinuation, bool, error) {
+func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device *domain.Device, snapshot inspectionSnapshot) (*deviceservice.RenderContinuation, bool, error) {
 	current := t.continuation
 	if !snapshot.owner.CreatedAt.Equal(current.OwnerCreatedAt) {
 		return nil, true, t.discardInspection(ctx)
@@ -304,7 +325,7 @@ func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device 
 			if err != nil {
 				return nil, false, err
 			}
-			app := inspectionservice.EffectiveApplication{Spec: snapshot.apps[index], Device: device, RenderedConfig: rendered.Config}
+			app := snapshot.application(index, device)
 			matches, err := t.inspection.coordinator.MatchesRevision(ctx, t.orgId, result.Inspection.Input, app)
 			if ctx.Err() != nil {
 				return nil, false, ctx.Err()
@@ -313,7 +334,7 @@ func (t *deviceRenderState) prepareInspectionResume(ctx context.Context, device 
 				if result.Inspection.State == model.InspectionComplete {
 					return refresh()
 				}
-				t.log.Debug("Unable to verify OCI revision; resuming with known incomplete inspection results")
+				t.log.WithField("diagnostic", model.InspectionContentUnavailable).Warn("Unable to verify OCI revision; resuming with known incomplete inspection results")
 			} else if !matches {
 				return refresh()
 			}
