@@ -42,6 +42,23 @@ func TestConfigResourcesRoundTrip(t *testing.T) {
 	})
 }
 
+func TestConfigResourceEnumNames(t *testing.T) {
+	spec, err := GetSpec()
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		schema string
+		names  []interface{}
+	}{
+		{"RegistryConfigResource", []interface{}{"Registry"}},
+		{"RegistryConfigConsumer", []interface{}{"Container", "HelmChart", "HelmImage", "Os"}},
+	} {
+		t.Run("When "+tc.schema+" has a type enum it should expose stable names", func(t *testing.T) {
+			schema := spec.Components.Schemas[tc.schema].Value.Properties["type"].Value
+			require.Equal(t, tc.names, schema.Extensions["x-enum-varnames"])
+		})
+	}
+}
+
 func TestConfigResourceSchema(t *testing.T) {
 	spec, err := GetSpec()
 	require.NoError(t, err)

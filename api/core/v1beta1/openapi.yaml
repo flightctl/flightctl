@@ -6437,6 +6437,7 @@ components:
           type: string
           description: Configuration resource kind.
           enum: [registry]
+          x-enum-varnames: [Registry]
         registry:
           type: string
           minLength: 1
@@ -6489,6 +6490,7 @@ components:
           type: string
           description: Kind of device pull context.
           enum: [container, helm-chart, helm-image, os]
+          x-enum-varnames: [Container, HelmChart, HelmImage, Os]
         user:
           type: string
           x-go-type: Username
