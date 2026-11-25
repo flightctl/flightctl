@@ -321,6 +321,9 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 	}
 
 	if apiOpts.isRendered {
+		if !deviceSupportsOneTimeWindows(d.Status) {
+			stripOneTimeWindows(&spec)
+		}
 		ctx := apiOpts.ctx
 		if ctx == nil {
 			ctx = context.Background()
@@ -410,6 +413,40 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		Spec:   &spec,
 		Status: &status,
 	}, nil
+}
+
+func deviceSupportsOneTimeWindows(status *JSONField[domain.DeviceStatus]) bool {
+	return status != nil &&
+		status.Data.SystemInfo.OneTimeWindowsEligible != nil &&
+		*status.Data.SystemInfo.OneTimeWindowsEligible
+}
+
+// stripOneTimeWindows returns a rendered-spec copy without one-time windows.
+// Keep the stored desired spec untouched: ToApiResource may be called for a
+// blocked device while the live spec still contains windows that its agent
+// cannot consume.
+func stripOneTimeWindows(spec *domain.DeviceSpec) {
+	if spec == nil || spec.UpdatePolicy == nil {
+		return
+	}
+
+	policy := *spec.UpdatePolicy
+	policy.DownloadSchedule = stripOneTimeWindowsFromSchedule(policy.DownloadSchedule)
+	policy.UpdateSchedule = stripOneTimeWindowsFromSchedule(policy.UpdateSchedule)
+	spec.UpdatePolicy = &policy
+}
+
+func stripOneTimeWindowsFromSchedule(schedule *domain.UpdateSchedule) *domain.UpdateSchedule {
+	if schedule == nil || schedule.OneTimeWindows == nil {
+		return schedule
+	}
+
+	scheduleCopy := *schedule
+	scheduleCopy.OneTimeWindows = nil
+	if scheduleCopy.At == "" && scheduleCopy.StartGraceDuration == "" {
+		return nil
+	}
+	return &scheduleCopy
 }
 
 func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining *int64) (domain.DeviceList, error) {

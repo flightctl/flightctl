@@ -552,6 +552,27 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 	}
 }
 
+func TestUpdateServerSideDeviceUpdatedStatus_OneTimeWindowsBlocked(t *testing.T) {
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("blocked-device")},
+		Spec:     &domain.DeviceSpec{},
+		Status: &domain.DeviceStatus{
+			LastSeen: lo.ToPtr(time.Now()),
+			Updated:  domain.DeviceUpdatedStatus{Status: domain.DeviceUpdatedStatusUpToDate},
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusFalse,
+			}},
+		},
+	}
+
+	changed := updateServerSideDeviceUpdatedStatus(device, context.Background(), nil, logrus.New(), uuid.New())
+
+	assert.True(t, changed)
+	assert.Equal(t, domain.DeviceUpdatedStatusOutOfDate, device.Status.Updated.Status)
+	assert.Equal(t, domain.DeviceOutOfDateText+".", lo.FromPtr(device.Status.Updated.Info))
+}
+
 func TestUpdateServerSideLifecycleStatus(t *testing.T) {
 	tests := []struct {
 		name           string

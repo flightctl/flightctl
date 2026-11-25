@@ -1363,7 +1363,7 @@ var _ = Describe("DeviceRender", func() {
 				}
 			}
 			recurringSchedule := func() *api.UpdateSchedule {
-				return &api.UpdateSchedule{At: lo.ToPtr(api.CronExpression("0 4 * * 1"))}
+				return &api.UpdateSchedule{At: api.CronExpression("0 4 * * 1")}
 			}
 			oneTimePolicy := func() *api.DeviceUpdatePolicySpec {
 				return &api.DeviceUpdatePolicySpec{UpdateSchedule: oneTimeSchedule()}

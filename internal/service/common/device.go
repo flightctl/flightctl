@@ -214,7 +214,9 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "Device is updating to the latest device spec."))
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
-	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
+	compatibilityCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceOneTimeWindowsCompatible)
+	oneTimeWindowsBlocked := compatibilityCondition != nil && compatibilityCondition.Status == domain.ConditionStatusFalse
+	if !device.IsManaged() && (oneTimeWindowsBlocked || !device.IsUpdatedToDeviceSpec()) {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 		baseMessage := domain.DeviceOutOfDateText
 		var errorMessage string

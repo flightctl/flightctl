@@ -294,7 +294,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 	}
 
-	blocked, err := t.enforceOneTimeWindowsCompatibility(ctx, device)
+	blocked, forceRender, err := t.enforceOneTimeWindowsCompatibility(ctx, device)
 	if err != nil {
 		return err
 	}
@@ -310,7 +310,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	// bypassHashCheck is true for event reasons that must always produce a fresh render even
 	// though specHash (computed from device.Spec alone) hasn't changed: dependency changes and
 	// application lifecycle changes affect the rendered output without changing device.Spec.
-	bypassHashCheck := lo.Contains([]domain.EventReason{
+	bypassHashCheck := forceRender || lo.Contains([]domain.EventReason{
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonFleetRolloutDeviceSelected,
 		domain.EventReasonApplicationLifecycleChanged,
@@ -463,6 +463,11 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		return t.setErrorStatus(ctx, err)
 	}
+	if forceRender {
+		if err := t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsSupportedReason, ""); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -492,7 +497,7 @@ func deviceHasOneTimeWindowsCapability(device *domain.Device) bool {
 		*device.Status.SystemInfo.OneTimeWindowsEligible
 }
 
-func (t *deviceRenderState) enforceOneTimeWindowsCompatibility(ctx context.Context, device *domain.Device) (blocked bool, err error) {
+func (t *deviceRenderState) enforceOneTimeWindowsCompatibility(ctx context.Context, device *domain.Device) (blocked, forceRender bool, err error) {
 	compatibilityCondition := (*domain.Condition)(nil)
 	if device != nil && device.Status != nil {
 		compatibilityCondition = domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceOneTimeWindowsCompatible)
@@ -500,22 +505,25 @@ func (t *deviceRenderState) enforceOneTimeWindowsCompatibility(ctx context.Conte
 
 	if !specHasOneTimeWindows(device.Spec) {
 		if compatibilityCondition != nil && compatibilityCondition.Status == domain.ConditionStatusFalse {
-			return false, t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsNotRequiredReason, "")
+			return false, false, t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsNotRequiredReason, "")
 		}
-		return false, nil
+		return false, false, nil
 	}
 
 	if deviceHasOneTimeWindowsCapability(device) {
 		if compatibilityCondition != nil && compatibilityCondition.Status == domain.ConditionStatusFalse {
-			return false, t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsSupportedReason, "")
+			// Keep the condition False until a successful render applies the
+			// recovered schedule. The caller also bypasses the unchanged-spec
+			// guard for status-only capability updates.
+			return false, true, nil
 		}
-		return false, nil
+		return false, false, nil
 	}
 
 	if err := t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusFalse, domain.OneTimeWindowsUnsupportedReason, oneTimeWindowsCompatibilityMessage); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return true, nil
+	return true, false, nil
 }
 
 func (t *deviceRenderState) updateOneTimeWindowsCompatibilityCondition(ctx context.Context, conditionStatus domain.ConditionStatus, reason, message string) error {

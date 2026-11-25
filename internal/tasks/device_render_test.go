@@ -858,7 +858,7 @@ func TestRenderDevice_OneTimeWindowsCompatibility(t *testing.T) {
 		}
 	}
 	recurringSchedule := func() *api.UpdateSchedule {
-		return &api.UpdateSchedule{At: lo.ToPtr(api.CronExpression("0 4 * * 1"))}
+		return &api.UpdateSchedule{At: api.CronExpression("0 4 * * 1")}
 	}
 
 	tests := []struct {
@@ -973,8 +973,8 @@ func TestRenderDevice_OneTimeWindowsCompatibility(t *testing.T) {
 			}
 
 			if tt.wantRender {
-				deviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgID, deviceName).Return(statusOK)
-				deviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+				deviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+				deviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 			}
 
 			event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
@@ -982,6 +982,58 @@ func TestRenderDevice_OneTimeWindowsCompatibility(t *testing.T) {
 			require.NoError(t, logic.RenderDevice(context.Background(), orgID, event))
 		})
 	}
+}
+
+func TestRenderDevice_OneTimeWindowsCapabilityRecoveryForcesRender(t *testing.T) {
+	const deviceName = "one-time-window-recovery-device"
+	orgID := uuid.New()
+	oneTimeWindows := []api.OneTimeWindow{{
+		Date:               "2030-01-02",
+		StartTime:          "03:04",
+		StartGraceDuration: "1h",
+	}}
+	spec := &domain.DeviceSpec{
+		UpdatePolicy: &domain.DeviceUpdatePolicySpec{
+			UpdateSchedule: &api.UpdateSchedule{OneTimeWindows: &oneTimeWindows},
+		},
+	}
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+			Annotations: lo.ToPtr(map[string]string{
+				domain.DeviceAnnotationRenderedSpecHash: hashRenderedWithSpec(spec, config.DefaultVirtLauncherImage),
+			}),
+		},
+		Spec: spec,
+		Status: &domain.DeviceStatus{
+			SystemInfo: domain.DeviceSystemInfo{OneTimeWindowsEligible: lo.ToPtr(true)},
+			Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusFalse,
+			}},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	deviceSvc := deviceservice.NewMockService(ctrl)
+	deviceSvc.EXPECT().GetDevice(gomock.Any(), orgID, deviceName).Return(device, statusOK)
+	deviceSvc.EXPECT().ReplaceDeviceRepositoryRefsIfCurrent(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any()).Return(common.RepositoryRefsReplaced, statusOK)
+	deviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true, gomock.Any(), gomock.Any()).Return(statusOK)
+	deviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgID, deviceName, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+			require.Equal(t, []domain.Condition{{
+				Type:   domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+				Status: domain.ConditionStatusTrue,
+				Reason: oneTimeWindowsSupportedReason,
+			}}, conditions)
+			return statusOK
+		})
+	deviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgID, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), deviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
+	require.NoError(t, logic.RenderDevice(context.Background(), orgID, event))
 }
 
 func TestRenderDevice_RetryableError(t *testing.T) {
