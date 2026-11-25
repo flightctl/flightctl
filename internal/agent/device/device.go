@@ -347,6 +347,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		}
 		a.pruningManager.RequestPrune()
 	} else {
+		a.confirmPendingRollback(ctx, desired)
 		a.log.Debug("No upgrade in progress, skipping status update")
 	}
 
@@ -430,12 +431,7 @@ func (a *Agent) handleFailedUpgrade(ctx context.Context, current, desired *v1bet
 		Cause:        cause,
 		Outcome:      outcome,
 	}
-	if err := a.specManager.RecordRollbackError(ctx, originalError); err != nil {
-		a.log.Errorf("Failed to persist update error: %v", err)
-		a.pendingRollbackResult = &result
-		return
-	}
-	if err := a.specManager.RecordRollbackResult(ctx, outcome, cause); err != nil {
+	if err := a.specManager.RecordRollbackResult(ctx, outcome, cause, originalError); err != nil {
 		a.log.Errorf("Failed to persist rollback result: %v", err)
 		a.pendingRollbackResult = &result
 		return
@@ -497,15 +493,12 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		syncMsg := formatSyncErrorMessage(desired, syncErr)
 		// shortcut: a failed disk write can lose the original error after reboot;
 		// keep rebooting to recover the OS and add a second durable store if needed.
-		errorPersisted := true
-		if err := a.specManager.RecordRollbackError(ctx, syncMsg); err != nil {
-			a.log.Errorf("Failed to persist rollback error: %v", err)
-			errorPersisted = false
-		}
-		if rollbackSyncErr != nil && errorPersisted {
-			if err := a.specManager.RecordRollbackResult(ctx, v1beta1.DeviceUpdateContextRollbackFailed, rollbackSyncErr.Error()); err != nil {
+		if rollbackSyncErr != nil {
+			if err := a.specManager.RecordRollbackResult(ctx, v1beta1.DeviceUpdateContextRollbackFailed, rollbackSyncErr.Error(), syncMsg); err != nil {
 				a.log.Errorf("Failed to persist rollback sync failure: %v", err)
 			}
+		} else if err := a.specManager.RecordRollbackError(ctx, syncMsg); err != nil {
+			a.log.Errorf("Failed to persist rollback error: %v", err)
 		}
 
 		rollbackDevice, err := a.specManager.Read(spec.Rollback)
@@ -623,21 +616,44 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 }
 
 func (a *Agent) retryPendingRollbackResult(ctx context.Context) {
-	if a.pendingRollbackResult == nil {
+	if a.pendingRollbackResult == nil || a.pendingRollbackResult.Outcome == "" {
 		return
 	}
 	result := *a.pendingRollbackResult
-	if err := a.specManager.RecordRollbackError(ctx, result.ErrorMessage); err != nil {
-		a.log.Warnf("Retrying rollback error persistence: %v", err)
-		return
-	}
-	if err := a.specManager.RecordRollbackResult(ctx, result.Outcome, result.Cause); err != nil {
+	if err := a.specManager.RecordRollbackResult(ctx, result.Outcome, result.Cause, result.ErrorMessage); err != nil {
 		a.log.Warnf("Retrying rollback result persistence: %v", err)
 		return
 	}
 	a.pendingRollbackResult = nil
 	if err := reportTerminalRollback(ctx, a.statusManager, result); err != nil {
 		a.log.Warnf("Failed to report persisted rollback result: %v", err)
+	}
+}
+
+func (a *Agent) confirmPendingRollback(ctx context.Context, desired *v1beta1.Device) {
+	if a.pendingRollbackResult == nil || a.pendingRollbackResult.Outcome != "" || desired == nil || desired.Spec == nil {
+		return
+	}
+	info := *a.pendingRollbackResult
+	if desired.Spec.Os != nil {
+		_, reconciled, err := a.specManager.CheckOsReconciliation(ctx)
+		if err != nil {
+			a.log.Warnf("Confirming OS rollback result: %v", err)
+			return
+		}
+		if !reconciled {
+			return
+		}
+	}
+	info.Outcome = v1beta1.DeviceUpdateContextRollbackCompleted
+	if err := a.specManager.RecordRollbackResult(ctx, info.Outcome, "", info.ErrorMessage); err != nil {
+		a.pendingRollbackResult = &info
+		a.log.Warnf("Persisting confirmed rollback result: %v", err)
+		return
+	}
+	a.pendingRollbackResult = nil
+	if err := reportTerminalRollback(ctx, a.statusManager, info); err != nil {
+		a.log.Warnf("Reporting confirmed rollback result: %v", err)
 	}
 }
 

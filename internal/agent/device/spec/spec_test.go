@@ -889,8 +889,8 @@ func TestRollbackResultSurvivesRestart(t *testing.T) {
 		cache:            newCache(logger),
 	}
 	require.NoError(t, specManager.write(context.Background(), Rollback, newVersionedDevice("5"), audit.ReasonInitialization))
-	require.NoError(t, specManager.RecordRollbackError(context.Background(), "failed to apply requested OS image"))
-	require.NoError(t, specManager.RecordRollbackResult(context.Background(), v1beta1.DeviceUpdateContextRollbackFailed, "rollback disk write failed"))
+	require.ErrorContains(t, specManager.RecordRollbackResult(context.Background(), v1beta1.DeviceUpdateContextRollbackFailed, "rollback disk write failed", ""), "requires the original update error")
+	require.NoError(t, specManager.RecordRollbackResult(context.Background(), v1beta1.DeviceUpdateContextRollbackFailed, "rollback disk write failed", "failed to apply requested OS image"))
 
 	restarted := &manager{
 		log:              logger,

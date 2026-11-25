@@ -99,8 +99,8 @@ type Manager interface {
 	// RecordRollbackError stores the sync error in rollback.json and clears any
 	// prior terminal result so a new attempt cannot inherit it.
 	RecordRollbackError(ctx context.Context, message string) error
-	// RecordRollbackResult persists the terminal result and rollback cause across reboot.
-	RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause string) error
+	// RecordRollbackResult persists the original error and terminal result in one write.
+	RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.

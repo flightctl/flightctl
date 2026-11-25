@@ -178,7 +178,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 			if rollbackInfo.Outcome == "" && errors.Is(err, errSpecRollbackFailed) {
 				rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
 				rollbackInfo.Cause = err.Error()
-				if recordErr := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, rollbackInfo.Cause); recordErr != nil {
+				if recordErr := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, rollbackInfo.Cause, rollbackInfo.ErrorMessage); recordErr != nil {
 					b.log.Errorf("Failed to persist rollback result: %v", recordErr)
 					rollbackInfo.Outcome = ""
 				}
@@ -324,22 +324,24 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 				}
 			}
 			if err == nil && rollbackInfo.ErrorMessage != "" && rollbackInfo.Outcome == "" {
+				b.pendingRollbackResult = &rollbackInfo
 				desired, readErr := b.specManager.Read(spec.Desired)
 				if readErr != nil {
 					b.log.Warnf("Could not read restored spec to confirm rollback: %v", readErr)
 				} else {
-					reconciled := desired.Spec != nil && desired.Spec.Os == nil
-					if !reconciled {
+					reconciled := false
+					if desired.Spec != nil && desired.Spec.Os != nil {
 						_, reconciled, readErr = b.specManager.CheckOsReconciliation(ctx)
 						if readErr != nil {
 							b.log.Warnf("Could not confirm rollback outcome: %v", readErr)
 						}
 					}
 					if readErr == nil && reconciled {
-						if recordErr := b.specManager.RecordRollbackResult(ctx, v1beta1.DeviceUpdateContextRollbackCompleted, ""); recordErr != nil {
+						if recordErr := b.specManager.RecordRollbackResult(ctx, v1beta1.DeviceUpdateContextRollbackCompleted, "", rollbackInfo.ErrorMessage); recordErr != nil {
 							b.log.Warnf("Could not persist rollback outcome: %v", recordErr)
 							rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackCompleted
-							b.pendingRollbackResult = &rollbackInfo
+						} else {
+							b.pendingRollbackResult = nil
 						}
 					}
 				}
@@ -415,7 +417,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 			}
 		}
 		if errorPersisted {
-			if err := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, ""); err != nil {
+			if err := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, "", rollbackInfo.ErrorMessage); err != nil {
 				b.log.Warnf("Could not persist rollback result: %v", err)
 				b.pendingRollbackResult = &rollbackInfo
 			}

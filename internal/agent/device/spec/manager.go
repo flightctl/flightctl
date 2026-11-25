@@ -394,11 +394,14 @@ func (s *manager) RecordRollbackError(ctx context.Context, message string) error
 	return nil
 }
 
-func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause string) error {
+func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error {
 	if outcome != v1beta1.DeviceUpdateContextRollbackCompleted &&
 		outcome != v1beta1.DeviceUpdateContextRollbackFailed &&
 		outcome != v1beta1.DeviceUpdateContextRollbackTimedOut {
 		return fmt.Errorf("invalid rollback outcome %q", outcome)
+	}
+	if errorMessage == "" {
+		return fmt.Errorf("rollback result requires the original update error")
 	}
 	rollback, err := s.Read(Rollback)
 	if err != nil {
@@ -408,6 +411,7 @@ func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.Devi
 		annotations := map[string]string{}
 		rollback.Metadata.Annotations = &annotations
 	}
+	(*rollback.Metadata.Annotations)[annotationRollbackError] = errorMessage
 	(*rollback.Metadata.Annotations)[annotationRollbackOutcome] = string(outcome)
 	if cause != "" {
 		(*rollback.Metadata.Annotations)[annotationRollbackCause] = cause
