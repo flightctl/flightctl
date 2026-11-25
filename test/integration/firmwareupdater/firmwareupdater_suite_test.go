@@ -166,13 +166,13 @@ func newStorage(dir string) storage {
 	return s
 }
 
-// podmanEnv returns the environment for podman commands using s, the test
-// registries configuration and the registries.d directory beneath home.
+// podmanEnv returns the environment for podman commands using s and the test
+// configuration directories beneath home.
 func podmanEnv(s storage, home string) []string {
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		return strings.HasPrefix(kv, "HOME=") || strings.HasPrefix(kv, "CONTAINERS_STORAGE_CONF=") || strings.HasPrefix(kv, "CONTAINERS_REGISTRIES_CONF=")
+		return strings.HasPrefix(kv, "HOME=") || strings.HasPrefix(kv, "XDG_CONFIG_HOME=") || strings.HasPrefix(kv, "CONTAINERS_STORAGE_CONF=") || strings.HasPrefix(kv, "CONTAINERS_REGISTRIES_CONF=")
 	})
-	env = append(env, "HOME="+home, "CONTAINERS_STORAGE_CONF="+s.conf)
+	env = append(env, "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "CONTAINERS_STORAGE_CONF="+s.conf)
 	if state.RegistriesConf != "" {
 		env = append(env, "CONTAINERS_REGISTRIES_CONF="+state.RegistriesConf)
 	}
