@@ -693,6 +693,32 @@ func TestEnsureBootedOSDefersConfigOnlyRollbackConfirmation(t *testing.T) {
 	require.Empty(t, b.PendingRollbackResult().Outcome)
 }
 
+func TestEmptyOSTargetConfirmsRollbackAfterSync(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	specManager := spec.NewMockManager(ctrl)
+	desired := &v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{}}}
+	specManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
+	specManager.EXPECT().IsUpgrading().Return(false)
+	specManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{ErrorMessage: "config update failed"}, nil)
+	specManager.EXPECT().Read(spec.Desired).Return(desired, nil)
+
+	b := &Bootstrap{specManager: specManager, log: log.NewPrefixLogger("test")}
+	require.NoError(t, b.ensureBootedOS(context.Background()))
+	require.NotNil(t, b.PendingRollbackResult())
+	require.Empty(t, b.PendingRollbackResult().Outcome)
+
+	management := client.NewMockManagement(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	agent := &Agent{statusManager: statusManager, specManager: specManager, pendingRollbackResult: b.PendingRollbackResult(), log: log.NewPrefixLogger("test")}
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", "config update failed").Return(nil)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+	agent.confirmPendingRollback(context.Background(), desired)
+	require.Nil(t, agent.pendingRollbackResult)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, *statusManager.Get(context.Background()).UpdateContext)
+}
+
 func TestEnsurePostEnrollmentHooks(t *testing.T) {
 	require := require.New(t)
 

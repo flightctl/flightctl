@@ -332,7 +332,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 					b.log.Warnf("Could not read restored spec to confirm rollback: %v", readErr)
 				} else {
 					reconciled := false
-					if desired.Spec != nil && desired.Spec.Os != nil {
+					if desired.Spec != nil && desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
 						_, reconciled, readErr = b.specManager.CheckOsReconciliation(ctx)
 						if readErr != nil {
 							b.log.Warnf("Could not confirm rollback outcome: %v", readErr)

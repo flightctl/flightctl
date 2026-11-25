@@ -635,7 +635,7 @@ func (a *Agent) confirmPendingRollback(ctx context.Context, desired *v1beta1.Dev
 		return
 	}
 	info := *a.pendingRollbackResult
-	if desired.Spec.Os != nil {
+	if desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
 		_, reconciled, err := a.specManager.CheckOsReconciliation(ctx)
 		if err != nil {
 			a.log.Warnf("Confirming OS rollback result: %v", err)
