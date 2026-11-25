@@ -2306,6 +2306,8 @@ Each schedule supports:
 
 Each `oneTimeWindows` entry contains a `date` in `YYYY-MM-DD` format, a local
 `startTime` in `HH:mm` format, and its own positive `startGraceDuration`.
+The deprecated `at` field is accepted as an alias for `startTime` during the
+deprecation period; new configurations should use `startTime`.
 
 A schedule must contain one of the following configurations:
 

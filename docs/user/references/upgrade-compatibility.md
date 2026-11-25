@@ -39,6 +39,10 @@ fields as value types for source compatibility. A missing `at` or
 assume that an empty value is a valid recurring schedule. Use both recurring
 fields together, or configure one or more `oneTimeWindows` entries.
 
+The one-time window field `at` is deprecated in favor of `startTime`, but
+remains accepted during the deprecation period. Existing clients can continue
+to send `at`; new clients should send `startTime`.
+
 ### Upgrading from 1.0 to 1.1
 
 #### UI TLS secret rename (multicluster engine plugin only)

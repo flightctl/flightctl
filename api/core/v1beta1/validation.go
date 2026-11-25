@@ -718,8 +718,21 @@ func validateOneTimeWindow(index int, window OneTimeWindow) []error {
 		allErrs = append(allErrs, fmt.Errorf("%s.date must be a valid calendar date: %w", fieldPrefix, err))
 	}
 
-	if _, err := time.Parse("15:04", window.StartTime); err != nil {
-		allErrs = append(allErrs, fmt.Errorf("%s.startTime must be a valid local time: %w", fieldPrefix, err))
+	startTime := window.StartTime
+	startTimeField := "startTime"
+	if window.StartTime != "" && window.At != "" {
+		allErrs = append(allErrs, fmt.Errorf("%s.startTime and %s.at must not both be set", fieldPrefix, fieldPrefix))
+	} else if window.StartTime == "" && window.At == "" {
+		allErrs = append(allErrs, fmt.Errorf("%s.startTime or %s.at must be set", fieldPrefix, fieldPrefix))
+	} else if window.StartTime == "" {
+		startTime = window.At
+		startTimeField = "at"
+	}
+
+	if startTime != "" {
+		if _, err := time.Parse("15:04", startTime); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("%s.%s must be a valid local time: %w", fieldPrefix, startTimeField, err))
+		}
 	}
 
 	durationValue := window.StartGraceDuration
@@ -1953,6 +1966,9 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	graceDuration, err := time.ParseDuration(duration)
 	if err != nil {
 		return fmt.Errorf("invalid duration: %w", err)
+	}
+	if graceDuration <= 0 {
+		return fmt.Errorf("invalid duration: must be positive")
 	}
 
 	if schedule == nil {

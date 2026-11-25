@@ -252,6 +252,28 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 			},
 		},
 		{
+			name: "When a one-time schedule uses the legacy at field it should pass",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+		},
+		{
+			name: "When a one-time schedule sets both time fields it should fail",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartTime:          "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "must not both be set",
+		},
+		{
 			name: "When the schedule is empty it should fail with a schedule error",
 			schedule: UpdateSchedule{
 				TimeZone: lo.ToPtr(TimeZone("UTC")),
@@ -279,6 +301,16 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 				}}),
 			},
 			wantErrText: "oneTimeWindows[0].startTime",
+		},
+		{
+			name: "When a one-time window omits both time fields it should fail",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startTime or oneTimeWindows[0].at must be set",
 		},
 		{
 			name: "When a one-time duration is not positive it should identify the duration field",
@@ -405,6 +437,7 @@ func TestValidateGraceDuration(t *testing.T) {
 		cronExpression string
 		duration       string
 		expectError    error
+		wantErrText    string
 	}{
 		{
 			name:           "graceDuration within interval",
@@ -444,6 +477,18 @@ func TestValidateGraceDuration(t *testing.T) {
 			duration:       "4h",              // shortest interval is 3 hours
 			expectError:    ErrStartGraceDurationExceedsCronInterval,
 		},
+		{
+			name:           "zero graceDuration should be rejected",
+			cronExpression: "0 * * * *",
+			duration:       "0s",
+			wantErrText:    "must be positive",
+		},
+		{
+			name:           "negative graceDuration should be rejected",
+			cronExpression: "0 * * * *",
+			duration:       "-1m",
+			wantErrText:    "must be positive",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -454,6 +499,10 @@ func TestValidateGraceDuration(t *testing.T) {
 			err = validateGraceDuration(schedule, tt.duration)
 			if tt.expectError != nil {
 				require.Error(err)
+				return
+			}
+			if tt.wantErrText != "" {
+				require.ErrorContains(err, tt.wantErrText)
 				return
 			}
 			require.NoError(err)

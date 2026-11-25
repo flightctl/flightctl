@@ -619,6 +619,19 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 			wantReady: true,
 		},
 		{
+			name:        "When a one-time window uses the legacy at field it should be ready",
+			currentTime: time.Date(2026, 11, 16, 5, 0, 0, 0, utc),
+			updateSchedule: &v1beta1.UpdateSchedule{
+				TimeZone: lo.ToPtr("UTC"),
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-11-16",
+					At:                 "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+			wantReady: true,
+		},
+		{
 			name:        "When the current time is after a one-time window grace period it should not be ready",
 			currentTime: time.Date(2026, 11, 16, 6, 1, 0, 0, utc),
 			updateSchedule: &v1beta1.UpdateSchedule{

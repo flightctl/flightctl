@@ -3616,8 +3616,12 @@ type OciRepoSpecScheme string
 // OciRepoSpecType The repository type discriminator.
 type OciRepoSpecType string
 
-// OneTimeWindow defines model for OneTimeWindow.
+// OneTimeWindow A date-specific maintenance window. The legacy at field is accepted as an alias for startTime during the deprecation period.
 type OneTimeWindow struct {
+	// At Deprecated alias for startTime. Local time at which the one-time window opens on the specified date.
+	// Deprecated: Deprecated in v1.5. Use startTime instead. The field remains accepted for backward compatibility during the deprecation period.
+	At string `json:"at,omitempty"`
+
 	// Date Exact calendar date on which the one-time window opens, for example 2026-11-15.
 	Date string `json:"date"`
 
@@ -3625,7 +3629,7 @@ type OneTimeWindow struct {
 	StartGraceDuration Duration `json:"startGraceDuration"`
 
 	// StartTime Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
-	StartTime string `json:"startTime"`
+	StartTime string `json:"startTime,omitempty"`
 }
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.

@@ -7352,10 +7352,24 @@ components:
                     - required: [oneTimeWindows]
     OneTimeWindow:
       type: object
+      description: >-
+        A date-specific maintenance window. The legacy at field is accepted as
+        an alias for startTime during the deprecation period.
       required:
         - date
-        - startTime
         - startGraceDuration
+      not:
+        anyOf:
+          - allOf:
+              - not:
+                  required:
+                    - startTime
+              - not:
+                  required:
+                    - at
+          - required:
+              - at
+              - startTime
       properties:
         date:
           type: string
@@ -7367,6 +7381,19 @@ components:
           pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
           description: Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
           example: "22:00"
+          x-go-type-skip-optional-pointer: true
+        at:
+          type: string
+          pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
+          deprecated: true
+          x-deprecated-reason: >-
+            Deprecated in v1.5. Use startTime instead. The field remains
+            accepted for backward compatibility during the deprecation period.
+          description: >-
+            Deprecated alias for startTime. Local time at which the one-time
+            window opens on the specified date.
+          example: "22:00"
+          x-go-type-skip-optional-pointer: true
         startGraceDuration:
           $ref: '#/components/schemas/Duration'
     TimeZone:
