@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,6 +44,7 @@ func getValidEditResourceKinds() []ResourceKind {
 		FleetKind,
 		RepositoryKind,
 		CertificateSigningRequestKind,
+		EnrollmentApprovalPolicyKind,
 		EnrollmentHookPolicyKind,
 		LabelSyncMappingKind,
 		ResourceSyncKind,
@@ -157,7 +159,7 @@ func (o *EditOptions) Validate(args []string) error {
 
 	// Check if resource type supports editing
 	switch kind {
-	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind, AuthProviderKind, EnrollmentHookPolicyKind, LabelSyncMappingKind, ResourceSyncKind:
+	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind, AuthProviderKind, EnrollmentHookPolicyKind, EnrollmentApprovalPolicyKind, LabelSyncMappingKind, ResourceSyncKind:
 		// These are supported for editing
 	default:
 		return errEditNotAllowed{kind}
@@ -309,6 +311,21 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 		"/kind",
 		"/apiVersion",
 	}
+	for _, op := range patch {
+		isProtected := false
+		for _, protected := range protectedPaths {
+			if strings.HasPrefix(op.Path, protected) {
+				isProtected = true
+				break
+			}
+		}
+		if !isProtected {
+			filteredOps = append(filteredOps, op)
+		}
+	}
+	if len(filteredOps) == 0 {
+		return []byte("[]"), nil
+	}
 
 	// 4. Add a test operation for resourceVersion FIRST to ensure conflict detection
 	// Only add the test if the patch doesn't contain a remove operation for resourceVersion
@@ -333,33 +350,10 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 						Path:      "/metadata/resourceVersion",
 						Value:     resourceVersion,
 					}
-					filteredOps = append(filteredOps, testOp)
+					filteredOps = append([]jsonpatchcreate.JsonPatchOperation{testOp}, filteredOps...)
 				}
 			}
 		}
-	}
-
-	// Filter out operations that modify protected fields
-	for _, op := range patch {
-		path := op.Path
-		isProtected := false
-
-		for _, protected := range protectedPaths {
-			// Check if the operation's path matches or is a sub-path of a protected one
-			if strings.HasPrefix(path, protected) {
-				isProtected = true
-				break
-			}
-		}
-
-		if !isProtected {
-			filteredOps = append(filteredOps, op)
-		}
-	}
-
-	// If no operations were generated, return an empty patch
-	if len(filteredOps) == 0 {
-		return []byte("[]"), nil
 	}
 
 	// 5. Marshal the final, filtered patch back to JSON
@@ -403,7 +397,13 @@ func (o *EditOptions) parseEditedContent(content []byte) (map[string]interface{}
 			return nil, fmt.Errorf("parsing edited YAML: %w", err)
 		}
 	case string(display.JSONFormat):
-		err = json.Unmarshal(content, &resource)
+		decoder := json.NewDecoder(bytes.NewReader(content))
+		err = decoder.Decode(&resource)
+		if err == nil {
+			if trailingErr := decoder.Decode(new(any)); trailingErr != io.EOF {
+				err = fmt.Errorf("exactly one JSON document is required")
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("parsing edited JSON: %w", err)
 		}
@@ -502,6 +502,9 @@ func (o *EditOptions) executePatchOperation(ctx context.Context, client *apiclie
 		return o.extractResponseData(response, err)
 	case AuthProviderKind:
 		response, err := client.PatchAuthProviderWithBodyWithResponse(ctx, name, contentType, reader)
+		return o.extractResponseData(response, err)
+	case EnrollmentApprovalPolicyKind:
+		response, err := client.PatchEnrollmentApprovalPolicyWithBodyWithResponse(ctx, name, contentType, reader)
 		return o.extractResponseData(response, err)
 	case EnrollmentHookPolicyKind:
 		response, err := client.PatchEnrollmentHookPolicyWithBodyWithResponse(ctx, name, contentType, reader)

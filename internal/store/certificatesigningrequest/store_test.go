@@ -12,10 +12,20 @@ import (
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCredentialMutationsRejectNilBeforeLocking(t *testing.T) {
+	credentials := NewCertificateSigningRequestStore(nil, logrus.New(), cacfg.DefaultDeviceEnrollmentSignerName)
+	_, _, err := credentials.Update(t.Context(), uuid.Nil, nil)
+	require.ErrorIs(t, err, flterrors.ErrResourceIsNil)
+	_, _, _, err = credentials.CreateOrUpdate(t.Context(), uuid.Nil, nil)
+	require.ErrorIs(t, err, flterrors.ErrResourceIsNil)
+}
 
 // TestNewCertificateSigningRequestStore_ReturnsNonNilStore proves the
 // constructor builds a working Store without dialing the database. This also

@@ -15,6 +15,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEnrollmentSignerConfiguration(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		content    string
+		wantSigner string
+	}{
+		{"When omitted it should keep the default", "{}", NewDefault().CA.DeviceEnrollmentSignerName},
+		{"When explicitly empty it should load for consumers that do not require enrollment", "ca:\n  deviceEnrollmentSignerName: \"\"\n", ""},
+		{"When configured it should retain the signer", "ca:\n  deviceEnrollmentSignerName: custom-enrollment\n", "custom-enrollment"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(testCase.content), 0600))
+			cfg, err := LoadOrGenerate(path)
+			require.NoError(t, err)
+			require.Equal(t, testCase.wantSigner, cfg.CA.DeviceEnrollmentSignerName)
+		})
+	}
+	t.Run("When the file is missing it should generate a valid default", func(t *testing.T) {
+		cfg, err := LoadOrGenerate(filepath.Join(t.TempDir(), "config.yaml"))
+		require.NoError(t, err)
+		require.Equal(t, NewDefault().CA.DeviceEnrollmentSignerName, cfg.CA.DeviceEnrollmentSignerName)
+	})
+	t.Run("When CA is nil it should preserve optional validation", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.CA = nil
+		require.NoError(t, Validate(cfg))
+	})
+}
+
 func TestConfig_String_ObfuscatesSensitiveData(t *testing.T) {
 	cfg := &Config{
 		Database: &dbConfig{

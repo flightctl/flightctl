@@ -2,6 +2,8 @@ package display
 
 import (
 	"bytes"
+	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"text/tabwriter"
@@ -9,9 +11,69 @@ import (
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
+
+func TestEnrollmentApprovalPolicyTableDispatch(t *testing.T) {
+	policy := api.EnrollmentApprovalPolicy{Metadata: api.ObjectMeta{Name: lo.ToPtr("west")}, Spec: api.EnrollmentApprovalPolicySpec{CertificateName: "credential", ApprovalLimit: lo.ToPtr(int32(10))}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: 3}}
+	for _, wide := range []bool{false, true} {
+		for _, single := range []bool{false, true} {
+			var output bytes.Buffer
+			options := FormatOptions{Kind: api.EnrollmentApprovalPolicyKind, Writer: &output}
+			var response any = &apiclient.ListEnrollmentApprovalPoliciesResponse{JSON200: &api.EnrollmentApprovalPolicyList{Items: []api.EnrollmentApprovalPolicy{policy}}}
+			if single {
+				options.Name = "west"
+				response = &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: &policy}
+			}
+			require.NoError(t, (&TableFormatter{wide: wide}).Format(response, options))
+			require.Contains(t, output.String(), "west")
+			require.Contains(t, output.String(), "ENROLLMENTS")
+			require.Contains(t, output.String(), "3/10")
+		}
+	}
+	var output bytes.Buffer
+	require.NoError(t, (&TableFormatter{}).Format(&apiclient.ListEnrollmentApprovalPoliciesResponse{JSON200: &api.EnrollmentApprovalPolicyList{}}, FormatOptions{Kind: api.EnrollmentApprovalPolicyKind, Writer: &output}))
+}
+
+func TestEnrollmentApprovalPolicyTableCountAndLimit(t *testing.T) {
+	policies := []api.EnrollmentApprovalPolicy{
+		{Metadata: api.ObjectMeta{Name: lo.ToPtr("limited")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: lo.ToPtr(int32(10))}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: 3}},
+		{Metadata: api.ObjectMeta{Name: lo.ToPtr("unlimited")}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: 3}},
+		{Metadata: api.ObjectMeta{Name: lo.ToPtr("zero")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: lo.ToPtr(int32(0))}},
+		{Metadata: api.ObjectMeta{Name: lo.ToPtr("lowered")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: lo.ToPtr(int32(0))}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: 3}},
+		{Metadata: api.ObjectMeta{Name: lo.ToPtr("lifetime")}, Status: &api.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}},
+	}
+	list := api.EnrollmentApprovalPolicyList{Items: policies}
+	var output bytes.Buffer
+	options := FormatOptions{Kind: api.EnrollmentApprovalPolicyKind, Writer: &output}
+	require.NoError(t, NewFormatter("").Format(&apiclient.ListEnrollmentApprovalPoliciesResponse{JSON200: &list}, options))
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	require.Len(t, lines, len(policies)+1)
+	want := []string{"3/10", "3/∞", "0/0", "3/0", "9223372036854775807/∞"}
+	for i, limit := range want {
+		cells := strings.Fields(lines[i+1])
+		require.NotEmpty(t, cells)
+		require.Equal(t, limit, cells[len(cells)-1])
+	}
+
+	for _, format := range []OutputFormat{JSONFormat, YAMLFormat} {
+		t.Run(string(format), func(t *testing.T) {
+			output.Reset()
+			require.NoError(t, NewFormatter(format).Format(list, options))
+			var decoded api.EnrollmentApprovalPolicyList
+			switch format {
+			case JSONFormat:
+				require.NoError(t, json.Unmarshal(output.Bytes(), &decoded))
+			case YAMLFormat:
+				require.NoError(t, yaml.Unmarshal(output.Bytes(), &decoded))
+			}
+			require.Equal(t, list, decoded)
+		})
+	}
+}
 
 // lineContaining returns the first line of output that contains the given
 // substring, or "" if none does. Used to assert on a specific row of a

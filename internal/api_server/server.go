@@ -30,6 +30,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentapprovalpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmentapprovalpolicy"
 	enrollmentconfigservice "github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
@@ -49,6 +50,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentapprovalpolicystore "github.com/flightctl/flightctl/internal/store/enrollmentapprovalpolicy"
 	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -234,6 +236,15 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
 	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
 		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
+	enrollmentApprovalPolicyStore, err := enrollmentapprovalpolicystore.NewStore(s.db, s.log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy store: %w", err)
+	}
+	enrollmentApprovalPolicyHandler, err := enrollmentapprovalpolicyservice.NewServiceHandler(enrollmentApprovalPolicyStore, enrollmentapprovalpolicyservice.UnavailableExpressionValidator{}, s.cfg.CA.DeviceEnrollmentSignerName, eventsSvc, s.log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy service: %w", err)
+	}
+	enrollmentApprovalPolicySvc := enrollmentapprovalpolicyservice.WrapWithTracing(enrollmentApprovalPolicyHandler)
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 
 	var tpmVerifier tpmcsr.Verifier
@@ -341,7 +352,7 @@ func (s *Server) Run(ctx context.Context) error {
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
-		authProviderSvc, csrSvc, deviceSvc, enrollmentHookPolicySvc, labelSyncMappingSvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
+		authProviderSvc, csrSvc, deviceSvc, enrollmentApprovalPolicySvc, enrollmentHookPolicySvc, labelSyncMappingSvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
 		fleetSvc, organizationSvc, repositorySvc, resourceSyncSvc, templateVersionSvc,
 		convertv1beta1.NewConverter(),
 		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,

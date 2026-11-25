@@ -49,6 +49,10 @@ var (
 	ErrEncodeCert                    = errors.New("error encoding certificate")
 	ErrRevocationConsequencesPending = errors.New("enrollment credential revocation consequences are still pending")
 
+	// enrollment approval policies
+	ErrImmutableCertificateBinding  = errors.New("certificateName is immutable")
+	ErrEnrollmentCredentialRetained = errors.New("enrollment credential is retained by policy bindings or audit history")
+
 	// certificate extensions
 	ErrExtensionNotFound = errors.New("certificate extension not found")
 
