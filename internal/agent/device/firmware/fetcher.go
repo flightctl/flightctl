@@ -184,7 +184,7 @@ func (f *Fetcher) fetch(ctx context.Context, s *settings, revision int64, descri
 	}
 	data, err := f.readManifest(ctx, reference)
 	if err != nil {
-		return nil, unavailable(release, false, err)
+		return nil, unavailable(release, errors.Is(err, ErrUnmountFailed), err)
 	}
 	manifest, err := ParseManifest(data)
 	if err != nil {
@@ -250,21 +250,26 @@ func (f *Fetcher) pull(ctx context.Context, s *settings, descriptorDigest string
 
 // readManifest reads the manifest from a read-only image mount without
 // following links, then unmounts the image.
-func (f *Fetcher) readManifest(ctx context.Context, reference string) ([]byte, error) {
+func (f *Fetcher) readManifest(ctx context.Context, reference string) (data []byte, retErr error) {
 	mountPoint, err := f.podman.Mount(ctx, reference)
 	if err != nil {
 		return nil, fmt.Errorf("mount %s: %w", reference, sanitizedCause(err))
 	}
 	defer func() {
-		if err := f.podman.Unmount(context.WithoutCancel(ctx), reference); err != nil {
-			f.log.Warnf("Failed to unmount updater image %s: %v", reference, sanitizedCause(err))
+		if unmountErr := f.podman.Unmount(context.WithoutCancel(ctx), reference); unmountErr != nil {
+			cause := sanitizedCause(unmountErr)
+			f.log.Warnf("Failed to unmount updater image %s: %v", reference, cause)
+			cleanupErr := fmt.Errorf("unmount updater image %s: %w", reference, errors.Join(ErrUnmountFailed, cause))
+			retErr = errors.Join(retErr, cleanupErr)
+			// Do not let callers use a package while its image mount may remain live.
+			data = nil
 		}
 	}()
-	data, err := f.rw.ReadFileInRoot(mountPoint, ManifestPath, MaxManifestBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read %s from %s: %w", ManifestPath, reference, err)
+	data, retErr = f.rw.ReadFileInRoot(mountPoint, ManifestPath, MaxManifestBytes)
+	if retErr != nil {
+		retErr = fmt.Errorf("read %s from %s: %w", ManifestPath, reference, retErr)
 	}
-	return data, nil
+	return data, retErr
 }
 
 func digestHex(digest string) string { return strings.TrimPrefix(digest, "sha256:") }

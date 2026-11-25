@@ -667,17 +667,19 @@ func TestFetchRejectsInvalidManifestsAfterUnmounting(t *testing.T) {
 	}
 }
 
-func TestFetchReturnsThePackageWhenUnmountFails(t *testing.T) {
+func TestFetchFailsWhenUnmountFails(t *testing.T) {
 	require := require.New(t)
 	h := newFetchHarness(t)
 	h.podman.unmountExit = 125
 	h.podman.unmountStderr = "Error: device busy"
 	pkg, err := h.fetcher().Fetch(context.Background(), h.release.Name, h.release.Version)
-	require.NoError(err)
-	require.NotNil(pkg)
+	require.Nil(pkg)
+	requireFetchError(t, err, firmware.ReasonUpdaterUnavailable, true)
+	require.ErrorIs(err, firmware.ErrUnmountFailed)
+	require.True(deviceerrors.IsRetryable(err))
 	require.Contains(h.logs.String(), "unmount")
 	_, err = os.Stat(h.recordPath())
-	require.NoError(err)
+	require.True(os.IsNotExist(err), "failed unmount must not record the package")
 }
 
 func TestFetchResolvesRegistryCredentialsWithoutReadingThem(t *testing.T) {
