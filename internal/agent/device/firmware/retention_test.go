@@ -80,6 +80,7 @@ func TestRetentionPins(t *testing.T) {
 		_, ok, err = newRetention(f).PinFor(pin.PackageDigest)
 		require.NoError(err)
 		require.False(ok)
+		require.NoError(restarted.Pin(pin), "a pin-only attempt can be registered after release")
 	})
 	t.Run("When an attempt pins a recovery version too it should protect both", func(t *testing.T) {
 		require := require.New(t)

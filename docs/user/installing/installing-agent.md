@@ -82,28 +82,47 @@ configuration sections below.
 
 ## Installing the agent binary on ARMv7 (experimental)
 
-Use this procedure to install the agent on 32-bit ARM (ARMv7) devices where the RPM packages are not available. Each release publishes the `flightctl-agent-linux-armv7` binary and a `flightctl-agent-linux-armv7-sha256.txt` checksum file as release assets.
+Use this procedure to install the agent on 32-bit ARM (ARMv7) devices where the RPM packages are not available. Each release publishes the `flightctl-agent-linux-armv7` binary and its checksum, plus the `flightctl-phase-launcher-linux-armv7` companion binary and its checksum. Install both binaries to enable firmware phase execution.
 
 > [!NOTE]
 > The ARMv7 agent is experimental and community-supported. There is no commitment to hardware validation or to compatibility across releases.
 
-1. Download the binary and the checksum file, where `<tag>` is a release tag such as `v1.4.0`, or `latest`:
+1. Download the agent binary and its checksum file, where `<tag>` is a release tag or `latest`:
 
    ```bash
    curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-agent-linux-armv7
    curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-agent-linux-armv7-sha256.txt
    ```
 
-2. Verify the checksum:
+2. Download the phase launcher and its checksum. The launcher is required for firmware management.
+
+   ```bash
+   curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-phase-launcher-linux-armv7
+   curl -LO https://github.com/flightctl/flightctl/releases/download/<tag>/flightctl-phase-launcher-linux-armv7-sha256.txt
+   ```
+
+3. Verify the agent checksum:
 
    ```bash
    echo "$(cat flightctl-agent-linux-armv7-sha256.txt)  flightctl-agent-linux-armv7" | sha256sum -c -
    ```
 
-3. Install the binary:
+4. Verify the phase launcher checksum:
+
+   ```bash
+   echo "$(cat flightctl-phase-launcher-linux-armv7-sha256.txt)  flightctl-phase-launcher-linux-armv7" | sha256sum -c -
+   ```
+
+5. Install the agent binary:
 
    ```bash
    sudo install -m 0755 flightctl-agent-linux-armv7 /usr/local/bin/flightctl-agent
+   ```
+
+6. Install the phase launcher:
+
+   ```bash
+   sudo install -D -m 0755 flightctl-phase-launcher-linux-armv7 /usr/libexec/flightctl/phase-launcher
    ```
 
 You must provide the systemd unit, Podman, and the agent configuration yourself. For the configuration, see [Configuring the agent](#configuring-the-agent).
