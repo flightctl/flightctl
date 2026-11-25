@@ -92,8 +92,8 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 | Update State | Description |
 | ------------ | ----------- |
-| `Preparing` | The agent is validating the desired device spec and downloading dependencies. No changes have been made to the device's configuration yet. |
-| `ReadyToUpdate` | The agent has validated the desired spec, downloaded all dependencies, and is ready to update. No changes have been made to the device's configuration yet. |
+| `Preparing` | The agent is preparing the desired device spec and any dependencies, or waiting for download policy to allow this work. No changes have been made to the device's configuration yet. |
+| `ReadyToUpdate` | The agent has validated the desired spec and prepared all dependencies. It may be waiting for update policy to allow application. No changes have been made to the device's configuration yet. |
 | `ApplyingUpdate` | The agent has started the update transaction and is writing the update to disk. |
 | `Rebooting` | On released agents version 1.5 or later, the agent initiated a reboot to activate the update. On older, prerelease, development, or unrecognized agent versions, this reason does not distinguish an update reboot from rollback. |
 | `ActivatingConfig` | (transient, not reported) The agent is activating the new configuration without requiring a reboot. |
@@ -133,12 +133,12 @@ stateDiagram
             state afterUpdatingHook <<choice>>
 
             [*] --> Preparing
-            Preparing --> ReadyToUpdate
+            Preparing --> beforeUpdatingHook: beforeUpdating hook
+            beforeUpdatingHook --> ReadyToUpdate
             Preparing --> Canceled
             Preparing --> Error: on error
-            ReadyToUpdate --> beforeUpdatingHook: beforeUpdatingHook
             ReadyToUpdate --> Canceled
-            beforeUpdatingHook --> ApplyingUpdate
+            ReadyToUpdate --> ApplyingUpdate: update policy allows
             ApplyingUpdate --> beforeRebootingHook: if OS updated
             ApplyingUpdate --> ActivatingConfig: if OS not updated
             ApplyingUpdate --> RollingBack: on error
