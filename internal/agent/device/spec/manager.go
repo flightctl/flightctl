@@ -31,7 +31,9 @@ const (
 	annotationDesiredSpecHash = "agent/desiredSpecHash"
 	// annotationRollbackError stores the formatted sync error that triggered
 	// an OS rollback so it can be reported after reboot.
-	annotationRollbackError = "agent/rollbackError"
+	annotationRollbackError   = "agent/rollbackError"
+	annotationRollbackOutcome = "agent/rollbackOutcome"
+	annotationRollbackCause   = "agent/rollbackCause"
 )
 
 // manager is responsible for managing the rendered device spec.
@@ -354,10 +356,18 @@ func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
 		return RollbackInfo{}, nil
 	}
 	annotations := *rollback.Metadata.Annotations
+	outcome := v1beta1.DeviceUpdateContext(annotations[annotationRollbackOutcome])
+	if outcome != "" && outcome != v1beta1.DeviceUpdateContextRollbackCompleted &&
+		outcome != v1beta1.DeviceUpdateContextRollbackFailed &&
+		outcome != v1beta1.DeviceUpdateContextRollbackTimedOut {
+		return RollbackInfo{}, fmt.Errorf("invalid persisted rollback outcome %q", outcome)
+	}
 	return RollbackInfo{
 		Version:      annotations[annotationDesiredVersion],
 		SpecHash:     annotations[annotationDesiredSpecHash],
 		ErrorMessage: annotations[annotationRollbackError],
+		Cause:        annotations[annotationRollbackCause],
+		Outcome:      outcome,
 	}, nil
 }
 
@@ -376,8 +386,36 @@ func (s *manager) RecordRollbackError(ctx context.Context, message string) error
 		annotations = rollback.Metadata.Annotations
 	}
 	(*annotations)[annotationRollbackError] = message
+	delete(*annotations, annotationRollbackOutcome)
+	delete(*annotations, annotationRollbackCause)
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
 		return fmt.Errorf("writing rollback error: %w", err)
+	}
+	return nil
+}
+
+func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause string) error {
+	if outcome != v1beta1.DeviceUpdateContextRollbackCompleted &&
+		outcome != v1beta1.DeviceUpdateContextRollbackFailed &&
+		outcome != v1beta1.DeviceUpdateContextRollbackTimedOut {
+		return fmt.Errorf("invalid rollback outcome %q", outcome)
+	}
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		return fmt.Errorf("reading rollback spec: %w", err)
+	}
+	if rollback.Metadata.Annotations == nil {
+		annotations := map[string]string{}
+		rollback.Metadata.Annotations = &annotations
+	}
+	(*rollback.Metadata.Annotations)[annotationRollbackOutcome] = string(outcome)
+	if cause != "" {
+		(*rollback.Metadata.Annotations)[annotationRollbackCause] = cause
+	} else {
+		delete(*rollback.Metadata.Annotations, annotationRollbackCause)
+	}
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
+		return fmt.Errorf("writing rollback outcome: %w", err)
 	}
 	return nil
 }

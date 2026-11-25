@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -79,7 +80,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -113,7 +114,7 @@ func TestInitialization(t *testing.T) {
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -148,7 +149,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},
@@ -237,6 +238,7 @@ func TestUpdateStatus(t *testing.T) {
 		wantReason     string
 		wantMessage    string
 		wantMsgContain string
+		wantContext    *v1beta1.DeviceUpdateContext
 	}{
 		{
 			name:       "When resuming an upgrade it should report ApplyingUpdate",
@@ -248,14 +250,35 @@ func TestUpdateStatus(t *testing.T) {
 			wantReason: string(v1beta1.UpdateStateUpdated),
 		},
 		{
-			name: "When rollback info has a persisted error it should report Error with that message",
+			name: "When rollback error has no terminal outcome it should remain RollingBack",
 			rollbackInfo: spec.RollbackInfo{
 				Version:      "6",
 				SpecHash:     "abc123",
 				ErrorMessage: "[2026-04-23 12:00:00] While Preparing: prefetch failed for quay.io/flightctl/images:doesnotexist: required resource not found",
 			},
-			wantReason:     string(v1beta1.UpdateStateError),
+			wantReason:     string(v1beta1.UpdateStateRollingBack),
 			wantMsgContain: "prefetch failed for quay.io/flightctl/images:doesnotexist",
+		},
+		{
+			name: "When rollback completed it should report Error and the persisted context",
+			rollbackInfo: spec.RollbackInfo{
+				ErrorMessage: "Failed to apply requested OS image",
+				Outcome:      v1beta1.DeviceUpdateContextRollbackCompleted,
+			},
+			wantReason:     string(v1beta1.UpdateStateError),
+			wantMsgContain: "Failed to apply requested OS image",
+			wantContext:    lo.ToPtr(v1beta1.DeviceUpdateContextRollbackCompleted),
+		},
+		{
+			name: "When rollback failed it should retain both causes after reboot",
+			rollbackInfo: spec.RollbackInfo{
+				ErrorMessage: "Failed to apply requested OS image",
+				Cause:        "rollback disk write failed",
+				Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+			},
+			wantReason:     string(v1beta1.UpdateStateError),
+			wantMsgContain: "rollback disk write failed",
+			wantContext:    lo.ToPtr(v1beta1.DeviceUpdateContextRollbackFailed),
 		},
 		{
 			name:         "When rollback info has a version but no error it should report Error for that version",
@@ -267,7 +290,7 @@ func TestUpdateStatus(t *testing.T) {
 			name:        "When rollback info cannot be read it should not report Updated",
 			rollbackErr: errors.New("disk error"),
 			wantReason:  string(v1beta1.UpdateStateError),
-			wantMessage: "Failed to read rollback info after update",
+			wantMessage: "Cannot determine rollback outcome: failed to read rollback record: disk error",
 		},
 	}
 
@@ -287,7 +310,8 @@ func TestUpdateStatus(t *testing.T) {
 
 			var gotCondition v1beta1.Condition
 			var gotSummary v1beta1.DeviceSummaryStatus
-			mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			var gotContext *v1beta1.DeviceUpdateContext
+			mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, fns ...status.UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
 					ds := &v1beta1.DeviceStatus{Summary: v1beta1.DeviceSummaryStatus{Status: v1beta1.DeviceSummaryStatusRebooting}}
 					for _, fn := range fns {
@@ -297,6 +321,7 @@ func TestUpdateStatus(t *testing.T) {
 					require.NotNil(cond)
 					gotCondition = *cond
 					gotSummary = ds.Summary
+					gotContext = ds.UpdateContext
 					return ds, nil
 				},
 			)
@@ -310,6 +335,7 @@ func TestUpdateStatus(t *testing.T) {
 
 			require.Equal(tt.wantReason, gotCondition.Reason)
 			require.Equal(v1beta1.DeviceSummaryStatusOnline, gotSummary.Status)
+			require.Equal(tt.wantContext, gotContext)
 			if tt.wantMessage != "" {
 				require.Equal(tt.wantMessage, gotCondition.Message)
 			}
@@ -327,9 +353,10 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	desiredOS := "2.0.0"
 
 	testCases := []struct {
-		name          string
-		setupMocks    func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager)
-		expectedError error
+		name               string
+		setupMocks         func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager)
+		expectedError      error
+		wantRollbackFailed bool
 	}{
 		{
 			name: "happy path",
@@ -356,7 +383,27 @@ func TestBootstrapCheckRollback(t *testing.T) {
 					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
+					mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "").Return(nil),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2"),
+					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+		},
+		{
+			name: "When saving the diagnostic fails it should still restore the rollback spec",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
+					mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(mockErr),
+					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(mockErr),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2"),
 					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
 				)
@@ -382,10 +429,13 @@ func TestBootstrapCheckRollback(t *testing.T) {
 					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
+					mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(mockErr),
 				)
 			},
-			expectedError: mockErr,
+			expectedError:      mockErr,
+			wantRollbackFailed: true,
 		},
 		{
 			name: "error updating status",
@@ -419,6 +469,9 @@ func TestBootstrapCheckRollback(t *testing.T) {
 			err := b.checkRollback(ctx)
 			if tt.expectedError != nil {
 				require.ErrorIs(err, tt.expectedError)
+				if tt.wantRollbackFailed {
+					require.ErrorIs(err, errSpecRollbackFailed)
+				}
 				return
 			}
 			require.NoError(err)
@@ -477,7 +530,10 @@ func TestEnsureBootedOS(t *testing.T) {
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("unexpected-booted-image", false, nil)
 				mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil)
+				mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "").Return(nil)
 				mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
 				mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2")
 				mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
@@ -576,6 +632,62 @@ func patchOpsForCondition(idx int, expectedStatus v1beta1.ConditionStatus, expec
 		}
 		return foundReason && foundStatus
 	}
+}
+
+func TestEnsureBootedOSPersistsCompletedRollback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
+	mockSpecManager.EXPECT().IsUpgrading().Return(false)
+	mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{
+		Version:      "6",
+		SpecHash:     "abc123",
+		ErrorMessage: "failed to apply requested OS image",
+	}, nil)
+	mockSpecManager.EXPECT().SetUpgradeFailed("6", "abc123").Return(nil)
+	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "previous-image"}}}, nil)
+	mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("previous-image", true, nil)
+	mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "").Return(nil)
+
+	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
+	require.NoError(t, b.ensureBootedOS(context.Background()))
+}
+
+func TestEnsureBootedOSRetriesOutcomeWriteWithoutReboot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
+	mockSpecManager.EXPECT().IsUpgrading().Return(false)
+	mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{
+		Version:      "6",
+		SpecHash:     "abc123",
+		ErrorMessage: "failed to apply requested OS image",
+	}, nil)
+	mockSpecManager.EXPECT().SetUpgradeFailed("6", "abc123").Return(nil)
+	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "previous-image"}}}, nil)
+	mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("previous-image", true, nil)
+	mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "").Return(errors.New("disk unavailable"))
+
+	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
+	require.NoError(t, b.ensureBootedOS(context.Background()))
+	require.NotNil(t, b.PendingRollbackResult())
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, b.PendingRollbackResult().Outcome)
+}
+
+func TestEnsureBootedOSCompletesConfigOnlyRollback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
+	mockSpecManager.EXPECT().IsUpgrading().Return(false)
+	mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{ErrorMessage: "config update failed"}, nil)
+	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil)
+	mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "").Return(nil)
+
+	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
+	require.NoError(t, b.ensureBootedOS(context.Background()))
 }
 
 func TestEnsurePostEnrollmentHooks(t *testing.T) {
@@ -919,7 +1031,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
-					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
 			},
 		},

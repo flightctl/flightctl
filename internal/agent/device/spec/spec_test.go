@@ -798,6 +798,8 @@ func TestGetRollbackInfo(t *testing.T) {
 	t.Run("When error message is stored it should return it", func(t *testing.T) {
 		device := createTestRenderedDevice("flightctl-device:v1")
 		(*device.Metadata.Annotations)[annotationDesiredVersion] = "6"
+		(*device.Metadata.Annotations)[annotationRollbackOutcome] = string(v1beta1.DeviceUpdateContextRollbackCompleted)
+		(*device.Metadata.Annotations)[annotationRollbackCause] = "old cause"
 		(*device.Metadata.Annotations)[annotationDesiredSpecHash] = "abc123"
 		(*device.Metadata.Annotations)[annotationRollbackError] = "prefetch failed for quay.io/flightctl/images:doesnotexist"
 		b, err := json.Marshal(device)
@@ -808,6 +810,8 @@ func TestGetRollbackInfo(t *testing.T) {
 		require.Equal("6", info.Version)
 		require.Equal("abc123", info.SpecHash)
 		require.Equal("prefetch failed for quay.io/flightctl/images:doesnotexist", info.ErrorMessage)
+		require.Equal(v1beta1.DeviceUpdateContextRollbackCompleted, info.Outcome)
+		require.Equal("old cause", info.Cause)
 	})
 }
 
@@ -849,6 +853,8 @@ func TestRecordRollbackError(t *testing.T) {
 	t.Run("When rollback spec exists it should persist the error message", func(t *testing.T) {
 		device := createTestRenderedDevice("flightctl-device:v1")
 		(*device.Metadata.Annotations)[annotationDesiredVersion] = "6"
+		(*device.Metadata.Annotations)[annotationRollbackOutcome] = string(v1beta1.DeviceUpdateContextRollbackCompleted)
+		(*device.Metadata.Annotations)[annotationRollbackCause] = "old cause"
 		existing, err := json.Marshal(device)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(existing, nil)
@@ -858,12 +864,45 @@ func TestRecordRollbackError(t *testing.T) {
 				require.NoError(json.Unmarshal(data, &written))
 				require.Equal("6", (*written.Metadata.Annotations)[annotationDesiredVersion])
 				require.Equal("prefetch failed for bad-image", (*written.Metadata.Annotations)[annotationRollbackError])
+				require.NotContains((*written.Metadata.Annotations), annotationRollbackOutcome)
+				require.NotContains((*written.Metadata.Annotations), annotationRollbackCause)
 				return nil
 			},
 		)
 		err = s.RecordRollbackError(ctx, "prefetch failed for bad-image")
 		require.NoError(err)
 	})
+}
+
+func TestRollbackResultSurvivesRestart(t *testing.T) {
+	root := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	rollbackPath := filepath.Join(root, string(Rollback)+".json")
+	logger := log.NewPrefixLogger("test")
+	specManager := &manager{
+		log:              logger,
+		deviceReadWriter: readWriter,
+		rollbackPath:     rollbackPath,
+		cache:            newCache(logger),
+	}
+	require.NoError(t, specManager.write(context.Background(), Rollback, newVersionedDevice("5"), audit.ReasonInitialization))
+	require.NoError(t, specManager.RecordRollbackError(context.Background(), "failed to apply requested OS image"))
+	require.NoError(t, specManager.RecordRollbackResult(context.Background(), v1beta1.DeviceUpdateContextRollbackFailed, "rollback disk write failed"))
+
+	restarted := &manager{
+		log:              logger,
+		deviceReadWriter: readWriter,
+		rollbackPath:     rollbackPath,
+		cache:            newCache(logger),
+	}
+	info, err := restarted.GetRollbackInfo()
+	require.NoError(t, err)
+	require.Equal(t, "failed to apply requested OS image", info.ErrorMessage)
+	require.Equal(t, "rollback disk write failed", info.Cause)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, info.Outcome)
 }
 
 func TestRollback(t *testing.T) {

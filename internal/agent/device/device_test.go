@@ -644,6 +644,64 @@ func TestForwardOSReboot(t *testing.T) {
 	require.Equal(t, string(v1beta1.UpdateStateRebooting), last.reason)
 }
 
+func TestReportTerminalRollback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	manager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	manager.SetClient(management)
+	var reported *v1beta1.DeviceStatus
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).DoAndReturn(captureDeviceStatus(&reported))
+
+	err := reportTerminalRollback(context.Background(), manager, spec.RollbackInfo{
+		ErrorMessage: "failed to apply requested image",
+		Cause:        "disk write failed",
+		Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, reported)
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, *reported.UpdateContext)
+	condition := v1beta1.FindStatusCondition(reported.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	require.NotNil(t, condition)
+	require.Equal(t, v1beta1.ConditionStatusFalse, condition.Status)
+	require.Equal(t, string(v1beta1.UpdateStateError), condition.Reason)
+	require.Equal(t, "failed to apply requested image; rollback failed: disk write failed", condition.Message)
+}
+
+func TestRetryPendingRollbackResult(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	result := spec.RollbackInfo{
+		ErrorMessage: "failed to apply requested image",
+		Cause:        "rollback disk write failed",
+		Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+	}
+	agent := &Agent{
+		statusManager:         statusManager,
+		specManager:           specManager,
+		pendingRollbackResult: &result,
+		log:                   log.NewPrefixLogger("test"),
+	}
+	specManager.EXPECT().RecordRollbackError(gomock.Any(), result.ErrorMessage).Return(errors.New("disk unavailable"))
+	agent.retryPendingRollbackResult(context.Background())
+	require.NotNil(t, agent.pendingRollbackResult)
+
+	specManager.EXPECT().RecordRollbackError(gomock.Any(), result.ErrorMessage).Return(nil)
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), result.Outcome, result.Cause).Return(nil)
+	var reported *v1beta1.DeviceStatus
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).DoAndReturn(captureDeviceStatus(&reported))
+	agent.retryPendingRollbackResult(context.Background())
+	require.Nil(t, agent.pendingRollbackResult)
+	require.NotNil(t, reported)
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, result.Outcome, *reported.UpdateContext)
+}
+
 func TestOSRollback(t *testing.T) {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -700,6 +758,7 @@ func TestOSRollback(t *testing.T) {
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, "helm deps missing").Return(nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)
@@ -1250,6 +1309,13 @@ func captureRollbackStatus(reports *[]rollbackStatusReport) func(context.Context
 			return errors.New("Updating condition is missing")
 		}
 		*reports = append(*reports, rollbackStatusReport{device.Status.Summary.Status, condition.Status, condition.Reason})
+		return nil
+	}
+}
+
+func captureDeviceStatus(destination **v1beta1.DeviceStatus) func(context.Context, string, v1beta1.Device, ...interface{}) error {
+	return func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
+		*destination = device.Status
 		return nil
 	}
 }

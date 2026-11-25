@@ -39,6 +39,26 @@ func TestInvalidateLastStatus_CausesNextSyncToPush(t *testing.T) {
 	require.NoError(mgr.Sync(ctx))
 }
 
+func TestUpdateConditionClearsPreviousRollbackOutcome(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	manager := NewManager("test-device", log.NewPrefixLogger("test"))
+	manager.SetClient(management)
+	outcome := v1beta1.DeviceUpdateContextRollbackFailed
+	manager.device.Status.UpdateContext = &outcome
+	condition := v1beta1.Condition{
+		Type:   v1beta1.ConditionTypeDeviceUpdating,
+		Status: v1beta1.ConditionStatusTrue,
+		Reason: string(v1beta1.UpdateStatePreparing),
+	}
+	v1beta1.SetStatusCondition(&manager.device.Status.Conditions, condition)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+
+	require.NoError(t, manager.UpdateCondition(context.Background(), condition))
+	require.Nil(t, manager.device.Status.UpdateContext)
+}
+
 // populateRealisticStatus fills a DeviceStatus with realistic data across
 // multiple fields: applications, config, OS, system info, resources, summary,
 // integrity, and conditions. This ensures diff tests prove that only the

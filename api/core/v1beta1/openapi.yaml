@@ -7974,6 +7974,8 @@ components:
           $ref: "#/components/schemas/DeviceOsStatus"
         updated:
           $ref: "#/components/schemas/DeviceUpdatedStatus"
+        updateContext:
+          $ref: "#/components/schemas/DeviceUpdateContext"
         summary:
           $ref: "#/components/schemas/DeviceSummaryStatus"
         lastSeen:
@@ -8595,6 +8597,17 @@ components:
         info:
           type: string
           description: Human readable information about the last device update transition.
+    DeviceUpdateContext:
+      type: string
+      description: Reported terminal rollback result. Present only with an Updating condition whose status is False and reason is Error.
+      enum:
+        - "RollbackCompleted"
+        - "RollbackFailed"
+        - "RollbackTimedOut"
+      x-enum-varnames:
+        - "DeviceUpdateContextRollbackCompleted"
+        - "DeviceUpdateContextRollbackFailed"
+        - "DeviceUpdateContextRollbackTimedOut"
     DeviceUpdatedStatusType:
       type: string
       description: Status type of the device update.
