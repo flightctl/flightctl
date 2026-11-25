@@ -130,6 +130,7 @@ func TestSync(t *testing.T) {
 				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version(), desired.SpecHash()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, gomock.Any(), gomock.Any()).Return(nil).MinTimes(1)
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				// Upgrade should NOT be called when sync fails, but allow it for flexibility
 				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).AnyTimes()
@@ -1214,6 +1215,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 				return nil
 			},
 		)
+		mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", gomock.Any()).Return(nil)
 		mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
 				lastStatusDevice = &device
@@ -1275,6 +1277,8 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		require.NotNil(t, cond)
 		require.Equal(t, string(v1beta1.UpdateStateError), cond.Reason)
 		require.Contains(t, cond.Message, "package-mode device cannot satisfy spec with os.image")
+		require.NotNil(t, lastStatusDevice.Status.UpdateContext)
+		require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, *lastStatusDevice.Status.UpdateContext)
 	})
 
 	t.Run("When package-mode and not upgrading with os.image it should reject without rollback", func(t *testing.T) {
