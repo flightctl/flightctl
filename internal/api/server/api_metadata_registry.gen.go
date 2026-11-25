@@ -26,6 +26,7 @@ const (
 	API_RESOURCE_DEVICES_RENDERED = "devices/rendered"
 	API_RESOURCE_DEVICES_RESUME = "devices/resume"
 	API_RESOURCE_DEVICES_STATUS = "devices/status"
+	API_RESOURCE_ENROLLMENTAPPROVALPOLICIES = "enrollmentapprovalpolicies"
 	API_RESOURCE_ENROLLMENTCONFIG = "enrollmentconfig"
 	API_RESOURCE_ENROLLMENTHOOKPOLICIES = "enrollmenthookpolicies"
 	API_RESOURCE_ENROLLMENTREQUESTS = "enrollmentrequests"
@@ -495,6 +496,54 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 	"PUT:/devices/{name}/status": {
 		OperationID: "replaceDeviceStatus",
 		Resource:    "devices/status",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/enrollmentapprovalpolicies": {
+		OperationID: "listEnrollmentApprovalPolicies",
+		Resource:    "enrollmentapprovalpolicies",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/enrollmentapprovalpolicies": {
+		OperationID: "createEnrollmentApprovalPolicy",
+		Resource:    "enrollmentapprovalpolicies",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"DELETE:/enrollmentapprovalpolicies/{name}": {
+		OperationID: "deleteEnrollmentApprovalPolicy",
+		Resource:    "enrollmentapprovalpolicies",
+		Action:      "delete",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/enrollmentapprovalpolicies/{name}": {
+		OperationID: "getEnrollmentApprovalPolicy",
+		Resource:    "enrollmentapprovalpolicies",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PATCH:/enrollmentapprovalpolicies/{name}": {
+		OperationID: "patchEnrollmentApprovalPolicy",
+		Resource:    "enrollmentapprovalpolicies",
+		Action:      "patch",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PUT:/enrollmentapprovalpolicies/{name}": {
+		OperationID: "replaceEnrollmentApprovalPolicy",
+		Resource:    "enrollmentapprovalpolicies",
 		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},

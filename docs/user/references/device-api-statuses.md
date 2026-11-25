@@ -95,13 +95,13 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 | `Preparing` | The agent is preparing the desired device spec and any dependencies, or waiting for download policy to allow this work. No changes have been made to the device's configuration yet. |
 | `ReadyToUpdate` | The agent has validated the desired spec and prepared all dependencies. It may be waiting for update policy to allow application. No changes have been made to the device's configuration yet. |
 | `ApplyingUpdate` | The agent has started the update transaction and is writing the update to disk. |
-| `Rebooting` | The agent initiated a reboot required to activate the new OS image and configuration. |
+| `Rebooting` | On released agents version 1.5 or later, the agent initiated a reboot to activate the update. On older, prerelease, development, or unrecognized agent versions, this reason does not distinguish an update reboot from rollback. |
 | `ActivatingConfig` | (transient, not reported) The agent is activating the new configuration without requiring a reboot. |
 | `RollingBack` | The agent has detected an error and is rolling back to the pre-update OS image and configuration. |
 | `Updated` | The agent has successfully completed the update and the device is conforming to its device spec. Note that the device's update status may still be reported as `OutOfDate` if the device spec is not yet at the same version as the fleet's device template. |
 | `Error` | The agent failed to apply the desired spec and will not retry. The device's OS image and configuration have been rolled back to the pre-update version and have been activated. |
 
-The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
+The `device.status.updated.info` field contains human-readable information about the last device update transition.
 
 Before a standalone device update, the service can prepare OS and application deltas. While the update is waiting for preparation, `device.status.conditions[]` includes `DeviceDeltaPreparing` with status `True`.
 
@@ -109,7 +109,7 @@ The `device.status.deltaGeneration.completed` and `device.status.deltaGeneration
 
 Fleet-managed updates report preparation through the fleet's `FleetDeltaPreparing` condition. For fleet preparation, see [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation).
 
-The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called.
+The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called. A rollback OS reboot remains in `RollingBack`. The separate device summary can show `Rebooting` while connected, but `AwaitingReconnect` and `ConflictPaused` annotations take precedence; otherwise, a disconnect timeout changes it to `Unknown`.
 
 ```mermaid
 stateDiagram

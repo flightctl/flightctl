@@ -90,9 +90,15 @@ type schedule struct {
 	location           *time.Location
 	cron               cron.Schedule
 	startGraceDuration time.Duration
+	oneTimeWindows     []oneTimeWindow
 
 	// this is used for testing to override time.Now
 	nowFn func() time.Time
+}
+
+type oneTimeWindow struct {
+	start         time.Time
+	graceDuration time.Duration
 }
 
 func newSchedule(policyType Type) *schedule {
@@ -103,6 +109,15 @@ func newSchedule(policyType Type) *schedule {
 }
 
 func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSchedule) error {
+	hasAt := updateSchedule.At != ""
+	hasGraceDuration := updateSchedule.StartGraceDuration != ""
+	if hasAt != hasGraceDuration {
+		return fmt.Errorf("at and start grace duration must be provided together")
+	}
+	if !hasAt && updateSchedule.OneTimeWindows == nil {
+		return fmt.Errorf("at and start grace duration or one-time windows are required")
+	}
+
 	// parse time zone
 	if updateSchedule.TimeZone != nil {
 		loc, err := time.LoadLocation(lo.FromPtr(updateSchedule.TimeZone))
@@ -114,36 +129,76 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 		s.location = time.Local
 	}
 
-	// parse cron expression
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	cronExpr, err := parser.Parse(updateSchedule.At)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
-	}
-	s.cron = cronExpr
-	log.Debugf("Parsed cron expression: %s", s.cron)
+	if hasAt {
+		// parse cron expression
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		cronExpr, err := parser.Parse(updateSchedule.At)
+		if err != nil {
+			return fmt.Errorf("invalid cron expression: %w", err)
+		}
+		s.cron = cronExpr
+		log.Debugf("Parsed cron expression: %s", s.cron)
 
-	// parse grace duration
-	duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
-	if err != nil {
-		return fmt.Errorf("invalid start grace duration: %w", err)
+		// parse grace duration
+		duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
+		if err != nil {
+			return fmt.Errorf("invalid start grace duration: %w", err)
+		}
+		s.startGraceDuration = duration
 	}
-	s.startGraceDuration = duration
+
+	if updateSchedule.OneTimeWindows != nil {
+		if len(*updateSchedule.OneTimeWindows) == 0 {
+			return fmt.Errorf("one-time windows must not be empty")
+		}
+		for i, window := range *updateSchedule.OneTimeWindows {
+			parsedWindow, err := parseOneTimeWindow(window, s.location)
+			if err != nil {
+				return fmt.Errorf("invalid one-time window at index %d: %w", i, err)
+			}
+			s.oneTimeWindows = append(s.oneTimeWindows, parsedWindow)
+		}
+	}
 
 	return nil
 }
 
-// IsReady returns true if an activation falls within the current grace window.
+func parseOneTimeWindow(window v1beta1.OneTimeWindow, location *time.Location) (oneTimeWindow, error) {
+	start, err := time.ParseInLocation("2006-01-02 15:04", window.Date+" "+window.At, location)
+	if err != nil {
+		return oneTimeWindow{}, fmt.Errorf("invalid date/time: %w", err)
+	}
+
+	graceDuration, err := time.ParseDuration(window.StartGraceDuration)
+	if err != nil {
+		return oneTimeWindow{}, fmt.Errorf("invalid start grace duration: %w", err)
+	}
+
+	return oneTimeWindow{start: start, graceDuration: graceDuration}, nil
+}
+
+// IsReady returns true if an activation falls within a current grace window.
 func (s *schedule) IsReady(log *log.PrefixLogger) bool {
 	now := s.nowFn().In(s.location)
-	windowStart := now.Add(-s.startGraceDuration)
-	// Next is strictly after its input; include an activation exactly at windowStart.
-	activation := s.cron.Next(windowStart.Add(-time.Nanosecond))
-	log.Debugf("Policy %s current time: %s, window start: %s, candidate activation: %s", s.policyType, now, windowStart, activation)
 
-	if !activation.IsZero() && !activation.After(now) {
-		log.Infof("Policy %s schedule is ready", s.policyType)
-		return true
+	if s.cron != nil {
+		windowStart := now.Add(-s.startGraceDuration)
+		// Next is strictly after its input; include an activation exactly at windowStart.
+		activation := s.cron.Next(windowStart.Add(-time.Nanosecond))
+		log.Debugf("Policy %s current time: %s, window start: %s, candidate activation: %s", s.policyType, now, windowStart, activation)
+
+		if !activation.IsZero() && !activation.After(now) {
+			log.Infof("Policy %s recurring schedule is ready", s.policyType)
+			return true
+		}
+	}
+
+	for _, window := range s.oneTimeWindows {
+		graceEnd := window.start.Add(window.graceDuration)
+		if (now.Equal(window.start) || now.After(window.start)) && !now.After(graceEnd) {
+			log.Infof("Policy %s one-time schedule is ready", s.policyType)
+			return true
+		}
 	}
 
 	log.Debugf("Policy %s schedule is not ready", s.policyType)

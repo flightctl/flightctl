@@ -238,6 +238,30 @@ type ClientInterface interface {
 
 	ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListEnrollmentApprovalPolicies request
+	ListEnrollmentApprovalPolicies(ctx context.Context, params *ListEnrollmentApprovalPoliciesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnrollmentApprovalPolicyWithBody request with any body
+	CreateEnrollmentApprovalPolicyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateEnrollmentApprovalPolicy(ctx context.Context, body CreateEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteEnrollmentApprovalPolicy request
+	DeleteEnrollmentApprovalPolicy(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetEnrollmentApprovalPolicy request
+	GetEnrollmentApprovalPolicy(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchEnrollmentApprovalPolicyWithBody request with any body
+	PatchEnrollmentApprovalPolicyWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchEnrollmentApprovalPolicyWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReplaceEnrollmentApprovalPolicyWithBody request with any body
+	ReplaceEnrollmentApprovalPolicyWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceEnrollmentApprovalPolicy(ctx context.Context, name string, body ReplaceEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetEnrollmentConfig request
 	GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1101,6 +1125,114 @@ func (c *Client) ReplaceDeviceStatusWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceDeviceStatusRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListEnrollmentApprovalPolicies(ctx context.Context, params *ListEnrollmentApprovalPoliciesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEnrollmentApprovalPoliciesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateEnrollmentApprovalPolicyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnrollmentApprovalPolicyRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateEnrollmentApprovalPolicy(ctx context.Context, body CreateEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnrollmentApprovalPolicyRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteEnrollmentApprovalPolicy(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteEnrollmentApprovalPolicyRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetEnrollmentApprovalPolicy(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentApprovalPolicyRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchEnrollmentApprovalPolicyWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchEnrollmentApprovalPolicyRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchEnrollmentApprovalPolicyWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchEnrollmentApprovalPolicyRequestWithApplicationJSONPatchPlusJSONBody(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceEnrollmentApprovalPolicyWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentApprovalPolicyRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceEnrollmentApprovalPolicy(ctx context.Context, name string, body ReplaceEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentApprovalPolicyRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3764,6 +3896,298 @@ func NewReplaceDeviceStatusRequestWithBody(server string, name string, contentTy
 	}
 
 	operationPath := fmt.Sprintf("/devices/%s/status", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListEnrollmentApprovalPoliciesRequest generates requests for ListEnrollmentApprovalPolicies
+func NewListEnrollmentApprovalPoliciesRequest(server string, params *ListEnrollmentApprovalPoliciesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Continue != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "continue", *params.Continue, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "labelSelector", *params.LabelSelector, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "fieldSelector", *params.FieldSelector, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateEnrollmentApprovalPolicyRequest calls the generic CreateEnrollmentApprovalPolicy builder with application/json body
+func NewCreateEnrollmentApprovalPolicyRequest(server string, body CreateEnrollmentApprovalPolicyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEnrollmentApprovalPolicyRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateEnrollmentApprovalPolicyRequestWithBody generates requests for CreateEnrollmentApprovalPolicy with any type of body
+func NewCreateEnrollmentApprovalPolicyRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteEnrollmentApprovalPolicyRequest generates requests for DeleteEnrollmentApprovalPolicy
+func NewDeleteEnrollmentApprovalPolicyRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetEnrollmentApprovalPolicyRequest generates requests for GetEnrollmentApprovalPolicy
+func NewGetEnrollmentApprovalPolicyRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPatchEnrollmentApprovalPolicyRequestWithApplicationJSONPatchPlusJSONBody calls the generic PatchEnrollmentApprovalPolicy builder with application/json-patch+json body
+func NewPatchEnrollmentApprovalPolicyRequestWithApplicationJSONPatchPlusJSONBody(server string, name string, body PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchEnrollmentApprovalPolicyRequestWithBody(server, name, "application/json-patch+json", bodyReader)
+}
+
+// NewPatchEnrollmentApprovalPolicyRequestWithBody generates requests for PatchEnrollmentApprovalPolicy with any type of body
+func NewPatchEnrollmentApprovalPolicyRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReplaceEnrollmentApprovalPolicyRequest calls the generic ReplaceEnrollmentApprovalPolicy builder with application/json body
+func NewReplaceEnrollmentApprovalPolicyRequest(server string, name string, body ReplaceEnrollmentApprovalPolicyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceEnrollmentApprovalPolicyRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewReplaceEnrollmentApprovalPolicyRequestWithBody generates requests for ReplaceEnrollmentApprovalPolicy with any type of body
+func NewReplaceEnrollmentApprovalPolicyRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollmentapprovalpolicies/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -6871,6 +7295,30 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
+	// ListEnrollmentApprovalPoliciesWithResponse request
+	ListEnrollmentApprovalPoliciesWithResponse(ctx context.Context, params *ListEnrollmentApprovalPoliciesParams, reqEditors ...RequestEditorFn) (*ListEnrollmentApprovalPoliciesResponse, error)
+
+	// CreateEnrollmentApprovalPolicyWithBodyWithResponse request with any body
+	CreateEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentApprovalPolicyResponse, error)
+
+	CreateEnrollmentApprovalPolicyWithResponse(ctx context.Context, body CreateEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentApprovalPolicyResponse, error)
+
+	// DeleteEnrollmentApprovalPolicyWithResponse request
+	DeleteEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentApprovalPolicyResponse, error)
+
+	// GetEnrollmentApprovalPolicyWithResponse request
+	GetEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentApprovalPolicyResponse, error)
+
+	// PatchEnrollmentApprovalPolicyWithBodyWithResponse request with any body
+	PatchEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentApprovalPolicyResponse, error)
+
+	PatchEnrollmentApprovalPolicyWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchEnrollmentApprovalPolicyResponse, error)
+
+	// ReplaceEnrollmentApprovalPolicyWithBodyWithResponse request with any body
+	ReplaceEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentApprovalPolicyResponse, error)
+
+	ReplaceEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, body ReplaceEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentApprovalPolicyResponse, error)
+
 	// GetEnrollmentConfigWithResponse request
 	GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error)
 
@@ -7559,6 +8007,7 @@ type DeleteCertificateSigningRequestResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
+	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -8424,6 +8873,230 @@ func (r ReplaceDeviceStatusResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReplaceDeviceStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListEnrollmentApprovalPoliciesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnrollmentApprovalPolicyList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEnrollmentApprovalPoliciesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEnrollmentApprovalPoliciesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListEnrollmentApprovalPoliciesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateEnrollmentApprovalPolicyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *EnrollmentApprovalPolicy
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateEnrollmentApprovalPolicyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateEnrollmentApprovalPolicyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateEnrollmentApprovalPolicyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteEnrollmentApprovalPolicyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Status
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteEnrollmentApprovalPolicyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteEnrollmentApprovalPolicyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteEnrollmentApprovalPolicyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetEnrollmentApprovalPolicyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnrollmentApprovalPolicy
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetEnrollmentApprovalPolicyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetEnrollmentApprovalPolicyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetEnrollmentApprovalPolicyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PatchEnrollmentApprovalPolicyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnrollmentApprovalPolicy
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchEnrollmentApprovalPolicyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchEnrollmentApprovalPolicyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PatchEnrollmentApprovalPolicyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReplaceEnrollmentApprovalPolicyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnrollmentApprovalPolicy
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ReplaceEnrollmentApprovalPolicyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReplaceEnrollmentApprovalPolicyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReplaceEnrollmentApprovalPolicyResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -10986,6 +11659,84 @@ func (c *ClientWithResponses) ReplaceDeviceStatusWithResponse(ctx context.Contex
 	return ParseReplaceDeviceStatusResponse(rsp)
 }
 
+// ListEnrollmentApprovalPoliciesWithResponse request returning *ListEnrollmentApprovalPoliciesResponse
+func (c *ClientWithResponses) ListEnrollmentApprovalPoliciesWithResponse(ctx context.Context, params *ListEnrollmentApprovalPoliciesParams, reqEditors ...RequestEditorFn) (*ListEnrollmentApprovalPoliciesResponse, error) {
+	rsp, err := c.ListEnrollmentApprovalPolicies(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEnrollmentApprovalPoliciesResponse(rsp)
+}
+
+// CreateEnrollmentApprovalPolicyWithBodyWithResponse request with arbitrary body returning *CreateEnrollmentApprovalPolicyResponse
+func (c *ClientWithResponses) CreateEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.CreateEnrollmentApprovalPolicyWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnrollmentApprovalPolicyResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateEnrollmentApprovalPolicyWithResponse(ctx context.Context, body CreateEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.CreateEnrollmentApprovalPolicy(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnrollmentApprovalPolicyResponse(rsp)
+}
+
+// DeleteEnrollmentApprovalPolicyWithResponse request returning *DeleteEnrollmentApprovalPolicyResponse
+func (c *ClientWithResponses) DeleteEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.DeleteEnrollmentApprovalPolicy(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteEnrollmentApprovalPolicyResponse(rsp)
+}
+
+// GetEnrollmentApprovalPolicyWithResponse request returning *GetEnrollmentApprovalPolicyResponse
+func (c *ClientWithResponses) GetEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.GetEnrollmentApprovalPolicy(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetEnrollmentApprovalPolicyResponse(rsp)
+}
+
+// PatchEnrollmentApprovalPolicyWithBodyWithResponse request with arbitrary body returning *PatchEnrollmentApprovalPolicyResponse
+func (c *ClientWithResponses) PatchEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.PatchEnrollmentApprovalPolicyWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchEnrollmentApprovalPolicyResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchEnrollmentApprovalPolicyWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.PatchEnrollmentApprovalPolicyWithApplicationJSONPatchPlusJSONBody(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchEnrollmentApprovalPolicyResponse(rsp)
+}
+
+// ReplaceEnrollmentApprovalPolicyWithBodyWithResponse request with arbitrary body returning *ReplaceEnrollmentApprovalPolicyResponse
+func (c *ClientWithResponses) ReplaceEnrollmentApprovalPolicyWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.ReplaceEnrollmentApprovalPolicyWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceEnrollmentApprovalPolicyResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceEnrollmentApprovalPolicyWithResponse(ctx context.Context, name string, body ReplaceEnrollmentApprovalPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentApprovalPolicyResponse, error) {
+	rsp, err := c.ReplaceEnrollmentApprovalPolicy(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceEnrollmentApprovalPolicyResponse(rsp)
+}
+
 // GetEnrollmentConfigWithResponse request returning *GetEnrollmentConfigResponse
 func (c *ClientWithResponses) GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error) {
 	rsp, err := c.GetEnrollmentConfig(ctx, params, reqEditors...)
@@ -12549,6 +13300,13 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
@@ -14225,6 +14983,470 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListEnrollmentApprovalPoliciesResponse parses an HTTP response from a ListEnrollmentApprovalPoliciesWithResponse call
+func ParseListEnrollmentApprovalPoliciesResponse(rsp *http.Response) (*ListEnrollmentApprovalPoliciesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEnrollmentApprovalPoliciesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentApprovalPolicyList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateEnrollmentApprovalPolicyResponse parses an HTTP response from a CreateEnrollmentApprovalPolicyWithResponse call
+func ParseCreateEnrollmentApprovalPolicyResponse(rsp *http.Response) (*CreateEnrollmentApprovalPolicyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateEnrollmentApprovalPolicyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EnrollmentApprovalPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteEnrollmentApprovalPolicyResponse parses an HTTP response from a DeleteEnrollmentApprovalPolicyWithResponse call
+func ParseDeleteEnrollmentApprovalPolicyResponse(rsp *http.Response) (*DeleteEnrollmentApprovalPolicyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteEnrollmentApprovalPolicyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetEnrollmentApprovalPolicyResponse parses an HTTP response from a GetEnrollmentApprovalPolicyWithResponse call
+func ParseGetEnrollmentApprovalPolicyResponse(rsp *http.Response) (*GetEnrollmentApprovalPolicyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetEnrollmentApprovalPolicyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentApprovalPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchEnrollmentApprovalPolicyResponse parses an HTTP response from a PatchEnrollmentApprovalPolicyWithResponse call
+func ParsePatchEnrollmentApprovalPolicyResponse(rsp *http.Response) (*PatchEnrollmentApprovalPolicyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchEnrollmentApprovalPolicyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentApprovalPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReplaceEnrollmentApprovalPolicyResponse parses an HTTP response from a ReplaceEnrollmentApprovalPolicyWithResponse call
+func ParseReplaceEnrollmentApprovalPolicyResponse(rsp *http.Response) (*ReplaceEnrollmentApprovalPolicyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReplaceEnrollmentApprovalPolicyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentApprovalPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

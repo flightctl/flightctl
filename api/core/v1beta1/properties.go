@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	semver "github.com/coreos/go-semver/semver"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
@@ -32,7 +33,7 @@ func (d *Device) IsUpdating() bool {
 	return d != nil && d.Status != nil && IsStatusConditionTrue(d.Status.Conditions, ConditionTypeDeviceUpdating)
 }
 
-// IsRebooting() is true if the device's agent has the updating condition set with state Rebooting.
+// IsRebooting reports an update reboot, including a rollback reboot reported with a rebooting summary.
 func (d *Device) IsRebooting() bool {
 	if d == nil || d.Status == nil {
 		return false
@@ -41,7 +42,22 @@ func (d *Device) IsRebooting() bool {
 	if updatingCondition == nil {
 		return false
 	}
-	return updatingCondition.Status == ConditionStatusTrue && updatingCondition.Reason == string(UpdateStateRebooting)
+	return updatingCondition.Status == ConditionStatusTrue &&
+		(updatingCondition.Reason == string(UpdateStateRebooting) ||
+			(updatingCondition.Reason == string(UpdateStateRollingBack) && d.Status.Summary.Status == DeviceSummaryStatusRebooting))
+}
+
+// IsConfirmedUpdateReboot reports Rebooting only for released agents with the directional reboot contract.
+func (d *Device) IsConfirmedUpdateReboot() bool {
+	if d == nil || d.Status == nil || !d.IsRebooting() {
+		return false
+	}
+	condition := FindStatusCondition(d.Status.Conditions, ConditionTypeDeviceUpdating)
+	if condition.Reason != string(UpdateStateRebooting) {
+		return false
+	}
+	version, err := semver.NewVersion(strings.TrimPrefix(d.Status.SystemInfo.AgentVersion, "v"))
+	return err == nil && version.PreRelease == "" && version.Compare(semver.Version{Major: 1, Minor: 5}) >= 0
 }
 
 func (d *Device) isRenderedVersionUpdated() bool {

@@ -13,10 +13,102 @@ import (
 	"strings"
 	"testing"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
+
+func TestEditRepositoryDevicePullAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before *bool
+		after  *bool
+		path   string
+		op     string
+	}{
+		{name: "enable", after: lo.ToPtr(true), path: "/spec/devicePullAccess", op: "add"},
+		{name: "disable", before: lo.ToPtr(true), after: lo.ToPtr(false), path: "/spec/devicePullAccess", op: "replace"},
+		{name: "remove", before: lo.ToPtr(true), path: "/spec/devicePullAccess", op: "remove"},
+		{name: "unrelated edit", before: lo.ToPtr(true), after: lo.ToPtr(true), path: "/metadata/labels", op: "add"},
+	} {
+		t.Run("When editing repository to "+tc.name+" it should send an ordinary PATCH", func(t *testing.T) {
+			original := repositoryWithDelivery(t, tc.before)
+			edited := repositoryWithDelivery(t, tc.after)
+			if tc.name == "unrelated edit" {
+				edited.Metadata.Labels = &map[string]string{"changed": "yes"}
+			}
+			c, recorder := newRecordingClient(t, http.StatusOK, edited)
+			response := &apiclient.GetRepositoryResponse{JSON200: &original, HTTPResponse: jsonResponse(t, http.StatusOK, original)}
+			opts := DefaultEditOptions()
+			content, err := yaml.Marshal(edited)
+			require.NoError(t, err)
+			require.NoError(t, opts.applyChanges(t.Context(), c.ClientWithResponses, content, RepositoryKind, "registry", response))
+			require.Len(t, recorder.requests, 1)
+			require.Equal(t, http.MethodPatch, recorder.requests[0].Method)
+			require.Equal(t, "/repositories/registry", recorder.requests[0].URL.Path)
+			require.Equal(t, "application/json-patch+json", recorder.requests[0].Header.Get("Content-Type"))
+			var patch []map[string]any
+			require.NoError(t, json.Unmarshal([]byte(recorder.bodies[0]), &patch))
+			found := false
+			for _, operation := range patch {
+				require.NotContains(t, operation["path"], "ociAuth")
+				if operation["path"] == tc.path {
+					require.Equal(t, tc.op, operation["op"])
+					if tc.after != nil && tc.path == "/spec/devicePullAccess" {
+						require.Equal(t, *tc.after, operation["value"])
+					}
+					found = true
+				}
+			}
+			require.True(t, found)
+		})
+	}
+}
+
+func TestEditApprovalPolicyPreservesApprovalLimit(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		for _, limits := range []struct {
+			name     string
+			original *int32
+			edited   *int32
+		}{
+			{"increase", lo.ToPtr(int32(2147483646)), lo.ToPtr(int32(2147483647))},
+			{"decrease", lo.ToPtr(int32(2147483647)), lo.ToPtr(int32(2147483646))},
+			{"unchanged", lo.ToPtr(int32(2147483647)), lo.ToPtr(int32(2147483647))},
+			{"add", nil, lo.ToPtr(int32(2147483647))},
+			{"remove", lo.ToPtr(int32(2147483647)), nil},
+		} {
+			t.Run("When editing "+format+" with "+limits.name+" it should preserve the limit", func(t *testing.T) {
+				original := &api.EnrollmentApprovalPolicy{Kind: api.EnrollmentApprovalPolicyKind, ApiVersion: "flightctl.io/v1beta1", Metadata: api.ObjectMeta{Name: lo.ToPtr("west"), ResourceVersion: lo.ToPtr("1")}, Spec: api.EnrollmentApprovalPolicySpec{ApprovalLimit: limits.original}}
+				response := &apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: original, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}
+				opts := DefaultEditOptions()
+				opts.Output = format
+				editedPolicy := *original
+				editedPolicy.Spec.ApprovalLimit = limits.edited
+				editedPolicy.Spec.Enabled = true
+				content, err := opts.resourceToFormat(&apiclient.GetEnrollmentApprovalPolicyResponse{JSON200: &editedPolicy, HTTPResponse: &http.Response{StatusCode: http.StatusOK}}, format)
+				require.NoError(t, err)
+				edited, err := opts.parseEditedContent(content)
+				require.NoError(t, err)
+				patch, err := opts.calculatePatch(response, edited)
+				require.NoError(t, err)
+				decoded, err := jsonpatch.DecodePatch(patch)
+				require.NoError(t, err)
+				originalJSON, err := json.Marshal(original)
+				require.NoError(t, err)
+				changed, err := decoded.Apply(originalJSON)
+				require.NoError(t, err)
+				var result api.EnrollmentApprovalPolicy
+				require.NoError(t, json.Unmarshal(changed, &result))
+				require.Equal(t, limits.edited, result.Spec.ApprovalLimit)
+				require.True(t, result.Spec.Enabled)
+			})
+		}
+	}
+}
 
 func TestEditOptions_Validate(t *testing.T) {
 	tests := []struct {
@@ -606,7 +698,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 			shouldIncludeTestOp: true,
 		},
 		{
-			name: "no changes - should return only resourceVersion test",
+			name: "When there are no changes it should return an empty patch",
 			originalResource: map[string]interface{}{
 				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
@@ -630,11 +722,11 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			expectError:         false,
-			expectedPatchOps:    1, // Only resourceVersion test when no changes
-			shouldIncludeTestOp: true,
+			expectedPatchOps:    0,
+			shouldIncludeTestOp: false,
 		},
 		{
-			name: "protected field change - should be filtered and return only resourceVersion test",
+			name: "When only protected fields change it should return an empty patch",
 			originalResource: map[string]interface{}{
 				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
@@ -652,8 +744,8 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			expectError:         false,
-			expectedPatchOps:    1, // Only resourceVersion test when only protected fields changed
-			shouldIncludeTestOp: true,
+			expectedPatchOps:    0,
+			shouldIncludeTestOp: false,
 		},
 		{
 			name: "user changed resourceVersion - should include test and fail",
@@ -902,4 +994,15 @@ func TestEditCommand_CobraValidation(t *testing.T) {
 // stringPtr returns a pointer to the given string
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestEditJSONRejectsTrailingInput(t *testing.T) {
+	for _, content := range []string{`{"kind":"Device"} {}`, `{"kind":"Device"} garbage`} {
+		t.Run("When JSON has trailing input "+content+" it should reject the document", func(t *testing.T) {
+			options := DefaultEditOptions()
+			options.Output = "json"
+			_, err := options.parseEditedContent([]byte(content))
+			require.ErrorContains(t, err, "exactly one JSON document")
+		})
+	}
 }

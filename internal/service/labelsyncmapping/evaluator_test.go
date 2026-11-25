@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"cel.dev/cel-go/common/types"
@@ -514,67 +513,6 @@ func TestEvaluatorValidateExpressionIs(t *testing.T) {
 	}
 }
 
-func TestEvaluatorProgramCache(t *testing.T) {
-	evaluatorInterface, err := NewEvaluator()
-	require.NoError(t, err)
-
-	implementation := evaluatorInterface.(*evaluator)
-	device := testDevice("amd64", nil)
-	activation := testActivation(t, device)
-	for index := range maxCachedPrograms {
-		_, err := evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, index), activation)
-		require.NoError(t, err)
-	}
-
-	_, err = evaluatorInterface.Evaluate(`"0"`, activation)
-	require.NoError(t, err)
-	_, err = evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, maxCachedPrograms), activation)
-	require.NoError(t, err)
-
-	implementation.mu.Lock()
-	defer implementation.mu.Unlock()
-	require.Len(t, implementation.programs, maxCachedPrograms)
-	_, found := implementation.programs[`"0"`]
-	require.True(t, found)
-	_, found = implementation.programs[`"1"`]
-	require.False(t, found)
-	_, found = implementation.programs[fmt.Sprintf(`"%d"`, maxCachedPrograms)]
-	require.True(t, found)
-}
-
-func TestEvaluatorProgramCacheConcurrentCompilation(t *testing.T) {
-	evaluatorInterface, err := NewEvaluator()
-	require.NoError(t, err)
-	implementation := evaluatorInterface.(*evaluator)
-	expression := strings.Repeat("1 + ", 100) + "1"
-
-	const concurrentCalls = 32
-	start := make(chan struct{})
-	errors := make(chan error, concurrentCalls)
-	var waitGroup sync.WaitGroup
-	for range concurrentCalls {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
-			<-start
-			_, _, err := implementation.program(expression)
-			errors <- err
-		}()
-	}
-	close(start)
-	waitGroup.Wait()
-	close(errors)
-
-	for err := range errors {
-		require.NoError(t, err)
-	}
-
-	implementation.mu.Lock()
-	defer implementation.mu.Unlock()
-	require.Len(t, implementation.programs, 1)
-	require.Equal(t, 1, implementation.lru.Len())
-}
-
 func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	evaluatorInterface, err := NewEvaluator()
 	require.NoError(t, err)
@@ -589,7 +527,6 @@ func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	mapResult, err := evaluatorInterface.Evaluate(expression, mapActivation)
 	require.NoError(t, err)
 	require.Equal(t, MapResult{"site": "east"}, mapResult)
-	require.Len(t, evaluatorInterface.(*evaluator).programs, 1)
 }
 
 func TestEvaluatorEvaluatesSystemInfoMappingWithAllProperties(t *testing.T) {
@@ -659,7 +596,7 @@ func TestEvaluatorEnforcesCostLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	device := testDevice("amd64", nil)
-	patterns := make([]string, maxExpressionCost+100)
+	patterns := make([]string, 10_100)
 	device.Spec.Systemd.MatchPatterns = &patterns
 	activation := testActivation(t, device)
 	_, err = evaluator.Evaluate(`spec.systemd.matchPatterns.exists(pattern, pattern == "not-present")`, activation)

@@ -103,6 +103,27 @@ var (
 	ErrNotExist    = os.ErrNotExist
 	ErrInvalidPath = errors.New("invalid path")
 
+	// configuration
+	ErrReservedConfigPath = errors.New("configuration file path is reserved for agent-managed firmware state")
+
+	// anchored file access
+	ErrUnsafeFileType     = errors.New("unsafe file type")
+	ErrHardLinkedFile     = errors.New("file has more than one link")
+	ErrUnsafeFileMode     = errors.New("unsafe file mode")
+	ErrFileCapability     = errors.New("file carries capabilities")
+	ErrFileLimitExceeded  = errors.New("file exceeds size limit")
+	ErrWalkLimitExceeded  = errors.New("directory traversal limit exceeded")
+	ErrDestinationExists  = errors.New("destination already exists")
+	ErrUntrustedDirectory = errors.New("untrusted directory")
+	ErrCrossDevice        = errors.New("entry is on a different device")
+	ErrReadOnlyAnchor     = errors.New("directory handle is read-only")
+	ErrAnchorMoved        = errors.New("directory handle no longer matches its path")
+	ErrRemoveChurn        = errors.New("directory kept changing during removal")
+	// ErrFileCapabilityUnknown reports that the file capabilities of an entry
+	// could not be read, so the entry is neither known to carry them nor known
+	// to be free of them.
+	ErrFileCapabilityUnknown = errors.New("file capabilities cannot be read")
+
 	// images
 	ErrImageNotFound     = errors.New("image not found")
 	ErrImageUnauthorized = errors.New("image unauthorized")

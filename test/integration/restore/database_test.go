@@ -3,14 +3,21 @@ package restore_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/restore"
 	"github.com/flightctl/flightctl/internal/store"
+	csrstore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	policystore "github.com/flightctl/flightctl/internal/store/enrollmentapprovalpolicy"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -143,6 +150,83 @@ var _ = Describe("RestoreDatabase", func() {
 	})
 
 	Context("PodmanRestoreDeployer", func() {
+		DescribeTable("When restoring enrollment policies it should preserve accounting, credential bindings and reserved names", func(legacySchema bool) {
+			credential := model.CertificateSigningRequest{
+				Resource: model.Resource{OrgID: s.OrgID, Name: "restore-credential"},
+				Spec:     model.MakeJSONField(domain.CertificateSigningRequestSpec{SignerName: s.cfg.CA.DeviceEnrollmentSignerName}),
+			}
+			Expect(s.DB.Create(&credential).Error).To(Succeed())
+			for _, name := range []string{"active-policy", "retained-policy"} {
+				record := model.EnrollmentApprovalPolicy{
+					Resource:        model.Resource{OrgID: s.OrgID, Name: name},
+					CertificateName: credential.Name,
+					Spec: model.MakeJSONField(domain.EnrollmentApprovalPolicySpec{
+						CertificateName: credential.Name,
+						MatchExpression: "true",
+						DeviceLabels:    map[string]string{},
+					}),
+					Status: model.MakeJSONField(domain.EnrollmentApprovalPolicyStatus{EnrollmentCount: math.MaxInt64}),
+				}
+				Expect(s.DB.Create(&record).Error).To(Succeed())
+				if name == "retained-policy" {
+					Expect(s.DB.Delete(&record).Error).To(Succeed())
+				}
+			}
+			if legacySchema {
+				migrationDB, err := store.InitMigrationDB(s.cfg, s.Log)
+				Expect(err).NotTo(HaveOccurred())
+				defer testdb.CloseDB(migrationDB)
+				ddl := migrationDB.WithContext(store.WithBypassSpanCheck(s.Ctx))
+				Expect(ddl.Exec("ALTER TABLE enrollment_approval_policies DROP CONSTRAINT " + store.EnrollmentPolicyCredentialFK).Error).To(Succeed())
+				Expect(ddl.Exec("ALTER TABLE enrollment_approval_policies DROP CONSTRAINT " + store.EnrollmentPolicyCredentialBindingCheck + ", ALTER COLUMN certificate_name DROP NOT NULL").Error).To(Succeed())
+			}
+			backupDir := GinkgoT().TempDir()
+			copyDumpToExtractDir(createDumpViaBackup(s.Ctx, s.Log, cfgPath, s.dbName, backupDir), extractDir)
+			Expect(s.DB.Unscoped().Where("org_id = ?", s.OrgID).Delete(&model.EnrollmentApprovalPolicy{}).Error).To(Succeed())
+			Expect(s.DB.Where("org_id = ? AND name = ?", s.OrgID, credential.Name).Delete(&model.CertificateSigningRequest{}).Error).To(Succeed())
+			Expect(newTestDeployer(s, cfgPath).RestoreDatabase(s.Ctx, extractDir)).To(Succeed())
+			freshDB := reconnectDB(s)
+			defer testdb.CloseDB(freshDB)
+			if legacySchema {
+				migrationDB, err := store.InitMigrationDB(s.cfg, s.Log)
+				Expect(err).NotTo(HaveOccurred())
+				defer testdb.CloseDB(migrationDB)
+				Expect(migration.Run(s.Ctx, migrationDB, s.Log, false, s.cfg.CA.DeviceEnrollmentSignerName)).To(Succeed())
+			}
+			restoredStore := restore.NewRestoreStore(freshDB)
+			_, err := restoredStore.PrepareDevicesAfterRestore(s.Ctx)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = restoredStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			Expect(err).NotTo(HaveOccurred())
+			policies, err := policystore.NewStore(freshDB, s.Log)
+			Expect(err).NotTo(HaveOccurred())
+			active, err := policies.Get(s.Ctx, s.OrgID, "active-policy")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(active.Spec.CertificateName).To(Equal(credential.Name))
+			Expect(active.Status.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
+			_, err = policies.Get(s.Ctx, s.OrgID, "retained-policy")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			var retained model.EnrollmentApprovalPolicy
+			Expect(freshDB.WithContext(s.Ctx).Unscoped().Where("org_id = ? AND name = ?", s.OrgID, "retained-policy").Take(&retained).Error).To(Succeed())
+			Expect(retained.DeletedAt.Valid).To(BeTrue())
+			Expect(retained.CertificateName).To(Equal(credential.Name))
+			Expect(retained.Status.Data.EnrollmentCount).To(Equal(int64(math.MaxInt64)))
+			csrs := csrstore.NewCertificateSigningRequestStore(freshDB, s.Log, s.cfg.CA.DeviceEnrollmentSignerName)
+			_, err = csrs.Delete(s.Ctx, s.OrgID, credential.Name)
+			Expect(store.IsEnrollmentPolicyCredentialFKViolation(err)).To(BeTrue(), "%v", err)
+			err = policies.WithTransaction(s.Ctx, func(txCtx context.Context) error {
+				_, _, _, err := policies.Mutate(txCtx, s.OrgID, "retained-policy", func(store.ResourceMutation[domain.EnrollmentApprovalPolicy]) error {
+					Fail("a restored tombstone must reserve its name before validation")
+					return nil
+				})
+				return err
+			})
+			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
+		},
+			Entry("When the dump already has the credential constraints it should restore and enforce them", false),
+			Entry("When the dump predates the credential constraints it should migrate and enforce them", true),
+		)
+
 		It("When no dump file is present it should succeed and log an external-DB notice", func() {
 			Expect(newTestDeployer(s, cfgPath).RestoreDatabase(s.Ctx, extractDir)).To(Succeed())
 		})

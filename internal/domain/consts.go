@@ -105,6 +105,14 @@ const (
 	RepositoryListKind   = v1beta1.RepositoryListKind
 )
 
+// ========== EnrollmentApprovalPolicy ==========
+
+const (
+	EnrollmentApprovalPolicyAPIVersion = v1beta1.EnrollmentApprovalPolicyAPIVersion
+	EnrollmentApprovalPolicyKind       = v1beta1.EnrollmentApprovalPolicyKind
+	EnrollmentApprovalPolicyListKind   = v1beta1.EnrollmentApprovalPolicyListKind
+)
+
 // ========== EnrollmentHookPolicy ==========
 
 const (

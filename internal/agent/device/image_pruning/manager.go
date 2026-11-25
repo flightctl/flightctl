@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -65,6 +66,30 @@ type Manager interface {
 // and is aliased here for backward compatibility and clarity.
 type ImagePruningConfig = config.ImagePruning
 
+// Option configures the pruning manager.
+type Option func(*manager)
+
+// WithRequiredReferenceSource registers a named source of image references
+// that are still required. Each call adds a source. A pruning pass protects
+// the references every source returns, together with those of the current and
+// desired specs. Sources only protect images: their references are never added
+// to the reference history, so a source cannot make an image a pruning
+// candidate. A pass removes nothing and stays pending for a retry when any
+// source fails, returns an invalid reference or is cancelled, or when a
+// registration has a blank or repeated name or no function. The name
+// identifies the source in errors.
+func WithRequiredReferenceSource(name string, fn func(context.Context) ([]ImageRef, error)) Option {
+	return func(m *manager) {
+		m.requiredSources = append(m.requiredSources, requiredReferenceSource{name: name, fn: fn})
+	}
+}
+
+// requiredReferenceSource is a registered source of required image references.
+type requiredReferenceSource struct {
+	name string
+	fn   func(context.Context) ([]ImageRef, error)
+}
+
 // manager implements the Manager interface for image pruning operations.
 type manager struct {
 	podmanClientFactory client.PodmanFactory
@@ -78,6 +103,8 @@ type manager struct {
 	dataDir             string
 	prunePending        atomic.Bool
 	prunePendingSince   atomic.Pointer[time.Time] // when prune was first requested (for retry timeout); nil if not set
+	requiredSources     []requiredReferenceSource
+	requiredSourcesErr  error // an invalid registration; blocks every removal
 }
 
 // New creates a new pruning manager instance.
@@ -90,6 +117,7 @@ type manager struct {
 //   - log: Logger for structured logging
 //   - config: Pruning configuration (enabled flag, etc.)
 //   - dataDir: Directory where data files are stored
+//   - opts: Optional settings such as required image reference sources
 func New(
 	podmanClientFactory client.PodmanFactory,
 	rootPodmanClient *client.Podman,
@@ -100,6 +128,7 @@ func New(
 	log *log.PrefixLogger,
 	config ImagePruningConfig,
 	dataDir string,
+	opts ...Option,
 ) Manager {
 	ret := &manager{
 		podmanClientFactory: podmanClientFactory,
@@ -111,8 +140,91 @@ func New(
 		log:                 log,
 		dataDir:             dataDir,
 	}
+	for _, opt := range opts {
+		opt(ret)
+	}
+	if err := validateRequiredSources(ret.requiredSources); err != nil {
+		ret.requiredSourcesErr = err
+		log.Errorf("Image pruning will not remove images: %v", err)
+	}
 	ret.config.Store(&config)
 	return ret
+}
+
+// errRequiredReferences marks a pass that could not obtain a complete snapshot
+// of the required image references.
+var errRequiredReferences = errors.New("reading required image references")
+
+// validateRequiredSources rejects registrations that cannot provide a complete,
+// attributable snapshot: a blank or repeated name, or a missing function.
+func validateRequiredSources(sources []requiredReferenceSource) error {
+	names := make(map[string]struct{}, len(sources))
+	for i, s := range sources {
+		if strings.TrimSpace(s.name) == "" {
+			return fmt.Errorf("required reference source %d has no name", i+1)
+		}
+		if s.fn == nil {
+			return fmt.Errorf("required reference source %w has no function", errors.WithElement(s.name))
+		}
+		if _, ok := names[s.name]; ok {
+			return fmt.Errorf("required reference source %w is registered more than once", errors.WithElement(s.name))
+		}
+		names[s.name] = struct{}{}
+	}
+	return nil
+}
+
+// requiredRefs returns the references all registered sources require. It fails
+// when a registration is invalid or any source fails, returns an invalid
+// reference or is cancelled, so a pass never prunes against a partial snapshot.
+func (m *manager) requiredRefs(ctx context.Context) ([]ImageRef, error) {
+	if m.requiredSourcesErr != nil {
+		return nil, fmt.Errorf("%w: %w", errRequiredReferences, m.requiredSourcesErr)
+	}
+	var required []ImageRef
+	for _, s := range m.requiredSources {
+		refs, err := s.snapshot(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%w: source %w: %w", errRequiredReferences, errors.WithElement(s.name), err)
+		}
+		required = append(required, refs...)
+	}
+	return required, nil
+}
+
+// snapshot queries the source. Its references count only when the pass was not
+// cancelled before or during the call and every reference is valid; the check
+// after the last source therefore also guards the combined snapshot.
+func (s requiredReferenceSource) snapshot(ctx context.Context) ([]ImageRef, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	refs, err := s.fn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	for i, ref := range refs {
+		if err := validateRequiredRef(ref); err != nil {
+			return nil, fmt.Errorf("reference %d: %w", i+1, err)
+		}
+	}
+	return refs, nil
+}
+
+// validateRequiredRef rejects a reference that names no image or has an
+// unknown type.
+func validateRequiredRef(ref ImageRef) error {
+	if ref.Image == "" {
+		return errors.New("no image")
+	}
+	switch ref.Type {
+	case RefTypePodman, RefTypeCRI, RefTypeArtifact, RefTypeHelm:
+		return nil
+	}
+	return fmt.Errorf("image %s has unknown type %q", ref.Image, ref.Type)
 }
 
 // RequestPrune marks that prune should run in the next reconcile cycle and records the timestamp for retry timeout.
@@ -132,7 +244,8 @@ func (m *manager) resetPruneRequest() {
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
 // It preserves images required for current and desired operations.
 // Prune runs only when prune is marked pending (RequestPrune or ReloadConfig); on entry the pending flag
-// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures.
+// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures
+// and every required reference source provided a complete snapshot.
 func (m *manager) Prune(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -144,9 +257,9 @@ func (m *manager) Prune(ctx context.Context) error {
 	if since != nil && time.Since(*since) > PruneRetryTimeout {
 		m.resetPruneRequest()
 	}
-	var hasRemovalErrors bool
+	var hasRemovalErrors, requiredUnavailable bool
 	defer func() {
-		if !hasRemovalErrors {
+		if !hasRemovalErrors && !requiredUnavailable {
 			m.resetPruneRequest()
 		}
 	}()
@@ -163,6 +276,7 @@ func (m *manager) Prune(ctx context.Context) error {
 	eligible, err := m.determineEligibleImages(ctx)
 	if err != nil {
 		m.log.Warnf("Failed to determine eligible images: %v", err)
+		requiredUnavailable = errors.Is(err, errRequiredReferences)
 		// Don't block reconciliation on pruning errors
 		return nil
 	}
@@ -230,6 +344,7 @@ func (m *manager) Prune(ctx context.Context) error {
 // This ensures the references file exists and is kept up to date even when pruning is disabled,
 // so that when pruning is later enabled, it has accurate historical data to work with.
 // This is called on every successful sync, regardless of pruning enabled status.
+// Required reference sources are not queried here, and their references are never recorded.
 func (m *manager) RecordReferences(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := m.recordImageArtifactReferences(ctx, current, desired); err != nil {
 		m.log.Warnf("Failed to record image/artifact references: %v", err)
@@ -457,7 +572,7 @@ type EligibleItems struct {
 
 // determineEligibleImages determines which images, artifacts, and charts are eligible for pruning.
 // It only prunes items that were previously referenced (according to the references file)
-// but are no longer referenced in the current specs.
+// but are no longer referenced in the current or desired specs or required by a registered source.
 // An item is only eligible when ALL reference types have been released (e.g., if an image
 // is referenced by both podman and CRI, it's only eligible when both references are dropped).
 // Returns separate lists by type for appropriate cleanup.
@@ -517,6 +632,12 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 
 		currentRequiredRefs = append(currentRequiredRefs, specRefs...)
 	}
+
+	required, err := m.requiredRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	currentRequiredRefs = append(currentRequiredRefs, required...)
 
 	// Build a set of current references keyed by (Image, Type, Owner)
 	currentRefSet := make(map[string]struct{})

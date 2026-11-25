@@ -579,6 +579,7 @@ const (
 	ResourceKindAuthProvider              ResourceKind = "AuthProvider"
 	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
 	ResourceKindDevice                    ResourceKind = "Device"
+	ResourceKindEnrollmentApprovalPolicy  ResourceKind = "EnrollmentApprovalPolicy"
 	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
 	ResourceKindFleet                     ResourceKind = "Fleet"
 	ResourceKindRepository                ResourceKind = "Repository"
@@ -1925,10 +1926,10 @@ type DeviceSystemInfoSummaryStatus struct {
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {
-	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+	// DownloadSchedule Defines a schedule for an activity. A schedule may contain a complete recurring definition (at and startGraceDuration), one or more oneTimeWindows, or both. at and startGraceDuration must be provided together. The schedule-level timeZone applies to the recurring schedule and to all one-time windows in this object.
 	DownloadSchedule *UpdateSchedule `json:"downloadSchedule,omitempty"`
 
-	// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+	// UpdateSchedule Defines a schedule for an activity. A schedule may contain a complete recurring definition (at and startGraceDuration), one or more oneTimeWindows, or both. at and startGraceDuration must be provided together. The schedule-level timeZone applies to the recurring schedule and to all one-time windows in this object.
 	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
@@ -2030,6 +2031,87 @@ type Duration = string
 
 // EncodingType Specifies the encoding type used for data representation.
 type EncodingType string
+
+// EnrollmentApprovalPolicy Tenant-scoped enrollment approval policy.
+type EnrollmentApprovalPolicy struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Kind REST resource kind.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec Administrative enrollment policy configuration.
+	Spec EnrollmentApprovalPolicySpec `json:"spec"`
+
+	// Status Server-owned enrollment policy accounting.
+	Status *EnrollmentApprovalPolicyStatus `json:"status,omitempty"`
+}
+
+// EnrollmentApprovalPolicyList Tenant-scoped collection of enrollment approval policies.
+type EnrollmentApprovalPolicyList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items Enrollment approval policies in this tenant.
+	Items []EnrollmentApprovalPolicy `json:"items"`
+
+	// Kind REST resource kind.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// EnrollmentApprovalPolicyPatchOp A JSON Patch operation supported by enrollment approval policies.
+type EnrollmentApprovalPolicyPatchOp = PatchRequestOp
+
+// EnrollmentApprovalPolicyPatchRequest Policy patch operations, including null values for optional limits.
+type EnrollmentApprovalPolicyPatchRequest = []struct {
+	// Op A JSON Patch operation supported by enrollment approval policies.
+	Op EnrollmentApprovalPolicyPatchOp `json:"op"`
+
+	// Path A JSON Pointer path.
+	Path string `json:"path"`
+
+	// Value The value to add, replace, or test. A remove operation may omit the value.
+	Value EnrollmentApprovalPolicyPatchValue `json:"value,omitempty"`
+}
+
+// EnrollmentApprovalPolicySpec Administrative enrollment policy configuration.
+type EnrollmentApprovalPolicySpec struct {
+	// AllowedIncomingLabels Exact incoming label keys permitted to supplement static device labels.
+	AllowedIncomingLabels *[]string `json:"allowedIncomingLabels,omitempty"`
+
+	// ApprovalLimit Lifetime automatic approval cap; absent or null is unlimited and zero blocks approvals.
+	ApprovalLimit *int32 `json:"approvalLimit,omitempty"`
+
+	// AutoApprovalWindowDays Optional issuance-relative window in whole days. An enabled policy with a window requires authoritative credential issuance time.
+	AutoApprovalWindowDays *int32 `json:"autoApprovalWindowDays,omitempty"`
+
+	// CertificateName Immutable name of an enrollment credential CSR in this tenant. An enabled policy requires a currently valid, issued, unrevoked credential.
+	CertificateName string `json:"certificateName"`
+
+	// DeviceLabels Static labels assigned to automatically approved devices; may be empty.
+	DeviceLabels map[string]string `json:"deviceLabels"`
+
+	// Enabled Whether this policy participates in automatic approval. Defaults to false.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// MatchExpression Restricted boolean CEL expression. The server validates it when creating an enabled policy, enabling a policy, or changing the expression of an enabled policy.
+	MatchExpression string `json:"matchExpression"`
+
+	// RequireTPMVerification Whether server-verified TPM identity is required. Defaults to false.
+	RequireTPMVerification bool `json:"requireTPMVerification,omitempty"`
+}
+
+// EnrollmentApprovalPolicyStatus Server-owned enrollment policy accounting.
+type EnrollmentApprovalPolicyStatus struct {
+	// EnrollmentCount Server-owned lifetime count of committed automatic approvals, initialized to zero.
+	EnrollmentCount int64 `json:"enrollmentCount"`
+}
 
 // EnrollmentCertificateRevocation Immutable server-owned enrollment credential revocation state.
 type EnrollmentCertificateRevocation struct {
@@ -3585,6 +3667,9 @@ type OciRepoSpec struct {
 	// DeltaStorageTarget When true, generated deltas are pushed to this object (at most one per org). Auth is the existing ociAuth / accessMode. Placement follows repository / namespace / registry-only as above.
 	DeltaStorageTarget *bool `json:"deltaStorageTarget,omitempty"`
 
+	// DevicePullAccess Deliver this Repository's existing credentials, CA and transport settings to devices. This does not change the permissions of the configured credentials. False or omitted disables delivery for both Read and ReadWrite access modes. Service-side Repository access is unchanged.
+	DevicePullAccess *bool `json:"devicePullAccess,omitempty"`
+
 	// Namespace Optional org/subpath under spec.registry (e.g. my-org). Concrete names are spec.registry/namespace/<name>. Mutually exclusive with repository. Used by delta push (`{registry}/{namespace}/{imageName}`). Invalid on an ImageBuild or ImageExport destination Repository.
 	Namespace *string `json:"namespace,omitempty"`
 
@@ -3615,6 +3700,18 @@ type OciRepoSpecScheme string
 
 // OciRepoSpecType The repository type discriminator.
 type OciRepoSpecType string
+
+// OneTimeWindow defines model for OneTimeWindow.
+type OneTimeWindow struct {
+	// At Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
+	At string `json:"at"`
+
+	// Date Exact calendar date on which the one-time window opens, for example 2026-11-15.
+	Date string `json:"date"`
+
+	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
+	StartGraceDuration Duration `json:"startGraceDuration"`
+}
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {
@@ -4271,16 +4368,16 @@ type TokenResponse struct {
 // TokenResponseTokenType Token type.
 type TokenResponseTokenType string
 
-// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+// UpdateSchedule defines model for UpdateSchedule.
 type UpdateSchedule struct {
-	// At Cron expression format for scheduling times.
-	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
-	// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
-	// Example: `* 0-8,16-23 * * *`.
-	At CronExpression `json:"at"`
+	// At Cron expression format for the recurring schedule. See CronExpression for the supported syntax.
+	At CronExpression `json:"at,omitempty"`
 
-	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	StartGraceDuration Duration `json:"startGraceDuration"`
+	// OneTimeWindows Date-specific windows in which the corresponding operation may start.
+	OneTimeWindows *[]OneTimeWindow `json:"oneTimeWindows,omitempty"`
+
+	// StartGraceDuration The maximum duration allowed for the recurring action to complete.
+	StartGraceDuration Duration `json:"startGraceDuration,omitempty"`
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
@@ -4408,6 +4505,21 @@ type ListDevicesParams struct {
 type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
+}
+
+// ListEnrollmentApprovalPoliciesParams defines parameters for ListEnrollmentApprovalPolicies.
+type ListEnrollmentApprovalPoliciesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetEnrollmentConfigParams defines parameters for GetEnrollmentConfig.
@@ -4634,6 +4746,15 @@ type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
+
+// CreateEnrollmentApprovalPolicyJSONRequestBody defines body for CreateEnrollmentApprovalPolicy for application/json ContentType.
+type CreateEnrollmentApprovalPolicyJSONRequestBody = EnrollmentApprovalPolicy
+
+// PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentApprovalPolicy for application/json-patch+json ContentType.
+type PatchEnrollmentApprovalPolicyApplicationJSONPatchPlusJSONRequestBody = EnrollmentApprovalPolicyPatchRequest
+
+// ReplaceEnrollmentApprovalPolicyJSONRequestBody defines body for ReplaceEnrollmentApprovalPolicy for application/json ContentType.
+type ReplaceEnrollmentApprovalPolicyJSONRequestBody = EnrollmentApprovalPolicy
 
 // CreateEnrollmentHookPolicyJSONRequestBody defines body for CreateEnrollmentHookPolicy for application/json ContentType.
 type CreateEnrollmentHookPolicyJSONRequestBody = EnrollmentHookPolicy

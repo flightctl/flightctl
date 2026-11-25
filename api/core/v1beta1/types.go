@@ -2,8 +2,13 @@ package v1beta1
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 )
+
+// EnrollmentApprovalPolicyPatchValue uses nil for an omitted value and the
+// JSON bytes `null` for an explicit clear.
+type EnrollmentApprovalPolicyPatchValue = json.RawMessage
 
 type DeviceCommand struct {
 	Command string   `json:"command,omitempty"`

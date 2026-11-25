@@ -271,6 +271,29 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("phase", "ApplyingUpdate"))
 	})
 
+	DescribeTable("When a mapping stops producing a value it should remove its label and preserve manual labels", func(emptyExpression string) {
+		const name = "missing-mapping-value"
+		createDevice(name, "amd64", map[string]string{"manual": "keep"}, nil)
+		createMapping("site-mapping", "site", `status.systemInfo.architecture == "amd64" ? dyn("east coast") : dyn(`+emptyExpression+`)`)
+		_, err := mappingSvc.ReconcileDeviceLabels(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		device, status := deviceSvc.GetDevice(ctx, orgID, name)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{"manual": "keep", "site": "east-coast"}))
+
+		Expect(patchArchitecture(name, "arm64").Code).To(Equal(int32(200)))
+		_, err = mappingSvc.ReconcileDeviceLabels(ctx, orgID, name)
+		Expect(err).NotTo(HaveOccurred())
+		device, status = deviceSvc.GetDevice(ctx, orgID, name)
+		Expect(status.Code).To(Equal(int32(200)), status.Message)
+		Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{"manual": "keep"}))
+	},
+		Entry("When the result is null it should remove the mapped label", `null`),
+		Entry("When the result is an empty optional it should remove the mapped label", `optional.none()`),
+		Entry("When the result is an empty string it should remove the mapped label", `""`),
+		Entry("When a reported key is absent it should remove the mapped label", `status.systemInfo.customInfo.absent`),
+	)
+
 	It("acknowledges reconciliation requests for a device that no longer exists", func() {
 		event := domain.Event{
 			Reason: domain.EventReasonDeviceLabelReconciliationRequested,

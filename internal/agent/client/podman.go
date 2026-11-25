@@ -232,6 +232,9 @@ func (p *Podman) pullImage(ctx context.Context, image string, options *clientOpt
 			args = append(args, "--authfile", pullSecretPath)
 		}
 	}
+	if options.signaturePolicyPath != "" {
+		args = append(args, "--signature-policy", options.signaturePolicyPath)
+	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return "", fmt.Errorf("pull image: %w", deviceerrors.FromStderr(stderr, exitCode))

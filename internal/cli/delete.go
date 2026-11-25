@@ -330,6 +330,8 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *client.Client, kind Re
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
+	case EnrollmentApprovalPolicyKind:
+		response, err = c.DeleteEnrollmentApprovalPolicyWithResponse(ctx, name)
 	case EnrollmentHookPolicyKind:
 		response, err = c.DeleteEnrollmentHookPolicyWithResponse(ctx, name)
 	case LabelSyncMappingKind:

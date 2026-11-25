@@ -63,6 +63,35 @@ Execution limits require positive integer bounds for request, result, stderr,
 checkpoint, scratch, memory, processes, invocation time, cycles, reboots, and
 attempts. Reported exceeded-budget keys come from the immutable approved key set.
 
+A release can also declare an optional, closed `extraction` object. Its field
+names are budget keys for extracting the payload on the device:
+
+```yaml
+extraction:
+  maxExtractedManifestBytes: 65536
+  maxExtractedFiles: 64
+  maxExtractedFileBytes: 67108864
+  maxExtractedTotalBytes: 134217728
+  extractionScratchBytes: 134283264
+  maxExtractionSeconds: 300
+```
+
+All six values must be positive integers. `maxExtractedFileBytes` cannot exceed
+`maxExtractedTotalBytes`, `extractionScratchBytes` must hold
+`maxExtractedTotalBytes` plus `maxExtractedManifestBytes`, and
+`maxExtractionSeconds` is at most 86400. Every extraction key must be listed in
+`budgetKeySet`, and extraction keys are valid budget keys only when the object
+is present. Releases without the object stay valid, but the agent extracts only
+releases that declare it. `extractionScratchBytes` is the free space required
+before extraction starts; it is not a reservation.
+
+Because extraction keys are budget keys, releases that share a retained lookup
+key (see "Retained evidence") must also agree on whether they declare the
+object, and retained evidence keeps the budget-key set of every key already
+accepted. An updater whose accepted releases lack the object therefore needs
+configuration and observation schema digests of its own for releases that
+declare it.
+
 ## Revision and history rules
 
 Accepted input has its own canonical digest, separate from the materialized
@@ -224,6 +253,520 @@ read-only invocations; retained evidence does not restore approval. The receiver
 never changes spec, retry generation, rollback or pinned attempt data and never
 executes code or arms a reboot. Mutation remains fenced pending execution and
 post-arm hold integration and qualification.
+
+## Agent updater code fetch and verification
+
+The agent package `internal/agent/device/firmware` contains a fetcher that
+obtains and authenticates the code of one approved updater release. Firmware
+holds, unmanaged devices and support reporting are unchanged.
+
+The fetcher never executes image content. It runs only `podman pull`,
+`podman image inspect`, `podman image exists`, `podman image mount` and
+`podman image unmount`. It never runs an image entrypoint or an updater
+container, and it does not extract, publish or run payload files.
+
+### Fetch sequence
+
+`Fetch(name, version)` performs these checks in order:
+
+1. The release must be bound in the accepted policy and approved. A missing
+   binding, a tombstone or unavailable retained policy stops the fetch.
+2. The descriptor is decoded strictly: exact-case keys, no unknown or
+   duplicate keys and no trailing content. It must match its binding digest
+   and identity and carry a `sha256` package digest. Its publisher policy must
+   be a version 1 keyed `sigstoreSigned` requirement with an `exactRepository`
+   identity for a canonical repository without tag or digest, matching its
+   policy digest. Every schema digest must cover its exact bytes, and the
+   requested access must satisfy the catalog's access rules.
+3. Before any podman command, the fetcher rejects an unsupported protocol
+   (only protocol 1 is supported), any declared runtime dependency, and
+   requested access outside the local `firmware.updater-access` policy.
+4. A verified record is reused when it still matches the release and the image
+   is present. Otherwise the fetcher pulls `<repository>@<packageDigest>` under
+   a per-call signature policy, bounded by the agent `pull-timeout` setting,
+   and confirms that the local image is the pinned manifest: podman reports the
+   package digest as the image digest or, when local storage keeps a rewritten
+   manifest, as the repository digest `<repository>@<packageDigest>`. The
+   package digest can name an image manifest or a manifest list. For a manifest
+   list, the publisher signature must cover the list digest, and the fetcher
+   reads the manifest of the image that podman selects for the host platform.
+5. The fetcher mounts the image and reads `updater/manifest.json` beneath the
+   mount root without following a symbolic link in any path component. The
+   read must be a regular file of at most 1 MiB. The image is then unmounted.
+6. The manifest must satisfy the closed updater manifest contract and bind the
+   approved release. Only then is a verified record written and a verified
+   package returned.
+
+### Trust layering
+
+Three checks apply, and none substitutes for another:
+
+- The approved descriptor authorizes the release.
+- The immutable package digest pins the content. The fetcher never pulls a tag.
+- A keyed sigstore signature for the exact repository authenticates the
+  publisher. The key and repository come only from the approved descriptor.
+
+Registry credentials only authenticate the transport. They never establish
+trust.
+
+For each pull the fetcher writes a containers signature policy to
+`<DataDir>/firmware/signature-policy/<descriptor-digest-hex>.json` with mode
+`0600` and removes it after the pull. It contains public key data only. It
+rejects every image by default and admits only the approved key for the exact
+repository:
+
+```json
+{
+  "default": [{"type": "reject"}],
+  "transports": {
+    "docker": {
+      "quay.io/example/updater": [
+        {
+          "type": "sigstoreSigned",
+          "keyData": "<base64-encoded PEM public key>",
+          "signedIdentity": {"type": "exactRepository", "dockerRepository": "quay.io/example/updater"}
+        }
+      ]
+    }
+  }
+}
+```
+
+### Host prerequisites
+
+The device administrator provides these prerequisites. The agent never writes
+host container configuration.
+
+- The agent runs rootful podman. Image mounts require root.
+- Podman supports `podman pull --signature-policy`. Supported device podman
+  versions remain a qualification item.
+- Sigstore attachment discovery is enabled for each approved updater
+  repository, for example in `/etc/containers/registries.d/updaters.yaml`:
+
+  ```yaml
+  docker:
+    quay.io/example/updater:
+      use-sigstore-attachments: true
+  ```
+
+- An authenticated registry needs credentials in the root containers auth file,
+  `/root/.config/containers/auth.json`. The agent resolves this path through its
+  pull configuration resolver: an inline file at this path in the desired
+  device specification is used through a temporary copy, otherwise the file on
+  disk is used. Without a file no `--authfile` is passed. Podman's own default
+  credential lookup then applies as for other agent pulls, but it is not a
+  supported credential source for updater code. The fetcher never reads,
+  copies, logs or records credential content. Credentials resolve only while
+  the resolver is initialized for an update, so the fetch belongs inside that
+  update lifecycle.
+- Native overlay storage mounts images read-only. `fuse-overlayfs`, which
+  podman uses when container storage lies on overlayfs, mounts them read-write.
+  The fetcher does not depend on a read-only mount: it never writes beneath the
+  mount and reads only through the link-refusing, bounded read.
+
+### Failure reasons
+
+Failures are typed with the reasons used in firmware status:
+
+- `UpdaterUnavailable`: no binding, an unapproved or revoked release,
+  unavailable policy, a descriptor that fails strict decoding or a catalog
+  access rule, a signature policy rejection, a digest mismatch, a missing,
+  symbolic link, oversized, malformed or mismatched manifest, and registry or
+  authentication failures.
+- `FirmwareNotSupported`: an unsupported protocol, any declared runtime
+  dependency, or requested access outside the local maxima, including the
+  deny-all policy left by invalid local configuration.
+
+Only pull failures other than a signature policy rejection are retryable,
+such as a registry outage or an authentication failure. The agent's existing
+retry classification reads the same result: a retryable fetch error matches
+the retryable error marker and any other matches the no-retry marker. The
+element of every error is the release `<name>/<version>`.
+
+A pull rejected by the signature policy reports exactly this message:
+
+```text
+updater <name>/<version>: publisher signature verification failed for <repository>@<digest>; the image must be signed by the approved publisher key for this exact repository, and the host must enable sigstore attachment discovery (use-sigstore-attachments) for <repository>
+```
+
+It names both remedies: sign the image with the approved key for this exact
+repository, and enable sigstore attachment discovery for the repository on the
+host. The podman reason is logged and kept as the wrapped cause, not in the
+message.
+
+### Updater manifest
+
+An updater image carries `/updater/manifest.json` and its payload beneath
+`/updater/payload/`. The manifest is a closed `updater-manifest/v1` document:
+
+| Field | Type | Rule |
+|-------|------|------|
+| `apiVersion` | string | exactly `updater-manifest/v1` |
+| `name` | string | equals the approved release name |
+| `version` | string | equals the approved release version |
+| `protocol` | integer | equals the approved protocol; only `1` is supported |
+| `entrypoint` | string | payload path naming a listed file marked executable |
+| `dependencies` | array | must be `[]` |
+| `schemas` | object | exactly `config`, `observation`, `request`, `result` and `checkpoint`, each equal to the approved schema digest |
+| `files` | array | at least one object with exactly `path`, `sha256`, `size` and `executable` |
+| `files[].path` | string | payload path, unique, not a parent directory of another listed path |
+| `files[].sha256` | string | 64 lowercase hexadecimal digits without a prefix |
+| `files[].size` | integer | from `0` to `9223372036854775807` |
+| `files[].executable` | boolean | `true` or `false` |
+
+Every field is required and `null` is rejected. Schema digests use the
+`sha256:<64 lowercase hexadecimal digits>` form. Integers must be plain
+non-negative integer tokens: no sign, fraction, exponent or leading zero.
+
+Payload paths are relative to `/updater/`. A payload path is a clean relative
+path without empty, `.` or `..` components or a NUL byte, and it lies strictly
+beneath `payload/`. For example, `payload/bin/updater` names
+`/updater/payload/bin/updater`. A path that is only a string prefix of another
+path, such as `payload/bin` and `payload/binary`, is allowed.
+
+The document must be a single JSON object followed only by whitespace. Unknown
+keys, duplicate keys, keys that differ only by case, and values of the wrong
+JSON type are rejected at every level. The manifest digest is the SHA-256 of
+the exact bytes read.
+
+This example binds a release named `vendor-uefi` version `1.4.2` whose schema
+documents are `{"title":"<key>","type":"object"}`:
+
+```json
+{
+  "apiVersion": "updater-manifest/v1",
+  "name": "vendor-uefi",
+  "version": "1.4.2",
+  "protocol": 1,
+  "entrypoint": "payload/bin/updater",
+  "dependencies": [],
+  "schemas": {
+    "config": "sha256:30f8846d7c81099cd8df2bc46ff49e8773141872fd5f3b945c0daff540c18aff",
+    "observation": "sha256:c27ee3be6dbff3e2ea17796af0cc2c87e5efb40d177ca205ee2929923f54669e",
+    "request": "sha256:1c5318c38d3cc8e1a6805576610151adf4cd8146444942e885a9daa3adda179a",
+    "result": "sha256:d43b7a6fa394712f500bd5f8ff4488f0943fcad506d1efa5eb332921538db563",
+    "checkpoint": "sha256:5382edc26276a0bedb506412928054659ef9d95c05f9d9083afe1cd916c1afac"
+  },
+  "files": [
+    {
+      "path": "payload/bin/updater",
+      "sha256": "905820073c735d475b79b03ae8617e4a495027dba3c83f5df6fe6536a3d1ed8b",
+      "size": 23,
+      "executable": true
+    },
+    {
+      "path": "payload/share/vendor/README",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "executable": false
+    }
+  ]
+}
+```
+
+The path rules are syntax checks only. The fetcher does not compare payload
+bytes with `files`, and it does not walk, open or copy anything beneath
+`/updater/payload/`.
+
+### Local updater access policy
+
+The agent configuration section `firmware.updater-access` sets the maximum
+access an approved release may declare in each phase. It denies all access by
+default. Each of `prepare`, `apply` and `verify` accepts these fields:
+`network-repositories`, `credential-repositories`, `read-paths`, `write-paths`,
+`read-devices`, `write-devices` and `workspace-write`. An omitted phase permits
+no access.
+
+The catalog's mandatory phase restrictions also apply to the local policy, and
+a local policy that grants more is invalid:
+
+- Only `prepare` may use network repositories and source credentials, and each
+  credential repository must also be a network repository of that phase.
+- Only `apply` may write host paths or devices.
+- `verify` must be read-only, including its workspace.
+- Repository entries are logical repository names such as `vendor-firmware`,
+  not image references or URLs.
+- Paths are explicit clean absolute paths without wildcards. Device entries
+  are paths under `/dev/`. Entries are unique within each list.
+
+Use a dedicated drop-in, for example `/etc/flightctl/conf.d/50-firmware.yaml`:
+
+```yaml
+firmware:
+  updater-access:
+    prepare:
+      network-repositories:
+        - vendor-firmware
+      credential-repositories:
+        - vendor-firmware
+      read-paths:
+        - /etc/vendor
+      read-devices:
+        - /dev/mtd0
+      workspace-write: true
+    apply:
+      read-paths:
+        - /etc/vendor
+      write-paths:
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+      write-devices:
+        - /dev/mtd0
+      workspace-write: true
+    verify:
+      read-paths:
+        - /etc/vendor
+        - /opt/vendor
+      read-devices:
+        - /dev/mtd0
+```
+
+Requested access is compared per phase and field:
+
+- Repository names and devices must match exactly and case-sensitively.
+- A requested path must equal an allowed path or lie beneath it by path
+  component, so `/opt/vendor` permits `/opt/vendor/fw` but not
+  `/opt/vendor-other` or `/opt`.
+- A read grant never permits a write, and `workspace-write` must be allowed
+  explicitly.
+
+A configuration file or drop-in that sets the `firmware` key replaces the whole
+inherited firmware section. `firmware: null`, `firmware: {}` and an empty
+`updater-access` clear it and deny all access without a warning. A file that
+does not set the key keeps the inherited section. Firmware settings from
+different files are never merged.
+
+An invalid firmware section does not stop the agent. This includes a value of
+the wrong type, an unknown key, a mistyped entry and a rule violation. Loading
+records a warning that names the file and denies all updater access, and the
+rest of the configuration loads as before. A later valid section replaces the
+invalid one, and the earlier warning remains. A skipped drop-in also denies all
+updater access, because it may have changed the policy. YAML syntax errors in
+the main configuration file still stop the agent. Quote entries that look like
+numbers or booleans, such as `"123"` or `"on"`, because they are not converted
+to strings. A configuration reload applies the same rules, and
+`Fetcher.ReloadConfig` applies the reloaded policy and pull timeout to the next
+fetch.
+
+This comparison decides only whether a release may be prepared on the device.
+Declared access is not runtime confinement: invoking updater code will require
+qualified runtime enforcement of the declared access.
+
+### Runtime dependencies
+
+Only dependency-free releases are supported. A descriptor that declares any
+runtime dependency is rejected with `FirmwareNotSupported` before any network
+use, whatever its constraint. The manifest must declare `dependencies: []`.
+Matching declared dependencies against the host requires a dependency
+vocabulary and probe design that do not exist yet. The agent never installs
+packages or changes the operating system.
+
+### Verified packages, cache and revocation
+
+A verified package identifies updater distribution content that passed the
+authorization, publisher signature, image digest, manifest, binding,
+dependency and access checks. It does not authorize execution. Payload bytes
+have not been verified against the manifest file list, nothing has been
+extracted, and declared access is not runtime confinement. Before updater code
+runs, extraction must verify payload bytes and invocation must check approval
+again.
+
+The verified record is written to
+`<DataDir>/firmware/packages/<descriptor-digest-hex>.json` with mode `0600`,
+using the same durable replacement as the retained policy. It is written only
+after every check passed. A record is reused only while all of these hold:
+
+- it is a well-formed `updater-package-record/v1` record;
+- it names the approved descriptor, package digest and publisher policy;
+- it binds the approved manifest identities;
+- the image is still present by digest.
+
+Otherwise the fetcher pulls and verifies the package again and rewrites the
+record, so a corrupt record is ignored. Approval and local access are checked
+before a record is used. A revoked release or an access request that the local
+policy no longer admits is refused even when a record exists. A new agent
+process reuses valid records after a restart. If fresh extraction reads a
+manifest that differs from the cached record, it invalidates the stale record
+and requires a fresh verified fetch. A concurrently refreshed record is kept.
+
+Images that fail checks after the pull are kept as evidence and never recorded
+as verified. Image pruning protects verified updater images only while a
+retention pin references them (see "Agent updater payload extraction and
+retention"). If pruning removes an unpinned one, the next fetch pulls and
+verifies it again.
+
+## Agent updater payload extraction and retention
+
+The agent extractor publishes the payload of a verified package into a managed
+cache so that later lifecycle code can run it natively. Extraction never runs
+updater code, image entrypoints or hooks, never creates a container and never
+pulls by tag. Nothing in the agent calls the extractor yet; it is a library for
+the firmware lifecycle.
+
+### Trusted cache and threat model
+
+The cache lives at `<DataDir>/firmware/updaters/`, with host evidence in
+`<DataDir>/firmware/evidence/` and the retention registry in
+`<DataDir>/firmware/retained.json`. Every path component from `/` down to these
+directories must be a real directory, owned by root (or the agent's effective
+user), without group or other write access; the packaged
+`/var/lib/flightctl` mode `0755` owned by root satisfies this. Every write,
+rename, removal and extended-attribute read happens relative to directory
+handles opened without following symbolic links, so a symlinked or replaced
+path component, including one planted by another privileged process, is
+refused rather than followed. A cache directory is revalidated before a result
+counts as usable. This does not protect against a malicious root process with
+arbitrary system-call, ptrace or mount authority, a compromised kernel or
+storage faults.
+
+### Budgets and order of checks
+
+Before anything is mounted, the extractor checks that the package reference is
+pinned to its digest and that the package still carries the identity and
+manifest its fetch authenticated, takes the extraction budget from the
+authenticated release descriptor (a release without the object is refused),
+compares it with the agent ceilings (1 MiB manifest, 4096 files, 1 GiB per file,
+2 GiB in total, 3 GiB scratch, 1800 seconds and a path depth of 16 components),
+checks the manifest file count, sizes and depth against the budget, and checks
+the current approval of the release. A budget above a ceiling is rejected, not
+clamped. The caller can cancel while waiting for the updater cache. After
+acquiring the cache, the extractor rechecks approval before accessing the
+retention registry or mounting the image.
+
+### Extraction and publication
+
+A fresh extraction mounts the digest-pinned image and reads it through a
+read-only directory handle. The image must hold exactly `updater/manifest.json`
+and `updater/payload/` with the files the manifest lists and their parent
+directories; links, special files, extra or missing entries, set-ID or sticky
+modes and file capabilities are refused. The manifest read from the image must
+match the verified manifest exactly. Each file is copied in bounded chunks into
+an exclusive `.staging-*` directory with its size and SHA-256 checked; files get
+mode `0400`, executables `0500` and directories `0700`. Executables must be
+static ELF binaries for the device architecture with the System V or Linux OS
+ABI and an entry point inside the file-backed portion of an executable load
+segment. An executable can have at most one dynamic segment. Native overlay mounts
+are read-only and fuse-overlayfs mounts are writable;
+the agent records which one it saw as an observation only, and integrity comes
+from hashing the bytes copied.
+
+After staging, the extractor closes the source and unmounts the image under its
+own two-minute timeout, which still runs when the caller cancels or the
+extraction deadline has expired. Only after a successful unmount does it rename
+the staging directory to `<package-digest-hex>` without replacing anything, then
+sync and revalidate the cache. A result is usable only after its host evidence
+is durable:
+
+| Outcome | Meaning |
+|---------|---------|
+| Not visible | No version directory was made visible. The call removes its own staging directory under a separate two-minute timeout. |
+| Visible but not usable | A complete version directory is visible but its sync, revalidation or evidence write failed. It is kept, must not be used or pinned, and the next call verifies and reuses it. |
+| Usable | The version directory is durable, revalidated and recorded. |
+
+When the version name already exists, the extractor keeps its own staging and
+verifies the existing directory. A valid one is used instead of the staging. An
+invalid pinned one, or one that cannot be verified, is left untouched and the
+call fails. An invalid unpinned one is renamed to `.quarantine-*` once and the
+publication is retried once with the same staging; if the name is taken again
+by anything but a valid copy, the call fails as contended. A valid copy is never
+deleted, and nothing is mounted or copied again.
+
+An unmount failure never publishes anything. The error names the image
+reference and the mount point, and a warning is logged with both. Podman keeps
+the leaked mount until an operator runs `podman image unmount <reference>` or
+the host reboots; the agent does not unmount blindly on later calls. The
+unmount timeout relies on the executor killing the podman process group; a
+descendant that leaves the group while holding the output pipes can delay the
+return.
+
+### Retention, verification and cleanup
+
+The retention registry pins published payloads per attempt and role (active or
+recovery). Pins survive restarts and refuse a conflicting identity. Pinning
+reports a missing version directory as `ErrRetainedPayloadMissing`, any other
+entry at that name as `ErrRetainedPayloadChanged`, and keeps the cause of any
+other inspection failure; a refused pin records nothing. An unreadable or
+malformed registry fails closed for every operation. Each usable result of
+`Extract` holds its own lease in memory until that result is pinned or its
+lease is released, and cleanup does not remove a payload while any result still
+holds a lease. Retention handles for the same configured cache share a lock
+and the leases, which end with the agent process.
+
+A pinned payload is only verified and reused. Verification checks the exact
+entries, modes, owner, single links, sizes and digests within the pinned limits
+capped by the ceilings, including the verification time budget. It also checks
+that no retained regular file, including the
+manifest, carries file capabilities. A missing pinned payload reports
+`ErrRetainedPayloadMissing` and a changed one `ErrRetainedPayloadChanged`, both
+without mounting, extracting again or repairing anything, also after a restart.
+An inconclusive read or an expired verification deadline reports `ErrRetainedVerificationIncomplete`; only the deadline is retryable. An
+unpinned verified copy is reused, an unpinned copy proven changed is
+quarantined before a fresh extraction, and an unpinned copy that cannot be
+verified is left in place and the call fails.
+
+The agent registers the retention registry with image pruning as a required
+reference source named `firmware`. It reports the image references of pinned
+payloads as root podman references. Required references only protect images
+from removal and are never added to the pruning reference history. An image
+that only a pin ever referenced therefore does not become a pruning candidate
+after its release, while an image already in the history becomes eligible again
+once nothing protects it. If any source cannot be read, the pass removes nothing
+and the prune stays pending for a retry. Cleanup syncs the registry directory before
+removing any payload or evidence. It removes only `.staging-*` and
+`.quarantine-*` directories, unpinned and unleased version directories and
+evidence records of removed versions. It removes at most four trees per pass;
+each removal is a bounded postorder walk that never follows links or crosses
+devices, holds at most 16 directory handles and stops with a reported reason
+when it reaches its limits on removed entries, total work, detached deep
+directories or retries. Listing is capped at 8192 entries per directory and a
+pass has a separate work cap. Each pass resumes after the last candidate
+attempted, including a failed removal, and wraps to the start of the listing.
+
+### Host SELinux evidence
+
+For each publication and reuse, and when a pinned payload is verified, the
+agent records what the host reports: the SELinux mode from
+`/sys/fs/selinux/enforce` (absent means disabled), the boot ID, and the
+`security.selinux` label of the version directory and of its entrypoint, each
+present, absent, unsupported or unknown. The record
+`<DataDir>/firmware/evidence/<package-digest-hex>.json` has the closed format
+`updater-host-evidence/v1`, is at most 16 KiB and keeps the first observation
+after publication, the latest one, a counter and a flag for any mode or label
+change. Extraction is allowed in every SELinux mode. The evidence is an
+observation only: it neither admits nor denies execution, is not a
+qualification, and a mode or label change never invalidates retained bytes or
+forces extraction again. No SELinux type, policy or label is added.
+
+### Reserved configuration path
+
+The configuration controller rejects device configuration that writes any file
+at or beneath `<DataDir>/firmware`, using the configured data directory. The
+whole configuration is refused before any file is removed or written, and the
+error names the path. Paths are compared after lexical cleaning with component
+boundaries, so `<DataDir>/firmware-x` stays allowed; relative paths and
+symbolic links that alias the data directory are not resolved. The controller
+also never deletes an obsolete file inside that directory. This guard adds to,
+and does not replace, the handle-based confinement and retained verification.
+
+### Failure reasons
+
+| Condition | Reason | Retryable |
+|-----------|--------|-----------|
+| No extraction budget, a changed binding or a revoked release | `UpdaterUnavailable` | no |
+| A budget above an agent ceiling, a path deeper than 16 components, or a non-native executable | `FirmwareNotSupported` | no |
+| File count, file size, total size, manifest size or extraction time above the admitted budget | `ResourceLimitExceeded`, with `exceededBudget` naming the budget key | no |
+| Free space below `extractionScratchBytes`, or the disk filling up while copying | `InsufficientSpace` | no |
+| A structure, link, mode or digest violation in the image | `UpdaterUnavailable` | no |
+| A missing, changed or unverifiable retained payload | `UpdaterUnavailable` | no |
+| An unmount failure, an evidence write failure, a failed quarantine, a contended publication or a verification deadline | `UpdaterUnavailable` | yes |
+
+A caller cancellation carries no firmware reason. When cleanup also fails after
+a failure, the cleanup error is joined without changing the reason,
+retryability or exceeded budget of the first failure. Every deadline is
+enforced between bounded operations: a single read, write, sync, directory
+read, unlink or rename that blocks in the kernel cannot be interrupted, so the
+agent claims no hard wall-clock bound.
 
 ## Helm installation and recovery
 
