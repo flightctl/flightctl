@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
 )
 
 var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func() {
@@ -462,12 +461,12 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 				device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
 					UpdateSchedule: &v1beta1.UpdateSchedule{
-						At:                 lo.ToPtr(wontUpdatePolicy),
-						StartGraceDuration: lo.ToPtr(startGracePeriod),
+						At:                 wontUpdatePolicy,
+						StartGraceDuration: startGracePeriod,
 					},
 					DownloadSchedule: &v1beta1.UpdateSchedule{
-						At:                 lo.ToPtr(wontUpdatePolicy),
-						StartGraceDuration: lo.ToPtr(startGracePeriod),
+						At:                 wontUpdatePolicy,
+						StartGraceDuration: startGracePeriod,
 					},
 				}
 			})
@@ -494,8 +493,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
 			inTwoMinutes := inNMinutes(2)
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.UpdatePolicy.UpdateSchedule.At = lo.ToPtr(inTwoMinutes)
-				device.Spec.UpdatePolicy.DownloadSchedule.At = lo.ToPtr(inTwoMinutes)
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.DownloadSchedule.At = inTwoMinutes
 			})
 			Expect(err).ToNot(HaveOccurred())
 			expectedVersion++
@@ -513,8 +512,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				// change the spec to update every minute so that we don't have to wait as long
-				device.Spec.UpdatePolicy.UpdateSchedule.At = lo.ToPtr(v1beta1.CronExpression(everyMinuteExpression))
-				device.Spec.UpdatePolicy.DownloadSchedule.At = lo.ToPtr(v1beta1.CronExpression(everyMinuteExpression))
+				device.Spec.UpdatePolicy.UpdateSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
+				device.Spec.UpdatePolicy.DownloadSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -528,8 +527,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.UpdatePolicy.UpdateSchedule.At = lo.ToPtr(inTwoMinutes)
-				device.Spec.UpdatePolicy.DownloadSchedule.At = lo.ToPtr(v1beta1.CronExpression(everyMinuteExpression))
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.DownloadSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
