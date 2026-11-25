@@ -174,7 +174,9 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		}
 		b.log.Error(infoMsg)
 		rollbackInfo, infoErr := b.specManager.GetRollbackInfo()
-		if infoErr == nil && rollbackInfo.ErrorMessage != "" {
+		if infoErr != nil {
+			b.log.Warnf("Failed to read rollback info after bootstrap failure: %v", infoErr)
+		} else if rollbackInfo.ErrorMessage != "" {
 			if rollbackInfo.Outcome == "" && errors.Is(err, errSpecRollbackFailed) {
 				rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
 				rollbackInfo.Cause = err.Error()
