@@ -718,8 +718,8 @@ func validateOneTimeWindow(index int, window OneTimeWindow) []error {
 		allErrs = append(allErrs, fmt.Errorf("%s.date must be a valid calendar date: %w", fieldPrefix, err))
 	}
 
-	if _, err := time.Parse("15:04", window.At); err != nil {
-		allErrs = append(allErrs, fmt.Errorf("%s.at must be a valid local time: %w", fieldPrefix, err))
+	if _, err := time.Parse("15:04", window.StartTime); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.startTime must be a valid local time: %w", fieldPrefix, err))
 	}
 
 	durationValue := window.StartGraceDuration

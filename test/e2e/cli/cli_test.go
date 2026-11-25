@@ -1579,7 +1579,7 @@ func fleetWithScheduleRoundTrip(name string, harness *e2e.Harness) v1beta1.Fleet
 			TimeZone:           &downloadTimeZone,
 			OneTimeWindows: &[]v1beta1.OneTimeWindow{{
 				Date:               "2026-12-01",
-				At:                 "22:00",
+				StartTime:          "22:00",
 				StartGraceDuration: "90m",
 			}},
 		},
@@ -1587,7 +1587,7 @@ func fleetWithScheduleRoundTrip(name string, harness *e2e.Harness) v1beta1.Fleet
 			TimeZone: &updateTimeZone,
 			OneTimeWindows: &[]v1beta1.OneTimeWindow{{
 				Date:               "2000-01-01",
-				At:                 "00:00",
+				StartTime:          "00:00",
 				StartGraceDuration: "2h",
 			}},
 		},

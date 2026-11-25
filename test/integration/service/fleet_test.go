@@ -106,8 +106,8 @@ var _ = Describe("Fleet schedule validation and persistence", func() {
 		}, "oneTimeWindows[0].date"),
 		Entry("invalid local time", func(fleet *api.Fleet) {
 			windows := fleet.Spec.Template.Spec.UpdatePolicy.DownloadSchedule.OneTimeWindows
-			(*windows)[0].At = "24:00"
-		}, "oneTimeWindows[0].at"),
+			(*windows)[0].StartTime = "24:00"
+		}, "oneTimeWindows[0].startTime"),
 		Entry("invalid duration", func(fleet *api.Fleet) {
 			windows := fleet.Spec.Template.Spec.UpdatePolicy.DownloadSchedule.OneTimeWindows
 			(*windows)[0].StartGraceDuration = "1ms"
@@ -139,7 +139,7 @@ func fleetWithSchedules(name string) api.Fleet {
 			TimeZone:           &downloadTimeZone,
 			OneTimeWindows: &[]api.OneTimeWindow{{
 				Date:               "2026-11-15",
-				At:                 "22:00",
+				StartTime:          "22:00",
 				StartGraceDuration: "90m",
 			}},
 		},
@@ -147,7 +147,7 @@ func fleetWithSchedules(name string) api.Fleet {
 			TimeZone: &updateTimeZone,
 			OneTimeWindows: &[]api.OneTimeWindow{{
 				Date:               "2000-01-01",
-				At:                 "00:00",
+				StartTime:          "00:00",
 				StartGraceDuration: "2h",
 			}},
 		},

@@ -2304,6 +2304,9 @@ Each schedule supports:
 | `startGraceDuration`   | (Required for a recurring schedule) A duration string that extends the allowed start time window after a schedule trigger. It must be configured together with `at`. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 | `oneTimeWindows`       | (Optional) A non-empty list of date-specific windows. It can be used by itself or together with the recurring schedule. |
 
+Each `oneTimeWindows` entry contains a `date` in `YYYY-MM-DD` format, a local
+`startTime` in `HH:mm` format, and its own positive `startGraceDuration`.
+
 A schedule must contain one of the following configurations:
 
 - A recurring schedule with both `at` and `startGraceDuration`.
@@ -2350,7 +2353,7 @@ updatePolicy:
     timeZone: "Asia/Jerusalem"
     oneTimeWindows:
       - date: "2026-11-15"
-        at: "22:00"
+        startTime: "22:00"
         startGraceDuration: "90m"
 ```
 
@@ -2364,7 +2367,7 @@ updatePolicy:
     startGraceDuration: "1h"      # allow updates until 5:00 AM
     oneTimeWindows:
       - date: "2026-11-16"
-        at: "04:00"
+        startTime: "04:00"
         startGraceDuration: "2h"  # allow the one-time update until 6:00 AM
 ```
 

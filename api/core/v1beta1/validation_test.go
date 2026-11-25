@@ -139,7 +139,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 	validOneTimeWindows := lo.ToPtr([]OneTimeWindow{
 		{
 			Date:               "2026-11-15",
-			At:                 "22:00",
+			StartTime:          "22:00",
 			StartGraceDuration: "90m",
 		},
 	})
@@ -202,7 +202,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{
 					{
 						Date:               "2026-02-31",
-						At:                 "24:00",
+						StartTime:          "24:00",
 						StartGraceDuration: "invalid",
 					},
 				}),
@@ -234,7 +234,7 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 			schedule: UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-11-15",
-					At:                 "22:00",
+					StartTime:          "22:00",
 					StartGraceDuration: "90m",
 				}}),
 			},
@@ -246,7 +246,7 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 				StartGraceDuration: Duration("1h"),
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},
@@ -263,29 +263,29 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 			schedule: UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-02-30",
-					At:                 "22:00",
+					StartTime:          "22:00",
 					StartGraceDuration: "90m",
 				}}),
 			},
 			wantErrText: "oneTimeWindows[0].date",
 		},
 		{
-			name: "When a one-time time is invalid it should identify the at field",
+			name: "When a one-time start time is invalid it should identify the startTime field",
 			schedule: UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-11-15",
-					At:                 "24:00",
+					StartTime:          "24:00",
 					StartGraceDuration: "90m",
 				}}),
 			},
-			wantErrText: "oneTimeWindows[0].at",
+			wantErrText: "oneTimeWindows[0].startTime",
 		},
 		{
 			name: "When a one-time duration is not positive it should identify the duration field",
 			schedule: UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-11-15",
-					At:                 "22:00",
+					StartTime:          "22:00",
 					StartGraceDuration: "0s",
 				}}),
 			},
@@ -296,7 +296,7 @@ func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
 			schedule: UpdateSchedule{
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
 					Date:               "2026-11-15",
-					At:                 "22:00",
+					StartTime:          "22:00",
 					StartGraceDuration: "1ms",
 				}}),
 			},
