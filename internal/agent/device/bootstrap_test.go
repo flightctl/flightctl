@@ -27,6 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+var errTestOSStatusRead = errors.New("temporary OS status read failure")
+
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
@@ -1036,6 +1038,11 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 			},
 		},
 		{
+			name:          "When a saved rollback failure survives restart it should be reported despite an OS status read error",
+			setupMocks:    setupSavedRollbackFailure,
+			expectedError: errTestOSStatusRead,
+		},
+		{
 			name: "When post-enrollment hooks condition is Failed with Block policy it should prevent ensureBootstrap from running",
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
@@ -1093,7 +1100,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 			waitFn := func(context.Context) (*enrollmentHooksState, error) {
 				return &enrollmentHooksState{conditionAbsent: true, condIdx: -1}, nil
 			}
-			if tt.expectedError != nil {
+			if errors.Is(tt.expectedError, errEnrollmentHooksFailed) {
 				waitFn = func(context.Context) (*enrollmentHooksState, error) {
 					return &enrollmentHooksState{
 						reason:        v1beta1.EnrollmentHooksReasonFailed,
@@ -1143,4 +1150,36 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 			require.NoError(err)
 		})
 	}
+}
+
+func setupSavedRollbackFailure(
+	mockStatusManager *status.MockManager,
+	mockSpecManager *spec.MockManager,
+	_ *hook.MockManager,
+	_ *systeminfo.MockManager,
+	mockLifecycleInitializer *lifecycle.MockInitializer,
+	mockExecutor *executer.MockExecuter,
+	mockIdentityProvider *identity.MockProvider,
+	mockManagement *client.MockManagement,
+	_ *fileio.MockReadWriter,
+) {
+	gomock.InOrder(
+		mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
+		mockSpecManager.EXPECT().Ensure().Return(nil),
+		mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+		mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
+		mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+		mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
+		mockStatusManager.EXPECT().SetClient(gomock.Any()),
+		mockSpecManager.EXPECT().SetClient(gomock.Any()),
+		mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true),
+		mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", false, errTestOSStatusRead),
+		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+		mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{
+			ErrorMessage: "OS update failed",
+			Cause:        "rollback sync failed",
+			Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+		}, nil),
+		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+	)
 }

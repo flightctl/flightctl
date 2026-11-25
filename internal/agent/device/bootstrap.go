@@ -174,13 +174,19 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		}
 		b.log.Error(infoMsg)
 		rollbackInfo, infoErr := b.specManager.GetRollbackInfo()
-		if infoErr == nil && rollbackInfo.ErrorMessage != "" && rollbackInfo.Outcome == "" && errors.Is(err, errSpecRollbackFailed) {
-			rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
-			rollbackInfo.Cause = err.Error()
-			if recordErr := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, rollbackInfo.Cause); recordErr != nil {
-				b.log.Errorf("Failed to persist rollback result: %v", recordErr)
-			} else if reportErr := reportTerminalRollback(ctx, b.statusManager, rollbackInfo); reportErr != nil {
-				b.log.Warnf("Failed to report rollback result: %v", reportErr)
+		if infoErr == nil && rollbackInfo.ErrorMessage != "" {
+			if rollbackInfo.Outcome == "" && errors.Is(err, errSpecRollbackFailed) {
+				rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
+				rollbackInfo.Cause = err.Error()
+				if recordErr := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, rollbackInfo.Cause); recordErr != nil {
+					b.log.Errorf("Failed to persist rollback result: %v", recordErr)
+					rollbackInfo.Outcome = ""
+				}
+			}
+			if rollbackInfo.Outcome == v1beta1.DeviceUpdateContextRollbackFailed || rollbackInfo.Outcome == v1beta1.DeviceUpdateContextRollbackTimedOut {
+				if reportErr := reportTerminalRollback(ctx, b.statusManager, rollbackInfo); reportErr != nil {
+					b.log.Warnf("Failed to report rollback result: %v", reportErr)
+				}
 			}
 		}
 

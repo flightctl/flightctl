@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -57,6 +58,32 @@ func TestUpdateConditionClearsPreviousRollbackOutcome(t *testing.T) {
 
 	require.NoError(t, manager.UpdateCondition(context.Background(), condition))
 	require.Nil(t, manager.device.Status.UpdateContext)
+}
+
+func TestRejectedTerminalRollbackReportRetriesOnSync(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	manager := NewManager("test-device", log.NewPrefixLogger("test"))
+	manager.SetClient(management)
+	outcome := v1beta1.DeviceUpdateContextRollbackFailed
+	manager.device.Status.UpdateContext = &outcome
+	condition := v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusFalse,
+		Reason:  string(v1beta1.UpdateStateError),
+		Message: "Update failed; rollback failed",
+	}
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(errors.New("server unavailable"))
+	require.Error(t, manager.UpdateCondition(context.Background(), condition))
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+	require.NoError(t, manager.Sync(context.Background()))
+	gotStatus := manager.Get(context.Background())
+	require.NotNil(t, gotStatus.UpdateContext)
+	require.Equal(t, outcome, *gotStatus.UpdateContext)
+	gotCondition := v1beta1.FindStatusCondition(gotStatus.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	require.NotNil(t, gotCondition)
+	require.Equal(t, condition.Reason, gotCondition.Reason)
 }
 
 // populateRealisticStatus fills a DeviceStatus with realistic data across
