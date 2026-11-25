@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Updater contract fixture observation",
+  "description": "Synthetic component state supplied to verify and returned as verification evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["components"],
+  "properties": {
+    "components": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "digest", "active"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"},
+          "version": {"type": "string", "minLength": 1, "maxLength": 64},
+          "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "active": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

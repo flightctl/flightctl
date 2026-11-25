@@ -60,6 +60,15 @@ type fetchEnv struct {
 }
 
 func newFetchEnv(home, authFile string) *fetchEnv {
+	bindings := make([]policy.Binding, 0, len(state.Fixtures))
+	for _, f := range state.Fixtures {
+		bindings = append(bindings, f.Binding)
+	}
+	return newFetchEnvWithBindings(home, authFile, bindings)
+}
+
+// newFetchEnvWithBindings returns a device whose accepted policy holds exactly bindings.
+func newFetchEnvWithBindings(home, authFile string, bindings []policy.Binding) *fetchEnv {
 	dir := tempDir()
 	e := &fetchEnv{dataDir: filepath.Join(dir, "data"), logs: &syncBuffer{}}
 	e.env = podmanEnv(newStorage(filepath.Join(dir, "storage")), home)
@@ -69,10 +78,6 @@ func newFetchEnv(home, authFile string) *fetchEnv {
 	logger.SetLevel(logrus.DebugLevel)
 
 	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
-	bindings := make([]policy.Binding, 0, len(state.Fixtures))
-	for _, f := range state.Fixtures {
-		bindings = append(bindings, f.Binding)
-	}
 	view, err := policy.New(1, bindings, nil)
 	Expect(err).NotTo(HaveOccurred())
 	data, err := json.Marshal(view)
@@ -92,19 +97,25 @@ func newFetchEnv(home, authFile string) *fetchEnv {
 	return e
 }
 
-// fetch runs Fetch for the release of role and checks that the fetch ran no
-// updater: only allowlisted podman subcommands, and no container created in
-// the device's image storage. The registry and fixture-build containers live
-// in other storage and are not part of this check.
+// fetch runs fetchRelease for the release of role.
 func (e *fetchEnv) fetch(ctx SpecContext, role string) (*firmware.VerifiedPackage, error) {
+	return e.fetchRelease(ctx, releaseName, state.Fixtures[role].Version, fixtureReference(role))
+}
+
+// fetchRelease runs Fetch for name and version and checks that the fetch ran
+// no updater: only allowlisted podman subcommands, and no container created in
+// the device's image storage or from reference, the image the release pins.
+// The registry and fixture-build containers live in other storage and are not
+// part of this check.
+func (e *fetchEnv) fetchRelease(ctx SpecContext, name, version, reference string) (*firmware.VerifiedPackage, error) {
 	before := e.containers(ctx)
-	pkg, err := e.fetcher.Fetch(ctx, releaseName, state.Fixtures[role].Version)
-	for _, name := range e.recorder.subcommands() {
-		Expect(allowedSubcommands).To(ContainElement(name), "podman subcommand outside the allowlist")
+	pkg, err := e.fetcher.Fetch(ctx, name, version)
+	for _, sub := range e.recorder.subcommands() {
+		Expect(allowedSubcommands).To(ContainElement(sub), "podman subcommand outside the allowlist")
 	}
 	Expect(e.containers(ctx)).To(Equal(before), "the fetch must not create containers")
-	if e.imageExists(ctx, fixtureReference(role)) {
-		ancestors, err := runPodman(ctx, e.env, "ps", "--all", "--external", "--filter", "ancestor="+fixtureReference(role), "--format", "{{.ID}}")
+	if e.imageExists(ctx, reference) {
+		ancestors, err := runPodman(ctx, e.env, "ps", "--all", "--external", "--filter", "ancestor="+reference, "--format", "{{.ID}}")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ancestors).To(BeEmpty(), "no container may run the updater image")
 	}
@@ -123,8 +134,11 @@ func (e *fetchEnv) imageExists(ctx SpecContext, ref string) bool {
 }
 
 func (e *fetchEnv) recordPath(role string) string {
-	digest := state.Fixtures[role].Binding.DescriptorDigest
-	return filepath.Join(e.dataDir, "firmware", "packages", strings.TrimPrefix(digest, "sha256:")+".json")
+	return e.recordPathFor(state.Fixtures[role].Binding.DescriptorDigest)
+}
+
+func (e *fetchEnv) recordPathFor(descriptorDigest string) string {
+	return filepath.Join(e.dataDir, "firmware", "packages", strings.TrimPrefix(descriptorDigest, "sha256:")+".json")
 }
 
 func (e *fetchEnv) requireNoRecord(role string) {

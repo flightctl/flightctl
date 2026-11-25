@@ -1,0 +1,54 @@
+name: Build updater contract fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build linux/${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build and verify OCI bundle
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          output="$RUNNER_TEMP/updater-contract-fixture"
+          packaging/images/firmware-updater/build.sh --arch "$ARCH" --output "$output"
+
+          digest=$(cat "$output/image.digest")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -e --arg digest "$digest" '.manifests | length == 1 and .[0].digest == $digest' \
+            "$output/oci/index.json" >/dev/null
+          printf '%s  %s\n' "${digest#sha256:}" "$output/oci/blobs/sha256/${digest#sha256:}" | sha256sum --check
+          printf '### Updater fixture for linux/%s\n\n- Source: %s\n- OCI image digest: %s\n' \
+            "$ARCH" "$(git rev-parse HEAD)" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bundle and build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-contract-fixture-linux-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/updater-contract-fixture/oci/
+            ${{ runner.temp }}/updater-contract-fixture/image.digest
+            ${{ runner.temp }}/updater-contract-fixture/build-info.txt
+            ${{ runner.temp }}/updater-contract-fixture/report.json
+            ${{ runner.temp }}/updater-contract-fixture/descriptor-inputs.json
+          if-no-files-found: error

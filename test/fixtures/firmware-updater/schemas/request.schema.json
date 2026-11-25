@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Updater contract fixture request",
+  "description": "Protocol 1 prepare or verify request envelope; config and observation carry base64-encoded JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "identity",
+    "config"
+  ],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "action",
+        "attemptID",
+        "callID",
+        "cycle",
+        "name",
+        "version",
+        "descriptorDigest",
+        "packageDigest",
+        "manifestDigest",
+        "configDigest",
+        "intentDigest",
+        "schemas",
+        "grantDigest"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "integer",
+          "const": 1
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "prepare",
+            "verify"
+          ]
+        },
+        "attemptID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "callID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "cycle": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+        },
+        "descriptorDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "packageDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "manifestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "intentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "planDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "observationDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "config",
+            "observation",
+            "request",
+            "result",
+            "checkpoint"
+          ],
+          "properties": {
+            "config": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "observation": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "request": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "result": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "checkpoint": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "grantDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "checkpointDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "checkpointFormat": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "checkpointRevision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "revision",
+        "bytes",
+        "digest"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bytes": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "observation": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
