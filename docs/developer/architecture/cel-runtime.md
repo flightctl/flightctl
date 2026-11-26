@@ -27,10 +27,10 @@ for another reason.
 A nil activation or a nil activation map is rejected. An empty map is valid for
 constant expressions.
 
-`celruntime.Activate` normalizes a caller-selected map of roots through JSON.
-This preserves the JSON field names and numeric representation used by existing
-device activations. Consumers choose which roots and fields to include; the
-runtime adds no device or enrollment data.
+`celruntime.Activate` binds roots selected by the caller. It preserves values
+already adapted to CEL and normalizes the remaining roots through JSON. This
+keeps the JSON field names and numeric representation used by device activations
+while allowing enrollment to supply typed, lazily adapted fields.
 
 ## Execution bounds and cache ownership
 
@@ -42,7 +42,9 @@ The runtime uses the established label-mapping limits by default.
 
 To override these values for one engine, pass `celruntime.WithConfig` with a
 `celruntime.Config`. Zero fields use the defaults. A positive `CacheTTL` sets
-how long an entry can remain idle before it expires.
+how long an entry can remain idle before it expires. A positive
+`MaxExpressionNodes` limits the parsed expression tree before type-checking and
+program construction.
 
 Every engine owns its own cache. Expressions compiled under different variable
 declarations or libraries have separate caches. A cache hit makes the entry
@@ -86,14 +88,17 @@ parentheses to group them. The boolean literals `true` and `false` are also
 valid expressions. An empty membership list matches no values.
 
 `Matcher.Compile` checks syntax, field paths, value types, and supported
-operations before returning a reusable expression. The enrollment policy
-service uses this compiler when creating an enabled policy, enabling a draft,
-or changing an enabled policy's expression. It reports compiler diagnostics
-for `spec.matchExpression` in `InvalidPolicy` responses.
+operations before returning a reusable expression. It limits parsing to 1,000
+Unicode code points and limits the parsed tree to 256 expression nodes before
+type-checking. Numeric literals must use the CEL type of the reported field.
+The enrollment policy service uses this compiler when creating an enabled
+policy, enabling a draft, or changing an enabled policy's expression. It
+reports compiler diagnostics for `spec.matchExpression` in `InvalidPolicy`
+responses.
 
 The matcher binds only the requested fields at the root and reads nested values
 on demand. A string read during evaluation can contain up to 4,096 bytes. A
-longer string returns `ErrIdentifierTooLong`. A missing field or list item
+longer string returns `ErrReportedStringTooLong`. A missing field or list item
 returns `ErrEvaluation` if CEL needs that value to determine the result. An
 empty reported string is available for comparison like any other string.
 Runtime errors use fixed messages without reported values, expression literals,

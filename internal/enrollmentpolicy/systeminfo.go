@@ -1,6 +1,7 @@
 package enrollmentpolicy
 
 import (
+	"iter"
 	"reflect"
 	"strings"
 
@@ -13,33 +14,49 @@ const systemInfoRoot = "systemInfo"
 
 var systemInfoType = reflect.TypeFor[domain.DeviceSystemInfo]()
 
+type reportField struct {
+	index     int
+	valueType reflect.Type
+	omitEmpty bool
+}
+
+func reportFields(object reflect.Type) iter.Seq2[string, reportField] {
+	return func(yield func(string, reportField) bool) {
+		for index := range object.NumField() {
+			field := object.Field(index)
+			name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+			if !field.IsExported() || name == "-" {
+				continue
+			}
+			if name == "" {
+				name = field.Name
+			}
+			descriptor := reportField{
+				index:     index,
+				valueType: field.Type,
+				omitEmpty: strings.Contains(","+options+",", ",omitempty,"),
+			}
+			if !yield(name, descriptor) {
+				return
+			}
+		}
+	}
+}
+
 // reportObject binds the requested fields using the API's JSON field names.
 // Nested values are adapted lazily as CEL traverses them.
 func reportObject(value reflect.Value, fields map[string]struct{}) map[string]any {
 	object := make(map[string]any)
-	valueType := value.Type()
-	for index := range valueType.NumField() {
-		name, omitEmpty := jsonField(valueType.Field(index))
-		if _, selected := fields[name]; name == "" || (fields != nil && !selected) {
+	for name, descriptor := range reportFields(value.Type()) {
+		if _, selected := fields[name]; fields != nil && !selected {
 			continue
 		}
-		field := value.Field(index)
-		if !omitEmpty || !emptyJSONValue(field) {
+		field := value.Field(descriptor.index)
+		if !descriptor.omitEmpty || !emptyJSONValue(field) {
 			object[name] = field.Interface()
 		}
 	}
 	return object
-}
-
-func jsonField(field reflect.StructField) (string, bool) {
-	name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
-	if !field.IsExported() || name == "-" {
-		return "", false
-	}
-	if name == "" {
-		name = field.Name
-	}
-	return name, strings.Contains(","+options+",", ",omitempty,")
 }
 
 func emptyJSONValue(value reflect.Value) bool {
@@ -71,10 +88,9 @@ func reportFieldType(object reflect.Type, name string) reflect.Type {
 			return object.Elem()
 		}
 	case reflect.Struct:
-		for index := range object.NumField() {
-			field := object.Field(index)
-			if key, _ := jsonField(field); key != "" && key == name {
-				return field.Type
+		for key, field := range reportFields(object) {
+			if key == name {
+				return field.valueType
 			}
 		}
 		if object == systemInfoType {
@@ -115,11 +131,11 @@ func (adapter *reportAdapter) NativeToValue(value any) ref.Val {
 		}
 		return types.NewDynamicList(adapter, field.Interface())
 	case reflect.String:
-		if field.Len() > maxIdentifierBytes {
+		if field.Len() > maxReportedStringBytes {
 			// Collection equality can consume an element error. Record the
 			// limit failure for the entire evaluation.
 			adapter.oversized = true
-			return types.WrapErr(ErrIdentifierTooLong)
+			return types.WrapErr(ErrReportedStringTooLong)
 		}
 		return types.String(field.String())
 	default:

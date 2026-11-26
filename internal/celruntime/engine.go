@@ -6,24 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common"
 	"cel.dev/cel-go/common/ast"
-	"cel.dev/cel-go/common/runes"
 	"cel.dev/cel-go/common/types/ref"
 	"github.com/jellydator/ttlcache/v3"
 )
 
 // Config overrides the defaults for one engine. Zero values use the defaults.
 type Config struct {
-	MaxExpressionSize int           // Maximum number of Unicode code points per expression.
-	MaxExpressionCost uint64        // Maximum CEL cost units per evaluation.
-	CacheCapacity     uint64        // Maximum cached compilations, including failures.
-	CacheTTL          time.Duration // Maximum idle time for cached compilations. Zero means no expiration.
+	MaxExpressionSize  int           // Maximum number of Unicode code points per expression.
+	MaxExpressionNodes int           // Maximum parsed AST nodes before type-checking. Zero disables this limit.
+	MaxExpressionCost  uint64        // Maximum CEL cost units per evaluation.
+	CacheCapacity      uint64        // Maximum cached compilations, including failures.
+	CacheTTL           time.Duration // Maximum idle time for cached compilations. Zero means no expiration.
 }
 
 // Option configures an engine before its CEL environment is created.
@@ -50,10 +50,11 @@ func WithEnvOptions(options ...cel.EnvOption) Option {
 
 // Engine owns a CEL environment. Consumers supply their own declarations and libraries.
 type Engine struct {
-	env               *cel.Env
-	programs          *ttlcache.Cache[string, cachedProgram]
-	maxExpressionSize int
-	maxExpressionCost uint64
+	env                *cel.Env
+	programs           *ttlcache.Cache[string, cachedProgram]
+	maxExpressionSize  int
+	maxExpressionNodes int
+	maxExpressionCost  uint64
 }
 
 type cachedProgram struct {
@@ -78,6 +79,9 @@ func New(options ...Option) (*Engine, error) {
 	if config.MaxExpressionSize < 0 {
 		return nil, errors.New("maximum CEL expression size must be non-negative")
 	}
+	if config.MaxExpressionNodes < 0 {
+		return nil, errors.New("maximum CEL expression node count must be non-negative")
+	}
 	if config.CacheTTL < 0 {
 		return nil, errors.New("CEL cache TTL must be non-negative")
 	}
@@ -88,9 +92,10 @@ func New(options ...Option) (*Engine, error) {
 		return nil, err
 	}
 	return &Engine{
-		env:               env,
-		maxExpressionSize: maxExpressionSize,
-		maxExpressionCost: cmp.Or(config.MaxExpressionCost, 10_000),
+		env:                env,
+		maxExpressionSize:  maxExpressionSize,
+		maxExpressionNodes: config.MaxExpressionNodes,
+		maxExpressionCost:  cmp.Or(config.MaxExpressionCost, 10_000),
 		programs: ttlcache.New(
 			ttlcache.WithCapacity[string, cachedProgram](cmp.Or(config.CacheCapacity, 256)),
 			ttlcache.WithTTL[string, cachedProgram](cmp.Or(config.CacheTTL, ttlcache.NoTTL)),
@@ -104,10 +109,12 @@ func New(options ...Option) (*Engine, error) {
 // the expression size limit are cached too. Compile is safe to call concurrently.
 func (e *Engine) Compile(expression string) (*Program, error) {
 	if len(expression) > e.maxExpressionSize {
-		if size := utf8.RuneCountInString(expression); size > e.maxExpressionSize {
-			// Preserve the CEL parser diagnostic without retaining the expression.
-			err := &runes.SizeLimitError{Size: size, Limit: e.maxExpressionSize}
-			return nil, fmt.Errorf("parsing CEL expression: %w", cel.ErrorAsIssues(err).Err())
+		size := 0
+		for range expression {
+			if size == e.maxExpressionSize {
+				return nil, fmt.Errorf("parsing CEL expression: exceeds the limit of %d Unicode code points", e.maxExpressionSize)
+			}
+			size++
 		}
 	}
 	if item := e.programs.Get(expression); item != nil {
@@ -127,6 +134,15 @@ func (e *Engine) compile(expression string) (*Program, error) {
 	parsed, issues := e.env.ParseSource(common.NewTextSource(expression))
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("parsing CEL expression: %w", issues.Err())
+	}
+	if e.maxExpressionNodes > 0 {
+		nodes := 0
+		ast.PreOrderVisit(parsed.NativeRep().Expr(), ast.NewExprVisitor(func(ast.Expr) {
+			nodes++
+		}))
+		if nodes > e.maxExpressionNodes {
+			return nil, fmt.Errorf("compiling CEL expression: exceeds the limit of %d expression nodes", e.maxExpressionNodes)
+		}
 	}
 	checked, issues := e.env.Check(parsed)
 	if issues != nil && issues.Err() != nil {
@@ -169,9 +185,24 @@ func (p *Program) Evaluate(activation any) (ref.Val, error) {
 	return value, nil
 }
 
-// Activate normalizes explicitly selected roots through JSON. Consumers choose
-// the exposed roots; no device or enrollment fields are added by the runtime.
+// Activate binds caller-selected roots. Values already adapted to CEL are used
+// directly. Other roots are normalized through JSON.
 func Activate(roots map[string]any) (map[string]any, error) {
+	typedRoots := make(map[string]any)
+	for name, root := range roots {
+		if value, ok := root.(ref.Val); ok {
+			typedRoots[name] = value
+		}
+	}
+	if len(typedRoots) > 0 {
+		if len(typedRoots) == len(roots) {
+			return typedRoots, nil
+		}
+		roots = maps.Clone(roots)
+		for name := range typedRoots {
+			delete(roots, name)
+		}
+	}
 	data, err := json.Marshal(roots)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling activation roots: %w", err)
@@ -180,5 +211,6 @@ func Activate(roots map[string]any) (map[string]any, error) {
 	if err := json.Unmarshal(data, &activation); err != nil {
 		return nil, fmt.Errorf("unmarshaling activation roots: %w", err)
 	}
+	maps.Copy(activation, typedRoots)
 	return activation, nil
 }

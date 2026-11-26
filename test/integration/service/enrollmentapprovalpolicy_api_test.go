@@ -252,7 +252,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(json.Unmarshal(response.Body.Bytes(), &status)).To(Succeed())
 			Expect(status.Reason).To(Equal("InvalidPolicy"))
 			Expect(status.Message).To(ContainSubstring("spec.matchExpression"))
-			Expect(status.Message).To(ContainSubstring("expected boolean literals or identifier comparisons"))
+			Expect(status.Message).To(ContainSubstring("expected boolean literals or field comparisons"))
 
 			retained := request(handler, http.MethodGet, "/west", nil, suite.Ctx)
 			if method == http.MethodPost {

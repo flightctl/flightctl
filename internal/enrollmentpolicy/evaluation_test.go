@@ -40,18 +40,18 @@ func TestEvaluateCandidates(t *testing.T) {
 		indexes    []int
 		failures   []enrollmentpolicy.EvaluationFailure
 	}{
-		{"When there are no candidates evaluation should report no match", nil, enrollmentpolicy.NoMatch, nil, nil},
-		{"When no expression is true and no error occurs evaluation should report no match",
+		{"When the group is empty it should report no match", nil, enrollmentpolicy.NoMatch, nil, nil},
+		{"When every expression is false it should report no match",
 			[]*enrollmentpolicy.Policy{east}, enrollmentpolicy.NoMatch, nil, nil},
-		{"When one expression passes evaluation should return its index",
+		{"When one expression passes it should return its index",
 			[]*enrollmentpolicy.Policy{east, west}, enrollmentpolicy.Matched, []int{1}, nil},
-		{"When only a failing and a false expression are supplied evaluation should report failure",
+		{"When evaluation fails without a match it should report failure",
 			[]*enrollmentpolicy.Policy{east, missing}, enrollmentpolicy.EvaluationFailed, nil, []enrollmentpolicy.EvaluationFailure{failureAt(1)}},
 		{"When a candidate errors it should leave another candidate eligible to match",
 			[]*enrollmentpolicy.Policy{missing, west, missing}, enrollmentpolicy.Matched, []int{1}, []enrollmentpolicy.EvaluationFailure{failureAt(0), failureAt(2)}},
-		{"When multiple candidates pass evaluation should report each conflicting index",
+		{"When the group has multiple matches it should report each matching index",
 			[]*enrollmentpolicy.Policy{west, serial, missing}, enrollmentpolicy.MultipleMatches, []int{0, 1}, []enrollmentpolicy.EvaluationFailure{failureAt(2)}},
-		{"When multiple candidates pass in a different order evaluation should report the same conflict",
+		{"When the group is reordered it should report the same conflict",
 			[]*enrollmentpolicy.Policy{serial, east, west}, enrollmentpolicy.MultipleMatches, []int{0, 2}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -86,17 +86,21 @@ func TestCandidateLimit(t *testing.T) {
 		candidates[i] = never
 	}
 
-	t.Run("When the group is within the limit it should evaluate", func(t *testing.T) {
-		result, err := enrollmentpolicy.Evaluate(domain.EnrollmentRequestSpec{}, candidates)
-		require.NoError(t, err)
-		require.Equal(t, enrollmentpolicy.NoMatch, result.Outcome)
-	})
-	t.Run("When the group is oversized it should fail before evaluating candidates", func(t *testing.T) {
-		oversized := append(candidates, nil)
-		result, err := enrollmentpolicy.Evaluate(domain.EnrollmentRequestSpec{}, oversized)
-		require.ErrorIs(t, err, enrollmentpolicy.ErrTooManyCandidates)
-		require.Empty(t, result)
-	})
+	for _, tc := range []struct {
+		name       string
+		candidates []*enrollmentpolicy.Policy
+		outcome    enrollmentpolicy.Outcome
+		err        error
+	}{
+		{"When the group is at the limit it should evaluate", candidates, enrollmentpolicy.NoMatch, nil},
+		{"When the group is oversized it should fail before evaluating candidates", append(candidates, nil), "", enrollmentpolicy.ErrTooManyCandidates},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := enrollmentpolicy.Evaluate(domain.EnrollmentRequestSpec{}, tc.candidates)
+			require.ErrorIs(t, err, tc.err)
+			require.Equal(t, enrollmentpolicy.Evaluation{Outcome: tc.outcome}, result)
+		})
+	}
 }
 
 func TestEvaluateReportedIdentifiersAtScale(t *testing.T) {

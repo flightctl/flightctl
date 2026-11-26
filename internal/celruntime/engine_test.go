@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
 	"github.com/flightctl/flightctl/internal/celruntime"
@@ -131,20 +132,50 @@ func TestActivation(t *testing.T) {
 		type reportedStatus struct {
 			ProductSerial string `json:"productSerial"`
 		}
-		activation, err := celruntime.Activate(map[string]any{
+		typed := types.NewStringInterfaceMap(types.DefaultTypeAdapter, map[string]any{"count": int64(42)})
+		roots := map[string]any{
 			"status": reportedStatus{ProductSerial: "WEST-001"},
 			"spec":   nil,
-		})
+			"typed":  typed,
+		}
+		activation, err := celruntime.Activate(roots)
 		require.NoError(t, err)
-		engine, err := celruntime.New(celruntime.WithEnvOptions(cel.Variable("status", cel.DynType), cel.Variable("spec", cel.DynType)))
+		require.Same(t, typed, activation["typed"])
+		require.Same(t, typed, roots["typed"])
+		engine, err := celruntime.New(celruntime.WithEnvOptions(
+			cel.Variable("status", cel.DynType),
+			cel.Variable("spec", cel.DynType),
+			cel.Variable("typed", cel.DynType),
+		))
 		require.NoError(t, err)
-		program, err := engine.Compile(`status.productSerial == "WEST-001" && spec == null`)
+		program, err := engine.Compile(`status.productSerial == "WEST-001" && spec == null && typed.count == 42`)
 		require.NoError(t, err)
 		value, err := program.Evaluate(activation)
 		require.NoError(t, err)
 		require.Equal(t, types.True, value)
 		_, err = engine.Compile(`metadata`)
 		require.ErrorContains(t, err, "undeclared reference")
+	})
+}
+
+func TestCheckedExpression(t *testing.T) {
+	t.Run("When a caller mutates a checked expression it should preserve the cached program and AST", func(t *testing.T) {
+		engine, err := celruntime.New()
+		require.NoError(t, err)
+		program, err := engine.Compile(`!false`)
+		require.NoError(t, err)
+
+		argument := program.CheckedExpression().AsCall().Args()[0]
+		argument.SetKindCase(ast.NewExprFactory().NewLiteral(argument.ID(), types.True))
+		require.Equal(t, types.True, argument.AsLiteral())
+
+		cached, err := engine.Compile(`!false`)
+		require.NoError(t, err)
+		require.Same(t, program, cached)
+		require.Equal(t, types.False, cached.CheckedExpression().AsCall().Args()[0].AsLiteral())
+		value, err := cached.Evaluate(map[string]any{})
+		require.NoError(t, err)
+		require.Equal(t, types.True, value)
 	})
 }
 
@@ -262,7 +293,7 @@ func TestExpressionSizeLimit(t *testing.T) {
 		require.ErrorContains(t, err, "parsing CEL expression")
 	})
 
-	t.Run("When an expression exceeds the configured code point limit it should return the CEL error without evicting cached programs", func(t *testing.T) {
+	t.Run("When an expression exceeds the configured code point limit it should report the limit without evicting cached programs", func(t *testing.T) {
 		const sizeLimit = 5
 		engine, err := celruntime.New(celruntime.WithConfig(celruntime.Config{MaxExpressionSize: sizeLimit, CacheCapacity: 1}))
 		require.NoError(t, err)
@@ -270,14 +301,9 @@ func TestExpressionSizeLimit(t *testing.T) {
 		program, err := engine.Compile(atLimit)
 		require.NoError(t, err)
 
-		oversized := `"ééééé"`
-		env, err := cel.NewEnv(cel.ParserExpressionSizeLimit(sizeLimit))
-		require.NoError(t, err)
-		_, issues := env.Parse(oversized)
-		require.Error(t, issues.Err())
-		for range 2 {
+		for _, oversized := range []string{`"éééé"`, `"ééééé"`} {
 			_, err := engine.Compile(oversized)
-			require.EqualError(t, err, "parsing CEL expression: "+issues.Err().Error())
+			require.ErrorContains(t, err, "parsing CEL expression: exceeds the limit of 5 Unicode code points")
 		}
 		cached, err := engine.Compile(atLimit)
 		require.NoError(t, err)
@@ -289,6 +315,30 @@ func TestExpressionSizeLimit(t *testing.T) {
 		require.NoError(t, err)
 		require.NotSame(t, program, recompiled)
 	})
+}
+
+func TestCompilationNodeLimit(t *testing.T) {
+	engine, err := celruntime.New(celruntime.WithConfig(celruntime.Config{MaxExpressionNodes: 3}))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name       string
+		expression string
+		wantError  bool
+	}{
+		{"When an expression is at the node limit it should compile", "false && true", false},
+		{"When an expression exceeds the node limit it should fail before checking names", "missing && true && false", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			program, err := engine.Compile(tc.expression)
+			if tc.wantError {
+				require.ErrorContains(t, err, "compiling CEL expression: exceeds the limit of 3 expression nodes")
+				require.Nil(t, program)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, program)
+		})
+	}
 }
 
 func TestProgramCacheTTL(t *testing.T) {

@@ -21,7 +21,8 @@ func TestCELExpressionValidator(t *testing.T) {
 		{"When an expression uses reported identifiers it should validate", `systemInfo.customInfo["site"] in ["east", "west"]`, ""},
 		{"When an expression is malformed it should report its parse error", `systemInfo.productSerial ==`, "parsing CEL expression"},
 		{"When an expression returns a string it should report its output error", `systemInfo.productSerial`, "expression must return a boolean"},
-		{"When an expression uses regex it should report its unsupported operator", `systemInfo.productSerial.matches("^west")`, "expected boolean literals or identifier comparisons"},
+		{"When an expression uses regex it should report its unsupported operator", `systemInfo.productSerial.matches("^west")`, "expected boolean literals or field comparisons"},
+		{"When a numeric literal has the wrong type it should report the type requirement", `systemInfo.gpus[0].index == 0.0`, "matching value types"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validator.ValidateExpression(t.Context(), tc.expression)

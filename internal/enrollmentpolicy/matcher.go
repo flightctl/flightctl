@@ -12,13 +12,13 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 )
 
-const maxIdentifierBytes = 4096
+const maxReportedStringBytes = 4096
 
 // ErrEvaluation indicates that CEL could not evaluate the reported system information.
 var ErrEvaluation = errors.New("CEL evaluation failed. Check that the request reports the referenced system information")
 
-// ErrIdentifierTooLong indicates that a referenced identifier exceeds the input limit.
-var ErrIdentifierTooLong = fmt.Errorf("a referenced system identifier exceeds %d bytes", maxIdentifierBytes)
+// ErrReportedStringTooLong indicates that a reported string read by CEL exceeds the input limit.
+var ErrReportedStringTooLong = fmt.Errorf("a reported system information string exceeds %d bytes", maxReportedStringBytes)
 
 // Matcher compiles enrollment expressions in a dedicated CEL environment.
 type Matcher struct {
@@ -33,11 +33,14 @@ type Policy struct {
 
 // NewMatcher constructs a matcher with the restricted enrollment declarations.
 func NewMatcher() (*Matcher, error) {
-	engine, err := celruntime.New(celruntime.WithEnvOptions(
-		cel.Variable(systemInfoRoot, cel.MapType(cel.StringType, cel.DynType)),
-		cel.ClearMacros(),
-		cel.ASTValidators(expressionValidator{}),
-	))
+	engine, err := celruntime.New(
+		celruntime.WithConfig(celruntime.Config{MaxExpressionNodes: 256}),
+		celruntime.WithEnvOptions(
+			cel.Variable(systemInfoRoot, cel.MapType(cel.StringType, cel.DynType)),
+			cel.ClearMacros(),
+			cel.ASTValidators(expressionValidator{}),
+		),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -59,9 +62,15 @@ func (p *Policy) Match(spec domain.EnrollmentRequestSpec) (bool, error) {
 		return false, errors.New("CEL expression has not been compiled")
 	}
 	adapter := &reportAdapter{}
-	value, err := p.program.Evaluate(p.activate(spec.DeviceStatus, adapter))
+	activation, err := celruntime.Activate(map[string]any{
+		systemInfoRoot: types.NewStringInterfaceMap(adapter, p.reportedFields(spec.DeviceStatus)),
+	})
+	if err != nil {
+		return false, ErrEvaluation
+	}
+	value, err := p.program.Evaluate(activation)
 	if adapter.oversized {
-		return false, ErrIdentifierTooLong
+		return false, ErrReportedStringTooLong
 	}
 	if err != nil {
 		return false, ErrEvaluation
@@ -73,7 +82,7 @@ func (p *Policy) Match(spec domain.EnrollmentRequestSpec) (bool, error) {
 	return bool(result), nil
 }
 
-func (p *Policy) activate(status *domain.DeviceStatus, adapter *reportAdapter) map[string]any {
+func (p *Policy) reportedFields(status *domain.DeviceStatus) map[string]any {
 	fields := make(map[string]any)
 	if status != nil && len(p.fields) > 0 {
 		info := status.SystemInfo
@@ -84,5 +93,5 @@ func (p *Policy) activate(status *domain.DeviceStatus, adapter *reportAdapter) m
 			}
 		}
 	}
-	return map[string]any{systemInfoRoot: types.NewStringInterfaceMap(adapter, fields)}
+	return fields
 }

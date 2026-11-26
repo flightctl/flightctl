@@ -49,12 +49,13 @@ func TestCompile(t *testing.T) {
 	}{
 		{"When a hardware UUID is compared it should compile", `systemInfo.productUuid == "uuid-1"`, false},
 		{"When a custom key is compared it should compile", `systemInfo.customInfo["site.name"] == "west"`, false},
-		{"When equality and membership are conjoined they should compile", `systemInfo.productSerial == "sn-1" && systemInfo.customInfo["site"] in ["east", "west"]`, false},
+		{"When a conjunction uses equality and membership it should compile", `systemInfo.productSerial == "sn-1" && systemInfo.customInfo["site"] in ["east", "west"]`, false},
 		{"When the expression is true it should compile", `true`, false},
 		{"When the expression is false it should compile", `false`, false},
 		{"When the membership list is empty it should compile", `systemInfo.productSerial in []`, false},
 		{"When the expression is malformed it should fail", `systemInfo.productSerial ==`, true},
 		{"When the expression is oversized it should fail", `true` + strings.Repeat(" ", 1000), true},
+		{"When a conjunction exceeds the node limit it should fail", strings.Repeat("true&&", 128) + "true", true},
 		{"When the expression produces a string it should fail", `systemInfo.productSerial`, true},
 		{"When the expression produces a map it should fail", `systemInfo.customInfo`, true},
 		{"When the expression uses an arbitrary root it should fail", `status.systemInfo.productSerial == "sn-1"`, true},
@@ -62,6 +63,10 @@ func TestCompile(t *testing.T) {
 		{"When a reported key needs quoting it should compile", `systemInfo["asset.name"] == "west"`, false},
 		{"When an object has a boolean field it should compile", `systemInfo.kvm.enabled == true`, false},
 		{"When a list item has a numeric field it should compile", `systemInfo.gpus[0].index == 0`, false},
+		{"When an integer field is compared with a double it should fail", `systemInfo.gpus[0].memoryBytes == 4096.0`, true},
+		{"When integer membership contains a double it should fail", `systemInfo.gpus[0].memoryBytes in [4096.0]`, true},
+		{"When a signed integer field is compared with an unsigned integer it should fail", `systemInfo.gpus[0].index == 0u`, true},
+		{"When an object literal uses a double for an integer field it should fail", `systemInfo.gpus[0] == {"index": 0.0}`, true},
 		{"When a list field is compared with a list literal it should compile", `systemInfo.gpus[0].features == ["cuda"]`, false},
 		{"When an object is compared with a literal of the same shape it should compile", `systemInfo.kvm == {"enabled": true}`, false},
 		{"When an enrollment request label is used it should fail", `labels["site"] == "west"`, true},
@@ -130,9 +135,10 @@ func TestMatchSystemInfo(t *testing.T) {
 		{"When the serial is missing it should fail closed", `systemInfo.productSerial == ""`, false, true},
 		{"When a false conjunct resolves a missing value it should return false", `systemInfo.productSerial == "" && false`, false, false},
 		{"When a reported string field was previously unsupported it should still match", `systemInfo.hostname == "device-1"`, true, false},
-		{"When a reported key contains a dot a quoted lookup should match", `systemInfo["asset.name"] == "west"`, true, false},
+		{"When a quoted key contains a dot it should match the reported key", `systemInfo["asset.name"] == "west"`, true, false},
 		{"When a nested boolean is explicitly false it should compare as a boolean", `systemInfo.kvm.enabled == false`, true, false},
 		{"When a large reported integer matches it should preserve precision", `systemInfo.gpus[0].memoryBytes == 9007199254740993`, true, false},
+		{"When a large reported integer differs it should not match the membership list", `systemInfo.gpus[0].memoryBytes in [9007199254740992]`, false, false},
 		{"When a list matches a literal it should compare the elements", `systemInfo.gpus[0].features == ["cuda"]`, true, false},
 		{"When a nested object matches a literal it should compare the fields", `systemInfo.kvm == {"enabled": false}`, true, false},
 		{"When a nested report field is absent it should report an evaluation failure", `systemInfo.gpus[0].vendor == "west"`, false, true},
@@ -151,23 +157,30 @@ func TestMatchSystemInfo(t *testing.T) {
 			}
 		})
 	}
-	t.Run("When device status is missing it should fail closed", func(t *testing.T) {
-		policy, err := matcher.Compile(`systemInfo.productUuid == "uuid-1"`)
-		require.NoError(t, err)
-		matches, err := policy.Match(domain.EnrollmentRequestSpec{})
-		require.Error(t, err)
-		require.False(t, matches)
-	})
-	t.Run("When custom info is missing it should fail closed", func(t *testing.T) {
-		policy, err := matcher.Compile(`systemInfo.customInfo["site"] == ""`)
-		require.NoError(t, err)
-		matches, err := policy.Match(domain.EnrollmentRequestSpec{DeviceStatus: &domain.DeviceStatus{}})
-		require.Error(t, err)
-		require.False(t, matches)
-	})
 }
 
-func TestMatchIdentifierSize(t *testing.T) {
+func TestMatchMissingInput(t *testing.T) {
+	matcher, err := enrollmentpolicy.NewMatcher()
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name       string
+		expression string
+		status     *domain.DeviceStatus
+	}{
+		{"When device status is missing it should fail closed", `systemInfo.productUuid == "uuid-1"`, nil},
+		{"When custom info is missing it should fail closed", `systemInfo.customInfo["site"] == ""`, &domain.DeviceStatus{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy, err := matcher.Compile(tc.expression)
+			require.NoError(t, err)
+			matches, err := policy.Match(domain.EnrollmentRequestSpec{DeviceStatus: tc.status})
+			require.ErrorIs(t, err, enrollmentpolicy.ErrEvaluation)
+			require.False(t, matches)
+		})
+	}
+}
+
+func TestMatchReportedStringSize(t *testing.T) {
 	matcher, err := enrollmentpolicy.NewMatcher()
 	require.NoError(t, err)
 	policy, err := matcher.Compile(`systemInfo.customInfo["site"] == "west"`)
@@ -179,9 +192,9 @@ func TestMatchIdentifierSize(t *testing.T) {
 		matches bool
 		wantErr error
 	}{
-		{"When unrelated identifiers exceed the limit they should be ignored", "west", true, nil},
-		{"When a referenced identifier has 4096 bytes it should be evaluated", strings.Repeat("é", 2048), false, nil},
-		{"When a referenced identifier exceeds 4096 bytes it should fail evaluation", strings.Repeat("é", 2049), false, enrollmentpolicy.ErrIdentifierTooLong},
+		{"When only unread strings exceed the limit it should match", "west", true, nil},
+		{"When a referenced string has 4096 bytes it should be evaluated", strings.Repeat("é", 2048), false, nil},
+		{"When a referenced string exceeds 4096 bytes it should fail evaluation", strings.Repeat("é", 2049), false, enrollmentpolicy.ErrReportedStringTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			largeValue := strings.Repeat("ignored", 4096)
@@ -205,6 +218,6 @@ func TestMatchOversizedCollectionElement(t *testing.T) {
 		SystemInfo: domain.DeviceSystemInfo{CustomInfo: &info},
 	}}
 	matches, err := policy.Match(spec)
-	require.ErrorIs(t, err, enrollmentpolicy.ErrIdentifierTooLong)
+	require.ErrorIs(t, err, enrollmentpolicy.ErrReportedStringTooLong)
 	require.False(t, matches)
 }

@@ -22,7 +22,7 @@ func (expressionValidator) Validate(_ *cel.Env, _ cel.ValidatorConfig, checked *
 		return
 	}
 	if !supportedExpression(expression) {
-		issues.ReportErrorAtID(expression.ID(), "expected boolean literals or identifier comparisons using ==, in, and &&")
+		issues.ReportErrorAtID(expression.ID(), "expected boolean literals or field comparisons using ==, in, and && with matching value types")
 	}
 }
 
@@ -112,8 +112,12 @@ func compatibleLiteral(expression ast.Expr, valueType reflect.Type) bool {
 			return kind.Kind() == reflect.String
 		case types.Bool:
 			return kind.Kind() == reflect.Bool
-		case types.Int, types.Uint, types.Double:
-			return kind.Kind() >= reflect.Int && kind.Kind() <= reflect.Float64
+		case types.Int:
+			return kind.Kind() >= reflect.Int && kind.Kind() <= reflect.Int64
+		case types.Uint:
+			return kind.Kind() >= reflect.Uint && kind.Kind() <= reflect.Uint64
+		case types.Double:
+			return kind.Kind() == reflect.Float32 || kind.Kind() == reflect.Float64
 		case types.Null:
 			return valueType.Kind() == reflect.Pointer || kind.Kind() == reflect.Map || kind.Kind() == reflect.Slice
 		}
