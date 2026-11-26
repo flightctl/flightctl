@@ -164,6 +164,57 @@ var _ = Describe("Device enrollment credential override API", func() {
 		Expect(api.FindStatusCondition(stored.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
 	})
 
+	It("When an agent replaces its conditions it should preserve the active credential flag", func() {
+		const name = "flagged-device"
+		seedFlaggedDevice(name)
+		conditions := []domain.Condition{{
+			Type:               domain.ConditionTypeDeviceUpdating,
+			Status:             domain.ConditionStatusTrue,
+			Reason:             string(domain.UpdateStatePreparing),
+			LastTransitionTime: time.Now().UTC(),
+		}}
+		patch := domain.PatchRequest{
+			{Op: domain.PatchOpReplace, Path: "/status/conditions", Value: conditions},
+			{Op: domain.PatchOpAdd, Path: "/status/systemInfo/agentVersion", Value: "2.0"},
+		}
+		_, result := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, name, patch, true)
+		Expect(result.Code).To(Equal(int32(http.StatusOK)), result.Message)
+
+		stored := readDevice(request(suite.Ctx, http.MethodGet, "/devices/"+name, ""))
+		Expect(stored.Status.SystemInfo.AgentVersion).To(Equal("2.0"))
+		Expect(api.IsStatusConditionTrue(stored.Status.Conditions, api.ConditionTypeDeviceUpdating)).To(BeTrue())
+		Expect(api.IsStatusConditionTrue(stored.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeTrue())
+		Expect(stored.Status.EnrollmentCredential.Revoked).To(BeTrue())
+		Expect(stored.Status.EnrollmentCredential.Override).To(BeNil())
+	})
+
+	It("When a status replacement races with a dismissal it should retain the dismissal", func() {
+		const name = "flagged-device"
+		seedFlaggedDevice(name)
+		path := "/devices/" + name
+		var dismissed api.Device
+		suite.DeviceStore.SetIntegrationTestCreateOrUpdateCallback(func() {
+			suite.DeviceStore.SetIntegrationTestCreateOrUpdateCallback(func() {})
+			dismissed = readDevice(request(suite.Ctx, http.MethodPost, path+"/enrollmentcredential/override", `{"reason":"Reviewed device enrollment"}`))
+		})
+		DeferCleanup(func() { suite.DeviceStore.SetIntegrationTestCreateOrUpdateCallback(func() {}) })
+
+		reported := domain.NewDeviceStatus()
+		reported.SystemInfo.AgentVersion = "2.0"
+		_, result := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, name, domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Status:   &reported,
+		}, true)
+		Expect(result.Code).To(Equal(int32(http.StatusOK)), result.Message)
+		Expect(dismissed.Status).NotTo(BeNil())
+		Expect(dismissed.Status.EnrollmentCredential.Override).NotTo(BeNil())
+
+		stored := readDevice(request(suite.Ctx, http.MethodGet, path, ""))
+		Expect(stored.Status.SystemInfo.AgentVersion).To(Equal("2.0"))
+		Expect(stored.Status.EnrollmentCredential).To(Equal(dismissed.Status.EnrollmentCredential))
+		Expect(api.FindStatusCondition(stored.Status.Conditions, api.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
+	})
+
 	It("When a Device flag is dismissed it should move from the active filter to the audit filter", func() {
 		seedFlaggedDevice("reviewed-device")
 		seedFlaggedDevice("other-device")

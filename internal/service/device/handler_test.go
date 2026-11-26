@@ -1464,6 +1464,78 @@ func TestReplaceDeviceStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
 	})
 }
 
+func TestPatchDeviceStatusPreservesEnrollmentCredentialCondition(t *testing.T) {
+	revoked := domain.Condition{
+		Type:               domain.ConditionTypeDeviceEnrollmentCredentialRevoked,
+		Status:             domain.ConditionStatusTrue,
+		Reason:             domain.EnrollmentCredentialRevokedReason,
+		LastTransitionTime: time.Now().UTC(),
+	}
+	reported := domain.Condition{
+		Type:               domain.ConditionTypeDeviceUpdating,
+		Status:             domain.ConditionStatusTrue,
+		Reason:             string(domain.UpdateStatePreparing),
+		LastTransitionTime: time.Now().UTC(),
+	}
+	forged := revoked
+	forged.Status = domain.ConditionStatusFalse
+
+	for _, tc := range []struct {
+		name         string
+		patch        domain.PatchRequest
+		agent        bool
+		expectedCode int32
+	}{
+		{
+			name:         "When an agent replaces its conditions it should preserve the revocation condition",
+			patch:        domain.PatchRequest{{Op: "replace", Path: "/status/conditions", Value: []domain.Condition{reported}}},
+			agent:        true,
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "When an agent supplies a changed revocation condition it should reject the patch",
+			patch:        domain.PatchRequest{{Op: "replace", Path: "/status/conditions", Value: []domain.Condition{reported, forged}}},
+			agent:        true,
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "When an agent directly removes the revocation condition it should reject the patch",
+			patch:        domain.PatchRequest{{Op: "remove", Path: "/status/conditions/0"}},
+			agent:        true,
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "When an admin omits the revocation condition it should reject the patch",
+			patch:        domain.PatchRequest{{Op: "replace", Path: "/status/conditions", Value: []domain.Condition{reported}}},
+			expectedCode: http.StatusBadRequest,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			ctx := context.Background()
+			orgID := uuid.New()
+			initialStatus := domain.NewDeviceStatus()
+			initialStatus.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{Revoked: true}
+			initialStatus.Conditions = []domain.Condition{revoked}
+			_, err := st.device.Create(ctx, orgID, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("flagged-device")},
+				Status:   &initialStatus,
+			}, nil)
+			require.NoError(t, err)
+
+			result, status := svc.PatchDeviceStatus(ctx, orgID, "flagged-device", tc.patch, tc.agent)
+			require.Equal(t, tc.expectedCode, status.Code, status.Message)
+			stored := st.device.devices["flagged-device"].Status
+			require.Equal(t, &revoked, domain.FindStatusCondition(stored.Conditions, revoked.Type))
+			require.Equal(t, initialStatus.EnrollmentCredential, stored.EnrollmentCredential)
+			if tc.expectedCode == http.StatusOK {
+				require.Equal(t, &reported, domain.FindStatusCondition(result.Status.Conditions, reported.Type))
+				require.Equal(t, &reported, domain.FindStatusCondition(stored.Conditions, reported.Type))
+			}
+		})
+	}
+}
+
 func TestReplaceServiceOwnedStatusPreservesEnrollmentCredentialStatus(t *testing.T) {
 	t.Run("When an administrator replaces service-owned status it should preserve enrollment credential provenance", func(t *testing.T) {
 		st, _, svc := newTestHandler()
