@@ -53,7 +53,9 @@ func TestCmdOverrideDeviceFlag(t *testing.T) {
 				requests <- record
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
-				_, _ = io.WriteString(w, tt.response)
+				if _, err := io.WriteString(w, tt.response); err != nil {
+					t.Errorf("writing override response: %v", err)
+				}
 			}))
 			defer server.Close()
 			configDir := t.TempDir()

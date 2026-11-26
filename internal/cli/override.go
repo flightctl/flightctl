@@ -11,6 +11,7 @@ import (
 )
 
 func NewCmdOverride() *cobra.Command {
+	const reasonFlag = "reason"
 	options := DefaultGlobalOptions()
 	var reason string
 	cmd := &cobra.Command{
@@ -54,8 +55,9 @@ blocks new enrollment.`,
 		SilenceUsage: true,
 	}
 	options.Bind(cmd.Flags())
-	cmd.Flags().StringVarP(&reason, "reason", "r", "", "Audit reason for dismissing the flag.")
-	_ = cmd.MarkFlagRequired("reason")
+	cmd.Flags().StringVarP(&reason, reasonFlag, "r", "", "Audit reason for dismissing the flag.")
+	// MarkFlagRequired only fails for an unregistered flag. The flag is registered above.
+	_ = cmd.MarkFlagRequired(reasonFlag)
 	return cmd
 }
 
