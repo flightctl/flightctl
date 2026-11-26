@@ -235,6 +235,33 @@ flightctl revoke certificatesigningrequest my-enrollment-credential --reason "de
 
 ---
 
+## flightctl override
+
+Dismiss a revoked enrollment credential flag on one Device.
+
+### Synopsis
+
+```shell
+flightctl override device/NAME --reason <reason>
+flightctl override device NAME --reason <reason>
+```
+
+### Flags
+
+* `-r, --reason <reason>` - Required audit reason for the dismissal. Provide 1 to 1024 characters with at least one non-whitespace character.
+
+### Description
+
+An administrator can dismiss the Device's flag. The server records the administrator, time, and reason. Repeating the command succeeds and preserves the first audit record. The revoked credential continues to block new enrollment.
+
+### Example
+
+```shell
+flightctl override device/my-device --reason "Reviewed device enrollment"
+```
+
+---
+
 ## Managing enrollment hook policies
 
 Manage the enrollment hook policy used when devices are approved for enrollment.

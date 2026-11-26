@@ -92,7 +92,13 @@ To list devices flagged by credential revocation, use the `status.enrollmentCred
 
 ### Dismissing a revoked enrollment credential flag
 
-An administrator can dismiss the flag on one flagged device by sending a `POST` request to `/api/v1/devices/<device_name>/enrollmentcredential/override` with `Content-Type: application/json` and a reason in the request body.
+An administrator can dismiss the flag on one flagged device using the CLI.
+
+```shell
+flightctl override device/<device_name> --reason "Reviewed device enrollment"
+```
+
+To call the API directly, send a `POST` request to `/api/v1/devices/<device_name>/enrollmentcredential/override` with `Content-Type: application/json` and a reason in the request body.
 
 ```json
 {"reason": "Reviewed the device's enrollment history"}

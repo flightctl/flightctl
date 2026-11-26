@@ -26,6 +26,7 @@ import (
 
 const (
 	revokeReason        = "e2e enrollment credential compromised"
+	overrideReason      = "e2e reviewed device enrollment"
 	revokeSimulatorUser = "revoke-e2e"
 )
 
@@ -159,7 +160,7 @@ var _ = Describe("enrollment credential revocation", Label("client"), func() {
 		Expect(resp.JSON200.Status.Revocation.RevokedAt).To(Equal(firstRevocation.RevokedAt))
 	})
 
-	It("denies pending requests and flags admitted devices after revocation", Label("sanity"), func() {
+	It("denies pending requests and dismisses an admitted device's revocation flag through the CLI", Label("sanity"), func() {
 		harness := e2e.GetWorkerHarness()
 		testID := harness.GetTestIDFromContext()
 
@@ -212,8 +213,8 @@ var _ = Describe("enrollment credential revocation", Label("client"), func() {
 			if err != nil {
 				return err
 			}
-			if resp.JSON200 == nil {
-				return fmt.Errorf("device disappeared after revocation")
+			if resp.JSON200 == nil || resp.JSON200.Status == nil {
+				return fmt.Errorf("device status not readable after revocation")
 			}
 			credential := resp.JSON200.Status.EnrollmentCredential
 			if credential == nil || !credential.Revoked {
@@ -230,7 +231,7 @@ var _ = Describe("enrollment credential revocation", Label("client"), func() {
 		}, LONG_TIMEOUT, LONG_POLLING).Should(Succeed())
 
 		By("recording completion of consequence processing on the CSR")
-		var revokedAt time.Time
+		var recordedRevocation *v1beta1.EnrollmentCertificateRevocation
 		Eventually(func() error {
 			resp, err := harness.Client.GetCertificateSigningRequestWithResponse(harness.Context, csrName)
 			if err != nil {
@@ -240,20 +241,55 @@ var _ = Describe("enrollment credential revocation", Label("client"), func() {
 				return fmt.Errorf("revocation not recorded")
 			}
 			revocation := resp.JSON200.Status.Revocation
-			revokedAt = revocation.RevokedAt
 			if revocation.FlaggingCompletedAt == nil {
 				return fmt.Errorf("flagging has not completed yet")
 			}
+			recordedRevocation = revocation
 			return nil
 		}, LONG_TIMEOUT, LONG_POLLING).Should(Succeed())
-		Expect(revokedAt.IsZero()).To(BeFalse())
 
 		By("listing flagged devices with the revocation field selector")
-		out, err = harness.CLI("get", "devices", "--field-selector", "status.enrollmentCredential.revoked=true")
+		activeSelector := "status.enrollmentCredential.revoked=true,enrollmentCertificateName=" + csrName
+		out, err = harness.CLI("get", "devices", "--field-selector", activeSelector)
 		Expect(err).NotTo(HaveOccurred(), out)
 		Expect(out).To(ContainSubstring(deviceName))
 
-		By("keeping the admitted device managed after revocation")
+		By("dismissing the Device flag through the CLI and reading its audit record")
+		out, err = harness.CLI("override", "device/"+deviceName, "--reason", overrideReason)
+		Expect(err).NotTo(HaveOccurred(), out)
+		Expect(out).To(ContainSubstring(fmt.Sprintf("Dismissed revoked enrollment credential flag on device %q", deviceName)))
+		readOverride := func() *v1beta1.DeviceEnrollmentCredentialOverride {
+			GinkgoHelper()
+			resp, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.JSON200).NotTo(BeNil())
+			Expect(resp.JSON200.Status).NotTo(BeNil())
+			credential := resp.JSON200.Status.EnrollmentCredential
+			Expect(credential).NotTo(BeNil())
+			Expect(credential.Revoked).To(BeTrue())
+			Expect(credential.Override).NotTo(BeNil())
+			Expect(v1beta1.FindStatusCondition(resp.JSON200.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentCredentialRevoked)).To(BeNil())
+			return credential.Override
+		}
+		firstOverride := readOverride()
+		Expect(firstOverride.Reason).To(Equal(overrideReason))
+		Expect(firstOverride.OverriddenBy).To(Equal(recordedRevocation.RevokedBy))
+		Expect(firstOverride.OverriddenAt).To(BeTemporally(">=", recordedRevocation.RevokedAt))
+
+		By("preserving the original dismissal on a repeated override")
+		out, err = harness.CLI("override", "device", deviceName, "-r", "different reason")
+		Expect(err).NotTo(HaveOccurred(), out)
+		Expect(readOverride()).To(Equal(firstOverride))
+
+		By("showing the dismissed device through the audit selector")
+		out, err = harness.CLI("get", "devices", "--field-selector", activeSelector)
+		Expect(err).NotTo(HaveOccurred(), out)
+		Expect(out).NotTo(ContainSubstring(deviceName))
+		out, err = harness.CLI("get", "devices", "--field-selector", "status.enrollmentCredential.override,enrollmentCertificateName="+csrName)
+		Expect(err).NotTo(HaveOccurred(), out)
+		Expect(out).To(ContainSubstring(deviceName))
+
+		By("keeping the admitted device managed after the dismissal")
 		Eventually(func() (bool, error) {
 			summary, err := harness.GetDeviceWithStatusSummary(deviceName)
 			if err != nil {
@@ -266,16 +302,21 @@ var _ = Describe("enrollment credential revocation", Label("client"), func() {
 			if lastSeenResp.JSON200 == nil {
 				return false, fmt.Errorf("unexpected lastSeen status %d", lastSeenResp.StatusCode())
 			}
-			return summary == v1beta1.DeviceSummaryStatusOnline && lastSeenResp.JSON200.LastSeen.After(revokedAt), nil
-		}, TIMEOUT, POLLING).Should(BeTrue(), "device should remain online and report activity after revocation")
+			return summary == v1beta1.DeviceSummaryStatusOnline && lastSeenResp.JSON200.LastSeen.After(firstOverride.OverriddenAt), nil
+		}, TIMEOUT, POLLING).Should(BeTrue(), "device should remain online and report activity after the dismissal")
 
-		By("rejecting new enrollment with the revoked credential")
+		By("keeping the original CSR revocation and rejecting new enrollment")
+		csrResp, err := harness.Client.GetCertificateSigningRequestWithResponse(harness.Context, csrName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(csrResp.JSON200).NotTo(BeNil())
+		Expect(csrResp.JSON200.Status).NotTo(BeNil())
+		Expect(csrResp.JSON200.Status.Revocation).To(Equal(recordedRevocation))
 		enrollmentClient := enrollmentClientForCredential(configPath)
-		deviceName, csrPEM := GenerateDeviceNameAndCSR()
+		newDeviceName, csrPEM := GenerateDeviceNameAndCSR()
 		createResp, err := enrollmentClient.CreateEnrollmentRequestWithResponse(harness.Context, v1beta1.EnrollmentRequest{
 			ApiVersion: v1beta1.EnrollmentRequestAPIVersion,
 			Kind:       v1beta1.EnrollmentRequestKind,
-			Metadata:   v1beta1.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Metadata:   v1beta1.ObjectMeta{Name: lo.ToPtr(newDeviceName)},
 			Spec:       v1beta1.EnrollmentRequestSpec{Csr: string(csrPEM)},
 		})
 		Expect(err).NotTo(HaveOccurred())
