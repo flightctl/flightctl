@@ -76,6 +76,10 @@ labels.
 `Matcher.Compile` checks the syntax, result type, and supported operations
 before returning a reusable expression. The matcher reads the following
 operands from an EnrollmentRequest's `spec.deviceStatus.systemInfo`.
+The enrollment policy service uses this compiler when creating an enabled
+policy, enabling a draft, or changing an enabled policy's expression. It
+reports compiler diagnostics for `spec.matchExpression` in `InvalidPolicy`
+responses.
 
 | Operand | CEL type |
 | --- | --- |

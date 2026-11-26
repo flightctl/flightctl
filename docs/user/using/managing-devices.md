@@ -67,6 +67,26 @@ The agent can report hook outcomes by changing `Pending` to `Succeeded`, `Contin
 
 For hook configuration, failure policies, and restart behavior, see [Using enrollment hooks](enrollment-hooks.md).
 
+### Writing an enrollment policy expression
+
+Set `spec.matchExpression` on an `EnrollmentApprovalPolicy` to a CEL expression
+that returns `true` or `false`. Expressions read the device's reported
+`systemInfo.productSerial`, `systemInfo.productUuid`, or a custom collector key
+such as `systemInfo.customInfo["site"]`.
+
+Use `==` to compare a field to a string, `in` to compare it to a list of strings,
+and `&&` to require several conditions. Use quotes around custom keys and values.
+
+```cel
+systemInfo.productSerial == "SN-001" && systemInfo.customInfo["site"] in ["east", "west"]
+```
+
+Expressions can contain up to 1,000 Unicode code points. The server checks the
+expression when you create an enabled policy, enable a saved draft, or change
+the expression on an enabled policy. For expression errors, the `InvalidPolicy`
+response points to `spec.matchExpression` and explains the issue. Use
+`flightctl approve` to approve enrollment requests.
+
 ### Revoking enrollment credentials
 
 Revocation applies to an issued enrollment credential and has consequences for new enrollment, pending Enrollment Requests, and admitted devices.
