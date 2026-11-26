@@ -92,15 +92,15 @@ func TestUpdateScheduleJSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "When a one-time schedule is round-tripped it should preserve the JSON contract",
-			json: `{"downloadSchedule":{"timeZone":"Europe/Jerusalem","oneTimeWindows":[{"date":"2026-11-15","at":"22:00","startGraceDuration":"90m"}]}}`,
+			json: `{"downloadSchedule":{"timeZone":"Europe/Jerusalem","oneTimeWindows":[{"date":"2026-11-15","startTime":"22:00","startGraceDuration":"90m"}]}}`,
 		},
 		{
 			name: "When recurring and one-time schedules are combined it should preserve the JSON contract",
-			json: `{"updateSchedule":{"at":"0 4 * * 1","startGraceDuration":"1h","timeZone":"UTC","oneTimeWindows":[{"date":"2026-11-16","at":"04:00","startGraceDuration":"2h"}]}}`,
+			json: `{"updateSchedule":{"at":"0 4 * * 1","startGraceDuration":"1h","timeZone":"UTC","oneTimeWindows":[{"date":"2026-11-16","startTime":"04:00","startGraceDuration":"2h"}]}}`,
 		},
 		{
 			name: "When download and update schedules are independent it should preserve the JSON contract",
-			json: `{"downloadSchedule":{"timeZone":"Europe/Jerusalem","oneTimeWindows":[{"date":"2026-11-15","at":"22:00","startGraceDuration":"90m"}]},"updateSchedule":{"timeZone":"UTC","oneTimeWindows":[{"date":"2026-11-16","at":"04:00","startGraceDuration":"2h"}]}}`,
+			json: `{"downloadSchedule":{"timeZone":"Europe/Jerusalem","oneTimeWindows":[{"date":"2026-11-15","startTime":"22:00","startGraceDuration":"90m"}]},"updateSchedule":{"timeZone":"UTC","oneTimeWindows":[{"date":"2026-11-16","startTime":"04:00","startGraceDuration":"2h"}]}}`,
 		},
 	}
 
@@ -138,7 +138,7 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 			value: map[string]any{
 				"oneTimeWindows": []any{map[string]any{
 					"date":               "2026-11-15",
-					"at":                 "22:00",
+					"startTime":          "22:00",
 					"startGraceDuration": "90m",
 				}},
 			},
@@ -150,7 +150,7 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 				"startGraceDuration": "1h",
 				"oneTimeWindows": []any{map[string]any{
 					"date":               "2026-11-15",
-					"at":                 "22:00",
+					"startTime":          "22:00",
 					"startGraceDuration": "90m",
 				}},
 			},
@@ -180,7 +180,7 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 			name: "When a one-time window omits its date it should fail schema validation",
 			value: map[string]any{
 				"oneTimeWindows": []any{map[string]any{
-					"at":                 "22:00",
+					"startTime":          "22:00",
 					"startGraceDuration": "90m",
 				}},
 			},
@@ -200,8 +200,8 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 			name: "When a one-time window omits its grace duration it should fail schema validation",
 			value: map[string]any{
 				"oneTimeWindows": []any{map[string]any{
-					"date": "2026-11-15",
-					"at":   "22:00",
+					"date":      "2026-11-15",
+					"startTime": "22:00",
 				}},
 			},
 			wantErr: true,
@@ -211,7 +211,7 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 			value: map[string]any{
 				"oneTimeWindows": []any{map[string]any{
 					"date":               "2026-1-15",
-					"at":                 "22:00",
+					"startTime":          "22:00",
 					"startGraceDuration": "90m",
 				}},
 			},
@@ -222,7 +222,18 @@ func TestUpdateScheduleSchemaRequiresCompleteRecurringFields(t *testing.T) {
 			value: map[string]any{
 				"oneTimeWindows": []any{map[string]any{
 					"date":               "2026-11-15",
-					"at":                 "24:00",
+					"startTime":          "24:00",
+					"startGraceDuration": "90m",
+				}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "When a one-time window uses the removed at field it should fail schema validation",
+			value: map[string]any{
+				"oneTimeWindows": []any{map[string]any{
+					"date":               "2026-11-15",
+					"at":                 "22:00",
 					"startGraceDuration": "90m",
 				}},
 			},

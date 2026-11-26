@@ -7836,9 +7836,10 @@ components:
                     - required: [oneTimeWindows]
     OneTimeWindow:
       type: object
+      additionalProperties: false
       required:
         - date
-        - at
+        - startTime
         - startGraceDuration
       properties:
         date:
@@ -7846,7 +7847,7 @@ components:
           pattern: '^\d{4}-\d{2}-\d{2}$'
           description: Exact calendar date on which the one-time window opens, for example 2026-11-15.
           example: "2026-11-15"
-        at:
+        startTime:
           type: string
           pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
           description: Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
