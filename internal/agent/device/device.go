@@ -279,6 +279,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		}
 
 		if !a.specManager.IsUpgrading() {
+			if a.failPendingRollback(ctx, syncErr) {
+				return
+			}
 			// if the device is not upgrading, we should never see a sync error
 			// because the device is in a steady state. this is a potential bug in
 			// the reconciliation loop if the error is not retryable.
@@ -628,6 +631,16 @@ func (a *Agent) retryPendingRollbackResult(ctx context.Context) {
 	if err := reportTerminalRollback(ctx, a.statusManager, result); err != nil {
 		a.log.Warnf("Failed to report persisted rollback result: %v", err)
 	}
+}
+
+func (a *Agent) failPendingRollback(ctx context.Context, syncErr error) bool {
+	if a.pendingRollbackResult == nil || a.pendingRollbackResult.Outcome != "" || errors.IsRetryable(syncErr) {
+		return false
+	}
+	a.pendingRollbackResult.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
+	a.pendingRollbackResult.Cause = syncErr.Error()
+	a.retryPendingRollbackResult(ctx)
+	return true
 }
 
 func (a *Agent) confirmPendingRollback(ctx context.Context, desired *v1beta1.Device) {

@@ -327,26 +327,6 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 			}
 			if err == nil && rollbackInfo.ErrorMessage != "" && rollbackInfo.Outcome == "" {
 				b.pendingRollbackResult = &rollbackInfo
-				desired, readErr := b.specManager.Read(spec.Desired)
-				if readErr != nil {
-					b.log.Warnf("Could not read restored spec to confirm rollback: %v", readErr)
-				} else {
-					reconciled := false
-					if desired.Spec != nil && desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
-						_, reconciled, readErr = b.specManager.CheckOsReconciliation(ctx)
-						if readErr != nil {
-							b.log.Warnf("Could not confirm rollback outcome: %v", readErr)
-						}
-					}
-					if readErr == nil && reconciled {
-						if recordErr := b.specManager.RecordRollbackResult(ctx, v1beta1.DeviceUpdateContextRollbackCompleted, "", rollbackInfo.ErrorMessage); recordErr != nil {
-							b.log.Warnf("Could not persist rollback outcome: %v", recordErr)
-							rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackCompleted
-						} else {
-							b.pendingRollbackResult = nil
-						}
-					}
-				}
 			}
 		}
 		return nil
@@ -409,21 +389,12 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", errSpecRollbackFailed, err)
 	}
 	if rollbackInfo.Outcome == "" {
-		rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackCompleted
 		if !errorPersisted {
 			if err := b.specManager.RecordRollbackError(ctx, rollbackInfo.ErrorMessage); err != nil {
 				b.log.Warnf("Could not persist rollback error after recovery: %v", err)
-				b.pendingRollbackResult = &rollbackInfo
-			} else {
-				errorPersisted = true
 			}
 		}
-		if errorPersisted {
-			if err := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, "", rollbackInfo.ErrorMessage); err != nil {
-				b.log.Warnf("Could not persist rollback result: %v", err)
-				b.pendingRollbackResult = &rollbackInfo
-			}
-		}
+		b.pendingRollbackResult = &rollbackInfo
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")
 

@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -700,6 +701,53 @@ func TestRetryPendingRollbackResult(t *testing.T) {
 	require.NotNil(t, reported)
 	require.NotNil(t, reported.UpdateContext)
 	require.Equal(t, result.Outcome, *reported.UpdateContext)
+}
+
+func TestFailedRestoredSpecSyncReportsRollbackFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{statusManager: statusManager, specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	cause := errors.New("restored config cannot be applied")
+
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, cause.Error(), info.ErrorMessage).Return(nil)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+	require.True(t, agent.failPendingRollback(context.Background(), cause))
+
+	require.Nil(t, agent.pendingRollbackResult)
+	reported := statusManager.Get(context.Background())
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, *reported.UpdateContext)
+	condition := v1beta1.FindStatusCondition(reported.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	require.NotNil(t, condition)
+	require.Contains(t, condition.Message, info.ErrorMessage)
+	require.Contains(t, condition.Message, cause.Error())
+}
+
+func TestFailedRestoredSpecSyncWaitsForDurableResult(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	specManager := spec.NewMockManager(ctrl)
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	cause := errors.New("restored config cannot be applied")
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, cause.Error(), info.ErrorMessage).Return(errors.New("disk unavailable"))
+
+	require.True(t, agent.failPendingRollback(context.Background(), cause))
+	require.NotNil(t, agent.pendingRollbackResult)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, agent.pendingRollbackResult.Outcome)
+	require.Equal(t, cause.Error(), agent.pendingRollbackResult.Cause)
+}
+
+func TestRetryableRestoredSpecSyncKeepsRollbackPending(t *testing.T) {
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{pendingRollbackResult: &info}
+	require.False(t, agent.failPendingRollback(context.Background(), fmt.Errorf("%w: retry", errors.ErrRetryable)))
+	require.Empty(t, agent.pendingRollbackResult.Outcome)
 }
 
 func TestConfirmPendingConfigRollback(t *testing.T) {

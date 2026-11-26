@@ -159,14 +159,15 @@ func TestInitialize(t *testing.T) {
 		// desired
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		// rollback
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
+		mockReadWriter.EXPECT().WriteFileDurable(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize(context.Background())
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(3).Return(nil)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(2).Return(nil)
+		mockReadWriter.EXPECT().WriteFileDurable(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		mockPolicyManager.EXPECT().IsReady(context.Background(), gomock.Any()).Return(true).Times(2)
 		err := s.Initialize(context.Background())
 		require.NoError(err)
@@ -242,7 +243,8 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
 		// write loop: all 3 files reset to "0"
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(3).Return(nil)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(2).Return(nil)
+		mockReadWriter.EXPECT().WriteFileDurable(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)
 		err := s.Ensure()
@@ -367,14 +369,14 @@ func Test_writeRenderedToFile(t *testing.T) {
 		writeErr := errors.New("some failure")
 		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(writeErr)
 
-		err = writeDeviceToFile(mockWriter, spec, filePath)
+		err = writeDeviceToFile(mockWriter, spec, filePath, false)
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("writes a rendered spec", func(t *testing.T) {
 		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(nil)
 
-		err = writeDeviceToFile(mockWriter, spec, filePath)
+		err = writeDeviceToFile(mockWriter, spec, filePath, false)
 		require.NoError(err)
 	})
 }
@@ -417,7 +419,7 @@ func TestUpgrade(t *testing.T) {
 				require.NoError(err)
 				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
 				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
-				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(specErr)
+				mrw.EXPECT().WriteFileDurable(rollbackPath, emptySpec, gomock.Any(), gomock.Any()).Return(specErr)
 			},
 			expectedError: errors.ErrWritingRenderedSpec,
 		},
@@ -428,7 +430,7 @@ func TestUpgrade(t *testing.T) {
 				require.NoError(err)
 				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
 				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
-				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
+				mrw.EXPECT().WriteFileDurable(rollbackPath, emptySpec, gomock.Any(), gomock.Any()).Return(nil)
 				mpq.EXPECT().Remove(gomock.Any())
 			},
 			expectedError: nil,
@@ -681,7 +683,7 @@ func TestCreateRollback(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
 
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).Return(specErr)
+		mockReadWriter.EXPECT().WriteFileDurable(rollbackPath, gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
 
 		err = s.CreateRollback(ctx)
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
@@ -696,7 +698,7 @@ func TestCreateRollback(t *testing.T) {
 
 		rollbackSpec, err := createTestDeviceBytes(currentImage)
 		require.NoError(err)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+		mockReadWriter.EXPECT().WriteFileDurable(rollbackPath, rollbackSpec, gomock.Any(), gomock.Any()).Return(nil)
 
 		err = s.CreateRollback(ctx)
 		require.NoError(err)
@@ -717,7 +719,7 @@ func TestCreateRollback(t *testing.T) {
 
 		rollbackSpec, err := createTestDeviceBytes(bootedImage)
 		require.NoError(err)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+		mockReadWriter.EXPECT().WriteFileDurable(rollbackPath, rollbackSpec, gomock.Any(), gomock.Any()).Return(nil)
 
 		err = s.CreateRollback(ctx)
 		require.NoError(err)
@@ -738,7 +740,7 @@ func TestCreateRollback(t *testing.T) {
 
 		rollbackSpec, err := createTestDeviceBytes(bootedImage)
 		require.NoError(err)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+		mockReadWriter.EXPECT().WriteFileDurable(rollbackPath, rollbackSpec, gomock.Any(), gomock.Any()).Return(nil)
 
 		err = s.CreateRollback(ctx)
 		require.NoError(err)
@@ -858,8 +860,8 @@ func TestRecordRollbackError(t *testing.T) {
 		existing, err := json.Marshal(device)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(existing, nil)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).DoAndReturn(
-			func(_ string, data []byte, _ fs.FileMode, _ ...fileio.FileOption) error {
+		mockReadWriter.EXPECT().WriteFileDurable(rollbackPath, gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ string, data []byte, _, _ fs.FileMode, _ ...fileio.FileOption) error {
 				var written v1beta1.Device
 				require.NoError(json.Unmarshal(data, &written))
 				require.Equal("6", (*written.Metadata.Annotations)[annotationDesiredVersion])

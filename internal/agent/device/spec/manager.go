@@ -357,9 +357,7 @@ func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
 	}
 	annotations := *rollback.Metadata.Annotations
 	outcome := v1beta1.DeviceUpdateContext(annotations[annotationRollbackOutcome])
-	if outcome != "" && outcome != v1beta1.DeviceUpdateContextRollbackCompleted &&
-		outcome != v1beta1.DeviceUpdateContextRollbackFailed &&
-		outcome != v1beta1.DeviceUpdateContextRollbackTimedOut {
+	if outcome != "" && !validRollbackOutcome(outcome) {
 		return RollbackInfo{}, fmt.Errorf("invalid persisted rollback outcome %q", outcome)
 	}
 	return RollbackInfo{
@@ -395,9 +393,7 @@ func (s *manager) RecordRollbackError(ctx context.Context, message string) error
 }
 
 func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error {
-	if outcome != v1beta1.DeviceUpdateContextRollbackCompleted &&
-		outcome != v1beta1.DeviceUpdateContextRollbackFailed &&
-		outcome != v1beta1.DeviceUpdateContextRollbackTimedOut {
+	if !validRollbackOutcome(outcome) {
 		return fmt.Errorf("invalid rollback outcome %q", outcome)
 	}
 	if errorMessage == "" {
@@ -709,7 +705,7 @@ func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Devi
 		}
 	}
 
-	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
+	err = writeDeviceToFile(s.deviceReadWriter, device, filePath, specType == Rollback)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", specType, err)
 	}
@@ -801,15 +797,26 @@ func readDeviceFromFile(
 	return &current, nil
 }
 
-func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string) error {
+func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string, durable bool) error {
 	deviceBytes, err := json.Marshal(device)
 	if err != nil {
 		return err
 	}
-	if err := writer.WriteFile(filePath, deviceBytes, fileio.DefaultFilePermissions); err != nil {
+	if durable {
+		err = writer.WriteFileDurable(filePath, deviceBytes, fileio.DefaultDirectoryPermissions, fileio.DefaultFilePermissions)
+	} else {
+		err = writer.WriteFile(filePath, deviceBytes, fileio.DefaultFilePermissions)
+	}
+	if err != nil {
 		return fmt.Errorf("%w: writing to %q: %w", errors.ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
+}
+
+func validRollbackOutcome(outcome v1beta1.DeviceUpdateContext) bool {
+	return outcome == v1beta1.DeviceUpdateContextRollbackCompleted ||
+		outcome == v1beta1.DeviceUpdateContextRollbackFailed ||
+		outcome == v1beta1.DeviceUpdateContextRollbackTimedOut
 }
 
 func IsUpgrading(current *v1beta1.Device, desired *v1beta1.Device) bool {

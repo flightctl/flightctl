@@ -388,7 +388,6 @@ func TestBootstrapCheckRollback(t *testing.T) {
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(nil),
-					mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2"),
 					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
 				)
@@ -535,7 +534,6 @@ func TestEnsureBootedOS(t *testing.T) {
 				mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil)
 				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
-				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", gomock.Any()).Return(nil)
 				mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
 				mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2")
 				mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
@@ -636,7 +634,7 @@ func patchOpsForCondition(idx int, expectedStatus v1beta1.ConditionStatus, expec
 	}
 }
 
-func TestEnsureBootedOSPersistsCompletedRollback(t *testing.T) {
+func TestEnsureBootedOSDefersCompletedRollbackUntilSpecSync(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockSpecManager := spec.NewMockManager(ctrl)
@@ -648,34 +646,11 @@ func TestEnsureBootedOSPersistsCompletedRollback(t *testing.T) {
 		ErrorMessage: "failed to apply requested OS image",
 	}, nil)
 	mockSpecManager.EXPECT().SetUpgradeFailed("6", "abc123").Return(nil)
-	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "previous-image"}}}, nil)
-	mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("previous-image", true, nil)
-	mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", "failed to apply requested OS image").Return(nil)
-
-	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
-	require.NoError(t, b.ensureBootedOS(context.Background()))
-}
-
-func TestEnsureBootedOSRetriesOutcomeWriteWithoutReboot(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	mockSpecManager := spec.NewMockManager(ctrl)
-	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
-	mockSpecManager.EXPECT().IsUpgrading().Return(false)
-	mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{
-		Version:      "6",
-		SpecHash:     "abc123",
-		ErrorMessage: "failed to apply requested OS image",
-	}, nil)
-	mockSpecManager.EXPECT().SetUpgradeFailed("6", "abc123").Return(nil)
-	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "previous-image"}}}, nil)
-	mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("previous-image", true, nil)
-	mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", "failed to apply requested OS image").Return(errors.New("disk unavailable"))
 
 	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
 	require.NoError(t, b.ensureBootedOS(context.Background()))
 	require.NotNil(t, b.PendingRollbackResult())
-	require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, b.PendingRollbackResult().Outcome)
+	require.Empty(t, b.PendingRollbackResult().Outcome)
 }
 
 func TestEnsureBootedOSDefersConfigOnlyRollbackConfirmation(t *testing.T) {
@@ -685,7 +660,6 @@ func TestEnsureBootedOSDefersConfigOnlyRollbackConfirmation(t *testing.T) {
 	mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 	mockSpecManager.EXPECT().IsUpgrading().Return(false)
 	mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{ErrorMessage: "config update failed"}, nil)
-	mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil)
 
 	b := &Bootstrap{specManager: mockSpecManager, log: log.NewPrefixLogger("test")}
 	require.NoError(t, b.ensureBootedOS(context.Background()))
@@ -701,7 +675,6 @@ func TestEmptyOSTargetConfirmsRollbackAfterSync(t *testing.T) {
 	specManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 	specManager.EXPECT().IsUpgrading().Return(false)
 	specManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{ErrorMessage: "config update failed"}, nil)
-	specManager.EXPECT().Read(spec.Desired).Return(desired, nil)
 
 	b := &Bootstrap{specManager: specManager, log: log.NewPrefixLogger("test")}
 	require.NoError(t, b.ensureBootedOS(context.Background()))
