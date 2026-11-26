@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -218,10 +220,23 @@ func (m *StatusManager) update(ctx context.Context) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, statusUpdateTimeout)
 	defer cancel()
+	if m.device.Metadata.ResourceVersion == nil {
+		if err := m.refreshResourceVersion(ctx); err != nil {
+			m.log.Warnf("Failed to get device status version: %v", err)
+			return false
+		}
+	}
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
 		m.log.Warnf("Failed to update device status: %v", err)
+		if errors.Is(err, client.ErrStatusConflict) {
+			m.device.Metadata.ResourceVersion = nil
+			if refreshErr := m.refreshResourceVersion(ctx); refreshErr != nil {
+				m.log.Warnf("Failed to refresh device status version: %v", refreshErr)
+			}
+		}
 		return false
 	}
+	m.advanceResourceVersion()
 	st, ok := deepcopy.Copy(m.device.Status).(*v1beta1.DeviceStatus)
 	if !ok {
 		m.log.Warn("Failed to deep copy device status")
@@ -229,6 +244,34 @@ func (m *StatusManager) update(ctx context.Context) bool {
 	}
 	m.lastStatus = st
 	return true
+}
+
+func (m *StatusManager) refreshResourceVersion(ctx context.Context) error {
+	device, code, err := m.managementClient.GetRenderedDevice(ctx, m.deviceName, nil)
+	if err != nil {
+		return err
+	}
+	if code == http.StatusConflict {
+		return nil // Enrollment hooks can gate the rendered read while status must still be reported.
+	}
+	if code != http.StatusOK || device == nil || device.Metadata.ResourceVersion == nil {
+		return fmt.Errorf("rendered device did not provide a resource version (status %d)", code)
+	}
+	m.device.Metadata.ResourceVersion = device.Metadata.ResourceVersion
+	return nil
+}
+
+func (m *StatusManager) advanceResourceVersion() {
+	if m.device.Metadata.ResourceVersion == nil {
+		return
+	}
+	version, err := strconv.ParseInt(*m.device.Metadata.ResourceVersion, 10, 64)
+	if err != nil || version < 0 || version == 1<<63-1 {
+		m.device.Metadata.ResourceVersion = nil
+		return
+	}
+	next := strconv.FormatInt(version+1, 10)
+	m.device.Metadata.ResourceVersion = &next
 }
 
 func (m *StatusManager) Sync(ctx context.Context) error {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -57,6 +58,19 @@ func TestNewFromConfigWithRetry(t *testing.T) {
 	// should succeeded after 3 attempts
 	require.Equal(3, attempts)
 	require.Equal(http.StatusOK, resp.StatusCode())
+}
+
+func TestManagementClient_StatusConflict(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(statusConflictResponse))
+	defer server.Close()
+
+	config := &baseclient.Config{Service: baseclient.Service{Server: server.URL}}
+	httpClient, err := NewFromConfig(config, log.NewPrefixLogger("test"))
+	require.NoError(t, err)
+
+	management := NewManagement(httpClient, nil)
+	err = management.UpdateDeviceStatus(context.Background(), "test-device", v1beta1.Device{})
+	require.ErrorIs(t, err, ErrStatusConflict)
 }
 
 func TestManagementClient_DeviceNotFoundHandling(t *testing.T) {
@@ -187,4 +201,8 @@ func TestManagementClient_DeviceNotFoundHandling(t *testing.T) {
 		require.Equal(http.StatusNotFound, statusCode)
 		require.Nil(device)
 	})
+}
+
+func statusConflictResponse(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusConflict)
 }
