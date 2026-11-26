@@ -401,6 +401,21 @@ func (mr *MockServiceMockRecorder) MarkDevicesRolloutSelection(ctx, orgId, param
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).MarkDevicesRolloutSelection), ctx, orgId, params, annotationSelector, limit)
 }
 
+// OverrideDeviceEnrollmentCredential mocks base method.
+func (m *MockService) OverrideDeviceEnrollmentCredential(ctx context.Context, orgId uuid.UUID, name string, request domain.DeviceEnrollmentCredentialOverrideRequest) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OverrideDeviceEnrollmentCredential", ctx, orgId, name, request)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// OverrideDeviceEnrollmentCredential indicates an expected call of OverrideDeviceEnrollmentCredential.
+func (mr *MockServiceMockRecorder) OverrideDeviceEnrollmentCredential(ctx, orgId, name, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverrideDeviceEnrollmentCredential", reflect.TypeOf((*MockService)(nil).OverrideDeviceEnrollmentCredential), ctx, orgId, name, request)
+}
+
 // OverrideDeviceEnrollmentHook mocks base method.
 func (m *MockService) OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()

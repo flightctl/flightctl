@@ -1520,8 +1520,29 @@ type DeviceDeltaApplyStatus struct {
 	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
+// DeviceEnrollmentCredentialOverride Immutable server-owned record of a revoked enrollment credential flag dismissal.
+type DeviceEnrollmentCredentialOverride struct {
+	// OverriddenAt The time at which the flag was dismissed.
+	OverriddenAt time.Time `json:"overriddenAt"`
+
+	// OverriddenBy The authenticated administrator who dismissed the flag.
+	OverriddenBy string `json:"overriddenBy"`
+
+	// Reason The administrator's reason for dismissing the flag.
+	Reason string `json:"reason"`
+}
+
+// DeviceEnrollmentCredentialOverrideRequest Request to dismiss the revoked enrollment credential flag on a device.
+type DeviceEnrollmentCredentialOverrideRequest struct {
+	// Reason The administrator's reason for dismissing the flag.
+	Reason string `json:"reason"`
+}
+
 // DeviceEnrollmentCredentialStatus Server-owned enrollment credential revocation state for a device.
 type DeviceEnrollmentCredentialStatus struct {
+	// Override Immutable server-owned record of a revoked enrollment credential flag dismissal.
+	Override *DeviceEnrollmentCredentialOverride `json:"override,omitempty"`
+
 	// Revoked Whether the credential that admitted the device was revoked.
 	Revoked bool `json:"revoked"`
 }
@@ -4740,6 +4761,9 @@ type ReplaceDeviceJSONRequestBody = Device
 
 // DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
 type DecommissionDeviceJSONRequestBody = DeviceDecommission
+
+// OverrideDeviceEnrollmentCredentialJSONRequestBody defines body for OverrideDeviceEnrollmentCredential for application/json ContentType.
+type OverrideDeviceEnrollmentCredentialJSONRequestBody = DeviceEnrollmentCredentialOverrideRequest
 
 // PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
 type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest

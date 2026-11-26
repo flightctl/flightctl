@@ -46,6 +46,7 @@ rules:
       - devices
       - devices/applications/lifecycle
       - devices/decommission
+      - devices/enrollmentcredential/override
       - devices/lastseen
       - devices/rendered
       - devices/resume
@@ -140,6 +141,7 @@ rules:
       - devices/applications/console
       - devices/console
       - devices/decommission
+      - devices/enrollmentcredential/override
       - devices/lastseen
       - devices/rendered
       - devices/resume

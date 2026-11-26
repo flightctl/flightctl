@@ -213,6 +213,11 @@ type ClientInterface interface {
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// OverrideDeviceEnrollmentCredentialWithBody request with any body
+	OverrideDeviceEnrollmentCredentialWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	OverrideDeviceEnrollmentCredential(ctx context.Context, name string, body OverrideDeviceEnrollmentCredentialJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// OverrideDeviceEnrollmentHook request
 	OverrideDeviceEnrollmentHook(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1017,6 +1022,30 @@ func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, co
 
 func (c *Client) DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OverrideDeviceEnrollmentCredentialWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOverrideDeviceEnrollmentCredentialRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OverrideDeviceEnrollmentCredential(ctx context.Context, name string, body OverrideDeviceEnrollmentCredentialJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOverrideDeviceEnrollmentCredentialRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3615,6 +3644,53 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	}
 
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOverrideDeviceEnrollmentCredentialRequest calls the generic OverrideDeviceEnrollmentCredential builder with application/json body
+func NewOverrideDeviceEnrollmentCredentialRequest(server string, name string, body OverrideDeviceEnrollmentCredentialJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOverrideDeviceEnrollmentCredentialRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewOverrideDeviceEnrollmentCredentialRequestWithBody generates requests for OverrideDeviceEnrollmentCredential with any type of body
+func NewOverrideDeviceEnrollmentCredentialRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/enrollmentcredential/override", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7270,6 +7346,11 @@ type ClientWithResponsesInterface interface {
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
+	// OverrideDeviceEnrollmentCredentialWithBodyWithResponse request with any body
+	OverrideDeviceEnrollmentCredentialWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentCredentialResponse, error)
+
+	OverrideDeviceEnrollmentCredentialWithResponse(ctx context.Context, name string, body OverrideDeviceEnrollmentCredentialJSONRequestBody, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentCredentialResponse, error)
+
 	// OverrideDeviceEnrollmentHookWithResponse request
 	OverrideDeviceEnrollmentHookWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentHookResponse, error)
 
@@ -8617,6 +8698,44 @@ func (r DecommissionDeviceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DecommissionDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OverrideDeviceEnrollmentCredentialResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON500      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r OverrideDeviceEnrollmentCredentialResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OverrideDeviceEnrollmentCredentialResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OverrideDeviceEnrollmentCredentialResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -11580,6 +11699,23 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 	return ParseDecommissionDeviceResponse(rsp)
 }
 
+// OverrideDeviceEnrollmentCredentialWithBodyWithResponse request with arbitrary body returning *OverrideDeviceEnrollmentCredentialResponse
+func (c *ClientWithResponses) OverrideDeviceEnrollmentCredentialWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentCredentialResponse, error) {
+	rsp, err := c.OverrideDeviceEnrollmentCredentialWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOverrideDeviceEnrollmentCredentialResponse(rsp)
+}
+
+func (c *ClientWithResponses) OverrideDeviceEnrollmentCredentialWithResponse(ctx context.Context, name string, body OverrideDeviceEnrollmentCredentialJSONRequestBody, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentCredentialResponse, error) {
+	rsp, err := c.OverrideDeviceEnrollmentCredential(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOverrideDeviceEnrollmentCredentialResponse(rsp)
+}
+
 // OverrideDeviceEnrollmentHookWithResponse request returning *OverrideDeviceEnrollmentHookResponse
 func (c *ClientWithResponses) OverrideDeviceEnrollmentHookWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentHookResponse, error) {
 	rsp, err := c.OverrideDeviceEnrollmentHook(ctx, name, reqEditors...)
@@ -14479,6 +14615,88 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOverrideDeviceEnrollmentCredentialResponse parses an HTTP response from a OverrideDeviceEnrollmentCredentialWithResponse call
+func ParseOverrideDeviceEnrollmentCredentialResponse(rsp *http.Response) (*OverrideDeviceEnrollmentCredentialResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OverrideDeviceEnrollmentCredentialResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

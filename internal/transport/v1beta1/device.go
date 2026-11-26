@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -162,6 +163,23 @@ func (h *TransportHandler) OverrideDeviceEnrollmentHook(w http.ResponseWriter, r
 	body, status := h.device.OverrideDeviceEnrollmentHook(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
+}
+
+func (h *TransportHandler) OverrideDeviceEnrollmentCredential(w http.ResponseWriter, r *http.Request, name string) {
+	var request apiv1beta1.DeviceEnrollmentCredentialOverrideRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
+		return
+	}
+	if err := requireJSONEnd(decoder); err != nil {
+		h.SetResponse(w, nil, domain.StatusBadRequest(err.Error()))
+		return
+	}
+
+	device, status := h.device.OverrideDeviceEnrollmentCredential(r.Context(), transport.OrgIDFromContext(r.Context()), name, request)
+	h.SetResponse(w, h.converter.Device().FromDomain(device), status)
 }
 
 // (POST /api/v1/deviceactions/resume)

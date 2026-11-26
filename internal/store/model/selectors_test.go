@@ -88,10 +88,10 @@ func TestDeviceEnrollmentCredentialSelectors(t *testing.T) {
 		wantFieldName string
 	}{
 		{
-			name:          "When the revoked selector is resolved it should map to the server-owned credential path",
+			name:          "When the revoked selector is resolved it should account for the override",
 			selectorName:  "status.enrollmentCredential.revoked",
 			wantType:      selector.Bool,
-			wantFieldName: "service_conditions -> 'enrollmentCredential' ->> 'revoked'",
+			wantFieldName: "(CASE WHEN devices.service_conditions #>> '{enrollmentCredential,override}' IS NOT NULL THEN 'false' ELSE devices.service_conditions #>> '{enrollmentCredential,revoked}' END)",
 		},
 	}
 

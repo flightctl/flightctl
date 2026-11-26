@@ -816,7 +816,7 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
-	// EnrollmentCredential is service-owned and must not be changed through generic status patches.
+	// The enrollment credential projection and its revocation condition are service-owned.
 	if err := rejectEnrollmentCredentialChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
@@ -872,17 +872,27 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 }
 
 func rejectEnrollmentCredentialChangeViaStatusPatch(current, patched *domain.Device) error {
-	var before, after *domain.DeviceEnrollmentCredentialStatus
-	if current != nil && current.Status != nil {
-		before = current.Status.EnrollmentCredential
+	projection := func(device *domain.Device) (*domain.DeviceEnrollmentCredentialStatus, []domain.Condition) {
+		if device == nil || device.Status == nil {
+			return nil, nil
+		}
+		var conditions []domain.Condition
+		for _, condition := range device.Status.Conditions {
+			if condition.Type == domain.ConditionTypeDeviceEnrollmentCredentialRevoked {
+				conditions = append(conditions, condition)
+			}
+		}
+		return device.Status.EnrollmentCredential, conditions
 	}
-	if patched != nil && patched.Status != nil {
-		after = patched.Status.EnrollmentCredential
+	before, beforeConditions := projection(current)
+	after, afterConditions := projection(patched)
+	if !reflect.DeepEqual(before, after) {
+		return errors.New("enrollmentCredential cannot be modified via status patch")
 	}
-	if reflect.DeepEqual(before, after) {
-		return nil
+	if !reflect.DeepEqual(beforeConditions, afterConditions) {
+		return errors.New("EnrollmentCredentialRevoked condition cannot be modified via status patch")
 	}
-	return errors.New("enrollmentCredential cannot be modified via status patch")
+	return nil
 }
 
 // allowedAgentEnrollmentHooksOutcome permits the agent to report hook completion

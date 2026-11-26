@@ -24,6 +24,7 @@ The table below contains the routes, names, resource names, and verbs for Flight
 |`GET /api/v1/devices/{name}/rendered`|`GetRenderedDevice`|`devices/rendered`|`get`|
 |`GET /api/v1/devices/{name}/lastseen`|`GetDeviceLastSeen`|`devices/lastseen`|`get`|
 |`PUT /api/v1/devices/{name}/decommission`|`DecommissionDevice`|`devices/decommission`|`update`|
+|`POST /api/v1/devices/{name}/enrollmentcredential/override`|`OverrideDeviceEnrollmentCredential`|`devices/enrollmentcredential/override`|`update`|
 |`GET /ws/v1/devices/{name}/console`|`DeviceConsole`|`devices/console`|`get`|
 |`GET /ws/v1/devices/{name}/applications/{appname}/console`|`GetDeviceApplicationConsole`|`devices/applications/console`|`get`|
 |`POST /api/v1/devices/{name}/applications/{appname}/actions/stop`|`StopDeviceApplication`|`devices/applications/lifecycle`|`update`|

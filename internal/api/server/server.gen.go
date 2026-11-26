@@ -109,6 +109,9 @@ type ServerInterface interface {
 	// (PUT /devices/{name}/decommission)
 	DecommissionDevice(w http.ResponseWriter, r *http.Request, name string)
 
+	// (POST /devices/{name}/enrollmentcredential/override)
+	OverrideDeviceEnrollmentCredential(w http.ResponseWriter, r *http.Request, name string)
+
 	// (POST /devices/{name}/enrollmenthooks/override)
 	OverrideDeviceEnrollmentHook(w http.ResponseWriter, r *http.Request, name string)
 
@@ -474,6 +477,11 @@ func (_ Unimplemented) StopDeviceApplication(w http.ResponseWriter, r *http.Requ
 
 // (PUT /devices/{name}/decommission)
 func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /devices/{name}/enrollmentcredential/override)
+func (_ Unimplemented) OverrideDeviceEnrollmentCredential(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1735,6 +1743,32 @@ func (siw *ServerInterfaceWrapper) DecommissionDevice(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DecommissionDevice(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OverrideDeviceEnrollmentCredential operation middleware
+func (siw *ServerInterfaceWrapper) OverrideDeviceEnrollmentCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OverrideDeviceEnrollmentCredential(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4279,6 +4313,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/devices/{name}/decommission", wrapper.DecommissionDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/devices/{name}/enrollmentcredential/override", wrapper.OverrideDeviceEnrollmentCredential)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/devices/{name}/enrollmenthooks/override", wrapper.OverrideDeviceEnrollmentHook)

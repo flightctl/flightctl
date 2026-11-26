@@ -1934,6 +1934,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /devices/{name}/enrollmentcredential/override:
+    x-resource: devices/enrollmentcredential/override
+    post:
+      tags:
+        - device
+      description: Dismiss the revoked enrollment credential flag on one device and record the administrator's reason.
+      operationId: overrideDeviceEnrollmentCredential
+      x-rbac:
+        resource: devices/enrollmentcredential/override
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceEnrollmentCredentialOverrideRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices/{name}/applications/{appname}/actions/stop:
     x-resource: devices/applications/lifecycle
     post:
@@ -11936,6 +12014,41 @@ components:
         revoked:
           type: boolean
           description: Whether the credential that admitted the device was revoked.
+        override:
+          $ref: '#/components/schemas/DeviceEnrollmentCredentialOverride'
+    DeviceEnrollmentCredentialOverride:
+      type: object
+      description: Immutable server-owned record of a revoked enrollment credential flag dismissal.
+      required:
+        - overriddenAt
+        - overriddenBy
+        - reason
+      properties:
+        overriddenAt:
+          description: The time at which the flag was dismissed.
+          type: string
+          format: date-time
+        overriddenBy:
+          description: The authenticated administrator who dismissed the flag.
+          type: string
+          minLength: 1
+        reason:
+          description: The administrator's reason for dismissing the flag.
+          type: string
+          minLength: 1
+          maxLength: 1024
+    DeviceEnrollmentCredentialOverrideRequest:
+      type: object
+      description: Request to dismiss the revoked enrollment credential flag on a device.
+      additionalProperties: false
+      required:
+        - reason
+      properties:
+        reason:
+          description: The administrator's reason for dismissing the flag.
+          type: string
+          minLength: 1
+          maxLength: 1024
     EnrollmentHookSnapshot:
       type: object
       description: Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.

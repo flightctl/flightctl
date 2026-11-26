@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -1251,6 +1254,92 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 		})
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
+}
+
+func TestOverrideDeviceEnrollmentCredentialRejectsInvalidRequests(t *testing.T) {
+	const deviceName = "reviewed-device"
+	const validReason = "Reviewed device enrollment"
+	reviewer := &identity.MappedIdentity{Username: "reviewer"}
+	cases := []struct {
+		name     string
+		target   string
+		reason   string
+		actor    *identity.MappedIdentity
+		revoked  bool
+		wantCode int32
+	}{
+		{
+			name:     "When the reason is blank it should reject the override",
+			target:   deviceName,
+			reason:   " \t",
+			actor:    reviewer,
+			revoked:  true,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "When the reason exceeds the character limit it should reject the override",
+			target:   deviceName,
+			reason:   strings.Repeat("é", 1025),
+			actor:    reviewer,
+			revoked:  true,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "When the actor is missing it should reject the override",
+			target:   deviceName,
+			reason:   validReason,
+			revoked:  true,
+			wantCode: http.StatusForbidden,
+		},
+		{
+			name:     "When the username is blank it should reject the override",
+			target:   deviceName,
+			reason:   validReason,
+			actor:    &identity.MappedIdentity{Username: " "},
+			revoked:  true,
+			wantCode: http.StatusForbidden,
+		},
+		{
+			name:     "When the target Device is missing it should return not found",
+			target:   "missing-device",
+			reason:   validReason,
+			actor:    reviewer,
+			revoked:  true,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "When the Device credential is unrevoked it should return conflict",
+			target:   deviceName,
+			reason:   validReason,
+			actor:    reviewer,
+			wantCode: http.StatusConflict,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			ctx := context.Background()
+			if tc.actor != nil {
+				ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, tc.actor)
+			}
+			orgID := uuid.New()
+			status := domain.NewDeviceStatus()
+			status.EnrollmentCredential = &domain.DeviceEnrollmentCredentialStatus{Revoked: tc.revoked}
+			_, err := st.device.Create(ctx, orgID, &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Status:   &status,
+			}, nil)
+			require.NoError(t, err)
+
+			result, response := svc.OverrideDeviceEnrollmentCredential(ctx, orgID, tc.target, domain.DeviceEnrollmentCredentialOverrideRequest{Reason: tc.reason})
+			require.Equal(t, tc.wantCode, response.Code, response.Message)
+			require.Nil(t, result)
+			stored, response := svc.GetDevice(ctx, orgID, deviceName)
+			require.Equal(t, domain.StatusOK(), response)
+			require.Equal(t, tc.revoked, stored.Status.EnrollmentCredential.Revoked)
+			require.Nil(t, stored.Status.EnrollmentCredential.Override)
+		})
+	}
 }
 
 func TestFlagDevicesForRevokedEnrollmentCredential(t *testing.T) {

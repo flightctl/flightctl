@@ -405,10 +405,10 @@ func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uu
 }
 
 // FlagDevicesForRevokedEnrollmentCredential flags up to limit devices whose
-// enrollmentCredential projection references credentialName. Conditions are
-// merged in place so unrelated service conditions survive, and already-flagged
-// devices are skipped to preserve the original transition time. Callers repeat
-// the call until it returns zero rows.
+// same-name Enrollment Request references credentialName. Conditions are
+// merged in place so unrelated service conditions survive. Already-flagged
+// devices keep their original transition time and dismissed flags stay dismissed.
+// Callers repeat the call until it returns zero rows.
 func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (int64, error) {
 	if credentialName == "" || limit <= 0 {
 		return 0, nil
@@ -426,6 +426,7 @@ func (s *DeviceStore) FlagDevicesForRevokedEnrollmentCredential(ctx context.Cont
 				    AND er.deleted_at IS NULL
 				    AND er.status->>'enrollmentCertificateName' = CAST(@credential_name AS text)
 			  )
+			  AND d.service_conditions #>> '{enrollmentCredential,override}' IS NULL
 			  AND (
 				  d.service_conditions->'conditions' IS NULL
 				  OR COALESCE(d.service_conditions->'enrollmentCredential'->>'revoked', 'false') <> 'true'

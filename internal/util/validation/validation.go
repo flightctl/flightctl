@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/flightctl/flightctl/internal/util"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -442,6 +443,19 @@ func ValidateSignerName(s string) []error {
 
 	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "must specify a valid signer"))
 	return asErrors(errs)
+}
+
+// NormalizeEnrollmentCredentialAuditReason validates the submitted reason and returns its trimmed value for storage.
+func NormalizeEnrollmentCredentialAuditReason(reason string) (string, error) {
+	const maxCharacters = 1024
+	if utf8.RuneCountInString(reason) > maxCharacters {
+		return "", fmt.Errorf("reason must be at most %d characters", maxCharacters)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "", errors.New("reason is required and cannot be blank")
+	}
+	return reason, nil
 }
 
 // TODO: this should log a warning if less than minExpirationSeconds using the configured logger
