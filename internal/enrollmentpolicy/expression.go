@@ -7,6 +7,12 @@ import (
 	"cel.dev/cel-go/common/types"
 )
 
+// identifier distinguishes the built-in fields from keys in the custom map.
+type identifier struct {
+	field string
+	key   string
+}
+
 type expressionValidator struct{}
 
 func (expressionValidator) Name() string {
@@ -40,19 +46,21 @@ func supportedExpression(expression ast.Expr) bool {
 	if call.FunctionName() == operators.LogicalAnd {
 		return supportedExpression(args[0]) && supportedExpression(args[1])
 	}
-	return supportedIdentifier(args[0]) && supportedComparisonValue(call.FunctionName(), args[1])
+	_, ok := readIdentifier(args[0])
+	return ok && supportedComparisonValue(call.FunctionName(), args[1])
 }
 
 func supportedComparisonValue(operator string, expression ast.Expr) bool {
 	switch operator {
 	case operators.Equals:
-		return isStringLiteral(expression)
+		_, ok := stringLiteral(expression)
+		return ok
 	case operators.In:
 		if expression.Kind() != ast.ListKind {
 			return false
 		}
 		for _, element := range expression.AsList().Elements() {
-			if !isStringLiteral(element) {
+			if _, ok := stringLiteral(element); !ok {
 				return false
 			}
 		}
@@ -62,25 +70,39 @@ func supportedComparisonValue(operator string, expression ast.Expr) bool {
 	}
 }
 
-func supportedIdentifier(expression ast.Expr) bool {
+func referencedIdentifiers(expression ast.Expr) map[identifier]struct{} {
+	identifiers := make(map[identifier]struct{})
+	ast.PreOrderVisit(expression, ast.NewExprVisitor(func(expr ast.Expr) {
+		if field, ok := readIdentifier(expr); ok {
+			identifiers[field] = struct{}{}
+		}
+	}))
+	return identifiers
+}
+
+func readIdentifier(expression ast.Expr) (identifier, bool) {
 	switch expression.Kind() {
 	case ast.IdentKind:
 		name := expression.AsIdent()
-		return name == productSerial || name == productUUID
+		if name == productSerial || name == productUUID {
+			return identifier{field: name}, true
+		}
 	case ast.CallKind:
 		call := expression.AsCall()
 		args := call.Args()
-		return call.FunctionName() == operators.Index && !call.IsMemberFunction() && len(args) == 2 &&
-			args[0].Kind() == ast.IdentKind && args[0].AsIdent() == customInfo && isStringLiteral(args[1])
-	default:
-		return false
+		if call.FunctionName() == operators.Index && !call.IsMemberFunction() && len(args) == 2 &&
+			args[0].Kind() == ast.IdentKind && args[0].AsIdent() == customInfo {
+			key, ok := stringLiteral(args[1])
+			return identifier{field: customInfo, key: key}, ok
+		}
 	}
+	return identifier{}, false
 }
 
-func isStringLiteral(expression ast.Expr) bool {
+func stringLiteral(expression ast.Expr) (string, bool) {
 	if expression.Kind() != ast.LiteralKind {
-		return false
+		return "", false
 	}
-	_, ok := expression.AsLiteral().(types.String)
-	return ok
+	value, ok := expression.AsLiteral().(types.String)
+	return string(value), ok
 }

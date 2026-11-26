@@ -12,6 +12,7 @@ import (
 
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common"
+	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/runes"
 	"cel.dev/cel-go/common/types/ref"
 	"github.com/jellydator/ttlcache/v3"
@@ -64,6 +65,7 @@ type cachedProgram struct {
 type Program struct {
 	program    cel.Program
 	outputType *cel.Type
+	expression ast.Expr
 }
 
 // New constructs an engine with optional settings and CEL environment options.
@@ -134,12 +136,21 @@ func (e *Engine) compile(expression string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building CEL program: %w", err)
 	}
-	return &Program{program: program, outputType: checked.OutputType()}, nil
+	return &Program{
+		program:    program,
+		outputType: checked.OutputType(),
+		expression: checked.NativeRep().Expr(),
+	}, nil
 }
 
 // OutputType returns the checked CEL result type for consumer-specific validation.
 func (p *Program) OutputType() *cel.Type {
 	return p.outputType
+}
+
+// CheckedExpression returns a copy of the checked expression for static analysis.
+func (p *Program) CheckedExpression() ast.Expr {
+	return ast.NewExprFactory().CopyExpr(p.expression)
 }
 
 // Evaluate returns the CEL value without consumer-specific conversion.

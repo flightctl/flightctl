@@ -67,6 +67,7 @@ func TestCompile(t *testing.T) {
 		{"When negation is used it should fail", `!false`, true},
 		{"When disjunction is used it should fail", `false || true`, true},
 		{"When a macro is used it should fail", `has(systemInfo.customInfo.site)`, true},
+		{"When a comprehension is used it should fail", `["west"].exists(site, site == "west")`, true},
 		{"When a constant is compared with a constant it should fail", `"a" == "a"`, true},
 		{"When a field is compared with a field it should fail", `systemInfo.productSerial == systemInfo.productUuid`, true},
 		{"When a field is compared with a number it should fail", `systemInfo.productSerial == 1`, true},
@@ -114,6 +115,7 @@ func TestMatchSystemInfo(t *testing.T) {
 		{"When a reported value is empty it should compare as a string", `systemInfo.customInfo["empty"] == ""`, true, false},
 		{"When a custom key is missing it should fail closed", `systemInfo.customInfo["missing"] == ""`, false, true},
 		{"When the serial is missing it should fail closed", `systemInfo.productSerial == ""`, false, true},
+		{"When a false conjunct resolves a missing value it should return false", `systemInfo.productSerial == "" && false`, false, false},
 		{"When an empty list is used it should fail", `systemInfo.productUuid in []`, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,7 +124,7 @@ func TestMatchSystemInfo(t *testing.T) {
 			matches, err := policy.Match(spec)
 			require.Equal(t, tc.want, matches)
 			if tc.wantError {
-				require.Error(t, err)
+				require.ErrorIs(t, err, enrollmentpolicy.ErrEvaluation)
 			} else {
 				require.NoError(t, err)
 			}
@@ -142,4 +144,32 @@ func TestMatchSystemInfo(t *testing.T) {
 		require.Error(t, err)
 		require.False(t, matches)
 	})
+}
+
+func TestMatchIdentifierSize(t *testing.T) {
+	matcher, err := enrollmentpolicy.NewMatcher()
+	require.NoError(t, err)
+	policy, err := matcher.Compile(`systemInfo.customInfo["site"] == "west"`)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name    string
+		site    string
+		matches bool
+		wantErr error
+	}{
+		{"When unrelated identifiers exceed the limit they should be ignored", "west", true, nil},
+		{"When a referenced identifier has 4096 bytes it should be evaluated", strings.Repeat("é", 2048), false, nil},
+		{"When a referenced identifier exceeds 4096 bytes it should fail evaluation", strings.Repeat("é", 2049), false, enrollmentpolicy.ErrIdentifierTooLong},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			largeValue := strings.Repeat("ignored", 4096)
+			custom := domain.CustomDeviceInfo{"site": tc.site, "unreferenced": largeValue}
+			status := &domain.DeviceStatus{SystemInfo: domain.DeviceSystemInfo{CustomInfo: &custom}}
+			status.SystemInfo.Set("productSerial", largeValue)
+			matches, err := policy.Match(domain.EnrollmentRequestSpec{DeviceStatus: status})
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.matches, matches)
+		})
+	}
 }

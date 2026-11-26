@@ -16,10 +16,14 @@ errors before evaluation. `Program.OutputType` exposes the checked CEL type so
 the consumer can enforce its allowed result types. Dynamic expressions still
 need result validation after evaluation.
 
+`Program.CheckedExpression` returns a copy of the checked syntax tree for static
+analysis. Consumers can inspect it without mutating a cached program.
+
 `Program.Evaluate` accepts an activation and returns a CEL value without
-converting it to a label or a policy decision. Boolean results remain booleans,
-strings retain their original contents, and nulls and optional values retain
-their CEL types. Missing-key lookups and other evaluation failures return errors.
+converting it to a label or a policy decision. Boolean and string values retain
+their original contents. Null and optional values retain their CEL types.
+Evaluation returns an error when an expression accesses a missing key or fails
+for another reason.
 A nil activation or a nil activation map is rejected. An empty map is valid for
 constant expressions.
 
@@ -41,8 +45,8 @@ To override these values for one engine, pass `celruntime.WithConfig` with a
 how long an entry can remain idle before it expires.
 
 Every engine owns its own cache. Expressions compiled under different variable
-declarations or libraries cannot share cached programs. Cache hits refresh LRU
-recency; a full cache evicts the least recently used compilation.
+declarations or libraries have separate caches. A cache hit makes the entry
+the most recently used. A full cache evicts the least recently used compilation.
 The engine rejects oversized expressions before consulting the cache. It caches
 successful compilations and compilation failures for expressions within the size
 limit.
@@ -53,23 +57,24 @@ compile the same expression more than once, but share the retained cache entry
 after insertion.
 
 Use independent or concurrency-safe activations for concurrent evaluations.
-CEL can write resolved lazy globals into a shared activation. Resolve shared lazy
-globals before concurrent evaluation or provide a concurrency-safe global
-activation.
+CEL can update a shared activation when resolving global variables on demand.
+Resolve those variables before concurrent evaluation or provide a
+concurrency-safe global activation.
 
 ## Consumer responsibilities
 
 Label-sync mapping retains its dynamic `metadata`, `spec`, and `status` roots,
 optional types, comprehensions, and semver library. Its evaluator still validates
 scalar or map output, sanitizes label values, validates label keys, and limits
-map entries. Missing keys, nulls, empty optionals, and empty strings retain their
-existing no-value behavior, including removal of previously mapped labels.
+map entries. Missing keys, null values, empty optional values, and empty strings
+retain their existing no-value behavior, including removal of previously mapped
+labels.
 
-## Enrollment approval policy expressions
+## Enrollment expressions
 
 `internal/enrollmentpolicy` uses a dedicated CEL environment.
-`Matcher.Compile` validates each `spec.matchExpression` independently and
-returns a reusable expression. The matcher accepts only these
+`Matcher.Compile` checks the syntax, result type, and supported operations
+before returning a reusable expression. The matcher reads the following
 operands from an EnrollmentRequest's `spec.deviceStatus.systemInfo`.
 
 | Operand | CEL type |
@@ -88,7 +93,39 @@ systemInfo.productUuid == "c42b5585-53dc-434a-9f25-24d078e1f9e1" &&
   systemInfo.customInfo["site"] in ["east", "west"]
 ```
 
-Certificate identity and TPM verification are separate policy checks. The
-matcher exposes only the reported system identifiers. An attempted lookup of
-an unreported identifier or custom key can return an evaluation error. An
-expression that returns an error does not match.
+The matcher builds the activation from identifiers referenced by the expression.
+Each referenced value can contain up to 4,096 bytes. A longer referenced value
+returns `ErrIdentifierTooLong` during activation. A missing identifier or custom
+key returns `ErrEvaluation` if CEL needs that value to determine the result.
+An empty reported string is available for comparison like any other string.
+The compiler returns source diagnostics for expression authors. Runtime errors
+use fixed messages without reported values, expression literals, or custom keys.
+
+### Evaluate a group of expressions
+
+Compile each candidate independently with the same `Matcher`. A group can
+contain overlapping expressions. `Evaluate` runs up to 32 candidates against
+the same enrollment request and returns an outcome based on that request.
+
+| Outcome | Meaning |
+| --- | --- |
+| `matched` | One expression returned `true`. |
+| `no_match` | Every candidate returned `false`, or the group was empty. |
+| `multiple_matches` | At least two candidates returned `true`. |
+| `evaluation_failed` | At least one candidate failed and none returned `true`. |
+
+`MatchIndexes` lists the expressions that returned `true`. `Failures` records
+the candidate index and sanitized error for each failure, including when another
+candidate matches. Evaluation reads reported identifiers and leaves the request
+untouched.
+
+### Exercise fleet-scale evaluation
+
+Run the evaluator test against 10,000 synthetic enrollment requests. It compiles
+two overlapping site groups once and checks the outcome for each request,
+including a site that matches both groups, a site outside both groups, and
+requests with no site.
+
+```bash
+go test ./internal/enrollmentpolicy -run '^TestEvaluateReportedIdentifiersAtScale$' -count=1 -v
+```
