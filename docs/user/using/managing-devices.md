@@ -2288,6 +2288,9 @@ The recurring fields are a pair. A schedule that contains only one of `at` or
 schedule-level `timeZone` applies to the recurring schedule and to every
 one-time window in that schedule.
 
+Each one-time window contains a `date`, a local `startTime` in `HH:mm` format,
+and a positive `startGraceDuration`.
+
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
 >[!TIP]
@@ -2323,7 +2326,7 @@ updatePolicy:
     timeZone: "Asia/Jerusalem"
     oneTimeWindows:
       - date: "2026-11-15"
-        at: "22:00"
+        startTime: "22:00"
         startGraceDuration: "90m"
 ```
 
@@ -2337,7 +2340,7 @@ updatePolicy:
     startGraceDuration: "1h"      # allow updates until 5:00 AM
     oneTimeWindows:
       - date: "2026-11-16"
-        at: "04:00"
+        startTime: "04:00"
         startGraceDuration: "2h"  # allow the one-time update until 6:00 AM
 ```
 

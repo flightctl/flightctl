@@ -599,7 +599,7 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 				TimeZone: lo.ToPtr("UTC"),
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},
@@ -612,7 +612,7 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 				TimeZone: lo.ToPtr("UTC"),
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},
@@ -625,7 +625,7 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 				TimeZone: lo.ToPtr("UTC"),
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},
@@ -638,7 +638,7 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 				TimeZone: lo.ToPtr("Asia/Jerusalem"),
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},
@@ -653,7 +653,7 @@ func TestIsReadyOneTimeWindows(t *testing.T) {
 				StartGraceDuration: v1beta1.Duration("1h"),
 				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
 					Date:               "2026-11-16",
-					At:                 "04:00",
+					StartTime:          "04:00",
 					StartGraceDuration: "2h",
 				}}),
 			},

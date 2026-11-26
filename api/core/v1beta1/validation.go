@@ -704,7 +704,7 @@ func validateOneTimeWindow(window OneTimeWindow) []error {
 	if _, err := time.Parse("2006-01-02", window.Date); err != nil {
 		allErrs = append(allErrs, fmt.Errorf("invalid date: %w", err))
 	}
-	if _, err := time.Parse("15:04", window.At); err != nil {
+	if _, err := time.Parse("15:04", window.StartTime); err != nil {
 		allErrs = append(allErrs, fmt.Errorf("invalid time: %w", err))
 	}
 	if _, err := time.ParseDuration(window.StartGraceDuration); err != nil {

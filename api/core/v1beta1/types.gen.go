@@ -3228,14 +3228,14 @@ type OciRepoSpecType string
 
 // OneTimeWindow defines model for OneTimeWindow.
 type OneTimeWindow struct {
-	// At Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
-	At string `json:"at"`
-
 	// Date Exact calendar date on which the one-time window opens, for example 2026-11-15.
 	Date string `json:"date"`
 
 	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	StartGraceDuration Duration `json:"startGraceDuration"`
+
+	// StartTime Local time at which the one-time window opens on the specified date, relative to the schedule timeZone or the device local time zone when timeZone is omitted, for example 22:00.
+	StartTime string `json:"startTime"`
 }
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
