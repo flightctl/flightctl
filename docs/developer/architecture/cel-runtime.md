@@ -72,38 +72,32 @@ labels.
 
 ## Enrollment expressions
 
-`internal/enrollmentpolicy` uses a dedicated CEL environment.
-`Matcher.Compile` checks the syntax, result type, and supported operations
-before returning a reusable expression. The matcher reads the following
-operands from an EnrollmentRequest's `spec.deviceStatus.systemInfo`.
-The enrollment policy service uses this compiler when creating an enabled
-policy, enabling a draft, or changing an enabled policy's expression. It
-reports compiler diagnostics for `spec.matchExpression` in `InvalidPolicy`
-responses.
+`internal/enrollmentpolicy` uses a dedicated CEL environment. Its `systemInfo`
+root exposes the full reported `spec.deviceStatus.systemInfo` object, using the
+field names and value types from the `DeviceSystemInfo` API. Additional reported
+keys at the root have string values. Custom collector output is supplied in
+`systemInfo.customInfo`. Enrollment labels are supplied separately in `spec.labels`.
 
-| Operand | CEL type |
-| --- | --- |
-| `systemInfo.productSerial` | String |
-| `systemInfo.productUuid` | String |
-| `systemInfo.customInfo["key"]` | String from a string-to-string map, selected by a literal key |
+Use field selection or bracket notation with literal string keys to access
+members, and non-negative integer indexes to select list items. Expressions can
+use `==` with a compatible scalar, list, or object literal on the right, `in`
+with a literal list of compatible values, `&&` to combine predicates, and
+parentheses to group them. The boolean literals `true` and `false` are also
+valid expressions. An empty membership list matches no values.
 
-Expressions can use `==` with a string literal on the right, `in` with a
-literal list of strings, `&&` to combine predicates, parentheses for grouping,
-and the boolean literals `true` and `false`. An empty membership list matches
-no values.
+`Matcher.Compile` checks syntax, field paths, value types, and supported
+operations before returning a reusable expression. The enrollment policy
+service uses this compiler when creating an enabled policy, enabling a draft,
+or changing an enabled policy's expression. It reports compiler diagnostics
+for `spec.matchExpression` in `InvalidPolicy` responses.
 
-```cel
-systemInfo.productUuid == "c42b5585-53dc-434a-9f25-24d078e1f9e1" &&
-  systemInfo.customInfo["site"] in ["east", "west"]
-```
-
-The matcher builds the activation from identifiers referenced by the expression.
-Each referenced value can contain up to 4,096 bytes. A longer referenced value
-returns `ErrIdentifierTooLong` during activation. A missing identifier or custom
-key returns `ErrEvaluation` if CEL needs that value to determine the result.
-An empty reported string is available for comparison like any other string.
-The compiler returns source diagnostics for expression authors. Runtime errors
-use fixed messages without reported values, expression literals, or custom keys.
+The matcher binds only the requested fields at the root and reads nested values
+on demand. A string read during evaluation can contain up to 4,096 bytes. A
+longer string returns `ErrIdentifierTooLong`. A missing field or list item
+returns `ErrEvaluation` if CEL needs that value to determine the result. An
+empty reported string is available for comparison like any other string.
+Runtime errors use fixed messages without reported values, expression literals,
+or custom keys.
 
 ### Evaluate a group of expressions
 
@@ -120,7 +114,7 @@ the same enrollment request and returns an outcome based on that request.
 
 `MatchIndexes` lists the expressions that returned `true`. `Failures` records
 the candidate index and sanitized error for each failure, including when another
-candidate matches. Evaluation reads reported identifiers and leaves the request
+candidate matches. Evaluation reads reported system information and leaves the request
 untouched.
 
 ### Exercise fleet-scale evaluation

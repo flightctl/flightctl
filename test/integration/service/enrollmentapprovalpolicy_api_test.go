@@ -197,7 +197,7 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
 			policy.Metadata.Name = lo.ToPtr(name)
 			policy.Spec.Enabled = true
-			policy.Spec.MatchExpression = `systemInfo.customInfo["site"] in ["west", "central"]`
+			policy.Spec.MatchExpression = `systemInfo["architecture"] in ["arm64", "amd64"] && systemInfo.kvm.enabled == true`
 			body, err := json.Marshal(policy)
 			Expect(err).NotTo(HaveOccurred())
 			created := request(handler, http.MethodPost, "", body, suite.Ctx)

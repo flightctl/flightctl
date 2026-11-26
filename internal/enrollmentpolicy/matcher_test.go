@@ -58,7 +58,17 @@ func TestCompile(t *testing.T) {
 		{"When the expression produces a string it should fail", `systemInfo.productSerial`, true},
 		{"When the expression produces a map it should fail", `systemInfo.customInfo`, true},
 		{"When the expression uses an arbitrary root it should fail", `status.systemInfo.productSerial == "sn-1"`, true},
-		{"When an unlisted system info field is used it should fail", `systemInfo.hostname == "device-1"`, true},
+		{"When a reported field is outside the original set it should compile", `systemInfo.hostname == "device-1"`, false},
+		{"When a reported key needs quoting it should compile", `systemInfo["asset.name"] == "west"`, false},
+		{"When an object has a boolean field it should compile", `systemInfo.kvm.enabled == true`, false},
+		{"When a list item has a numeric field it should compile", `systemInfo.gpus[0].index == 0`, false},
+		{"When a list field is compared with a list literal it should compile", `systemInfo.gpus[0].features == ["cuda"]`, false},
+		{"When an object is compared with a literal of the same shape it should compile", `systemInfo.kvm == {"enabled": true}`, false},
+		{"When an enrollment request label is used it should fail", `labels["site"] == "west"`, true},
+		{"When an enrollment request spec path is used it should fail", `spec.labels["site"] == "west"`, true},
+		{"When a list uses a negative index it should fail", `systemInfo.gpus[-1].index == 0`, true},
+		{"When an object uses an unknown field it should fail", `systemInfo.kvm.unknown == "yes"`, true},
+		{"When a boolean field is compared with a string it should fail", `systemInfo.kvm.enabled == "true"`, true},
 		{"When certificate identity is used it should fail", `certificateName == "credential"`, true},
 		{"When TPM verification is used it should fail", `tpmVerified == true`, true},
 		{"When regex is used it should fail", `systemInfo.productSerial.matches("^sn-")`, true},
@@ -75,7 +85,7 @@ func TestCompile(t *testing.T) {
 		{"When a membership list includes a field it should fail", `systemInfo.productSerial in [systemInfo.productUuid]`, true},
 		{"When a membership uses map keys it should fail", `systemInfo.productSerial in systemInfo.customInfo`, true},
 		{"When custom info uses a computed key it should fail", `systemInfo.customInfo[systemInfo.productUuid] == "west"`, true},
-		{"When custom info uses field selection it should fail", `systemInfo.customInfo.site == "west"`, true},
+		{"When a simple custom key uses field selection it should compile", `systemInfo.customInfo.site == "west"`, false},
 		{"When custom info uses an integer key it should fail", `systemInfo.customInfo[1] == "west"`, true},
 		{"When a custom info field is nested it should fail", `systemInfo.customInfo["site"].name == "west"`, true},
 	} {
@@ -100,7 +110,10 @@ func TestMatchSystemInfo(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{
 		"systemInfo": {
 			"productUuid": "uuid-1",
-			"hostname": "unlisted",
+			"hostname": "device-1",
+			"asset.name": "west",
+			"kvm": {"enabled": false},
+			"gpus": [{"index": 0, "memoryBytes": 9007199254740993, "features": ["cuda"]}],
 			"customInfo": {"site.name": "west", "empty": ""}
 		}
 	}`), spec.DeviceStatus))
@@ -116,6 +129,14 @@ func TestMatchSystemInfo(t *testing.T) {
 		{"When a custom key is missing it should fail closed", `systemInfo.customInfo["missing"] == ""`, false, true},
 		{"When the serial is missing it should fail closed", `systemInfo.productSerial == ""`, false, true},
 		{"When a false conjunct resolves a missing value it should return false", `systemInfo.productSerial == "" && false`, false, false},
+		{"When a reported string field was previously unsupported it should still match", `systemInfo.hostname == "device-1"`, true, false},
+		{"When a reported key contains a dot a quoted lookup should match", `systemInfo["asset.name"] == "west"`, true, false},
+		{"When a nested boolean is explicitly false it should compare as a boolean", `systemInfo.kvm.enabled == false`, true, false},
+		{"When a large reported integer matches it should preserve precision", `systemInfo.gpus[0].memoryBytes == 9007199254740993`, true, false},
+		{"When a list matches a literal it should compare the elements", `systemInfo.gpus[0].features == ["cuda"]`, true, false},
+		{"When a nested object matches a literal it should compare the fields", `systemInfo.kvm == {"enabled": false}`, true, false},
+		{"When a nested report field is absent it should report an evaluation failure", `systemInfo.gpus[0].vendor == "west"`, false, true},
+		{"When a list index is absent it should report an evaluation failure", `systemInfo.gpus[1].index == 0`, false, true},
 		{"When an empty list is used it should fail", `systemInfo.productUuid in []`, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,4 +193,18 @@ func TestMatchIdentifierSize(t *testing.T) {
 			require.Equal(t, tc.matches, matches)
 		})
 	}
+}
+
+func TestMatchOversizedCollectionElement(t *testing.T) {
+	matcher, err := enrollmentpolicy.NewMatcher()
+	require.NoError(t, err)
+	policy, err := matcher.Compile(`systemInfo.customInfo == {"site": "west"}`)
+	require.NoError(t, err)
+	info := domain.CustomDeviceInfo{"site": strings.Repeat("a", 4097)}
+	spec := domain.EnrollmentRequestSpec{DeviceStatus: &domain.DeviceStatus{
+		SystemInfo: domain.DeviceSystemInfo{CustomInfo: &info},
+	}}
+	matches, err := policy.Match(spec)
+	require.ErrorIs(t, err, enrollmentpolicy.ErrIdentifierTooLong)
+	require.False(t, matches)
 }

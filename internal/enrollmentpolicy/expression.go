@@ -1,17 +1,13 @@
 package enrollmentpolicy
 
 import (
+	"reflect"
+
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/operators"
 	"cel.dev/cel-go/common/types"
 )
-
-// identifier distinguishes the built-in fields from keys in the custom map.
-type identifier struct {
-	field string
-	key   string
-}
 
 type expressionValidator struct{}
 
@@ -46,63 +42,112 @@ func supportedExpression(expression ast.Expr) bool {
 	if call.FunctionName() == operators.LogicalAnd {
 		return supportedExpression(args[0]) && supportedExpression(args[1])
 	}
-	_, ok := readIdentifier(args[0])
-	return ok && supportedComparisonValue(call.FunctionName(), args[1])
-}
-
-func supportedComparisonValue(operator string, expression ast.Expr) bool {
-	switch operator {
+	_, kind := reportedPath(args[0])
+	if kind == nil {
+		return false
+	}
+	switch call.FunctionName() {
 	case operators.Equals:
-		_, ok := stringLiteral(expression)
-		return ok
+		return compatibleLiteral(args[1], kind)
 	case operators.In:
-		if expression.Kind() != ast.ListKind {
-			return false
-		}
-		for _, element := range expression.AsList().Elements() {
-			if _, ok := stringLiteral(element); !ok {
-				return false
-			}
-		}
-		return true
+		return args[1].Kind() == ast.ListKind && compatibleElements(args[1], kind)
 	default:
 		return false
 	}
 }
 
-func referencedIdentifiers(expression ast.Expr) map[identifier]struct{} {
-	identifiers := make(map[identifier]struct{})
-	ast.PreOrderVisit(expression, ast.NewExprVisitor(func(expr ast.Expr) {
-		if field, ok := readIdentifier(expr); ok {
-			identifiers[field] = struct{}{}
-		}
-	}))
-	return identifiers
-}
-
-func readIdentifier(expression ast.Expr) (identifier, bool) {
+// reportedPath resolves literal selections to their first field under
+// systemInfo and the API type at the end of the path.
+func reportedPath(expression ast.Expr) (string, reflect.Type) {
 	switch expression.Kind() {
-	case ast.IdentKind:
-		name := expression.AsIdent()
-		if name == productSerial || name == productUUID {
-			return identifier{field: name}, true
+	case ast.SelectKind:
+		selection := expression.AsSelect()
+		if !selection.IsTestOnly() {
+			return selectReportedField(selection.Operand(), selection.FieldName())
 		}
 	case ast.CallKind:
 		call := expression.AsCall()
 		args := call.Args()
-		if call.FunctionName() == operators.Index && !call.IsMemberFunction() && len(args) == 2 &&
-			args[0].Kind() == ast.IdentKind && args[0].AsIdent() == customInfo {
-			key, ok := stringLiteral(args[1])
-			return identifier{field: customInfo, key: key}, ok
+		if call.IsMemberFunction() || call.FunctionName() != operators.Index || len(args) != 2 || args[1].Kind() != ast.LiteralKind {
+			return "", nil
+		}
+		switch value := args[1].AsLiteral().(type) {
+		case types.String:
+			return selectReportedField(args[0], string(value))
+		case types.Int:
+			field, list := reportedPath(args[0])
+			list = indirectType(list)
+			if value >= 0 && list != nil && (list.Kind() == reflect.Slice || list.Kind() == reflect.Array) {
+				return field, list.Elem()
+			}
 		}
 	}
-	return identifier{}, false
+	return "", nil
 }
 
-func stringLiteral(expression ast.Expr) (string, bool) {
-	if expression.Kind() != ast.LiteralKind {
-		return "", false
+func selectReportedField(object ast.Expr, key string) (string, reflect.Type) {
+	if object.Kind() == ast.IdentKind && object.AsIdent() == systemInfoRoot {
+		return key, reportFieldType(systemInfoType, key)
 	}
-	value, ok := expression.AsLiteral().(types.String)
-	return string(value), ok
+	root, kind := reportedPath(object)
+	return root, reportFieldType(kind, key)
+}
+
+func referencedFields(expression ast.Expr) map[string]struct{} {
+	fields := make(map[string]struct{})
+	ast.PreOrderVisit(expression, ast.NewExprVisitor(func(expr ast.Expr) {
+		if field, kind := reportedPath(expr); kind != nil {
+			fields[field] = struct{}{}
+		}
+	}))
+	return fields
+}
+
+func compatibleLiteral(expression ast.Expr, valueType reflect.Type) bool {
+	kind := indirectType(valueType)
+	switch expression.Kind() {
+	case ast.LiteralKind:
+		switch expression.AsLiteral().(type) {
+		case types.String:
+			return kind.Kind() == reflect.String
+		case types.Bool:
+			return kind.Kind() == reflect.Bool
+		case types.Int, types.Uint, types.Double:
+			return kind.Kind() >= reflect.Int && kind.Kind() <= reflect.Float64
+		case types.Null:
+			return valueType.Kind() == reflect.Pointer || kind.Kind() == reflect.Map || kind.Kind() == reflect.Slice
+		}
+	case ast.ListKind:
+		return (kind.Kind() == reflect.Slice || kind.Kind() == reflect.Array) && compatibleElements(expression, kind.Elem())
+	case ast.MapKind:
+		return (kind.Kind() == reflect.Map || kind.Kind() == reflect.Struct) && compatibleFields(expression, kind)
+	}
+	return false
+}
+
+func compatibleElements(expression ast.Expr, elementType reflect.Type) bool {
+	for _, element := range expression.AsList().Elements() {
+		if !compatibleLiteral(element, elementType) {
+			return false
+		}
+	}
+	return true
+}
+
+func compatibleFields(expression ast.Expr, objectType reflect.Type) bool {
+	for _, entry := range expression.AsMap().Entries() {
+		pair := entry.AsMapEntry()
+		if pair.Key().Kind() != ast.LiteralKind {
+			return false
+		}
+		key, ok := pair.Key().AsLiteral().(types.String)
+		if !ok {
+			return false
+		}
+		fieldType := reportFieldType(objectType, string(key))
+		if fieldType == nil || !compatibleLiteral(pair.Value(), fieldType) {
+			return false
+		}
+	}
+	return true
 }

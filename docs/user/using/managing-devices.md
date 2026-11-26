@@ -70,15 +70,18 @@ For hook configuration, failure policies, and restart behavior, see [Using enrol
 ### Writing an enrollment policy expression
 
 Set `spec.matchExpression` on an `EnrollmentApprovalPolicy` to a CEL expression
-that returns `true` or `false`. Expressions read the device's reported
-`systemInfo.productSerial`, `systemInfo.productUuid`, or a custom collector key
-such as `systemInfo.customInfo["site"]`.
+that returns `true` or `false`. Use `systemInfo` to access any field reported in
+`spec.deviceStatus.systemInfo`, including nested objects and lists. Custom
+collector output appears under `systemInfo.customInfo`. Enrollment labels are
+reported separately in `spec.labels`.
 
-Use `==` to compare a field to a string, `in` to compare it to a list of strings,
-and `&&` to require several conditions. Use quotes around custom keys and values.
+Use `==` to compare a field with a value of the same type, `in` to test for a
+value in a list, and `&&` to require several conditions. Use quoted keys in
+brackets when a field name contains punctuation, and use an integer index to
+select an item from a list.
 
 ```cel
-systemInfo.productSerial == "SN-001" && systemInfo.customInfo["site"] in ["east", "west"]
+systemInfo["<key>"] == "<value>"
 ```
 
 Expressions can contain up to 1,000 Unicode code points. The server checks the
