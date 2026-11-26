@@ -84,6 +84,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
 		return f.printEnrollmentHookPoliciesTable(w, data.(*apiclient.ListEnrollmentHookPoliciesResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.EnrollmentApprovalPolicyKind):
+		return f.printEnrollmentApprovalPoliciesTable(w, data.(*apiclient.ListEnrollmentApprovalPoliciesResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.LabelSyncMappingKindValue):
 		return f.printLabelSyncMappingsTable(w, data.(*apiclient.ListLabelSyncMappingsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
@@ -170,6 +172,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
 		return f.printEnrollmentHookPoliciesTable(w, *data.(*apiclient.GetEnrollmentHookPolicyResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.EnrollmentApprovalPolicyKind):
+		return f.printEnrollmentApprovalPoliciesTable(w, *data.(*apiclient.GetEnrollmentApprovalPolicyResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.LabelSyncMappingKindValue):
 		return f.printLabelSyncMappingsTable(w, *data.(*apiclient.GetLabelSyncMappingResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
@@ -1311,5 +1315,25 @@ func (f *TableFormatter) printFleetVulnerabilitySummaryTable(w *tabwriter.Writer
 		summary.Summary.Low,
 		summary.Summary.Total,
 		summary.Summary.UniqueDigests)
+	return nil
+}
+
+func (formatter *TableFormatter) printEnrollmentApprovalPoliciesTable(writer *tabwriter.Writer, policies ...api.EnrollmentApprovalPolicy) error {
+	formatter.printHeaderRowLn(writer, "NAME", "ENABLED", "CERTIFICATE", "ENROLLMENTS")
+	for _, policy := range policies {
+		count := int64(0)
+		if policy.Status != nil {
+			count = policy.Status.EnrollmentCount
+		}
+		limit := "∞"
+		if policy.Spec.ApprovalLimit != nil {
+			limit = fmt.Sprint(*policy.Spec.ApprovalLimit)
+		}
+		name := NoneString
+		if policy.Metadata.Name != nil {
+			name = *policy.Metadata.Name
+		}
+		formatter.printTableRowLn(writer, name, fmt.Sprint(policy.Spec.Enabled), policy.Spec.CertificateName, fmt.Sprintf("%d/%s", count, limit))
+	}
 	return nil
 }

@@ -408,7 +408,7 @@ var _ = Describe("Firmware status writes at the write boundary", func() {
 
 			userSwagger, err := api.GetSpec()
 			Expect(err).ToNot(HaveOccurred())
-			userHandler := transportv1beta1.NewTransportHandler(nil, nil, deviceSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			userHandler := transportv1beta1.NewTransportHandler(nil, nil, deviceSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				convertv1beta1.NewConverter(), nil, nil, nil, nil)
 			userRouter := chi.NewRouter()
 			userRouter.Use(func(next http.Handler) http.Handler {

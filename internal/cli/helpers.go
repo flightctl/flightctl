@@ -35,6 +35,7 @@ const (
 	ImageBuildKind                ResourceKind = "imagebuild"
 	ImageExportKind               ResourceKind = "imageexport"
 	ImagePromotionKind            ResourceKind = "imagepromotion"
+	EnrollmentApprovalPolicyKind  ResourceKind = "enrollmentapprovalpolicy"
 	EnrollmentHookPolicyKind      ResourceKind = "enrollmenthookpolicy"
 	LabelSyncMappingKind          ResourceKind = "labelsyncmapping"
 	OrganizationKind              ResourceKind = "organization"
@@ -72,6 +73,7 @@ var (
 		CatalogItemKind:               {},
 		CertificateSigningRequestKind: {},
 		DeviceKind:                    {},
+		EnrollmentApprovalPolicyKind:  {},
 		EnrollmentHookPolicyKind:      {},
 		EnrollmentRequestKind:         {},
 		EventKind:                     {},
@@ -95,6 +97,7 @@ var (
 		"catalogitems":               CatalogItemKind,
 		"certificatesigningrequests": CertificateSigningRequestKind,
 		"devices":                    DeviceKind,
+		"enrollmentapprovalpolicies": EnrollmentApprovalPolicyKind,
 		"enrollmenthookpolicies":     EnrollmentHookPolicyKind,
 		"enrollmentrequests":         EnrollmentRequestKind,
 		"events":                     EventKind,
@@ -116,6 +119,7 @@ var (
 		CatalogItemKind:               "catalogitems",
 		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
+		EnrollmentApprovalPolicyKind:  "enrollmentapprovalpolicies",
 		EnrollmentHookPolicyKind:      "enrollmenthookpolicies",
 		EnrollmentRequestKind:         "enrollmentrequests",
 		EventKind:                     "events",
@@ -137,6 +141,7 @@ var (
 		"ci":   CatalogItemKind,
 		"csr":  CertificateSigningRequestKind,
 		"dev":  DeviceKind,
+		"eap":  EnrollmentApprovalPolicyKind,
 		"ehp":  EnrollmentHookPolicyKind,
 		"er":   EnrollmentRequestKind,
 		"ev":   EventKind,
@@ -408,6 +413,8 @@ func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind,
 		return c.GetCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		return c.GetAuthProviderWithResponse(ctx, name)
+	case EnrollmentApprovalPolicyKind:
+		return c.GetEnrollmentApprovalPolicyWithResponse(ctx, name)
 	case EnrollmentHookPolicyKind:
 		return c.GetEnrollmentHookPolicyWithResponse(ctx, name)
 	case LabelSyncMappingKind:

@@ -264,6 +264,16 @@ func isBypassSpanCheck(ctx context.Context) bool {
 	return bypass
 }
 
+const (
+	EnrollmentPolicyCredentialFK           = "enrollment_approval_policy_credential_fk"
+	EnrollmentPolicyCredentialBindingCheck = "enrollment_approval_policy_certificate_name_check"
+)
+
+func IsEnrollmentPolicyCredentialFKViolation(err error) bool {
+	var violation *pgconn.PgError
+	return errors.As(err, &violation) && violation.Code == "23503" && violation.ConstraintName == EnrollmentPolicyCredentialFK
+}
+
 // constraintAwareDialector wraps postgres.Dialector to intercept error translation
 // By embedding postgres.Dialector, all its methods are promoted to constraintAwareDialector
 // We only override Translate() to check for specific constraints
@@ -280,6 +290,15 @@ func (d *constraintAwareDialector) Translate(err error) error {
 		// Check for unsupported Unicode escape sequence (e.g., null bytes in JSONB)
 		if pgErr.Code == "22P05" {
 			return flterrors.ErrUnsupportedUnicode
+		}
+
+		// Keep the named policy FK for the caller: insert and delete
+		// violations have different meanings at the resource boundary.
+		if IsEnrollmentPolicyCredentialFKViolation(pgErr) {
+			return err
+		}
+		if pgErr.Code == "23514" && pgErr.ConstraintName == EnrollmentPolicyCredentialBindingCheck {
+			return errors.Join(flterrors.ErrImmutableCertificateBinding, err)
 		}
 
 		// Check for specific authprovider constraints BEFORE default translation

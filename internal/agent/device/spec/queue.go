@@ -160,7 +160,7 @@ func (m *queueManager) Next(ctx context.Context) (*v1beta1.Device, bool) {
 	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
 		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
 		m.queue.Add(item)
-		return nil, false
+		return item.Spec, false
 	}
 
 	if item.Spec != nil {

@@ -2,7 +2,10 @@ package client
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -574,6 +577,69 @@ func TestPodman_RemoveArtifact(t *testing.T) {
 			} else {
 				require.NoError(err)
 			}
+		})
+	}
+}
+
+func TestPodman_PullSignaturePolicy(t *testing.T) {
+	const image = "quay.io/example/updater@sha256:0d4e2b9c3f1a5e6d7c8b9a0f1e2d3c4b5a69788766554433221100ffeeddccbb"
+	const policyPath = "/var/lib/flightctl/firmware/signature-policy/updater.json"
+	authFile := filepath.Join(t.TempDir(), "auth.json")
+	require.NoError(t, os.WriteFile(authFile, []byte(`{"auths":{}}`), 0o600))
+	missingAuthFile := filepath.Join(t.TempDir(), "missing.json")
+
+	testCases := []struct {
+		name     string
+		opts     []ClientOption
+		wantArgs []string
+	}{
+		{
+			name:     "When a signature policy is set it should pass it to podman pull",
+			opts:     []ClientOption{WithSignaturePolicy(policyPath)},
+			wantArgs: []string{"pull", image, "--signature-policy", policyPath},
+		},
+		{
+			name:     "When a signature policy and an existing pull secret are set it should pass both",
+			opts:     []ClientOption{WithPullSecret(authFile), WithSignaturePolicy(policyPath)},
+			wantArgs: []string{"pull", image, "--authfile", authFile, "--signature-policy", policyPath},
+		},
+		{
+			name:     "When options are given in the other order it should produce the same arguments",
+			opts:     []ClientOption{WithSignaturePolicy(policyPath), WithPullSecret(authFile)},
+			wantArgs: []string{"pull", image, "--authfile", authFile, "--signature-policy", policyPath},
+		},
+		{
+			name:     "When the pull secret does not exist it should still pass the signature policy",
+			opts:     []ClientOption{WithPullSecret(missingAuthFile), WithSignaturePolicy(policyPath)},
+			wantArgs: []string{"pull", image, "--signature-policy", policyPath},
+		},
+		{
+			name:     "When no option is set it should pull without a signature policy",
+			wantArgs: []string{"pull", image},
+		},
+		{
+			name:     "When only a pull secret is set it should pull without a signature policy",
+			opts:     []ClientOption{WithPullSecret(authFile)},
+			wantArgs: []string{"pull", image, "--authfile", authFile},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			backoff := poll.Config{BaseDelay: time.Millisecond, Factor: 1, MaxSteps: 1}
+			podman := NewPodman(log.NewPrefixLogger("test"), mockExec, readWriter, backoff)
+
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", tc.wantArgs).Return("sha256:abc\n", "", 0).Times(1)
+
+			out, err := podman.Pull(context.Background(), image, tc.opts...)
+			require.NoError(err)
+			require.Equal("sha256:abc", out)
 		})
 	}
 }

@@ -101,6 +101,7 @@ type Manager interface {
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.
+	// A non-nil device with requeue=true is blocked by both update policies.
 	GetDesired(ctx context.Context) (*v1beta1.Device, bool, error)
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
@@ -112,7 +113,8 @@ type Manager interface {
 type PriorityQueue interface {
 	// Add adds a new spec to the scheduler
 	Add(ctx context.Context, spec *v1beta1.Device)
-	// Next returns the next spec to process
+	// Next returns the next spec to process. A spec with false means both policies block it;
+	// nil with false means the queue is empty or backing off.
 	Next(ctx context.Context) (*v1beta1.Device, bool)
 	// Remove removes a spec from the scheduler
 	Remove(version int64)

@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/url"
@@ -23,6 +26,7 @@ import (
 	systeminfocommon "github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/firmwarepolicy"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -211,6 +215,9 @@ type Config struct {
 	// Enrollment holds enrollment-related agent settings.
 	Enrollment EnrollmentConfig `json:"enrollment,omitempty"`
 
+	// Firmware holds device-local firmware settings owned by the device administrator.
+	Firmware FirmwareConfig `json:"firmware,omitzero"`
+
 	// Warnings collects non-fatal issues encountered during config loading
 	// (e.g., skipped drop-ins) so they can be surfaced in device status.
 	Warnings []string `json:"-"`
@@ -253,6 +260,159 @@ type SystemInfoPeriodicConfig struct {
 	// Interval is the collection interval for periodic systeminfo gathering.
 	// When zero or absent, the agent falls back to StatusUpdateInterval.
 	Interval util.Duration `json:"interval,omitempty"`
+}
+
+// FirmwareConfig holds device-local firmware settings owned by the device administrator.
+type FirmwareConfig struct {
+	// UpdaterAccess is the maximum access an approved updater release may declare
+	// in each phase. Empty grants permit no access. Invalid settings deny all access.
+	UpdaterAccess UpdaterAccessPolicy `json:"updater-access,omitempty"`
+
+	// present records that this configuration layer sets the firmware key, so a
+	// drop-in replaces the whole inherited section, even with null or {}.
+	present bool
+	// problem describes a firmware value of the wrong shape in this layer.
+	problem string
+}
+
+// UpdaterAccessPolicy bounds the access an updater may declare per phase.
+// Network and source-credential grants are allowed only in prepare, host path
+// and device writes only in apply, and verify is read-only. Omitted phases
+// permit no access.
+type UpdaterAccessPolicy struct {
+	// Prepare bounds the phase that acquires artifacts into its workspace.
+	Prepare UpdaterAccessGrant `json:"prepare,omitempty"`
+	// Apply bounds the phase that writes firmware to host paths and devices.
+	Apply UpdaterAccessGrant `json:"apply,omitempty"`
+	// Verify bounds the read-only verification phase.
+	Verify UpdaterAccessGrant `json:"verify,omitempty"`
+
+	// problem describes a value of the wrong shape, an unknown key or a mistyped entry.
+	problem string
+}
+
+// UpdaterAccessGrant lists the access one updater phase may use. Repository
+// entries are logical repository names, not image references or URLs. Paths
+// are explicit clean absolute paths that also permit their descendants. Device
+// entries are exact paths under /dev. Quote names that look like numbers or
+// booleans.
+type UpdaterAccessGrant struct {
+	// NetworkRepositories names repositories the phase may reach over the network.
+	NetworkRepositories []string `json:"network-repositories,omitempty"`
+	// CredentialRepositories names repositories whose source credentials the
+	// phase may use. Each must also be a network repository of the same phase.
+	CredentialRepositories []string `json:"credential-repositories,omitempty"`
+	// ReadPaths lists host paths the phase may read.
+	ReadPaths []string `json:"read-paths,omitempty"`
+	// WritePaths lists host paths the phase may write.
+	WritePaths []string `json:"write-paths,omitempty"`
+	// ReadDevices lists devices the phase may read.
+	ReadDevices []string `json:"read-devices,omitempty"`
+	// WriteDevices lists devices the phase may write.
+	WriteDevices []string `json:"write-devices,omitempty"`
+	// WorkspaceWrite permits writes to the agent-owned private workspace.
+	WorkspaceWrite bool `json:"workspace-write,omitempty"`
+}
+
+// UnmarshalJSON records that this configuration layer sets the firmware
+// section, for any JSON value including null. It never returns an error: a
+// value of the wrong shape is kept so that loading reports a warning and
+// denies all updater access instead of failing.
+func (f *FirmwareConfig) UnmarshalJSON(data []byte) error {
+	*f = FirmwareConfig{present: true}
+	var section struct {
+		UpdaterAccess UpdaterAccessPolicy `json:"updater-access"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&section); err != nil {
+		f.problem = fmt.Sprintf("firmware: %v", err)
+		return nil
+	}
+	if err := ensureSingleJSONValue(dec); err != nil {
+		f.problem = fmt.Sprintf("firmware: %v", err)
+		return nil
+	}
+	f.UpdaterAccess = section.UpdaterAccess
+	return nil
+}
+
+// UnmarshalJSON decodes the per-phase maxima. It never returns an error: a
+// value of the wrong shape, an unknown key or a mistyped entry is kept so that
+// loading reports a warning and denies all updater access instead of failing.
+func (p *UpdaterAccessPolicy) UnmarshalJSON(data []byte) error {
+	*p = UpdaterAccessPolicy{}
+	var phases struct {
+		Prepare UpdaterAccessGrant `json:"prepare"`
+		Apply   UpdaterAccessGrant `json:"apply"`
+		Verify  UpdaterAccessGrant `json:"verify"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&phases); err != nil {
+		p.problem = fmt.Sprintf("firmware.updater-access: %v", err)
+		return nil
+	}
+	if err := ensureSingleJSONValue(dec); err != nil {
+		p.problem = fmt.Sprintf("firmware.updater-access: %v", err)
+		return nil
+	}
+	p.Prepare, p.Apply, p.Verify = phases.Prepare, phases.Apply, phases.Verify
+	return nil
+}
+
+func (p UpdaterAccessPolicy) phaseAccess() *firmwarepolicy.PhaseAccess {
+	grant := func(g UpdaterAccessGrant) *firmwarepolicy.AccessGrant {
+		return &firmwarepolicy.AccessGrant{
+			NetworkRepositories:    g.NetworkRepositories,
+			CredentialRepositories: g.CredentialRepositories,
+			ReadPaths:              g.ReadPaths,
+			WritePaths:             g.WritePaths,
+			ReadDevices:            g.ReadDevices,
+			WriteDevices:           g.WriteDevices,
+			WorkspaceWrite:         g.WorkspaceWrite,
+		}
+	}
+	return &firmwarepolicy.PhaseAccess{Prepare: grant(p.Prepare), Apply: grant(p.Apply), Verify: grant(p.Verify)}
+}
+
+func ensureSingleJSONValue(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("has trailing content")
+		}
+		return fmt.Errorf("has invalid trailing content: %w", err)
+	}
+	return nil
+}
+
+// checkFirmwareLayer reports an invalid firmware section of one configuration
+// layer and leaves that layer denying all updater access. Reporting per layer
+// keeps the warning even when a later layer replaces the section.
+func (cfg *Config) checkFirmwareLayer(source string, f *FirmwareConfig) {
+	if !f.present {
+		return
+	}
+	problem := f.problem
+	if problem == "" {
+		problem = f.UpdaterAccess.problem
+	}
+	if problem == "" {
+		if err := firmwarepolicy.ValidateAccess(f.UpdaterAccess.phaseAccess()); err != nil {
+			problem = err.Error()
+		}
+	}
+	if problem == "" {
+		return
+	}
+	*f = FirmwareConfig{present: true}
+	cfg.addWarning(fmt.Sprintf("Denying all firmware.updater-access: invalid settings in %s: %s", source, problem))
+}
+
+func (cfg *Config) addWarning(msg string) {
+	logrus.Warn(msg)
+	cfg.Warnings = append(cfg.Warnings, msg)
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -599,6 +759,7 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	if err := cfg.ParseConfigFile(configFile); err != nil {
 		return err
 	}
+	cfg.checkFirmwareLayer(configFile, &cfg.Firmware)
 
 	confSubdir := filepath.Join(filepath.Dir(configFile), "conf.d")
 	entries, err := cfg.readWriter.ReadDir(confSubdir)
@@ -626,6 +787,7 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	// Apply drop-ins in order (later files override earlier ones).
 	// Invalid drop-ins are skipped with a warning so the agent can still
 	// start and perform spec rollback if needed.
+	skipped := false
 	for _, filename := range yamlFiles {
 		overrideCfg := &Config{}
 		overridePath := filepath.Join(confSubdir, filename)
@@ -634,15 +796,23 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 			msg := fmt.Sprintf("Skipping unreadable override config %s: %v", overridePath, err)
 			logrus.Warn(msg)
 			cfg.Warnings = append(cfg.Warnings, msg)
+			skipped = true
 			continue
 		}
 		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
 			msg := fmt.Sprintf("Skipping invalid override config %s: %v", overridePath, err)
 			logrus.Warn(msg)
 			cfg.Warnings = append(cfg.Warnings, msg)
+			skipped = true
 			continue
 		}
+		cfg.checkFirmwareLayer(overridePath, &overrideCfg.Firmware)
 		mergeConfigs(cfg, overrideCfg)
+	}
+	// A skipped drop-in may have changed the updater access policy, so deny all.
+	if skipped && !reflect.DeepEqual(cfg.Firmware.UpdaterAccess, UpdaterAccessPolicy{}) {
+		cfg.Firmware.UpdaterAccess = UpdaterAccessPolicy{}
+		cfg.addWarning("Denying all firmware.updater-access because a skipped override config may have changed it")
 	}
 
 	if err := cfg.Complete(); err != nil {
@@ -690,6 +860,12 @@ func mergeConfigs(base, override *Config) {
 
 	// enrollment
 	overrideIfNotEmpty(&base.Enrollment.PreEnrollment.FailurePolicy, override.Enrollment.PreEnrollment.FailurePolicy)
+
+	// firmware: a layer that sets the firmware key replaces the whole section,
+	// so an explicit null, {} or invalid layer never keeps inherited grants.
+	if override.Firmware.present {
+		base.Firmware = override.Firmware
+	}
 
 	maps.Copy(base.DefaultLabels, override.DefaultLabels)
 	maps.Copy(base.LabelFromSystemInfo, override.LabelFromSystemInfo)

@@ -50,6 +50,7 @@ rules:
       - devices/rendered
       - devices/resume
       - devices/status
+      - enrollmentapprovalpolicies
       - enrollmentconfig
       - enrollmenthookpolicies
       - enrollmentrequests
@@ -143,6 +144,7 @@ rules:
       - devices/rendered
       - devices/resume
       - devices/status
+      - enrollmentapprovalpolicies
       - enrollmentconfig
       - enrollmentrequests
       - enrollmentrequests/approval

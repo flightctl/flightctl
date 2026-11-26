@@ -22,6 +22,7 @@ import (
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentapprovalpolicystore "github.com/flightctl/flightctl/internal/store/enrollmentapprovalpolicy"
 	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -131,6 +132,13 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	}
 	if err := repositorystore.NewRepositoryStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
+	}
+	enrollmentApprovalPolicies, err := enrollmentapprovalpolicystore.NewStore(tx, log)
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy store: %w", err)
+	}
+	if err := enrollmentApprovalPolicies.InitialMigration(ctx); err != nil {
+		return fmt.Errorf("migrate enrollment approval policies: %w", err)
 	}
 	if err := enrollmenthookpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
