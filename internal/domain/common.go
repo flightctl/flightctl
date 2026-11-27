@@ -33,6 +33,7 @@ const (
 	ConditionTypeDeviceLabelsSynced                   = v1beta1.ConditionTypeDeviceLabelsSynced
 	ConditionTypeDeviceMultipleOwners                 = v1beta1.ConditionTypeDeviceMultipleOwners
 	ConditionTypeDeviceSpecValid                      = v1beta1.ConditionTypeDeviceSpecValid
+	ConditionTypeDeviceOneTimeWindowsCompatible       = v1beta1.ConditionTypeDeviceOneTimeWindowsCompatible
 	ConditionTypeDeviceUpdating                       = v1beta1.ConditionTypeDeviceUpdating
 	ConditionTypeEnrollmentRequestApproved            = v1beta1.ConditionTypeEnrollmentRequestApproved
 	ConditionTypeEnrollmentRequestDenied              = v1beta1.ConditionTypeCertificateSigningRequestDenied

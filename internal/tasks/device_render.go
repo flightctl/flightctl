@@ -294,6 +294,14 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 	}
 
+	blocked, forceRender, err := t.enforceOneTimeWindowsCompatibility(ctx, device)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return nil
+	}
+
 	t.bindVmLauncher(device)
 
 	// Calculate hash including device spec and selected virt-launcher image.
@@ -302,7 +310,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	// bypassHashCheck is true for event reasons that must always produce a fresh render even
 	// though specHash (computed from device.Spec alone) hasn't changed: dependency changes and
 	// application lifecycle changes affect the rendered output without changing device.Spec.
-	bypassHashCheck := lo.Contains([]domain.EventReason{
+	bypassHashCheck := forceRender || lo.Contains([]domain.EventReason{
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonFleetRolloutDeviceSelected,
 		domain.EventReasonApplicationLifecycleChanged,
@@ -455,7 +463,81 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 		return t.setErrorStatus(ctx, err)
 	}
+	if forceRender {
+		if err := t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsSupportedReason, ""); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+const (
+	oneTimeWindowsCompatibilityMessage = "Agent does not support one-time maintenance windows"
+	oneTimeWindowsSupportedReason      = "Supported"
+	oneTimeWindowsNotRequiredReason    = "NotRequired"
+)
+
+func specHasOneTimeWindows(spec *domain.DeviceSpec) bool {
+	if spec == nil || spec.UpdatePolicy == nil {
+		return false
+	}
+
+	return scheduleHasOneTimeWindows(spec.UpdatePolicy.DownloadSchedule) ||
+		scheduleHasOneTimeWindows(spec.UpdatePolicy.UpdateSchedule)
+}
+
+func scheduleHasOneTimeWindows(schedule *v1beta1.UpdateSchedule) bool {
+	return schedule != nil && schedule.OneTimeWindows != nil && len(*schedule.OneTimeWindows) > 0
+}
+
+func deviceHasOneTimeWindowsCapability(device *domain.Device) bool {
+	return device != nil &&
+		device.Status != nil &&
+		device.Status.SystemInfo.OneTimeWindowsEligible != nil &&
+		*device.Status.SystemInfo.OneTimeWindowsEligible
+}
+
+func (t *deviceRenderState) enforceOneTimeWindowsCompatibility(ctx context.Context, device *domain.Device) (blocked, forceRender bool, err error) {
+	compatibilityCondition := (*domain.Condition)(nil)
+	if device != nil && device.Status != nil {
+		compatibilityCondition = domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceOneTimeWindowsCompatible)
+	}
+
+	if !specHasOneTimeWindows(device.Spec) {
+		if compatibilityCondition != nil && compatibilityCondition.Status == domain.ConditionStatusFalse {
+			return false, false, t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusTrue, oneTimeWindowsNotRequiredReason, "")
+		}
+		return false, false, nil
+	}
+
+	if deviceHasOneTimeWindowsCapability(device) {
+		if compatibilityCondition != nil && compatibilityCondition.Status == domain.ConditionStatusFalse {
+			// Keep the condition False until a successful render applies the
+			// recovered schedule. The caller also bypasses the unchanged-spec
+			// guard for status-only capability updates.
+			return false, true, nil
+		}
+		return false, false, nil
+	}
+
+	if err := t.updateOneTimeWindowsCompatibilityCondition(ctx, domain.ConditionStatusFalse, domain.OneTimeWindowsUnsupportedReason, oneTimeWindowsCompatibilityMessage); err != nil {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
+func (t *deviceRenderState) updateOneTimeWindowsCompatibilityCondition(ctx context.Context, conditionStatus domain.ConditionStatus, reason, message string) error {
+	condition := domain.Condition{
+		Type:    domain.ConditionTypeDeviceOneTimeWindowsCompatible,
+		Status:  conditionStatus,
+		Reason:  reason,
+		Message: message,
+	}
+	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
+	if err := common.ApiStatusToErr(status); err != nil {
+		return err
+	}
+	return t.deviceSvc.UpdateServerSideDeviceStatus(ctx, t.orgId, t.event.InvolvedObject.Name)
 }
 
 var errIgnitionConversion = errors.New("failed converting ignition config to rendered config")
