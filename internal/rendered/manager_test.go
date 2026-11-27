@@ -111,6 +111,14 @@ func (f *fakeKVStore) StreamRead(_ context.Context, _ string, _ string, _ time.D
 }
 func (f *fakeKVStore) SetExpire(_ context.Context, _ string, _ time.Duration) error { return nil }
 
+func (f *fakeKVStore) ExpireIfMatch(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeKVStore) DeleteIfMatch(_ context.Context, _ string, _ []byte) (bool, error) {
+	return false, nil
+}
+
 // recordingPublisher records the last Publish call.
 type recordingPublisher struct {
 	mu   sync.Mutex

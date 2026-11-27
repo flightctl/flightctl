@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/link"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -553,6 +554,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	startAsync(firmwarePolicy.Run)
 	startAsync(specManager.Publisher().Run)
 	startAsync(certManager.Run)
+	// The agent link is established on startup and kept open for the life of
+	// the agent, so that work dispatched over it needs no per-request
+	// connection setup. It is started after bootstrap because it dials with
+	// the enrolled device certificate; until one exists the dial fails and
+	// is retried with the same jittered backoff as any other failure.
+	startAsync(link.NewManager(identityProvider, &a.config.ManagementService.Config, a.log).Run)
 
 	// main agent loop: all critical work happens here serially
 	err = agent.Run(ctx)

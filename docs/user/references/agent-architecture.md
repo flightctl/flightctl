@@ -61,6 +61,18 @@ All communication uses mTLS:
 
 * **Console**: Bidirectional gRPC streaming for remote terminal access
 
+* **Agent link**: A persistent WebSocket connection the agent opens to the
+  agent-facing endpoint on startup and keeps open, so that work dispatched
+  over it needs no per-request connection setup
+
+The agent link uses the agent-facing endpoint, port and certificate the agent
+already uses, so it needs no additional firewall rule, route or configuration.
+It is dialed over the same TLS 1.3 mutual handshake, and the device identity
+comes from the client certificate alone. If the connection breaks, the agent
+dials again with jittered backoff. The replacement connection is a recovery
+rather than a resume, so anything in flight fails explicitly rather than being
+silently retried.
+
 ## Reconciliation Controller
 
 The agent reconciles the **DeviceSpec** against device state by calling external tools:

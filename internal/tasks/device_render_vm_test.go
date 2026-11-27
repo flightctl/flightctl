@@ -140,6 +140,14 @@ func (f *fakeKVStore) SetIfGreater(_ context.Context, _ string, _ int64) (bool, 
 	return false, nil
 }
 func (f *fakeKVStore) SetExpire(_ context.Context, _ string, _ time.Duration) error { return nil }
+
+func (f *fakeKVStore) ExpireIfMatch(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeKVStore) DeleteIfMatch(_ context.Context, _ string, _ []byte) (bool, error) {
+	return false, nil
+}
 func (f *fakeKVStore) StreamAdd(_ context.Context, _ string, _ []byte) (string, error) {
 	return "", nil
 }

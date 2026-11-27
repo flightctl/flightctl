@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"crypto"
+	"crypto/tls"
 	"encoding/base32"
 	"errors"
 	"fmt"
@@ -89,6 +90,21 @@ type Provider interface {
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC RouterService client with this identity
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
+	// CreateTLSConfig returns the verification policy for a direct TLS dial
+	// to the endpoint named by config, carrying this identity's client
+	// certificate.
+	//
+	// The returned config advertises no ALPN protocols: callers that need one
+	// set NextProtos themselves. That matters for the agent link, whose
+	// WebSocket dial fails outright if the config advertises h2, so CA and
+	// certificate material is shared between transports but the ALPN list is
+	// not.
+	//
+	// Both identity paths must reach the same verification outcome. The
+	// TPM-backed path returns a certificate whose private key is the TPM
+	// signer, which Go's TLS stack uses directly; no step exports a TPM
+	// private key, which is not possible and is not attempted.
+	CreateTLSConfig(config *base_client.Config) (*tls.Config, error)
 	// CreateEnrollmentGRPCClient creates a fully configured gRPC Enrollment client with this identity.
 	// The caller must Close the returned closer to release the underlying connection.
 	CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, io.Closer, error)

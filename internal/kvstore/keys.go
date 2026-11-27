@@ -153,3 +153,18 @@ func (k *VmQuadletFilesKey) ComposeKey(vmYAML []byte, launcherImage string, pass
 	}
 	return fmt.Sprintf("v1/vm-quadlet-files/%x", h.Sum(nil))
 }
+
+// AgentLinkDispatchKey records which replica holds a device's live agent
+// link, so a request can be dispatched to the process that terminates that
+// connection. The value names the replica and that connection's unique
+// linkId; it is refreshed by the holding replica while the connection is open
+// and removed when it closes. Refresh and deletion compare the stored value,
+// so only the current holder may keep or remove its own registration.
+type AgentLinkDispatchKey struct {
+	OrgID      uuid.UUID
+	DeviceName string
+}
+
+func (k *AgentLinkDispatchKey) ComposeKey() string {
+	return fmt.Sprintf("v1/agentlink/dispatch/%s/%s", k.OrgID, k.DeviceName)
+}

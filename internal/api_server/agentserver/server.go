@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentv1beta1 "github.com/flightctl/flightctl/api/agent/v1beta1"
+	"github.com/flightctl/flightctl/internal/agentlink"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
 	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
@@ -44,6 +45,7 @@ import (
 	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	agenttransportv1beta1 "github.com/flightctl/flightctl/internal/transport/agent/v1beta1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
@@ -75,6 +77,7 @@ type AgentServer struct {
 	identityMapper           *service.IdentityMapper
 	agentAuthMiddleware      *fcmiddleware.AgentAuthMiddleware
 	enrollmentAuthMiddleware *fcmiddleware.EnrollmentAuthMiddleware
+	linkHandler              *agentLinkHandler
 }
 
 // New returns a new instance of a flightctl server.
@@ -249,6 +252,14 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+
+		// Wait for active WebSocket links to finish their ordered shutdown
+		// and release their registrations before closing their KV dependency.
+		// ctx cancellation (propagated through serverCtx) has already begun
+		// each link's shutdown; this wait ensures they complete.
+		if s.linkHandler != nil {
+			s.linkHandler.WaitForLinks()
+		}
 		s.Stop()
 	}()
 
@@ -439,6 +450,20 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 		// Negotiated API endpoints
 		r.Mount("/", negotiatedRouter)
 	})
+
+	// Agent link WebSocket route. It is mounted on this same router so it
+	// inherits the authentication chain above -- request size limits,
+	// security headers, request ID, AuthenticateAgent, identity mapping and
+	// organization extraction all run and can reject before the 101 -- but
+	// outside the /api/v1 subtree, so the OpenAPI validator does not reject
+	// a path that is absent from the agent spec.
+	//
+	// The connection is long-lived. The HTTP server's WriteTimeout and
+	// IdleTimeout do not sever it: the library clears the server's deadlines
+	// on the hijacked connection.
+	linkRegistry := agentlink.NewRegistry(s.kvStore, util.GetHostname(), s.log)
+	s.linkHandler = newAgentLinkHandler(linkRegistry, ctx, s.log)
+	router.Get(AgentLinkPath, s.linkHandler.ServeHTTP)
 
 	if err := s.enrollmentAuthMiddleware.Start(ctx); err != nil {
 		return nil, err
