@@ -472,9 +472,10 @@ func runDeltaActivationTest(t *testing.T, runtime, image string, setupExpectatio
 			Delta: &OCIDeltaTarget{Hint: deltaActivationCandidate, SourceDigest: podmanDeltaSource, Application: application},
 		}}}}, nil
 	}))
+	require.ErrorIs(t, manager.BeforeUpdate(t.Context(), nil, desired), errors.ErrPrefetchNotReady)
+	require.False(t, manager.IsReady(t.Context()))
 	stopWorker := startPrefetchWorker(t, manager)
 	defer stopWorker()
-	require.ErrorIs(t, manager.BeforeUpdate(t.Context(), nil, desired), errors.ErrPrefetchNotReady)
 	require.Eventually(t, func() bool { return manager.IsReady(t.Context()) }, time.Second, time.Millisecond)
 	result := store.ObservedApplicationResult(application, []deltastatus.ApplicationImage{{
 		Image: image, Owner: string(v1beta1.RootUsername), OCIType: string(targetType), Digest: podmanDeltaTargetDigest,
@@ -611,9 +612,10 @@ func TestWhenPodmanDeltaActivationFailsItShouldFallBackWithoutApplied(t *testing
 				}}}}, nil
 			}))
 
+			require.ErrorIs(t, manager.BeforeUpdate(context.Background(), nil, desired), errors.ErrPrefetchNotReady)
+			require.False(t, manager.IsReady(context.Background()))
 			stopWorker := startPrefetchWorker(t, manager)
 			defer stopWorker()
-			require.ErrorIs(t, manager.BeforeUpdate(context.Background(), nil, desired), errors.ErrPrefetchNotReady)
 			require.Eventually(t, func() bool { return manager.IsReady(context.Background()) }, time.Second, time.Millisecond)
 
 			result := store.ObservedApplicationResult(application, []deltastatus.ApplicationImage{{
