@@ -29,6 +29,20 @@ Detailed upgrade procedures will be documented here once upgrade paths are avail
 
 ## Upgrade Notes
 
+### Release 1.5
+
+#### Update schedule Go model fields
+
+The generated `v1beta1.UpdateSchedule` Go model keeps the optional recurring
+fields as value types for source compatibility. A missing `at` or
+`startGraceDuration` is represented by an empty value; Go clients must not
+assume that an empty value is a valid recurring schedule. Use both recurring
+fields together, or configure one or more `oneTimeWindows` entries.
+
+The one-time window field `at` is deprecated in favor of `startTime`, but
+remains accepted during the deprecation period. Existing clients can continue
+to send `at`; new clients should send `startTime`.
+
 ### Upgrading from 1.0 to 1.1
 
 #### UI TLS secret rename (multicluster engine plugin only)

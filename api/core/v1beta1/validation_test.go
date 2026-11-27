@@ -139,7 +139,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 	validOneTimeWindows := lo.ToPtr([]OneTimeWindow{
 		{
 			Date:               "2026-11-15",
-			At:                 "22:00",
+			StartTime:          "22:00",
 			StartGraceDuration: "90m",
 		},
 	})
@@ -202,7 +202,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{
 					{
 						Date:               "2026-02-31",
-						At:                 "24:00",
+						StartTime:          "24:00",
 						StartGraceDuration: "invalid",
 					},
 				}),
@@ -219,6 +219,140 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 				return
 			}
 			require.Empty(t, errs)
+		})
+	}
+}
+
+func TestValidateUpdateScheduleOneTimeWindows(t *testing.T) {
+	tests := []struct {
+		name        string
+		schedule    UpdateSchedule
+		wantErrText string
+	}{
+		{
+			name: "When a one-time-only schedule is valid it should pass",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartTime:          "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+		},
+		{
+			name: "When a combined recurring and one-time schedule is valid it should pass",
+			schedule: UpdateSchedule{
+				At:                 CronExpression("0 4 * * 1"),
+				StartGraceDuration: Duration("1h"),
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-16",
+					StartTime:          "04:00",
+					StartGraceDuration: "2h",
+				}}),
+			},
+		},
+		{
+			name: "When a one-time schedule uses the legacy at field it should pass",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+		},
+		{
+			name: "When a one-time schedule sets both time fields it should fail",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					At:                 "22:00",
+					StartTime:          "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "must not both be set",
+		},
+		{
+			name: "When the schedule is empty it should fail with a schedule error",
+			schedule: UpdateSchedule{
+				TimeZone: lo.ToPtr(TimeZone("UTC")),
+			},
+			wantErrText: "schedule",
+		},
+		{
+			name: "When a one-time date is invalid it should identify the date field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-02-30",
+					StartTime:          "22:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].date",
+		},
+		{
+			name: "When a one-time start time is invalid it should identify the startTime field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartTime:          "24:00",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startTime",
+		},
+		{
+			name: "When a one-time window omits both time fields it should fail",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartGraceDuration: "90m",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startTime or oneTimeWindows[0].at must be set",
+		},
+		{
+			name: "When a one-time duration is not positive it should identify the duration field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartTime:          "22:00",
+					StartGraceDuration: "0s",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+		{
+			name: "When a one-time duration uses an unsupported unit it should identify the duration field",
+			schedule: UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]OneTimeWindow{{
+					Date:               "2026-11-15",
+					StartTime:          "22:00",
+					StartGraceDuration: "1ms",
+				}}),
+			},
+			wantErrText: "oneTimeWindows[0].startGraceDuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.schedule.Validate()
+			if tt.wantErrText == "" {
+				require.Empty(t, errs)
+				return
+			}
+
+			require.NotEmpty(t, errs)
+			assert.Condition(t, func() bool {
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.wantErrText) {
+						return true
+					}
+				}
+				return false
+			})
 		})
 	}
 }
@@ -303,6 +437,7 @@ func TestValidateGraceDuration(t *testing.T) {
 		cronExpression string
 		duration       string
 		expectError    error
+		wantErrText    string
 	}{
 		{
 			name:           "graceDuration within interval",
@@ -342,6 +477,18 @@ func TestValidateGraceDuration(t *testing.T) {
 			duration:       "4h",              // shortest interval is 3 hours
 			expectError:    ErrStartGraceDurationExceedsCronInterval,
 		},
+		{
+			name:           "zero graceDuration should be rejected",
+			cronExpression: "0 * * * *",
+			duration:       "0s",
+			wantErrText:    "must be positive",
+		},
+		{
+			name:           "negative graceDuration should be rejected",
+			cronExpression: "0 * * * *",
+			duration:       "-1m",
+			wantErrText:    "must be positive",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -352,6 +499,10 @@ func TestValidateGraceDuration(t *testing.T) {
 			err = validateGraceDuration(schedule, tt.duration)
 			if tt.expectError != nil {
 				require.Error(err)
+				return
+			}
+			if tt.wantErrText != "" {
+				require.ErrorContains(err, tt.wantErrText)
 				return
 			}
 			require.NoError(err)
