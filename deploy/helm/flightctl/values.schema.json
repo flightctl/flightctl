@@ -65,6 +65,26 @@
           "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.",
           "default": "flightctl-api-server-tls"
         },
+        "uiUrl": {
+          "type": "string",
+          "description": "Base URL of the UI, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https?://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
+        },
+        "apiUrl": {
+          "type": "string",
+          "description": "Base URL of the API, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
+        },
+        "agentApiUrl": {
+          "type": "string",
+          "description": "External URL of the agent API without a path, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https://[^/?#@\\s\\[\\]]+$"
+        },
+        "cliArtifactsUrl": {
+          "type": "string",
+          "description": "Base URL of the CLI artifacts, overriding the one constructed from baseDomain. IPv6 literal addresses are not supported.",
+          "pattern": "^$|^https?://[^/?#@\\s\\[\\]]+(/[^?#\\s]*[^/?#\\s])?$"
+        },
         "routeExternalCertificate": {
           "type": "string",
           "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses for synchronous builtin certificates, or configures it after the generated Secret exists for asynchronous certificates. 'true' uses externalCertificate and configures it after the generated Secret exists when cert-manager is used. 'false' never uses (rely on default router cert).",
