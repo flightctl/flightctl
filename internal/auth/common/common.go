@@ -33,6 +33,14 @@ type Identity interface {
 	SetSuperAdmin(bool)
 }
 
+// AAPOrganizationIdentity exposes validated Gateway IDs from the authenticated
+// provider's organization lists, keyed by the existing external organization key.
+// It carries identity metadata only; it does not grant organization access.
+type AAPOrganizationIdentity interface {
+	Identity
+	GetAAPOrganizationID(externalID string) (int64, bool)
+}
+
 // K8sIdentityProvider extends Identity with control plane URL for K8s-based auth
 type K8sIdentityProvider interface {
 	Identity

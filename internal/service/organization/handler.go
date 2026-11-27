@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 
+	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -50,7 +52,7 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context, params domain.Li
 	}
 
 	if params.FieldSelector == nil || *params.FieldSelector == "" {
-		return buildOrganizationList(userOrgs), domain.StatusOK()
+		return buildAuthorizedOrganizationList(ctx, userOrgs), domain.StatusOK()
 	}
 
 	allowedIDs := parseFieldSelectorForOrgIDs(*params.FieldSelector)
@@ -60,7 +62,28 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context, params domain.Li
 			filtered = append(filtered, userOrg)
 		}
 	}
-	return buildOrganizationList(filtered), domain.StatusOK()
+	return buildAuthorizedOrganizationList(ctx, filtered), domain.StatusOK()
+}
+
+// buildAuthorizedOrganizationList projects request identity metadata only after
+// membership and field-selector filtering. It never enriches stored organizations.
+func buildAuthorizedOrganizationList(ctx context.Context, orgs []*model.Organization) *domain.OrganizationList {
+	result := buildOrganizationList(orgs)
+	authIdentity, err := authcommon.GetIdentity(ctx)
+	if err != nil || authIdentity.GetIssuer() == nil || !authIdentity.GetIssuer().IsAAP() {
+		return result
+	}
+	aapIdentity, ok := authIdentity.(authcommon.AAPOrganizationIdentity)
+	if !ok {
+		return result
+	}
+	for i, org := range orgs {
+		if id, found := aapIdentity.GetAAPOrganizationID(org.ExternalID); found && id > 0 {
+			originalID := strconv.FormatInt(id, 10)
+			result.Items[i].Spec.OriginalExternalId = &originalID
+		}
+	}
+	return result
 }
 
 // ListAllOrganizations returns every organization in the system, bypassing identity-based scoping.

@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/aap"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 type AAPGatewayUserIdentity interface {
@@ -29,10 +30,12 @@ type AAPIdentity struct {
 	superUser       bool
 	platformAuditor bool
 	ansibleID       string
+	organizationIDs map[string]int64
 }
 
 // Ensure AAPIdentity implements AAPGatewayUserIdentity
 var _ AAPGatewayUserIdentity = (*AAPIdentity)(nil)
+var _ common.AAPOrganizationIdentity = (*AAPIdentity)(nil)
 
 func (a *AAPIdentity) IsSuperuser() bool {
 	return a.superUser
@@ -40,6 +43,12 @@ func (a *AAPIdentity) IsSuperuser() bool {
 
 func (a *AAPIdentity) IsPlatformAuditor() bool {
 	return a.platformAuditor
+}
+
+// GetAAPOrganizationID returns a positive, unambiguous ID from this Gateway identity.
+func (a *AAPIdentity) GetAAPOrganizationID(externalID string) (int64, bool) {
+	id := a.organizationIDs[externalID]
+	return id, id > 0
 }
 
 type AapGatewayAuth struct {
@@ -192,12 +201,19 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 	}
 
 	// Get user organizations from AAP
-	organizations, err := a.getUserOrganizations(ctx, token, userInfo)
+	aapOrganizations, err := a.getUserOrganizations(ctx, token, userInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user organizations: %w", err)
 	}
-	for i := range organizations {
-		organizations[i] = ApplyOrgPrefix(organizations[i], a.spec.OrganizationNamePrefix)
+	organizations := make([]string, 0, len(aapOrganizations))
+	for _, org := range aapOrganizations {
+		organizations = append(organizations, ApplyOrgPrefix(org.Name, a.spec.OrganizationNamePrefix))
+	}
+	var conflictCount int
+	userInfo.organizationIDs, conflictCount = aapOrganizationIDs(aapOrganizations, a.spec.OrganizationNamePrefix)
+	if conflictCount > 0 {
+		logrus.WithField("conflicting_organization_count", conflictCount).
+			Warn("Conflicting AAP organization mappings; omitting original external IDs")
 	}
 
 	// Map AAP permissions to roles
@@ -239,7 +255,8 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 		orgRoles[orgName] = appendUniqueRoles(orgRoles[orgName], roles)
 	}
 
-	// Build ReportedOrganization with roles embedded
+	// Build reported organizations with roles, deduplicating by name after
+	// Gateway IDs have been collected.
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	userInfo.SetOrganizations(reportedOrganizations)
 	userInfo.SetSuperAdmin(isSuperAdmin)
@@ -251,8 +268,8 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 }
 
 // getUserOrganizations retrieves organizations for the user from AAP
-func (a *AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, userInfo *AAPIdentity) ([]string, error) {
-	var organizations []string
+func (a *AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, userInfo *AAPIdentity) ([]*aap.AAPOrganization, error) {
+	var organizations []*aap.AAPOrganization
 	var err error
 
 	// Superusers and platform auditors get access to all organizations
@@ -270,22 +287,12 @@ func (a *AapGatewayAuth) getUserOrganizations(ctx context.Context, token string,
 }
 
 // getAllOrganizations gets all organizations from AAP
-func (a *AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]string, error) {
-	aapOrganizations, err := a.aapClient.ListOrganizations(ctx, token)
-	if err != nil {
-		return nil, err
-	}
-
-	organizations := make([]string, 0, len(aapOrganizations))
-	for _, org := range aapOrganizations {
-		organizations = append(organizations, org.Name)
-	}
-
-	return organizations, nil
+func (a *AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]*aap.AAPOrganization, error) {
+	return a.aapClient.ListOrganizations(ctx, token)
 }
 
-// getUserScopedOrganizations gets organizations for a specific user
-func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]string, error) {
+// getUserScopedOrganizations gets organizations for a specific user.
+func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]*aap.AAPOrganization, error) {
 	// Get user's direct organizations
 	aapOrganizations, err := a.aapClient.ListUserOrganizations(ctx, token, userID)
 	if err != nil {
@@ -297,27 +304,55 @@ func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token s
 	if err != nil {
 		return nil, err
 	}
-
-	// Create a map to deduplicate organizations
-	orgMap := make(map[string]bool)
-
-	// Add direct organizations
-	for _, org := range aapOrganizations {
-		orgMap[org.Name] = true
-	}
-
-	// Add organizations from teams
 	for _, team := range aapTeams {
-		orgMap[team.SummaryFields.Organization.Name] = true
+		org := team.SummaryFields.Organization
+		aapOrganizations = append(aapOrganizations, &org)
 	}
+	return aapOrganizations, nil
+}
 
-	// Convert map to slice
-	organizations := make([]string, 0, len(orgMap))
-	for orgName := range orgMap {
-		organizations = append(organizations, orgName)
+// aapOrganizationIDs keeps only positive, consistent Gateway IDs. Invalid or
+// conflicting evidence suppresses metadata, never membership or role processing.
+// The count includes unique organization keys with conflicting positive mappings.
+func aapOrganizationIDs(organizations []*aap.AAPOrganization, prefix *string) (map[string]int64, int) {
+	ids := make(map[string]int64, len(organizations))
+	namesByID := make(map[int64]string, len(organizations))
+	ambiguousIDs := make(map[int64]bool)
+	positiveIDsByName := make(map[string]int64, len(organizations))
+	conflictingNames := make(map[string]bool)
+	for _, org := range organizations {
+		name := ApplyOrgPrefix(org.Name, prefix)
+		id := int64(org.ID)
+		if org.Name == "" || id <= 0 {
+			id = 0
+		}
+		// Invalid observations suppress metadata but must not hide positive conflicts.
+		if id > 0 {
+			if previous, seen := positiveIDsByName[name]; seen && previous != id {
+				conflictingNames[name] = true
+			}
+			positiveIDsByName[name] = id
+		}
+		if previous, seen := ids[name]; seen && previous != id {
+			ids[name] = 0
+		} else {
+			ids[name] = id
+		}
+		if previous, seen := namesByID[id]; seen && previous != name {
+			ambiguousIDs[id] = true
+			if id > 0 {
+				conflictingNames[previous] = true
+				conflictingNames[name] = true
+			}
+		}
+		namesByID[id] = name
 	}
-
-	return organizations, nil
+	for name, id := range ids {
+		if id <= 0 || ambiguousIDs[id] {
+			delete(ids, name)
+		}
+	}
+	return ids, len(conflictingNames)
 }
 
 // getUserRoleAssignments gets role assignments for a specific user from AAP

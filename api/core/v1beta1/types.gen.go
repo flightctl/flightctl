@@ -3795,6 +3795,9 @@ type OrganizationSpec struct {
 
 	// ExternalId External ID of the organization.
 	ExternalId *string `json:"externalId,omitempty"`
+
+	// OriginalExternalId Original organization ID from the authenticating provider, scoped to that provider instance. Currently populated only for authenticated AAP Gateway identities with a positive, unambiguous Gateway organization ID, formatted as a decimal string. Omitted for unsupported providers or unknown organizations.
+	OriginalExternalId *string `json:"originalExternalId,omitempty"`
 }
 
 // OsModeType OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
