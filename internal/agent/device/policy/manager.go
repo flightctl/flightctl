@@ -164,7 +164,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 }
 
 func parseOneTimeWindow(window v1beta1.OneTimeWindow, location *time.Location) (oneTimeWindow, error) {
-	start, err := time.ParseInLocation("2006-01-02 15:04", window.Date+" "+window.At, location)
+	start, err := time.ParseInLocation("2006-01-02 15:04", window.Date+" "+window.StartTime, location)
 	if err != nil {
 		return oneTimeWindow{}, fmt.Errorf("invalid date/time: %w", err)
 	}

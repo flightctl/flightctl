@@ -139,7 +139,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 	validOneTimeWindows := lo.ToPtr([]OneTimeWindow{
 		{
 			Date:               "2026-11-15",
-			At:                 "22:00",
+			StartTime:          "22:00",
 			StartGraceDuration: "90m",
 		},
 	})
@@ -202,7 +202,7 @@ func TestValidateUpdateScheduleForms(t *testing.T) {
 				OneTimeWindows: lo.ToPtr([]OneTimeWindow{
 					{
 						Date:               "2026-02-31",
-						At:                 "24:00",
+						StartTime:          "24:00",
 						StartGraceDuration: "invalid",
 					},
 				}),
