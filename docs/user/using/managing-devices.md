@@ -67,6 +67,49 @@ The agent can report hook outcomes by changing `Pending` to `Succeeded`, `Contin
 
 For hook configuration, failure policies, and restart behavior, see [Using enrollment hooks](enrollment-hooks.md).
 
+### Writing an enrollment policy expression
+
+Set `spec.matchExpression` on an `EnrollmentApprovalPolicy` to a CEL expression
+that returns `true` or `false`. Use `systemInfo` to access any field reported in
+`spec.deviceStatus.systemInfo`, including nested objects and lists. Custom
+collector output appears under `systemInfo.customInfo`. Enrollment labels are
+reported separately in `spec.labels`.
+
+Use `==` to compare a field with a value of the same type, `in` to test for a
+value in a list, and `&&` to require several conditions. Use quoted keys in
+brackets when a field name contains punctuation, and use an integer index to
+select an item from a list.
+
+The following expression compares a reported field with a string.
+
+```cel
+systemInfo["<field_name>"] == "<expected_text>"
+```
+
+Replace `<field_name>` with the reported field name and `<expected_text>` with
+the expected string value.
+
+The server checks the expression when you create an enabled policy, enable a
+saved draft, or change the expression on an enabled policy. Expressions can
+contain up to 1,000 Unicode code points and 256 expression nodes, such as
+operators, field selections, and literals. For expression errors, the
+`InvalidPolicy` response points to `spec.matchExpression` and explains the issue.
+
+When evaluating one enrollment request, the evaluator checks up to 32
+expressions and reports which ones matched. One match gives a matched result.
+Multiple matches report a conflict. With zero matches, the result reports an
+evaluation failure if any expression failed, or no match if all were false or
+the group was empty.
+
+Each expression has a budget of 10,000 CEL cost units. If the evaluator needs a
+field or list item that the request did not report, reads a string longer than
+4,096 bytes, or exceeds its cost budget, that expression fails. The other
+expressions can still match. See the
+[enrollment expression evaluation reference](../../developer/architecture/cel-runtime.md#enrollment-expressions)
+for the result values and evaluation behavior.
+
+Use `flightctl approve` to approve enrollment requests.
+
 ### Revoking enrollment credentials
 
 Revocation applies to an issued enrollment credential and has consequences for new enrollment, pending Enrollment Requests, and admitted devices.

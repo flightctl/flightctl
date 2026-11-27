@@ -3,6 +3,8 @@ package enrollmentapprovalpolicy
 import (
 	"context"
 	"errors"
+
+	"github.com/flightctl/flightctl/internal/enrollmentpolicy"
 )
 
 var ErrValidationUnavailable = errors.New("restricted policy validation is unavailable")
@@ -11,6 +13,26 @@ var ErrValidationUnavailable = errors.New("restricted policy validation is unava
 // return InvalidPolicyError and an unavailable compiler returns ErrValidationUnavailable.
 type ExpressionValidator interface {
 	ValidateExpression(context.Context, string) error
+}
+
+// CELExpressionValidator checks expressions in the enrollment matcher environment.
+type CELExpressionValidator struct {
+	matcher *enrollmentpolicy.Matcher
+}
+
+func NewCELExpressionValidator() (*CELExpressionValidator, error) {
+	matcher, err := enrollmentpolicy.NewMatcher()
+	if err != nil {
+		return nil, err
+	}
+	return &CELExpressionValidator{matcher: matcher}, nil
+}
+
+func (validator *CELExpressionValidator) ValidateExpression(_ context.Context, expression string) error {
+	if _, err := validator.matcher.Compile(expression); err != nil {
+		return InvalidPolicyError{Message: err.Error(), Cause: err}
+	}
+	return nil
 }
 
 type UnavailableExpressionValidator struct{}

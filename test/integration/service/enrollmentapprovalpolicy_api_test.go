@@ -188,6 +188,86 @@ var _ = Describe("EnrollmentApprovalPolicyAPI", func() {
 		return response
 	}
 	policyJSON := []byte(`{"apiVersion":"v1beta1","kind":"EnrollmentApprovalPolicy","metadata":{"name":"west"},"spec":{"certificateName":"commissioning","matchExpression":"true","deviceLabels":{}}}`)
+	It("When enabled policies have overlapping CEL expressions it should save each independently", func() {
+		validator, err := policyservice.NewCELExpressionValidator()
+		Expect(err).NotTo(HaveOccurred())
+		handler := makeHandler(validator)
+		for _, name := range []string{"west", "backup-west"} {
+			var policy api.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+			policy.Metadata.Name = lo.ToPtr(name)
+			policy.Spec.Enabled = true
+			policy.Spec.MatchExpression = `systemInfo["architecture"] in ["arm64", "amd64"] && systemInfo.kvm.enabled == true`
+			body, err := json.Marshal(policy)
+			Expect(err).NotTo(HaveOccurred())
+			created := request(handler, http.MethodPost, "", body, suite.Ctx)
+			Expect(created.Code).To(Equal(http.StatusCreated), created.Body.String())
+			var saved api.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(created.Body.Bytes(), &saved)).To(Succeed())
+			Expect(saved.Spec).To(Equal(policy.Spec))
+		}
+	})
+
+	DescribeTable("When a policy write would enable invalid CEL it should reject the expression",
+		func(method string, draft bool) {
+			validator, err := policyservice.NewCELExpressionValidator()
+			Expect(err).NotTo(HaveOccurred())
+			handler := makeHandler(validator)
+			const invalidExpression = `systemInfo.productSerial.matches("^west")`
+			var policy api.EnrollmentApprovalPolicy
+			Expect(json.Unmarshal(policyJSON, &policy)).To(Succeed())
+			policy.Spec.Enabled = !draft
+			if draft {
+				policy.Spec.MatchExpression = invalidExpression
+			}
+
+			var saved string
+			path := ""
+			if method != http.MethodPost {
+				seed, err := json.Marshal(policy)
+				Expect(err).NotTo(HaveOccurred())
+				created := request(handler, http.MethodPost, "", seed, suite.Ctx)
+				Expect(created.Code).To(Equal(http.StatusCreated), created.Body.String())
+				saved = created.Body.String()
+				Expect(json.Unmarshal(created.Body.Bytes(), &policy)).To(Succeed())
+				policy.Status = nil
+				path = "/west"
+			}
+
+			var body []byte
+			if method == http.MethodPatch {
+				operation := fmt.Sprintf(`{"op":"replace","path":"/spec/matchExpression","value":%q}`, invalidExpression)
+				if draft {
+					operation = `{"op":"replace","path":"/spec/enabled","value":true}`
+				}
+				body = fmt.Appendf(nil, `[{"op":"test","path":"/metadata/resourceVersion","value":%q},%s]`, *policy.Metadata.ResourceVersion, operation)
+			} else {
+				policy.Spec.MatchExpression = invalidExpression
+				body, err = json.Marshal(policy)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			response := request(handler, method, path, body, suite.Ctx)
+			Expect(response.Code).To(Equal(http.StatusBadRequest), response.Body.String())
+			var status api.Status
+			Expect(json.Unmarshal(response.Body.Bytes(), &status)).To(Succeed())
+			Expect(status.Reason).To(Equal("InvalidPolicy"))
+			Expect(status.Message).To(ContainSubstring("spec.matchExpression"))
+			Expect(status.Message).To(ContainSubstring("expected boolean literals or field comparisons"))
+
+			retained := request(handler, http.MethodGet, "/west", nil, suite.Ctx)
+			if method == http.MethodPost {
+				Expect(retained.Code).To(Equal(http.StatusNotFound))
+			} else {
+				Expect(retained.Code).To(Equal(http.StatusOK), retained.Body.String())
+				Expect(retained.Body.String()).To(MatchJSON(saved))
+			}
+		},
+		Entry("When creating an enabled policy", http.MethodPost, false),
+		Entry("When replacing an enabled policy", http.MethodPut, false),
+		Entry("When patching an enabled policy", http.MethodPatch, false),
+		Entry("When enabling a saved draft", http.MethodPatch, true),
+	)
+
 	It("When the policy signer is missing the API should report it during service initialization", func() {
 		ctx := boundedPolicyTest(suite.Ctx)
 		cfg := *suite.cfg

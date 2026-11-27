@@ -240,7 +240,11 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("initialize enrollment approval policy store: %w", err)
 	}
-	enrollmentApprovalPolicyHandler, err := enrollmentapprovalpolicyservice.NewServiceHandler(enrollmentApprovalPolicyStore, enrollmentapprovalpolicyservice.UnavailableExpressionValidator{}, s.cfg.CA.DeviceEnrollmentSignerName, eventsSvc, s.log)
+	enrollmentExpressionValidator, err := enrollmentapprovalpolicyservice.NewCELExpressionValidator()
+	if err != nil {
+		return fmt.Errorf("initialize enrollment approval policy expression validator: %w", err)
+	}
+	enrollmentApprovalPolicyHandler, err := enrollmentapprovalpolicyservice.NewServiceHandler(enrollmentApprovalPolicyStore, enrollmentExpressionValidator, s.cfg.CA.DeviceEnrollmentSignerName, eventsSvc, s.log)
 	if err != nil {
 		return fmt.Errorf("initialize enrollment approval policy service: %w", err)
 	}
