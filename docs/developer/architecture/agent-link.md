@@ -5,11 +5,16 @@ The agent link is a persistent WebSocket connection between a device agent and
 startup and keeps it open, so work dispatched over it needs no per-request
 connection setup.
 
-This document describes the transport and the envelope. **No method is
-implemented yet**: the link carries the envelope and nothing that uses it, so
-every well-formed request is currently answered with one `MethodNotSupported`.
-The agent-side log retrieval the first method will call is built and callable
-in isolation; see [Device log retrieval](device-log-retrieval.md).
+This document describes the transport, the envelope and the one method the
+link carries: `device.logs.get`, which the agent implements as responder to a
+service-originated request. Every other well-formed request, in either
+direction, is answered with one `MethodNotSupported`. What that method
+actually reads from the device is described in
+[Device log retrieval](device-log-retrieval.md).
+
+**No REST endpoint reaches this yet.** The service can originate a request on a
+link it holds, but nothing chooses a link for an HTTP caller and nothing
+forwards a result across replicas, so the only caller today is a test.
 
 ## Endpoint and handshake
 
@@ -102,6 +107,62 @@ Nothing in between silently continues.
 An unimplemented method is request-scoped in both directions: exactly one
 `MethodNotSupported` result, no work started.
 
+## Methods
+
+A method is resolved against a closed, compiled-in allowlist **after** the
+envelope and **before** its parameters. That order is what makes
+`MethodNotSupported` reachable: under the strict unknown-member rule the
+`params` of an unimplemented method is a shape the endpoint cannot validate,
+so deciding `params` first would report every future method as a failure.
+
+**The allowlist is keyed by method *and* responder role, never by method
+alone.** The sender-role check supplies the second half: a `request` may only
+arrive from the endpoint its `origin` names, so a request reaching an agent
+handler is service-originated by construction.
+
+| Method | Responder | Originator |
+|---|---|---|
+| `device.logs.get` | agent | service |
+
+`device.logs.get` asked of the *service* — a `request` naming it with
+`"origin":"agent"` — would be asking the control plane to read logs from its
+own host. No endpoint implements that pairing, so it is answered with one
+`MethodNotSupported`: no source is opened, no RBAC decision is taken and it
+maps onto no REST path. A responder matching the method string alone would
+turn this envelope into a way to read control-plane host logs over a device
+link.
+
+The method schema lives in `internal/agentlink/devicelogs` and versions
+separately from the envelope. Adding a method, or extending one, is not an
+envelope change and involves no subprotocol bump; the envelope only has to
+carry a method name, a `params` object and a `payload` object, and knows
+nothing about what is in them.
+
+### Status reasons
+
+The reason set is closed and compiled in, and both ends are built from the
+same constant. It is deliberately the set the implemented methods can
+actually produce rather than every reason the design anticipates: a reason no
+responder sends is one no originator has to decide what to do with.
+
+| Reason | Meaning |
+|---|---|
+| `OK` | Success. Sent after any final data message for the same request |
+| `Cancelled` | Confirms that a cancelled request stopped its work |
+| `MethodNotSupported` | This responder does not implement this method in the role asked of it |
+| `RetrievalFailed` | Generic request-scoped failure: a malformed request, parameters the responder will not act on, or a device-side fault with no more specific reason |
+| `SourceNotFound` | The named source does not exist |
+| `BootUnavailable` | The requested boot is not present in the journal |
+| `DeviceTimeout` | The agent's own budget for assembling the response expired |
+| `ResponseTooLarge` | The response would exceed a fixed byte ceiling. A stated failure, never a silent truncation |
+
+Two of these are capability-shaped and must not be confused.
+`MethodNotSupported` is a verdict about the **method**, and a future REST layer
+is expected to read it as "this agent cannot serve logs at all". A capability
+the agent lacks *within* a method it does implement — following a live stream,
+or the file source, neither of which this build has — is therefore
+`RetrievalFailed`, not `MethodNotSupported`.
+
 ## Lifecycle
 
 **One link, many logical requests.** The connection is not consumed by a
@@ -158,10 +219,11 @@ envelope, never that it implements any particular method.
 | Path | Responsibility |
 |---|---|
 | `internal/agentlink/protocol/` | Wire contract: envelope types, strict decoder, encoders, limits. Pure, no I/O |
+| `internal/agentlink/devicelogs/` | The `device.logs.get` schema: params, payload, their strict decoders. Pure, shared by both ends |
 | `internal/agentlink/link/` | The live link: reader, writer, supervisor, attribution, shutdown. Shared by both ends |
 | `internal/agentlink/registry.go` | Dispatch registration in the key-value store |
 | `internal/api_server/agentserver/link.go` | The service-side route and upgrade |
-| `internal/agent/device/link/` | The agent-side manager: dialing, reconnect, backoff |
+| `internal/agent/device/link/` | The agent-side manager: dialing, reconnect, backoff, and the method allowlist the agent serves |
 
 Both ends run the same link machinery, so the contract is enforced once rather
 than twice.

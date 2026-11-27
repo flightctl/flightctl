@@ -263,8 +263,12 @@ func (e *Endpoint) startWorker(key requestKey, env *protocol.Envelope, handler H
 // connection.
 func (e *Endpoint) finishRequest(key requestKey, st *requestState) {
 	if !st.resultSent.Load() {
+		// Best effort: the usual reason this write fails is that the link is
+		// already ending, which fails every request on it explicitly anyway.
+		// When the queue is persistently full, the link is failed so the peer
+		// does not wait indefinitely on an open connection.
 		if err := e.sendResultOnce(key, st, protocol.ReasonRetrievalFailed, "handler returned without a result"); err != nil {
-			e.log.Debugf("Agent link: fallback result for %s failed: %v", key, err)
+			e.log.Debugf("Agent link: could not report an unfinished handler for %s: %v", key, err)
 			if errors.Is(err, errWriteQueueFull) {
 				e.failLink(websocket.CloseInternalServerErr, "cannot deliver terminal result")
 			}

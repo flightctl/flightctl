@@ -5,9 +5,10 @@ describes the agent-side journal source: how a request's filters become a
 `journalctl` invocation, and how a page of lines is selected from what comes
 back.
 
-**Nothing here is wired to the [agent link](agent-link.md) yet.** The retrieval
-logic is callable in isolation; the link still answers every method with
-`MethodNotSupported`, and no REST endpoint reaches this code.
+It is reached over the [agent link](agent-link.md), as the `device.logs.get`
+method the agent implements in the responder role. **No REST endpoint reaches
+it yet**: nothing selects a link for an HTTP caller and nothing forwards a
+result across replicas.
 
 ## Invocation
 
@@ -134,6 +135,78 @@ success, and there is no byte-based truncation on this path.
 The scan budget ends at scan **completion**, not at first output. It is not a
 follow lifetime and not an inactivity timer.
 
+## Over the agent link
+
+The method is `device.logs.get`: one `request` from the service, zero or more
+`data` messages from the agent, exactly one terminal `result`.
+
+### Parameters
+
+`params` names a `source` of `"journal"` or `"file"` and carries exactly one
+matching source object. `tailLines` and `lineOffset` sit beside it and apply to
+either source, because both are denominated in rendered lines and neither is a
+journal concept. `params.journal` carries the filters in the table above; an
+instant has one accepted spelling, an RFC 3339 UTC instant with a literal `Z`
+offset and microsecond precision.
+
+Three structural rules are rejections rather than silent precedence, because
+each would otherwise answer a question the caller did not ask: the source
+object must match `source`, `sinceSeconds` and `sinceTime` are mutually
+exclusive, and `lineOffset` may not accompany `follow`. Unknown members are
+rejected rather than ignored, which is what keeps a byte-denominated limit
+from returning under a new name and being quietly discarded.
+
+**This build serves the journal source and finite snapshots only.** `follow`
+and `source: "file"` decode — they are part of the schema — and are then
+refused with `RetrievalFailed`. Not `MethodNotSupported`: that reason is a
+verdict about the whole method, and the agent does implement it.
+
+### Content messages
+
+The page is assembled in full before the first byte is sent, so every failure
+is a pre-content failure and arrives as a `result` with no `data` in front of
+it. There is no partial page followed by an error.
+
+Each line is written with its terminator, so a message ends on a newline
+boundary and no reader buffers waiting for one. Chunk capacity is a compiled-in
+constant inside the agent — 32 KiB of decoded text — and is **not** a result
+limit: a larger snapshot is more messages and the same snapshot. It is sized
+against the *escaped* form, because a JSON string expands under escaping by up
+to six bytes per input byte for a control character written as `\u00XX`; six
+times 32 KiB leaves the envelope comfortable room inside the 256 KiB composing
+bound.
+
+A single logical line longer than one chunk is the exception: it is split
+across messages on a UTF-8 rune boundary, never mid-code-point, and the message
+carrying its first part does not end with a newline, which is how a
+continuation is marked. Message boundaries are invisible either way — the lines
+a caller reconstitutes are the lines the source rendered.
+
+An empty selection sends no `data` message at all. The `OK` alone says the
+filtered result was empty, which a zero-length content message would say no
+more clearly and a reader would have to tell apart from a flag-only one.
+
+### Failure reasons
+
+| Device-side error | `status.reason` |
+|---|---|
+| `ErrLogInvalidParameters`, and anything unmapped | `RetrievalFailed` |
+| `ErrLogBootUnavailable` | `BootUnavailable` |
+| `ErrLogBufferExceeded` | `ResponseTooLarge` |
+| `ErrLogScanIncomplete` | `DeviceTimeout` |
+| `ErrNotFound` | `SourceNotFound` |
+| The request's context was cancelled | `Cancelled` |
+
+Cancellation is checked before the error, and from the context rather than
+from the error: it means the originator already fixed this request's outcome,
+so whatever the source reported on its way out is a consequence and not the
+cause.
+
+Both ways the scan can run out of room — the wall-clock budget and the entry
+budget — report `DeviceTimeout`. They are one reason because the remedy is the
+same, a narrower filter or a smaller page; the `status.message` is what
+separates them for an operator.
+
 ## Where the code lives
 
 | Path | Role |
@@ -141,3 +214,5 @@ follow lifetime and not an inactivity timer.
 | `internal/agent/client/journalctl.go` | argv construction, unit-charset validation, timestamp normalization, stderr classification |
 | `internal/agent/device/logs/journal.go` | request validation, the collect-and-widen scan |
 | `internal/agent/device/logs/logs.go` | rendered-line splitting and the window, shared with the file source |
+| `internal/agentlink/devicelogs/` | the `device.logs.get` params and payload schema, shared by both ends |
+| `internal/agent/device/link/devicelogs.go` | the method handler: parameter mapping, chunking, reason mapping |
