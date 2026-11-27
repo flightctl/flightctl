@@ -538,6 +538,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 					return false
 				}
 				return cond.Reason == string(v1beta1.UpdateStatePreparing) ||
+					cond.Reason == string(v1beta1.UpdateStateReadyToUpdate) ||
 					cond.Reason == string(v1beta1.UpdateStateApplyingUpdate)
 			}, TIMEOUT)
 		})
