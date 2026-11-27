@@ -96,7 +96,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	}
 	if r.Os != nil {
 		if len(r.Os.Image) > 0 {
-			allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
+			allErrs = append(allErrs, validateOsImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
 		} else if r.Os.CatalogItemRef != nil {
 			allErrs = append(allErrs, r.Os.CatalogItemRef.Validate()...)
 		}
@@ -1956,6 +1956,31 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	}
 
 	return nil
+}
+
+// validateOsImageReference validates a device OS image reference, with template
+// support if fleetTemplate is true. A fleet template may wrap the whole
+// reference in a conditional so that devices the image does not apply to render
+// an empty OS image. Such a device renders the conditional body, so that is
+// what has to satisfy the OCI reference grammar.
+func validateOsImageReference(imageRef *string, path string, fleetTemplate bool) []error {
+	if fleetTemplate && imageRef != nil {
+		if _, body, ok := validation.SplitOuterConditional(*imageRef); ok {
+			// The guard is part of the template and is held to the same length
+			// limit and parameter rules as the body, so check the value as
+			// written before narrowing the OCI grammar to what a device
+			// renders. Without the explicit length check only the body would
+			// be measured, leaving the guard unbounded.
+			if errs := validation.ValidateString(imageRef, path, 1, validation.OciImageReferenceMaxLength, nil, ""); len(errs) > 0 {
+				return errs
+			}
+			if _, errs := validateParametersInString(imageRef, path, fleetTemplate); len(errs) > 0 {
+				return errs
+			}
+			return validateOciImageReference(&body, path, fleetTemplate)
+		}
+	}
+	return validateOciImageReference(imageRef, path, fleetTemplate)
 }
 
 // validateOciImageReference validates an OCI image reference, with template support if fleetTemplate is true
