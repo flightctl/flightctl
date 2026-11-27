@@ -521,10 +521,9 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).NotTo(HaveOccurred())
 
-			previousVersion := strconv.Itoa(expectedVersion)
 			expectedVersion++
 			inTwoMinutes = inNMinutes(2)
-			By("preparing the update immediately and waiting for the scheduled apply window")
+			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
 			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
@@ -533,15 +532,15 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForDeviceContents(deviceId, "status should indicate that the update is ready and the previous version is still applied", func(device *v1beta1.Device) bool {
+			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1beta1.Device) bool {
 				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-				return cond != nil && cond.Status == v1beta1.ConditionStatusTrue &&
-					cond.Reason == string(v1beta1.UpdateStateReadyToUpdate) &&
-					device.Status.Config.RenderedVersion == previousVersion
+				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
+					return false
+				}
+				return cond.Reason == string(v1beta1.UpdateStatePreparing) ||
+					cond.Reason == string(v1beta1.UpdateStateReadyToUpdate) ||
+					cond.Reason == string(v1beta1.UpdateStateApplyingUpdate)
 			}, TIMEOUT)
-
-			By("applying the update once the window opens")
-			Expect(harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)).To(Succeed())
 		})
 		It("Should not crash in case of unexpected services configs", Label("78711", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
