@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -717,4 +718,86 @@ func TestScheduleParseRejectsNonPositiveGraceDuration(t *testing.T) {
 	})
 
 	require.ErrorContains(t, err, "must be positive")
+}
+
+func TestMalformedScheduleFailsClosed(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	tests := []struct {
+		name     string
+		schedule *v1beta1.UpdateSchedule
+	}{
+		{
+			name: "invalid date",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "not-a-date",
+					StartTime:          "12:00",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+		{
+			name: "invalid time",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					StartTime:          "not-a-time",
+					StartGraceDuration: "1h",
+				}}),
+			},
+		},
+		{
+			name: "invalid duration",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					StartTime:          "12:00",
+					StartGraceDuration: "not-a-duration",
+				}}),
+			},
+		},
+		{
+			name: "non-positive duration",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{{
+					Date:               "2026-01-01",
+					StartTime:          "12:00",
+					StartGraceDuration: "0s",
+				}}),
+			},
+		},
+		{
+			name: "empty one-time windows",
+			schedule: &v1beta1.UpdateSchedule{
+				OneTimeWindows: lo.ToPtr([]v1beta1.OneTimeWindow{}),
+			},
+		},
+		{
+			name: "incomplete recurring schedule",
+			schedule: &v1beta1.UpdateSchedule{
+				At: v1beta1.CronExpression("0 12 * * *"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager(logger).(*manager)
+			err := manager.Sync(context.Background(), &v1beta1.DeviceSpec{
+				UpdatePolicy: &v1beta1.DeviceUpdatePolicySpec{
+					UpdateSchedule: tt.schedule,
+				},
+			})
+			require.Error(t, err)
+			require.False(t, manager.IsReady(context.Background(), Update))
+		})
+	}
+}
+
+func TestAbsentScheduleIsReady(t *testing.T) {
+	manager := NewManager(log.NewPrefixLogger("test")).(*manager)
+
+	require.NoError(t, manager.Sync(context.Background(), &v1beta1.DeviceSpec{}))
+	require.True(t, manager.IsReady(context.Background(), Download))
+	require.True(t, manager.IsReady(context.Background(), Update))
 }

@@ -512,8 +512,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				// change the spec to update every minute so that we don't have to wait as long
-				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
-				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
+				device.Spec.UpdatePolicy.UpdateSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
+				device.Spec.UpdatePolicy.DownloadSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -528,7 +528,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
-				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
+				device.Spec.UpdatePolicy.DownloadSchedule.At = v1beta1.CronExpression(everyMinuteExpression)
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
