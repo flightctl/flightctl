@@ -816,8 +816,8 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
-	// EnrollmentCredential is service-owned and must not be changed through generic status patches.
-	if err := rejectEnrollmentCredentialChangeViaStatusPatch(current, patched); err != nil {
+	// The enrollment credential projection and its revocation condition are service-owned.
+	if err := preserveEnrollmentCredentialStatusOnPatch(current, patched, patch, refreshLastSeen); err != nil {
 		return nil, err
 	}
 	if err := applyFirmwareStatusPatchOutcome(firmwareOutcome, storedFirmwareStatus(current), patched); err != nil {
@@ -871,18 +871,38 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 	return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
 }
 
-func rejectEnrollmentCredentialChangeViaStatusPatch(current, patched *domain.Device) error {
-	var before, after *domain.DeviceEnrollmentCredentialStatus
-	if current != nil && current.Status != nil {
-		before = current.Status.EnrollmentCredential
+func preserveEnrollmentCredentialStatusOnPatch(current, patched *domain.Device, patch domain.PatchRequest, agent bool) error {
+	projection := func(device *domain.Device) (*domain.DeviceEnrollmentCredentialStatus, []domain.Condition) {
+		if device == nil || device.Status == nil {
+			return nil, nil
+		}
+		var conditions []domain.Condition
+		for _, condition := range device.Status.Conditions {
+			if condition.Type == domain.ConditionTypeDeviceEnrollmentCredentialRevoked {
+				conditions = append(conditions, condition)
+			}
+		}
+		return device.Status.EnrollmentCredential, conditions
 	}
-	if patched != nil && patched.Status != nil {
-		after = patched.Status.EnrollmentCredential
+	before, beforeConditions := projection(current)
+	after, afterConditions := projection(patched)
+	if !reflect.DeepEqual(before, after) {
+		return errors.New("enrollmentCredential cannot be modified via status patch")
 	}
-	if reflect.DeepEqual(before, after) {
+	if reflect.DeepEqual(beforeConditions, afterConditions) {
 		return nil
 	}
-	return errors.New("enrollmentCredential cannot be modified via status patch")
+	// Agents replace the full array with the conditions they report. Restore
+	// the stored revocation condition when that replacement omits it.
+	if agent && patched.Status != nil && len(afterConditions) == 0 {
+		for _, op := range patch {
+			if op.Op == domain.PatchOpReplace && op.Path == "/status/conditions" {
+				patched.Status.Conditions = append(patched.Status.Conditions, beforeConditions...)
+				return nil
+			}
+		}
+	}
+	return errors.New("EnrollmentCredentialRevoked condition cannot be modified via status patch")
 }
 
 // allowedAgentEnrollmentHooksOutcome permits the agent to report hook completion

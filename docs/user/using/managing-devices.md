@@ -90,6 +90,24 @@ The denial does not create a terminal approval block. An administrator can appro
 
 To list devices flagged by credential revocation, use the `status.enrollmentCredential.revoked=true` field selector. See [Filter by enrollment credential provenance](field-selectors.md#example-5-filter-by-enrollment-credential-provenance) for the command that lists flagged devices.
 
+### Dismissing a revoked enrollment credential flag
+
+An administrator can dismiss the flag on one flagged device using the CLI.
+
+```shell
+flightctl override device/<device_name> --reason "Reviewed device enrollment"
+```
+
+To call the API directly, send a `POST` request to `/api/v1/devices/<device_name>/enrollmentcredential/override` with `Content-Type: application/json` and a reason in the request body.
+
+```json
+{"reason": "Reviewed the device's enrollment history"}
+```
+
+The response contains the updated Device. The server removes the `EnrollmentCredentialRevoked` condition and records the administrator, time, and reason in `status.enrollmentCredential.override`. Repeating the request returns the original audit record.
+
+The Device shows that its admitting credential was revoked in `status.enrollmentCredential.revoked`. Device status patches cannot change the flag or the audit record. Enrollment with the revoked credential stays blocked and denied Enrollment Requests retain their denial. Use the [audit field selector](field-selectors.md#example-5-filter-by-enrollment-credential-provenance) to find devices with a dismissed flag.
+
 ## Viewing the Device Inventory and Device Details
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. You can promote fields to labels during enrollment with the agent's `label-from-systeminfo` configuration, or synchronize them to labels after enrollment with `LabelSyncMapping` resources. Promoted labels support grouping and filtering devices by attributes such as region or OS version. See [Managing dynamic label mappings](managing-dynamic-mappings.md) for server-side mappings.

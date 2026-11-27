@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -21,6 +20,7 @@ import (
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -522,12 +522,9 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 }
 
 func (h *ServiceHandler) RevokeCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, request domain.EnrollmentCertificateRevocationRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	if utf8.RuneCountInString(request.Reason) > 1024 {
-		return nil, domain.StatusBadRequest("reason must be at most 1024 characters")
-	}
-	reason := strings.TrimSpace(request.Reason)
-	if reason == "" {
-		return nil, domain.StatusBadRequest("reason is required and cannot be blank")
+	reason, validationErr := validation.NormalizeEnrollmentCredentialAuditReason(request.Reason)
+	if validationErr != nil {
+		return nil, domain.StatusBadRequest(validationErr.Error())
 	}
 
 	identity, ok := contextutil.GetMappedIdentityFromContext(ctx)

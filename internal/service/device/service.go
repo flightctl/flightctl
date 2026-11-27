@@ -65,6 +65,7 @@ type Service interface {
 	StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status)
 	RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status)
 	OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status)
+	OverrideDeviceEnrollmentCredential(ctx context.Context, orgId uuid.UUID, name string, request domain.DeviceEnrollmentCredentialOverrideRequest) (*domain.Device, domain.Status)
 	// UpdateRenderedDevice stores a new rendered output of the device. A device with
 	// desired firmware or an outstanding firmware attempt is held instead: its rendered
 	// output is left unchanged and the returned status satisfies IsFirmwareHold.

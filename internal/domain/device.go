@@ -32,6 +32,8 @@ type CustomDeviceInfo = v1beta1.CustomDeviceInfo
 type DeviceCapabilities = v1beta1.DeviceCapabilities
 type DeviceEnrollmentHooksStatus = v1beta1.DeviceEnrollmentHooksStatus
 type DeviceEnrollmentCredentialStatus = v1beta1.DeviceEnrollmentCredentialStatus
+type DeviceEnrollmentCredentialOverride = v1beta1.DeviceEnrollmentCredentialOverride
+type DeviceEnrollmentCredentialOverrideRequest = v1beta1.DeviceEnrollmentCredentialOverrideRequest
 type EnrollmentHookSnapshot = v1beta1.EnrollmentHookSnapshot
 type EnrollmentHookSnapshotAction = v1beta1.EnrollmentHookSnapshotAction
 

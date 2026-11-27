@@ -14,21 +14,29 @@ import (
 type selectorToTypeMap map[selector.SelectorName]selector.SelectorType
 
 var (
-	deviceEnrollmentCredentialSelectors = selectorToTypeMap{
-		selector.NewSelectorName("status.enrollmentCredential.revoked"): selector.Bool,
+	deviceEnrollmentCredentialSelectors = map[selector.SelectorName]selector.SelectorField{
+		selector.NewSelectorName("status.enrollmentCredential.revoked"): {
+			Type:      selector.Bool,
+			FieldName: "(CASE WHEN devices.service_conditions #>> '{enrollmentCredential,override}' IS NOT NULL THEN 'false' ELSE devices.service_conditions #>> '{enrollmentCredential,revoked}' END)",
+			FieldType: "jsonb",
+		},
+		selector.NewSelectorName("status.enrollmentCredential.override"): {
+			Type:      selector.Jsonb,
+			FieldName: "(NULLIF(devices.service_conditions #> '{enrollmentCredential,override}', 'null'::jsonb))",
+			FieldType: "jsonb",
+		},
 	}
 	deviceDerivedSelectors = selectorToTypeMap{
 		selector.NewSelectorName("enrollmentCertificateName"): selector.String,
 	}
 	deviceStatusSelectors = selectorToTypeMap{
-		selector.NewSelectorName("status.summary.status"):               selector.String,
-		selector.NewSelectorName("status.applicationsSummary.status"):   selector.String,
-		selector.NewSelectorName("status.updated.status"):               selector.String,
-		selector.NewSelectorName("status.lifecycle.status"):             selector.String,
-		selector.NewSelectorName("status.capabilities.osMode"):          selector.String,
-		selector.NewSelectorName("status.systemInfo.osMode"):            selector.String,
-		selector.NewSelectorName("status.systemInfo.deltaEligible"):     selector.Bool,
-		selector.NewSelectorName("status.enrollmentCredential.revoked"): selector.Bool,
+		selector.NewSelectorName("status.summary.status"):             selector.String,
+		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
+		selector.NewSelectorName("status.updated.status"):             selector.String,
+		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
+		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
+		selector.NewSelectorName("status.systemInfo.osMode"):          selector.String,
+		selector.NewSelectorName("status.systemInfo.deltaEligible"):   selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
@@ -75,12 +83,8 @@ func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.Selector
 			FieldName: "(SELECT er.status->>'enrollmentCertificateName' FROM enrollment_requests er WHERE er.org_id = devices.org_id AND er.name = devices.name AND er.deleted_at IS NULL)",
 		}, nil
 	}
-	if typ, exists := deviceEnrollmentCredentialSelectors[name]; exists {
-		return &selector.SelectorField{
-			Type:      typ,
-			FieldName: fmt.Sprintf("service_conditions -> 'enrollmentCredential' ->> '%s'", strings.Split(name.String(), ".")[2]),
-			FieldType: "jsonb",
-		}, nil
+	if field, exists := deviceEnrollmentCredentialSelectors[name]; exists {
+		return &field, nil
 	}
 	if typ, exists := deviceStatusSelectors[name]; exists {
 		return makeJSONBSelectorField(name, typ)
@@ -89,11 +93,14 @@ func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.Selector
 }
 
 func (m *Device) ListSelectors() selector.SelectorNameSet {
-	keys := make([]selector.SelectorName, 0, len(deviceStatusSelectors)+len(deviceDerivedSelectors))
+	keys := make([]selector.SelectorName, 0, len(deviceStatusSelectors)+len(deviceDerivedSelectors)+len(deviceEnrollmentCredentialSelectors))
 	for sn := range deviceStatusSelectors {
 		keys = append(keys, sn)
 	}
 	for sn := range deviceDerivedSelectors {
+		keys = append(keys, sn)
+	}
+	for sn := range deviceEnrollmentCredentialSelectors {
 		keys = append(keys, sn)
 	}
 	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameOrAlias")).Add(keys...)

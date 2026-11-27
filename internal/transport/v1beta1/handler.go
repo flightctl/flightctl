@@ -1,6 +1,10 @@
 package transportv1beta1
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -102,6 +106,17 @@ func NewTransportHandler(
 		authTokenProxy:            authTokenProxy,
 		authUserInfoProxy:         authUserInfoProxy,
 		authZ:                     authZ,
+	}
+}
+
+func requireJSONEnd(decoder *json.Decoder) error {
+	switch err := decoder.Decode(new(any)); err {
+	case io.EOF:
+		return nil
+	case nil:
+		return fmt.Errorf("exactly one JSON document is required")
+	default:
+		return fmt.Errorf("exactly one JSON document is required: %w", err)
 	}
 }
 

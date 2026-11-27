@@ -15,24 +15,13 @@ import (
 
 var errPolicyStatusProtected = errors.New("status is server-owned")
 
-func checkPolicyJSONEnd(decoder *json.Decoder) error {
-	switch err := decoder.Decode(new(any)); err {
-	case io.EOF:
-		return nil
-	case nil:
-		return fmt.Errorf("exactly one JSON document is required")
-	default:
-		return fmt.Errorf("exactly one JSON document is required: %w", err)
-	}
-}
-
 func decodePolicy(body io.Reader, target any) error {
 	var raw json.RawMessage
 	decoder := json.NewDecoder(body)
 	if err := decoder.Decode(&raw); err != nil {
 		return err
 	}
-	if err := checkPolicyJSONEnd(decoder); err != nil {
+	if err := requireJSONEnd(decoder); err != nil {
 		return err
 	}
 	var fields map[string]json.RawMessage
@@ -96,7 +85,7 @@ func decodePolicyPatch(body io.Reader) (apiv1beta1.PatchRequest, error) {
 	if err := decoder.Decode(&operations); err != nil {
 		return nil, err
 	}
-	if err := checkPolicyJSONEnd(decoder); err != nil {
+	if err := requireJSONEnd(decoder); err != nil {
 		return nil, err
 	}
 	patch := make(apiv1beta1.PatchRequest, len(operations))

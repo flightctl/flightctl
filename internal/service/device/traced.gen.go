@@ -249,6 +249,14 @@ func (_d *TracedDeviceService) MarkDevicesRolloutSelection(ctx context.Context, 
 	return s1
 }
 
+func (_d *TracedDeviceService) OverrideDeviceEnrollmentCredential(ctx context.Context, orgId uuid.UUID, name string, request domain.DeviceEnrollmentCredentialOverrideRequest) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "OverrideDeviceEnrollmentCredential")
+
+	dp1, s1 = _d.inner.OverrideDeviceEnrollmentCredential(ctx, orgId, name, request)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "OverrideDeviceEnrollmentHook")
 
