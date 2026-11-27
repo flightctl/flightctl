@@ -190,6 +190,14 @@ var (
 	// systemd errors
 	ErrInvalidPatterns = errors.New("invalid patterns")
 
+	// device log retrieval errors. Each one is a distinct device-side outcome
+	// that the caller reports verbatim; none of them may be collapsed into a
+	// short or shifted page returned as success.
+	ErrLogInvalidParameters = errors.New("invalid log retrieval parameters")
+	ErrLogBootUnavailable   = errors.New("requested boot is not present in the journal")
+	ErrLogScanIncomplete    = errors.New("log scan budget exhausted before the requested page was assembled")
+	ErrLogBufferExceeded    = errors.New("log working buffer exceeded")
+
 	// lifecycle/hooks errors
 	ErrFailedToPushStatus                   = errors.New("failed to push status")
 	ErrFailedToUpdateStatusWithDecommission = errors.New("failed to update status with decommission")
