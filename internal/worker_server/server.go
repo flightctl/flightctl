@@ -11,11 +11,13 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	"github.com/flightctl/flightctl/internal/helm"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
+	inspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
@@ -29,6 +31,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	updatercatalogservice "github.com/flightctl/flightctl/internal/service/updatercatalog"
+	inspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
@@ -126,6 +129,15 @@ func (s *Server) Run(ctx context.Context) error {
 	canarySvc := canaryservice.WrapWithTracing(canaryservice.NewServiceHandler(canaryStore))
 	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	deltaStore := deltastore.NewStore(s.db, s.log.WithField("pkg", "delta-store"))
+	inspectionStore, err := inspectionstore.NewStore(s.db)
+	if err != nil {
+		return err
+	}
+	inspectionWakeups, err := tasks.NewInspectionWakeups(ctx, s.queuesProvider, inspectionStore)
+	if err != nil {
+		return err
+	}
+	defer inspectionWakeups.Close()
 
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
 	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
@@ -153,7 +165,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log, fleetservice.WithApprovedDescriptorProvider(updaterProvider)))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
-	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catStore, fleetStore, eventsSvc, kvStore, "", s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider)))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catStore, fleetStore, eventsSvc, kvStore, "", s.log, deviceservice.WithApprovedDescriptorProvider(updaterProvider), deviceservice.WithInspectionStore(inspectionStore)))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
@@ -185,6 +197,22 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create device render logic")
+		return err
+	}
+
+	inspector, err := inspectionservice.NewInspector(repositorySvc)
+	if err != nil {
+		return err
+	}
+	inspectionLog := s.log.WithField("pkg", "application-inspection")
+	inputResolver := inspectionservice.NewInputResolver(inspector, helm.NewRenderer(nil, inspectionLog), kvStore, s.cfg, inspectionLog)
+	inspectionTimeout := s.cfg.EffectiveRenderTimeout()
+	coordinator := inspectionservice.NewCoordinator(inspectionStore, inputResolver, inspectionTimeout)
+	deviceRenderer = deviceRenderer.WithInspection(inspectionStore, inspectionWakeups, coordinator)
+	inspectionCtx, cancelInspection := context.WithCancel(ctx)
+	defer cancelInspection()
+	if err := tasks.LaunchInspectionConsumer(inspectionCtx, s.queuesProvider, inspectionWakeups, coordinator,
+		deviceRenderer.ReloadInspectionApplication, deviceRenderer.ResumeInspection, inspectionTimeout); err != nil {
 		return err
 	}
 
@@ -237,6 +265,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		<-sigShutdown
 		s.log.Println("Shutdown signal received")
+		cancelInspection()
 		cancelEnqueue()
 		enqueueWG.Wait()
 		s.queuesProvider.Stop()

@@ -81,12 +81,17 @@ func New(
 	}
 }
 
-func newInspectionCleaner(db *gorm.DB) (*appinspectionservice.Cleaner, error) {
-	inspectionStore, err := appinspectionstore.NewStore(db)
+func (s *Server) inspectionTasks(ctx context.Context, provider queues.Provider) (*appinspectionservice.Cleaner, *tasks.InspectionWakeups, error) {
+	inspectionStore, err := appinspectionstore.NewStore(s.db)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return appinspectionservice.NewCleaner(inspectionStore)
+	cleaner, err := appinspectionservice.NewCleaner(inspectionStore)
+	if err != nil {
+		return nil, nil, err
+	}
+	wakeups, err := tasks.NewInspectionWakeups(ctx, provider, inspectionStore)
+	return cleaner, wakeups, err
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -208,10 +213,11 @@ func (s *Server) Run(ctx context.Context) error {
 	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
 
-	inspectionCleaner, err := newInspectionCleaner(s.db)
+	inspectionCleaner, inspectionWakeups, err := s.inspectionTasks(ctx, queuesProvider)
 	if err != nil {
-		return fmt.Errorf("create application inspection cleaner: %w", err)
+		return err
 	}
+	defer inspectionWakeups.Close()
 
 	// Initialize the task executors.
 	deltaPrepareStore := deltapreparestore.NewStore(s.db, s.log.WithField("pkg", "delta-prepare-store"))
@@ -219,7 +225,7 @@ func (s *Server) Run(ctx context.Context) error {
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, labelSyncMappingSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc, inspectionCleaner)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc, inspectionCleaner, inspectionWakeups)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

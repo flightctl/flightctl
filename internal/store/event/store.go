@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/storeutil"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -72,7 +73,7 @@ func (s *EventStore) createEventCVELifecycleIndexes(db *gorm.DB) error {
 func (s *EventStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Event) error {
 	m, _ := model.NewEventFromApiResource(resource)
 	m.OrgID = orgId
-	return s.getDB(ctx).Create(&m).Error
+	return storeutil.ErrorFromGormError(s.getDB(ctx).Create(&m).Error)
 }
 
 func (s *EventStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EventList, error) {

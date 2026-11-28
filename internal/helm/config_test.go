@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/stretchr/testify/require"
 )
 
@@ -58,6 +59,46 @@ func TestPrepareHelmConfig(t *testing.T) {
 	gotCA, err := os.ReadFile(caPath)
 	require.NoError(t, err)
 	require.Equal(t, chartCA, gotCA)
+}
+
+func TestInspectionRepositoryAliases(t *testing.T) {
+	for _, tt := range []struct {
+		name, suffix string
+	}{
+		{name: "When a repository has no query it should supply an inspection alias"},
+		{name: "When a repository has a query it should reject the inspection alias", suffix: "?channel=stable"},
+		{name: "When a repository has an empty query it should reject the inspection alias", suffix: "?"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const repoURL = "https://charts.example/charts"
+			yaml := []byte("repositories:\n- name: child\n  url: " + repoURL + tt.suffix + "\n")
+			wrapper, err := ignition.NewWrapper()
+			require.NoError(t, err)
+			wrapper.SetFile(helmRepositoryConfig, yaml, 0o644, false, "", "")
+			registryConfig := []byte(`{"auths":{}}`)
+			wrapper.SetFile(helmRegistryConfig, []byte(base64.StdEncoding.EncodeToString(registryConfig)), 0o600, true, "", "")
+			config, err := InspectionConfig(wrapper.AsIgnitionConfig().Storage.Files)
+			require.NoError(t, err)
+			aliases, err := TargetRepositoryAliases(config)
+			if tt.suffix == "" {
+				require.NoError(t, err)
+				require.Equal(t, []RepositoryAlias{{Name: "child", URL: repoURL}}, aliases)
+			} else {
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), repoURL)
+				require.Empty(t, aliases)
+			}
+			home := t.TempDir()
+			authPath, reposPath, _, err := prepareHelmConfig(t.Context(), home, home, config, nil, "oci://registry.example/team/chart:1.0")
+			require.NoError(t, err)
+			contents, err := os.ReadFile(reposPath)
+			require.NoError(t, err)
+			require.Equal(t, yaml, contents, "Helm acquisition uses the original repository URL")
+			contents, err = os.ReadFile(authPath)
+			require.NoError(t, err)
+			require.Equal(t, registryConfig, contents)
+		})
+	}
 }
 
 func TestPrepareHelmConfigDoesNotUseWorkerCredentials(t *testing.T) {

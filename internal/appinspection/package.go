@@ -41,19 +41,43 @@ func InspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.R
 	return inspectPackage(ctx, appType, repo, ref, platform, packageDiskBudget, packageEntryLimit)
 }
 
-func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.Repository, ref string, platform *ocispec.Platform, budget int64, entryLimit int) (result PackageResult) {
+func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.Repository, ref string, platform *ocispec.Platform, budget int64, entryLimit int) PackageResult {
+	return PreparePackage(ctx, repo, ref, platform).inspect(ctx, appType, budget, entryLimit)
+}
+
+type PreparedPackage struct {
+	PackageResult
+	repo  *remote.Repository
+	blobs []packageBlob
+}
+
+// PreparePackage resolves format and platform without opening package layers.
+func PreparePackage(ctx context.Context, repo *remote.Repository, ref string, platform *ocispec.Platform) PreparedPackage {
+	prepared := PreparedPackage{repo: repo}
 	md, parent, selected, err := fetchPackageManifest(ctx, repo, ref, platform)
 	if err != nil {
-		result.Diagnostics = []Diagnostic{DiagnosticContentUnavailable}
-		return result
+		prepared.Diagnostics = []Diagnostic{DiagnosticContentUnavailable}
+		return prepared
 	}
-	result.ParentDigest, result.Platform = parent, selected
+	prepared.ParentDigest, prepared.Platform = parent, selected
 	blobs, format, err := packageBlobs(md)
 	if err != nil {
-		result.Diagnostics = []Diagnostic{DiagnosticParseFailed}
+		prepared.Diagnostics = []Diagnostic{DiagnosticParseFailed}
+		return prepared
+	}
+	prepared.Format, prepared.blobs = string(format), blobs
+	return prepared
+}
+
+func (p PreparedPackage) Inspect(ctx context.Context, appType v1beta1.AppType) PackageResult {
+	return p.inspect(ctx, appType, packageDiskBudget, packageEntryLimit)
+}
+
+func (p PreparedPackage) inspect(ctx context.Context, appType v1beta1.AppType, budget int64, entryLimit int) (result PackageResult) {
+	result = p.PackageResult
+	if len(result.Diagnostics) != 0 {
 		return result
 	}
-	result.Format = string(format)
 	workspace, err := newPackageWorkspace(budget, entryLimit)
 	if err != nil {
 		result.Diagnostics = []Diagnostic{DiagnosticContentUnavailable}
@@ -66,8 +90,8 @@ func inspectPackage(ctx context.Context, appType v1beta1.AppType, repo *remote.R
 	}()
 
 	var diagnostic Diagnostic
-	for _, blob := range blobs {
-		diagnostic = workspace.acquire(ctx, repo, blob)
+	for _, blob := range p.blobs {
+		diagnostic = workspace.acquire(ctx, p.repo, blob)
 		if diagnostic != "" {
 			break
 		}

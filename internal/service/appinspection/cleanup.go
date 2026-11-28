@@ -26,6 +26,10 @@ func NewCleaner(store *appinspectionstore.Store) (*Cleaner, error) {
 	return &Cleaner{store: store}, nil
 }
 
+func (c *Cleaner) CleanupContinuations(ctx context.Context, orgID uuid.UUID, cutoff time.Time) (int64, error) {
+	return c.store.DeleteSupersededContinuations(ctx, orgID, cutoff, cleanupBatchSize)
+}
+
 func (c *Cleaner) Cleanup(ctx context.Context, orgID uuid.UUID, now time.Time) (int64, error) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/service/appinspection", "Cleanup")
 	defer span.End()

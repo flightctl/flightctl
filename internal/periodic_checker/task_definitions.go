@@ -3,6 +3,7 @@ package periodic
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -56,6 +57,7 @@ const (
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
 	PeriodicTaskTypeAppInspectionCleanup   PeriodicTaskType = "application-inspection-cleanup"
+	PeriodicTaskTypeAppInspectionRecovery  PeriodicTaskType = "application-inspection-recovery"
 	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
@@ -77,6 +79,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
 	PeriodicTaskTypeAppInspectionCleanup:   {Interval: appInspectionCleanupInterval, SystemWide: false},
+	PeriodicTaskTypeAppInspectionRecovery:  {Interval: QueueMaintenanceInterval, SystemWide: false},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
@@ -278,13 +281,40 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 }
 
 type ApplicationInspectionCleanupExecutor struct {
-	cleaner *appinspectionservice.Cleaner
+	cleaner      *appinspectionservice.Cleaner
+	replayWindow time.Duration
 }
 
 func (e *ApplicationInspectionCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeAppInspectionCleanup)
-	if _, err := e.cleaner.Cleanup(taskCtx, orgID, time.Now()); err != nil {
+	now := time.Now()
+	if _, err := e.cleaner.Cleanup(taskCtx, orgID, now); err != nil {
 		log.WithError(err).Warn("Application inspection cleanup failed")
+	}
+	if _, err := e.cleaner.CleanupContinuations(taskCtx, orgID, now.Add(-e.replayWindow)); err != nil {
+		log.WithError(err).Warn("Application inspection continuation cleanup failed")
+	}
+}
+
+type ApplicationInspectionRecoveryExecutor struct {
+	wakeups *tasks.InspectionWakeups
+	cursors sync.Map // organization UUID -> InspectionRecoveryCursor
+}
+
+func (e *ApplicationInspectionRecoveryExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeAppInspectionRecovery)
+	var cursor tasks.InspectionRecoveryCursor
+	if saved, ok := e.cursors.Load(orgID); ok {
+		cursor = saved.(tasks.InspectionRecoveryCursor)
+	}
+	next, err := e.wakeups.Recover(taskCtx, orgID, cursor)
+	if next == (tasks.InspectionRecoveryCursor{}) {
+		e.cursors.Delete(orgID)
+	} else {
+		e.cursors.Store(orgID, next)
+	}
+	if err != nil {
+		log.WithError(err).Warn("Application inspection recovery failed")
 	}
 }
 
@@ -312,6 +342,7 @@ type QueueMaintenanceExecutor struct {
 	organizationSvc        organizationservice.Service
 	deltaGenerationTimeout time.Duration
 	completionTimeout      time.Duration
+	inspectionTimeout      time.Duration
 	queuesProvider         queues.Provider
 	workerClient           worker_client.WorkerClient
 	workerMetrics          *worker.WorkerCollector
@@ -326,6 +357,9 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
+	}
+	if _, err := e.queuesProvider.ProcessTimedOutMessages(taskCtx, consts.ApplicationInspectionQueue, e.inspectionTimeout, nil); err != nil {
+		e.log.WithError(err).Warn("Application inspection wakeup cleanup failed")
 	}
 }
 
@@ -434,6 +468,7 @@ func InitializeTaskExecutors(
 	prepareSvc deltaprepare.Service,
 	tvSvc templateversionservice.Service,
 	inspectionCleaner *appinspectionservice.Cleaner,
+	inspectionWakeups *tasks.InspectionWakeups,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -476,7 +511,8 @@ func InitializeTaskExecutors(
 			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
 		},
-		PeriodicTaskTypeAppInspectionCleanup: &ApplicationInspectionCleanupExecutor{cleaner: inspectionCleaner},
+		PeriodicTaskTypeAppInspectionCleanup:  &ApplicationInspectionCleanupExecutor{cleaner: inspectionCleaner, replayWindow: time.Duration(cfg.Service.EventRetentionPeriod)},
+		PeriodicTaskTypeAppInspectionRecovery: &ApplicationInspectionRecoveryExecutor{wakeups: inspectionWakeups},
 		PeriodicTaskTypeDeltaPrepareDeadline: &DeltaPrepareDeadlineExecutor{
 			log:        log.WithField("pkg", "delta-prepare-deadline"),
 			deltaStore: deltaStore,
@@ -493,6 +529,7 @@ func InitializeTaskExecutors(
 			organizationSvc:        organizationSvc,
 			deltaGenerationTimeout: cfg.DeltaGeneration.EffectiveTimeout(),
 			completionTimeout:      cfg.DeltaGeneration.EffectiveCompletionTimeout(),
+			inspectionTimeout:      cfg.EffectiveRenderTimeout() + time.Minute,
 			queuesProvider:         queuesProvider,
 			workerClient:           workerClient,
 			workerMetrics:          workerMetrics,

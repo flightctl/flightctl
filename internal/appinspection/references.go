@@ -52,6 +52,15 @@ type SpecReferences struct {
 
 // InspectSpec finds references declared by an effective app and in its supplied inline files.
 func InspectSpec(app *v1beta1.ApplicationProviderSpec) SpecReferences {
+	return inspectSpec(app, true)
+}
+
+// DeclaredReferences reads authored references without parsing inline files.
+func DeclaredReferences(app *v1beta1.ApplicationProviderSpec) []Reference {
+	return inspectSpec(app, false).Declared
+}
+
+func inspectSpec(app *v1beta1.ApplicationProviderSpec, inspectInline bool) SpecReferences {
 	appType, err := app.GetAppType()
 	if err != nil {
 		return SpecReferences{}
@@ -77,11 +86,13 @@ func InspectSpec(app *v1beta1.ApplicationProviderSpec) SpecReferences {
 		}
 		image = providerImage(spec.AsImageApplicationProviderSpec())
 		volumes = spec.Volumes
-		if inline, err := spec.AsInlineApplicationProviderSpec(); err != nil {
-			result.Inline = &Result{Diagnostics: []Diagnostic{DiagnosticParseFailed}}
-		} else if inline.Inline != nil {
-			inspected := InspectCompose(inline.Inline)
-			result.Inline = &inspected
+		if inspectInline {
+			if inline, err := spec.AsInlineApplicationProviderSpec(); err != nil {
+				result.Inline = &Result{Diagnostics: []Diagnostic{DiagnosticParseFailed}}
+			} else if inline.Inline != nil {
+				inspected := InspectCompose(inline.Inline)
+				result.Inline = &inspected
+			}
 		}
 	case v1beta1.AppTypeQuadlet:
 		spec, err := app.AsQuadletApplication()
@@ -90,11 +101,13 @@ func InspectSpec(app *v1beta1.ApplicationProviderSpec) SpecReferences {
 		}
 		image = providerImage(spec.AsImageApplicationProviderSpec())
 		volumes = spec.Volumes
-		if inline, err := spec.AsInlineApplicationProviderSpec(); err != nil {
-			result.Inline = &Result{Diagnostics: []Diagnostic{DiagnosticParseFailed}}
-		} else if inline.Inline != nil {
-			inspected := InspectQuadlet(inline.Inline)
-			result.Inline = &inspected
+		if inspectInline {
+			if inline, err := spec.AsInlineApplicationProviderSpec(); err != nil {
+				result.Inline = &Result{Diagnostics: []Diagnostic{DiagnosticParseFailed}}
+			} else if inline.Inline != nil {
+				inspected := InspectQuadlet(inline.Inline)
+				result.Inline = &inspected
+			}
 		}
 	case v1beta1.AppTypeHelm:
 		spec, err := app.AsHelmApplication()

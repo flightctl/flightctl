@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote"
 )
 
 type Inspector struct {
@@ -30,7 +31,7 @@ func NewInspector(repositories repository.Service) (*Inspector, error) {
 // InspectPackage takes the effective spec after catalog resolution. Service
 // access is used only for pulling from the resolved package endpoint.
 func (i *Inspector) InspectPackage(ctx context.Context, orgID uuid.UUID, app *domain.ApplicationProviderSpec, platform *ocispec.Platform) appinspection.PackageResult {
-	declared := appinspection.InspectSpec(app).Declared
+	declared := appinspection.DeclaredReferences(app)
 	unavailable := appinspection.PackageResult{Result: appinspection.Result{
 		References:  declared,
 		Diagnostics: []appinspection.Diagnostic{appinspection.DiagnosticContentUnavailable},
@@ -39,29 +40,11 @@ func (i *Inspector) InspectPackage(ctx context.Context, orgID uuid.UUID, app *do
 	if err != nil || (appType != domain.AppTypeCompose && appType != domain.AppTypeQuadlet) {
 		return unavailable
 	}
-	var image string
-	for _, ref := range declared {
-		if ref.Role == appinspection.RolePackage {
-			image = ref.Image
-			break
-		}
-	}
-	if image == "" {
-		return unavailable
-	}
-	pullRef, err := oci.RewriteImageRef(image)
+	endpoint, err := packageEndpoint(declared)
 	if err != nil {
 		return unavailable
 	}
-	endpoint, err := parsePackageEndpoint(pullRef)
-	if err != nil || endpoint.Reference == "" {
-		return unavailable
-	}
-	access, err := i.resolveAccess(ctx, orgID, endpoint)
-	if err != nil {
-		return unavailable
-	}
-	repo, err := oci.BuildOciRepoRef(ctx, oci.SpecForRegistry(endpoint.Registry, access), endpoint.Registry+"/"+endpoint.Repository)
+	repo, err := i.packageRepository(ctx, orgID, endpoint)
 	if err != nil {
 		return unavailable
 	}
@@ -88,6 +71,32 @@ func packageRepositoryPath(host, path string) string {
 		}
 	}
 	return path
+}
+
+func packageEndpoint(declared []appinspection.Reference) (registry.Reference, error) {
+	for _, ref := range declared {
+		if ref.Role != appinspection.RolePackage {
+			continue
+		}
+		pullRef, err := oci.RewriteImageRef(ref.Image)
+		if err != nil {
+			return registry.Reference{}, err
+		}
+		endpoint, err := parsePackageEndpoint(pullRef)
+		if err != nil || endpoint.Reference == "" {
+			return registry.Reference{}, errors.New("invalid inspection package reference")
+		}
+		return endpoint, nil
+	}
+	return registry.Reference{}, errors.New("inspection package reference is required")
+}
+
+func (i *Inspector) packageRepository(ctx context.Context, orgID uuid.UUID, endpoint registry.Reference) (*remote.Repository, error) {
+	access, err := i.resolveAccess(ctx, orgID, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return oci.BuildOciRepoRef(ctx, oci.SpecForRegistry(endpoint.Registry, access), endpoint.Registry+"/"+endpoint.Repository)
 }
 
 func (i *Inspector) resolveAccess(ctx context.Context, orgID uuid.UUID, endpoint registry.Reference) (*domain.OciRepoSpec, error) {

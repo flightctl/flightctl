@@ -73,10 +73,11 @@ const (
 	AppConsoleNotReadyCloseCode = 4002
 
 	// Tasks
-	TaskQueue                = "task-queue"
-	DeviceLabelSyncTaskQueue = "device-label-sync-queue"
-	ImageBuildTaskQueue      = "imagebuild-queue"
-	DeltaGenerationTaskQueue = "delta-generation-queue"
+	TaskQueue                  = "task-queue"
+	ApplicationInspectionQueue = "application-inspection-queue"
+	DeviceLabelSyncTaskQueue   = "device-label-sync-queue"
+	ImageBuildTaskQueue        = "imagebuild-queue"
+	DeltaGenerationTaskQueue   = "delta-generation-queue"
 	// DeltaGenerationCompletionQueue is a separate stream so terminal-generation
 	// fan-out is not blocked behind queued delta generation work.
 	DeltaGenerationCompletionQueue = "delta-generation-completion-queue"

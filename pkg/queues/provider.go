@@ -48,6 +48,9 @@ type QueueConsumer interface {
 	Close()
 }
 
+// DurableWakeupTimestamp marks notifications whose replay is managed by their source store.
+const DurableWakeupTimestamp int64 = -1
+
 type QueueProducer interface {
 	Enqueue(ctx context.Context, payload []byte, timestamp int64) error
 	Close()

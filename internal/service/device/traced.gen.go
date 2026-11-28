@@ -105,6 +105,14 @@ func (_d *TracedDeviceService) DeleteDevice(ctx context.Context, orgId uuid.UUID
 	return s1
 }
 
+func (_d *TracedDeviceService) FailInspectionRender(ctx context.Context, orgID uuid.UUID, name string, continuation RenderContinuation, condition domain.Condition) (s1 domain.Status) {
+	ctx, span := startSpan(ctx, "FailInspectionRender")
+
+	s1 = _d.inner.FailInspectionRender(ctx, orgID, name, continuation, condition)
+	endSpan(span, s1)
+	return s1
+}
+
 func (_d *TracedDeviceService) FlagDevicesForRevokedEnrollmentCredential(ctx context.Context, orgId uuid.UUID, credentialName string, limit int) (i1 int64, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "FlagDevicesForRevokedEnrollmentCredential")
 

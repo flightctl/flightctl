@@ -48,7 +48,14 @@ func validateInput(input model.ApplicationInspectionInput) error {
 		}
 		return nil
 	}
-	if inline || input.ParentDigest.Validate() != nil {
+	if input.Helm != nil && input.Helm.ChartReference != "" {
+		ref, err := NormalizeReference(ReferenceInput{Reference: input.Helm.ChartReference, Role: model.InspectionRolePackage, Mechanism: model.InspectionPullHelmChart})
+		if err != nil || ref.Reference != input.Helm.ChartReference || input.Helm.FreshFor.Microseconds() < 1 || input.ParentDigest != "" || input.Platform != "" || inline {
+			return errors.New("invalid Helm refresh identity")
+		}
+		return nil
+	}
+	if inline || input.ParentDigest.Validate() != nil || (input.Helm != nil && input.Helm.FreshFor != 0) {
 		return errors.New("invalid inspection parent digest")
 	}
 	if input.Platform != "" && (len(input.Platform) > 128 || !inspectionPlatform.MatchString(input.Platform)) {
@@ -66,6 +73,10 @@ func validateProviderFormat(input model.ApplicationInspectionInput) error {
 		if len(input.Helm.ReleaseName) > 53 || len(validation.IsDNS1123Subdomain(input.Helm.ReleaseName)) != 0 ||
 			len(validation.IsDNS1123Label(input.Helm.Namespace)) != 0 {
 			return errors.New("invalid Helm release identity")
+		}
+	case model.InspectionProviderContainer:
+		if input.Helm != nil || input.Format != model.InspectionFormatInline {
+			return errors.New("invalid container inspection identity")
 		}
 	case model.InspectionProviderCompose, model.InspectionProviderQuadlet:
 		if input.Helm != nil {

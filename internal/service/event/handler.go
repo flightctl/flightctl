@@ -2,9 +2,11 @@ package event
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
@@ -28,6 +30,13 @@ var _ Service = (*ServiceHandler)(nil)
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
 	h.events.CreateEvent(ctx, orgId, event)
+}
+
+func (h *ServiceHandler) CreateEventOnce(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+	if err := h.events.PersistEvent(ctx, orgID, event); err != nil && !errors.Is(err, flterrors.ErrDuplicateName) {
+		return err
+	}
+	return h.events.PublishEvent(ctx, orgID, event)
 }
 
 func (h *ServiceHandler) ListEvents(ctx context.Context, orgId uuid.UUID, params domain.ListEventsParams) (*domain.EventList, domain.Status) {

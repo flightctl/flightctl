@@ -603,10 +603,12 @@ func (r *redisQueue) Enqueue(ctx context.Context, payload []byte, timestamp int6
 		values["ctx_"+k] = v
 	}
 
-	_, err := r.client.XAdd(ctx, &redis.XAddArgs{
-		Stream: r.name,
-		Values: values,
-	}).Result()
+	args := &redis.XAddArgs{Stream: r.name, Values: values}
+	if timestamp == DurableWakeupTimestamp {
+		// Bound the backlog while consumers are offline; trimmed hints are recoverable.
+		args.MaxLen, args.Approx = 4096, true
+	}
+	_, err := r.client.XAdd(ctx, args).Result()
 	if err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
@@ -902,7 +904,7 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 	}
 
 	// Mark task completion based on processing result
-	if processingErr == nil {
+	if processingErr == nil && messageTimestamp != float64(DurableWakeupTimestamp) {
 		// Successful completion - mark as completed for checkpoint tracking
 		r.markInFlightTaskComplete(ctx, trackingEntryID, messageTimestamp)
 	}
@@ -944,6 +946,10 @@ func (r *redisQueue) addToInFlightTasks(ctx context.Context, entryID string, tim
 		}
 	default:
 		return fmt.Errorf("unsupported timestamp type: %T", v)
+	}
+
+	if score == float64(DurableWakeupTimestamp) {
+		return nil
 	}
 
 	// Use original entry ID if this is a retry, otherwise use current entry ID
@@ -991,20 +997,24 @@ func (r *redisQueue) markInFlightTaskCompleteWithQualifiedID(ctx context.Context
 		local entryID = ARGV[1]
 		local timestamp = tonumber(ARGV[2])
 
-		-- Remove the original entry
+		local trackedTimestamp = redis.call('ZSCORE', key, entryID)
+		if not trackedTimestamp then
+			return 0
+		end
+		-- Use the tracked score when the stream entry was unavailable.
+		if timestamp == 0 then
+			timestamp = tonumber(trackedTimestamp)
+		end
 		redis.call('ZREM', key, entryID)
-
-		-- Add the completed entry
 		redis.call('ZADD', key, timestamp, entryID .. ':completed')
 
 		return 1
 	`
 
-	err := r.client.Eval(ctx, luaScript, []string{redisKeyInFlightTasks}, qualifiedEntryID, timestamp).Err()
-
+	completed, err := r.client.Eval(ctx, luaScript, []string{redisKeyInFlightTasks}, qualifiedEntryID, timestamp).Int()
 	if err != nil {
 		r.log.WithError(err).WithField("qualifiedEntryID", qualifiedEntryID).Debug("failed to mark in-flight task as completed")
-	} else {
+	} else if completed != 0 {
 		r.log.WithField("qualifiedEntryID", qualifiedEntryID).Debug("successfully marked in-flight task as completed")
 	}
 }
@@ -1077,6 +1087,16 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 			// Message was already deleted from stream, acknowledge it to remove from pending list
 			if ackErr := r.client.XAck(ctx, r.name, r.groupName, pendingMsg.ID).Err(); ackErr != nil {
 				r.log.WithField("entryID", pendingMsg.ID).WithError(ackErr).Warn("failed to acknowledge pending message")
+			}
+			continue
+		}
+
+		if msgs[0].Values["timestamp"] == strconv.FormatInt(DurableWakeupTimestamp, 10) {
+			// The source store republishes durable work; retire the abandoned hint.
+			if err := r.Complete(ctx, pendingMsg.ID, nil, nil); err != nil {
+				r.log.WithError(err).Warn("failed to retire timed out wakeup")
+			} else {
+				timedOutCount++
 			}
 			continue
 		}

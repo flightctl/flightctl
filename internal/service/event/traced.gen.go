@@ -53,6 +53,18 @@ func (_d *TracedService) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 	return
 }
 
+func (_d *TracedService) CreateEventOnce(ctx context.Context, orgID uuid.UUID, event *domain.Event) (err error) {
+	ctx, span := startSpan(ctx, "CreateEventOnce")
+
+	err = _d.inner.CreateEventOnce(ctx, orgID, event)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
 func (_d *TracedService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (i1 int64, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "DeleteEventsOlderThan")
 

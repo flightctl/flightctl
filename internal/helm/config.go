@@ -5,11 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	ignitiontypes "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/samber/lo"
+	"github.com/vincent-petithory/dataurl"
+	"sigs.k8s.io/yaml"
 )
 
 func prepareHelmConfig(
@@ -62,6 +67,63 @@ func prepareHelmRegistryConfig(ctx context.Context, configHome string, files []d
 	// config and organization-scoped Repository credentials are the only
 	// credentials permitted for a device's Helm render.
 	return "", nil
+}
+
+// InspectionConfig extracts Helm's file inputs from the merged device configuration.
+func InspectionConfig(files []ignitiontypes.File) ([]byte, error) {
+	var inputs []domain.FileSpec
+	for _, file := range files {
+		if file.Path != helmRepositoryConfig && file.Path != helmRegistryConfig && file.Path != containerAuthConfig &&
+			!(strings.HasPrefix(file.Path, registryCertsDir+"/") && filepath.Base(file.Path) == "ca.crt") {
+			continue
+		}
+		data, err := dataurl.DecodeString(lo.FromPtr(file.Contents.Source))
+		if err != nil {
+			return nil, fmt.Errorf("invalid Helm configuration file contents")
+		}
+		inputs = append(inputs, domain.FileSpec{
+			Path: file.Path, Content: base64.StdEncoding.EncodeToString(data.Data), ContentEncoding: lo.ToPtr(domain.EncodingBase64),
+		})
+	}
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(inputs)
+}
+
+type RepositoryAlias struct {
+	Name string
+	URL  string
+}
+
+// TargetRepositoryAliases returns dependency sources suitable for durable inspection identity.
+// Authentication and transport settings are used only when acquiring the charts.
+func TargetRepositoryAliases(renderedConfig []byte) ([]RepositoryAlias, error) {
+	files, err := renderedConfigFiles(renderedConfig)
+	if err != nil {
+		return nil, err
+	}
+	data, found, err := firstConfigFile(files, helmRepositoryConfig)
+	if err != nil || !found {
+		return nil, err
+	}
+	var config struct{ Repositories []RepositoryAlias }
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	for i := range config.Repositories {
+		endpoint, err := url.Parse(config.Repositories[i].URL)
+		if err != nil || endpoint.Host == "" || endpoint.Opaque != "" {
+			return nil, fmt.Errorf("invalid Helm dependency repository URL")
+		}
+		// Helm forwards repository queries, whose values can select content or carry credentials.
+		if endpoint.RawQuery != "" || endpoint.ForceQuery {
+			return nil, fmt.Errorf("Helm dependency repository URL query cannot be used for inspection identity")
+		}
+		endpoint.User, endpoint.Fragment = nil, ""
+		config.Repositories[i].URL = endpoint.String()
+	}
+	return config.Repositories, nil
 }
 
 func prepareHelmRepositoryConfig(configHome string, files []domain.FileSpec) (string, error) {

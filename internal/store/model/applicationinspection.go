@@ -11,9 +11,10 @@ import (
 type InspectionProvider string
 
 const (
-	InspectionProviderCompose InspectionProvider = "compose"
-	InspectionProviderQuadlet InspectionProvider = "quadlet"
-	InspectionProviderHelm    InspectionProvider = "helm"
+	InspectionProviderContainer InspectionProvider = "container"
+	InspectionProviderCompose   InspectionProvider = "compose"
+	InspectionProviderQuadlet   InspectionProvider = "quadlet"
+	InspectionProviderHelm      InspectionProvider = "helm"
 )
 
 type InspectionFormat string
@@ -30,11 +31,13 @@ const (
 type InspectionFingerprint [sha256.Size]byte
 
 type InspectionHelmIdentity struct {
-	Values        InspectionFingerprint
-	Dependencies  InspectionFingerprint
-	RenderContext InspectionFingerprint
-	ReleaseName   string
-	Namespace     string
+	Values         InspectionFingerprint
+	Dependencies   InspectionFingerprint
+	RenderContext  InspectionFingerprint
+	ReleaseName    string
+	Namespace      string
+	ChartReference string        `json:",omitempty"`
+	FreshFor       time.Duration `json:",omitempty"`
 }
 
 type ApplicationInspectionInput struct {
@@ -45,11 +48,14 @@ type ApplicationInspectionInput struct {
 	// Platform is set when selecting bundle content from an OCI index.
 	Platform string
 	Helm     *InspectionHelmIdentity
+	Declared InspectionFingerprint `json:",omitzero"`
 }
 
 type InspectionState string
 
 const (
+	InspectionResolving          InspectionState = "resolving"
+	InspectionPending            InspectionState = "pending"
 	InspectionComplete           InspectionState = "complete"
 	InspectionFinishedIncomplete InspectionState = "finished_incomplete"
 )
@@ -67,10 +73,14 @@ type ApplicationInspection struct {
 	ID              uuid.UUID                  `gorm:"type:uuid;primaryKey;index:inspection_cleanup_age,priority:3"`
 	InputKey        string                     `gorm:"not null"`
 	Input           ApplicationInspectionInput `gorm:"type:jsonb;serializer:json;not null"`
-	State           InspectionState            `gorm:"not null;check:application_inspection_state,state IN ('complete','finished_incomplete')"`
+	State           InspectionState            `gorm:"not null;check:application_inspection_work_state,state IN ('resolving','pending','complete','finished_incomplete')"`
 	Revision        InspectionFingerprint      `gorm:"type:jsonb;serializer:json;not null"`
 	DiagnosticCodes []InspectionDiagnostic     `gorm:"type:jsonb;serializer:json"`
-	CreatedAt       time.Time                  `gorm:"not null;index:inspection_cleanup_age,priority:2"`
+	ClaimedAt       *time.Time
+	ClaimToken      *uuid.UUID `gorm:"type:uuid"`
+	ClaimUntil      *time.Time
+	FreshUntil      *time.Time
+	CreatedAt       time.Time `gorm:"not null;index:inspection_cleanup_age,priority:2"`
 }
 
 type InspectionArtifactRole string
@@ -104,7 +114,7 @@ type ApplicationInspectionRef struct {
 }
 
 type ApplicationInspectionUsage struct {
-	OrgID              uuid.UUID               `gorm:"type:uuid;primaryKey;uniqueIndex:inspection_usage_device,priority:1;uniqueIndex:inspection_usage_fleet,priority:1;index:inspection_usage_pending,priority:1;index:inspection_usage_result,priority:1"`
+	OrgID              uuid.UUID               `gorm:"type:uuid;primaryKey;uniqueIndex:inspection_usage_device,priority:1;uniqueIndex:inspection_usage_fleet,priority:1;index:inspection_usage_pending,priority:1;index:inspection_usage_result,priority:1;index:inspection_usage_continuation,priority:1"`
 	ID                 uuid.UUID               `gorm:"type:uuid;primaryKey"`
 	InspectionID       uuid.UUID               `gorm:"type:uuid;not null;index:inspection_usage_result,priority:2"`
 	DeviceName         *string                 `gorm:"uniqueIndex:inspection_usage_device,priority:2,where:device_name IS NOT NULL;check:inspection_usage_one_owner,(device_name IS NULL) <> (fleet_name IS NULL)"`
@@ -116,5 +126,23 @@ type ApplicationInspectionUsage struct {
 	User               string                  `gorm:"not null"`
 	Mechanism          InspectionPullMechanism `gorm:"not null"`
 	Pending            bool                    `gorm:"not null;index:inspection_usage_pending,priority:2"`
-	ContinuationID     *uuid.UUID              `gorm:"type:uuid"`
+	ContinuationID     *uuid.UUID              `gorm:"type:uuid;index:inspection_usage_continuation,priority:2"`
+}
+
+type ApplicationInspectionContinuation struct {
+	OrgID            uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	DeviceName       *string   `gorm:"check:inspection_continuation_one_owner,(device_name IS NULL) <> (fleet_name IS NULL)"`
+	FleetName        *string
+	Generation       int64                 `gorm:"not null"`
+	OwnerCreatedAt   time.Time             `gorm:"not null"`
+	TemplateIdentity string                `gorm:"not null"`
+	Snapshot         InspectionFingerprint `gorm:"type:jsonb;serializer:json;not null"`
+	EventID          uuid.UUID             `gorm:"type:uuid;not null"`
+	Current          bool                  `gorm:"not null"`
+	Invalidated      bool                  `gorm:"not null;default:false"`
+	ForceRender      bool                  `gorm:"not null;default:false"`
+	ConsumedAt       *time.Time
+	PendingVersion   *string
+	SupersededAt     *time.Time
 }
