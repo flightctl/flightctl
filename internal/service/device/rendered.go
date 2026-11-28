@@ -14,7 +14,7 @@ import (
 // store.ErrMutateSkipWrite when the rendered version should not advance.
 func applyRenderedUpdate(
 	m *devicestore.DeviceMutation,
-	renderedConfig, renderedApplications, specHash, osImage string,
+	renderedConfig, renderedApplications, renderedConfigResources, specHash, osImage string,
 	configFingerprints []domain.DependencySyncConfigRefStatus,
 	forceUpdate bool,
 	osHints *RenderedOSHints,
@@ -53,9 +53,10 @@ func applyRenderedUpdate(
 	})
 
 	m.Rendered = &devicestore.DeviceRendered{
-		Config:       renderedConfig,
-		Applications: renderedApplications,
-		OsImage:      osImage,
+		Config:          renderedConfig,
+		ConfigResources: renderedConfigResources,
+		Applications:    renderedApplications,
+		OsImage:         osImage,
 	}
 	if osHints != nil {
 		m.Rendered.DeltaImage = osHints.DeltaImage

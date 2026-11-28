@@ -673,9 +673,9 @@ func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, orgId, name, ann
 }
 
 // UpdateRenderedDevice mocks base method.
-func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status {
+func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, renderedConfigResources, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints, options ...RenderedDeviceOptions) domain.Status {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints}
+	varargs := []any{ctx, orgId, name, renderedConfig, renderedApplications, renderedConfigResources, specHash, osImage, configFingerprints, forceUpdate, osHints}
 	for _, a := range options {
 		varargs = append(varargs, a)
 	}
@@ -685,9 +685,9 @@ func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID,
 }
 
 // UpdateRenderedDevice indicates an expected call of UpdateRenderedDevice.
-func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints any, options ...any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, renderedConfigResources, specHash, osImage, configFingerprints, forceUpdate, osHints any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints}, options...)
+	varargs := append([]any{ctx, orgId, name, renderedConfig, renderedApplications, renderedConfigResources, specHash, osImage, configFingerprints, forceUpdate, osHints}, options...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), varargs...)
 }
 

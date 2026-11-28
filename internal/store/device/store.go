@@ -135,9 +135,10 @@ type DeviceStore struct {
 // that are not represented directly on domain.Device. When set on
 // DeviceMutation, Mutate persists them and bumps render_timestamp.
 type DeviceRendered struct {
-	Config       string
-	Applications string
-	OsImage      string
+	Config          string
+	ConfigResources string
+	Applications    string
+	OsImage         string
 	// DeltaImage is the control-plane hint stored in the rendered OS spec.
 	DeltaImage     *string
 	DeltaEstimates *DeviceDeltaEstimates
@@ -1107,6 +1108,11 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 			cfg = "[]"
 		}
 		deviceModel.RenderedConfig = model.MakeJSONField(json.RawMessage(cfg))
+		resources := rendered.ConfigResources
+		if strings.TrimSpace(resources) == "" {
+			resources = "[]"
+		}
+		deviceModel.RenderedConfigResources = model.MakeJSONField(json.RawMessage(resources))
 		apps := rendered.Applications
 		if strings.TrimSpace(apps) == "" {
 			apps = "[]"
@@ -1194,6 +1200,11 @@ func (s *DeviceStore) update(ctx context.Context, orgId uuid.UUID, before, devic
 		if strings.TrimSpace(apps) == "" {
 			apps = "[]"
 		}
+		resources := rendered.ConfigResources
+		if strings.TrimSpace(resources) == "" {
+			resources = "[]"
+		}
+		updates["rendered_config_resources"] = &resources
 		updates["rendered_config"] = &cfg
 		updates["rendered_applications"] = &apps
 		updates["rendered_os"] = model.MakeJSONField(renderedOsSpec(rendered))

@@ -35,6 +35,8 @@ type Device struct {
 	// keeping the tag prevents GORM from attempting a column type migration.
 	RenderedConfig *JSONField[json.RawMessage] `gorm:"type:jsonb"`
 
+	RenderedConfigResources *JSONField[json.RawMessage] `gorm:"type:jsonb"`
+
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
@@ -369,6 +371,15 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 				return nil, fmt.Errorf("unmarshal rendered config: %w", err)
 			}
 			spec.Config = &config
+		}
+		if data, err := decryptRenderedField(ctx, d.RenderedConfigResources); err != nil {
+			return nil, fmt.Errorf("decrypt rendered config resources: %w", err)
+		} else if data != nil {
+			var resources []domain.ConfigResource
+			if err := json.Unmarshal(data, &resources); err != nil {
+				return nil, fmt.Errorf("unmarshal rendered config resources: %w", err)
+			}
+			spec.ConfigResources = &resources
 		}
 		if data, err := decryptRenderedField(ctx, d.RenderedApplications); err != nil {
 			return nil, fmt.Errorf("decrypt rendered applications: %w", err)

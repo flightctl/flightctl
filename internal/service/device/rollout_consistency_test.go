@@ -30,7 +30,7 @@ func TestRenderedGenerationGuard(t *testing.T) {
 			if changeDuringWrite {
 				st.device.beforeMutate = func(int) { st.device.devices["dev"].Metadata.Generation = lo.ToPtr(int64(8)) }
 			}
-			status := svc.UpdateRenderedDevice(context.Background(), orgID, "dev", "new-config", "new-apps", "hash", "os:2", nil, false, nil, RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(int64(7))})
+			status := svc.UpdateRenderedDevice(context.Background(), orgID, "dev", "new-config", "new-apps", "", "hash", "os:2", nil, false, nil, RenderedDeviceOptions{ExpectedGeneration: lo.ToPtr(int64(7))})
 			if changeDuringWrite {
 				require.EqualValues(t, http.StatusConflict, status.Code)
 				assert.Equal(t, "previous-config", st.device.rendered["dev"].Config)

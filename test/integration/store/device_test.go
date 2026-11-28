@@ -108,6 +108,42 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
+	It("When rendered resources are published it should encrypt them and reject partial writes", func() {
+		const payload = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"","authentication":{"authType":"docker","username":"device","password":"resource-store-sentinel"},"consumers":[{"type":"os"}]}]}]`
+		const name = "rendered-resources"
+		device := &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr(name), Annotations: &map[string]string{domain.DeviceAnnotationRenderedVersion: "1"}}, Spec: &domain.DeviceSpec{}}
+		_, err := devStore.Create(ctx, orgId, device, &devicestore.DeviceRendered{ConfigResources: payload, OsImage: "old-image"})
+		Expect(err).ToNot(HaveOccurred())
+		var before model.Device
+		Expect(db.First(&before, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+		Expect(string(before.RenderedConfigResources.Data)).ToNot(ContainSubstring("resource-store-sentinel"))
+		Expect(string(before.RenderedConfigResources.Data)).To(ContainSubstring("enc:v1:default:"))
+		rendered, err := devStore.GetRendered(ctx, orgId, name, nil, "")
+		Expect(err).ToNot(HaveOccurred())
+		data, err := json.Marshal(rendered.Spec.ConfigResources)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(data)).To(MatchJSON(payload))
+		_, _, _, err = devStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+			(*m.Device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = "2"
+			// PostgreSQL JSONB rejects a NUL character in the same UPDATE.
+			(*m.Device.Metadata.Annotations)["invalid"] = "\x00"
+			m.Rendered = &devicestore.DeviceRendered{Config: `[]`, ConfigResources: `[]`, Applications: `[]`, OsImage: "rejected-image", DeltaImage: lo.ToPtr("new-hint")}
+			return nil
+		})
+		Expect(err).To(HaveOccurred())
+		var after model.Device
+		Expect(db.First(&after, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+		Expect(after.RenderedConfigResources).To(Equal(before.RenderedConfigResources))
+		Expect(after.RenderedConfig).To(Equal(before.RenderedConfig))
+		Expect(after.RenderedApplications).To(Equal(before.RenderedApplications))
+		Expect(after.RenderedOs).To(Equal(before.RenderedOs))
+		Expect(after.Annotations).To(Equal(before.Annotations))
+		Expect(after.RenderTimestamp).To(Equal(before.RenderTimestamp))
+		Expect(devStore.UpdateAnnotations(ctx, orgId, name, map[string]string{"test": "unchanged-resources"}, nil)).To(Succeed())
+		Expect(db.First(&after, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+		Expect(after.RenderedConfigResources).To(Equal(before.RenderedConfigResources))
+	})
+
 	It("Mutate device create mode race", func() {
 		imageName := "tv"
 		device := api.Device{
