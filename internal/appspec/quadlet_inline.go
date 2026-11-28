@@ -17,8 +17,18 @@ const dropinExtension = ".conf"
 // Drop-in overrides are applied to ensure that the specs
 // It returns a map where the key is the filename and the value is the parsed QuadletSpec.
 func ParseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent) (map[string]*common.QuadletReferences, error) {
-	baseFiles := make(map[string][]byte)
-	dropinFiles := make(map[string]map[string][]byte)
+	return parseQuadletReferencesFromSpec(contents, false)
+}
+
+type inlineQuadletFile struct {
+	data []byte
+	err  error
+}
+
+func parseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent, partial bool) (map[string]*common.QuadletReferences, error) {
+	baseFiles := make(map[string]inlineQuadletFile)
+	dropinFiles := make(map[string]map[string]inlineQuadletFile)
+	var firstErr error
 
 	for _, c := range contents {
 		filename := c.Path
@@ -26,23 +36,30 @@ func ParseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent) (map[
 			continue
 		}
 
-		contentBytes, err := c.ContentsDecoded()
+		data, err := c.ContentsDecoded()
 		if err != nil {
-			return nil, fmt.Errorf("decoding content %q: %w", filename, err)
+			err = fmt.Errorf("decoding content %q: %w", filename, err)
+			if !partial {
+				return nil, err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
+		file := inlineQuadletFile{data: data, err: err}
 
 		ext := filepath.Ext(filename)
 		if _, ok := common.SupportedQuadletExtensions[ext]; ok {
-			baseFiles[filename] = contentBytes
+			baseFiles[filename] = file
 		} else if ext == dropinExtension {
 			// treat all .conf files as dropins for simplicity
 			// when processed later, only .conf files that are in dropin directories
 			// will actually be processed
 			dir := filepath.Dir(filename)
 			if _, ok := dropinFiles[dir]; !ok {
-				dropinFiles[dir] = make(map[string][]byte)
+				dropinFiles[dir] = make(map[string]inlineQuadletFile)
 			}
-			dropinFiles[dir][filepath.Base(filename)] = contentBytes
+			dropinFiles[dir][filepath.Base(filename)] = file
 		}
 	}
 
@@ -52,56 +69,65 @@ func ParseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent) (map[
 
 	quadlets := make(map[string]*common.QuadletReferences)
 
-	// process dropins to ensure all images are retrieved properly
-	for filename, content := range baseFiles {
-		baseUnit, err := quadlet.NewUnit(content)
+	for filename, file := range baseFiles {
+		spec, err := parseMergedQuadlet(filename, file, dropinFiles)
 		if err != nil {
-			return nil, fmt.Errorf("deserializing content %q: %w", filename, err)
-		}
-
-		dropinDirs := quadlet.DropinDirectories(filename)
-		var dropinNames []string
-		// map of dropin file to the contents of the drop in.
-		dropinContents := make(map[string][]byte)
-
-		// once a dropin is discovered, any other dropins matching the same name will be ignored
-		for _, dropinDir := range dropinDirs {
-			if dropins, ok := dropinFiles[dropinDir]; ok {
-				for name, data := range dropins {
-					if _, ok = dropinContents[name]; !ok {
-						dropinNames = append(dropinNames, name)
-						dropinContents[name] = data
-					}
-				}
+			if !partial {
+				return nil, err
 			}
-
-		}
-		// sort the names in ascending order so that the highest priority items are applied
-		// last which allows for proper overriding
-		sort.Strings(dropinNames)
-		for _, dropinName := range dropinNames {
-			dropinContent := dropinContents[dropinName]
-			dropin, err := quadlet.NewUnit(dropinContent)
-			if err != nil {
-				return nil, fmt.Errorf("deserializing drop-in content %q: %w", dropinName, err)
+			if firstErr == nil {
+				firstErr = err
 			}
-
-			baseUnit.Merge(dropin)
+			continue
 		}
-
-		mergedContents, err := baseUnit.Write()
-		if err != nil {
-			return nil, fmt.Errorf("serializing merged quadlet: %w", err)
-		}
-		spec, err := common.ParseQuadletReferences(mergedContents)
-		if err != nil {
-			return nil, fmt.Errorf("parsing quadlet spec from %q: %w", filename, err)
-		}
-
 		quadlets[filename] = spec
 	}
+	return quadlets, firstErr
+}
 
-	return quadlets, nil
+func parseMergedQuadlet(filename string, file inlineQuadletFile, dropinFiles map[string]map[string]inlineQuadletFile) (*common.QuadletReferences, error) {
+	if file.err != nil {
+		return nil, file.err
+	}
+	baseUnit, err := quadlet.NewUnit(file.data)
+	if err != nil {
+		return nil, fmt.Errorf("deserializing content %q: %w", filename, err)
+	}
+
+	var dropinNames []string
+	dropinContents := make(map[string]inlineQuadletFile)
+	// The first directory containing a given drop-in name takes precedence.
+	for _, dir := range quadlet.DropinDirectories(filename) {
+		for name, dropin := range dropinFiles[dir] {
+			if _, ok := dropinContents[name]; !ok {
+				dropinNames = append(dropinNames, name)
+				dropinContents[name] = dropin
+			}
+		}
+	}
+	// Apply drop-ins in ascending order so later settings override earlier ones.
+	sort.Strings(dropinNames)
+	for _, name := range dropinNames {
+		file := dropinContents[name]
+		if file.err != nil {
+			return nil, file.err
+		}
+		dropin, err := quadlet.NewUnit(file.data)
+		if err != nil {
+			return nil, fmt.Errorf("deserializing drop-in content %q: %w", name, err)
+		}
+		baseUnit.Merge(dropin)
+	}
+
+	mergedContents, err := baseUnit.Write()
+	if err != nil {
+		return nil, fmt.Errorf("serializing merged quadlet: %w", err)
+	}
+	spec, err := common.ParseQuadletReferences(mergedContents)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec from %q: %w", filename, err)
+	}
+	return spec, nil
 }
 
 // KubePodImageReferences lists images referenced by a Pod manifest used by a
@@ -160,58 +186,135 @@ func ParseKubePodImageReferences(podYAML []byte) (KubePodImageReferences, error)
 // ParseQuadletImageReferencesFromSpec returns external image references from
 // inline Quadlet units, including the referenced Pod YAML for .kube units.
 func ParseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent) ([]string, error) {
-	quadlets, err := ParseQuadletReferencesFromSpec(contents)
+	refs, err := parseQuadletImageReferencesFromSpec(contents, false)
 	if err != nil {
 		return nil, err
 	}
+	var images []string
+	for _, ref := range refs {
+		images = append(images, ref.Image)
+	}
+	return images, nil
+}
 
-	var refs []string
-	for _, parsed := range quadlets {
-		if parsed == nil {
-			continue
+type QuadletImageReference struct {
+	Image    string
+	IsVolume bool
+}
+
+// ParsePartialQuadletImageReferencesFromSpec retains image references from readable units and Pod files.
+func ParsePartialQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent) ([]QuadletImageReference, error) {
+	return parseQuadletImageReferencesFromSpec(contents, true)
+}
+
+type quadletImageRoles struct {
+	workload bool
+	volume   bool
+}
+
+func quadletImageUnitRoles(quadlets map[string]*common.QuadletReferences) map[string]quadletImageRoles {
+	roles := make(map[string]quadletImageRoles)
+	for _, unit := range quadlets {
+		if unit.Image != nil && quadlet.IsImageReference(*unit.Image) {
+			name := *unit.Image
+			role := roles[name]
+			switch unit.Type {
+			case common.QuadletTypeContainer:
+				role.workload = true
+			case common.QuadletTypeVolume:
+				role.volume = true
+			}
+			roles[name] = role
 		}
+		for _, image := range unit.MountImages {
+			if quadlet.IsImageReference(image) {
+				role := roles[image]
+				role.volume = true
+				roles[image] = role
+			}
+		}
+	}
+	return roles
+}
+
+func parseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent, partial bool) ([]QuadletImageReference, error) {
+	quadlets, firstErr := parseQuadletReferencesFromSpec(contents, partial)
+	if firstErr != nil && !partial {
+		return nil, firstErr
+	}
+
+	// Classify image-unit uses for inspection; the flat parser returns each image unit once.
+	var imageUnitRoles map[string]quadletImageRoles
+	if partial {
+		imageUnitRoles = quadletImageUnitRoles(quadlets)
+	}
+
+	var refs []QuadletImageReference
+	for filename, parsed := range quadlets {
 		if parsed.Image != nil && !quadlet.IsImageReference(*parsed.Image) {
-			refs = append(refs, *parsed.Image)
+			roles := quadletImageRoles{volume: parsed.Type == common.QuadletTypeVolume}
+			if parsed.Type == common.QuadletTypeImage {
+				roles = imageUnitRoles[filename]
+			}
+			if roles.workload || !roles.volume {
+				refs = append(refs, QuadletImageReference{Image: *parsed.Image})
+			}
+			if roles.volume {
+				refs = append(refs, QuadletImageReference{Image: *parsed.Image, IsVolume: true})
+			}
 		}
 		for _, image := range parsed.MountImages {
 			if !quadlet.IsImageReference(image) {
-				refs = append(refs, image)
+				refs = append(refs, QuadletImageReference{Image: image, IsVolume: true})
 			}
 		}
 		if parsed.Type != common.QuadletTypeKube {
 			continue
 		}
-		if parsed.YamlFile == nil {
-			return nil, fmt.Errorf("kube unit is missing %s= directive in [%s]", quadlet.KubeYamlKey, quadlet.KubeGroup)
+		podImages, err := inlinePodImages(parsed.YamlFile, contents)
+		if err != nil {
+			if !partial {
+				return nil, err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		for _, image := range podImages.VolumeImages {
+			refs = append(refs, QuadletImageReference{Image: image, IsVolume: true})
+		}
+		for _, image := range podImages.InitContainerImages {
+			refs = append(refs, QuadletImageReference{Image: image})
+		}
+		for _, image := range podImages.ContainerImages {
+			refs = append(refs, QuadletImageReference{Image: image})
+		}
+	}
+	return refs, firstErr
+}
 
-		yamlPath := filepath.Clean(*parsed.YamlFile)
-		if !filepath.IsLocal(yamlPath) {
-			return nil, fmt.Errorf("pod YAML path %q is not a valid relative path", *parsed.YamlFile)
+func inlinePodImages(yamlFile *string, contents []v1beta1.ApplicationContent) (KubePodImageReferences, error) {
+	if yamlFile == nil {
+		return KubePodImageReferences{}, fmt.Errorf("kube unit is missing %s= directive in [%s]", quadlet.KubeYamlKey, quadlet.KubeGroup)
+	}
+	yamlPath := filepath.Clean(*yamlFile)
+	if !filepath.IsLocal(yamlPath) {
+		return KubePodImageReferences{}, fmt.Errorf("pod YAML path %q is not a valid relative path", *yamlFile)
+	}
+	for i := range contents {
+		if filepath.Clean(contents[i].Path) != yamlPath {
+			continue
 		}
-		var podYAML []byte
-		found := false
-		for i := range contents {
-			if filepath.Clean(contents[i].Path) != yamlPath {
-				continue
-			}
-			podYAML, err = contents[i].ContentsDecoded()
-			if err != nil {
-				return nil, fmt.Errorf("decoding pod YAML %q: %w", yamlPath, err)
-			}
-			found = true
-			break
-		}
-		if !found {
-			return nil, fmt.Errorf("pod YAML file %q not found in inline content", yamlPath)
+		podYAML, err := contents[i].ContentsDecoded()
+		if err != nil {
+			return KubePodImageReferences{}, fmt.Errorf("decoding pod YAML %q: %w", yamlPath, err)
 		}
 		podImages, err := ParseKubePodImageReferences(podYAML)
 		if err != nil {
-			return nil, fmt.Errorf("extracting OCI image references from pod YAML %q: %w", yamlPath, err)
+			return KubePodImageReferences{}, fmt.Errorf("extracting OCI image references from pod YAML %q: %w", yamlPath, err)
 		}
-		refs = append(refs, podImages.VolumeImages...)
-		refs = append(refs, podImages.InitContainerImages...)
-		refs = append(refs, podImages.ContainerImages...)
+		return podImages, nil
 	}
-	return refs, nil
+	return KubePodImageReferences{}, fmt.Errorf("pod YAML file %q not found in inline content", yamlPath)
 }

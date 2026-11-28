@@ -1,6 +1,7 @@
 package chartutil
 
 import (
+	"errors"
 	"io"
 	"strings"
 
@@ -52,7 +53,24 @@ type k8sContainer struct {
 // It handles multi-document YAML and extracts images from Pods, Deployments, StatefulSets,
 // DaemonSets, ReplicaSets, Jobs, and CronJobs.
 func ExtractImagesFromManifests(manifests string) ([]string, error) {
+	images, err := ExtractPartialImagesFromManifests(manifests)
+	if errors.Is(err, errManifestStream) {
+		return nil, err
+	}
+	// Legacy Helm and agent callers use the readable documents. Inspection uses
+	// ExtractPartialImagesFromManifests to report a skipped document as incomplete.
+	return images, nil
+}
+
+var (
+	errManifestDocument = errors.New("invalid workload manifest document")
+	errManifestStream   = errors.New("invalid workload manifest YAML stream")
+)
+
+// ExtractPartialImagesFromManifests retains images from readable documents and reports malformed content.
+func ExtractPartialImagesFromManifests(manifests string) ([]string, error) {
 	imageSet := make(map[string]struct{})
+	var parseErr error
 
 	decoder := yaml.NewDecoder(strings.NewReader(manifests))
 	for {
@@ -62,7 +80,14 @@ func ExtractImagesFromManifests(manifests string) ([]string, error) {
 			break
 		}
 		if err != nil {
-			continue
+			// Type errors consume a document; syntax errors leave the stream blocked.
+			var typeErr *yaml.TypeError
+			if errors.As(err, &typeErr) {
+				parseErr = errManifestDocument
+				continue
+			}
+			parseErr = errManifestStream
+			break
 		}
 
 		images := extractImagesFromResource(&resource)
@@ -77,7 +102,7 @@ func ExtractImagesFromManifests(manifests string) ([]string, error) {
 	for img := range imageSet {
 		result = append(result, img)
 	}
-	return result, nil
+	return result, parseErr
 }
 
 func extractImagesFromResource(resource *k8sResource) []string {

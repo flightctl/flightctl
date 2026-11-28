@@ -9,6 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParsePartialComposeFromSpec(t *testing.T) {
+	contents := []v1beta1.ApplicationContent{
+		{Path: "compose-unused", Content: lo.ToPtr("unused")},
+		{Path: "docker-compose.yaml", Content: lo.ToPtr("services:\n  app:\n    image: base:v1")},
+		{Path: "docker-compose.override.yaml", Content: lo.ToPtr("services: [invalid")},
+	}
+	partial, err := ParsePartialComposeFromSpec(contents)
+	require.Error(t, err)
+	require.NotNil(t, partial)
+	require.Equal(t, "base:v1", partial.Services["app"].Image)
+
+	strict, err := ParseComposeFromSpec(contents)
+	require.Error(t, err)
+	require.Nil(t, strict)
+}
+
 func TestParseComposeFromSpec(t *testing.T) {
 	testCases := []struct {
 		name      string

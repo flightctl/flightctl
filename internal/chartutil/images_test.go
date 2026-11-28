@@ -7,6 +7,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExtractPartialImagesFromManifests(t *testing.T) {
+	const before = "kind: Pod\nspec:\n  containers:\n  - image: before:v1\n"
+	const after = "kind: Pod\nspec:\n  containers:\n  - image: after:v1\n"
+
+	t.Run("When a document has an invalid workload shape it should retain images from other documents", func(t *testing.T) {
+		manifest := before + "---\nkind: Pod\nspec: private-content\n---\n" + after
+		refs, err := ExtractPartialImagesFromManifests(manifest)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "private-content")
+		require.ElementsMatch(t, []string{"before:v1", "after:v1"}, refs)
+
+		legacy, err := ExtractImagesFromManifests(manifest)
+		require.NoError(t, err)
+		require.ElementsMatch(t, refs, legacy)
+	})
+	t.Run("When a stream has invalid YAML it should stop and retain earlier images", func(t *testing.T) {
+		manifest := before + "---\nkind: Pod\nspec: [private-content\n"
+		refs, err := ExtractPartialImagesFromManifests(manifest)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "private-content")
+		require.Equal(t, []string{"before:v1"}, refs)
+
+		legacy, err := ExtractImagesFromManifests(manifest)
+		require.Error(t, err)
+		require.Empty(t, legacy)
+	})
+}
+
 func TestExtractImagesFromManifests(t *testing.T) {
 	testCases := []struct {
 		name           string

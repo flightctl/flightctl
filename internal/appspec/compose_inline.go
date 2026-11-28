@@ -29,6 +29,15 @@ var (
 // ParseComposeFromSpec parses a Compose specification from a slice of inline application content
 // for use by server-side code and inline application providers.
 func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.ComposeSpec, error) {
+	spec, err := ParsePartialComposeFromSpec(contents)
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+// ParsePartialComposeFromSpec returns the effective spec merged before a parse error.
+func ParsePartialComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.ComposeSpec, error) {
 	spec := &common.ComposeSpec{
 		Services: make(map[string]common.ComposeService),
 		Volumes:  make(map[string]common.ComposeVolume),
@@ -43,7 +52,7 @@ func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.Compos
 
 		contentBytes, err := c.ContentsDecoded()
 		if err != nil {
-			return nil, fmt.Errorf("decoding content %q: %w", filename, err)
+			return spec, fmt.Errorf("decoding content %q: %w", filename, err)
 		}
 
 		isBase := slices.Contains(BaseComposeFiles, filename)
@@ -55,7 +64,7 @@ func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.Compos
 
 		partial, err := common.ParseComposeSpec(contentBytes)
 		if err != nil {
-			return nil, fmt.Errorf("parsing compose spec from %q: %w", filename, err)
+			return spec, fmt.Errorf("parsing compose spec from %q: %w", filename, err)
 		}
 
 		// First match from BaseComposeFiles takes precedence

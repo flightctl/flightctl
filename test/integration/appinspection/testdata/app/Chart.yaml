@@ -1,0 +1,6 @@
+apiVersion: v2
+name: app
+version: 0.1.0
+dependencies:
+  - name: child
+    version: 0.1.0
