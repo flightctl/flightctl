@@ -2,6 +2,7 @@ package appspec
 
 import (
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"sort"
 
@@ -237,7 +238,25 @@ func quadletImageUnitRoles(quadlets map[string]*common.QuadletReferences) map[st
 	return roles
 }
 
+// ParsePartialQuadletImageReferencesWithPodFiles reads referenced Pod manifests from the package filesystem.
+func ParsePartialQuadletImageReferencesWithPodFiles(units []v1beta1.ApplicationContent, files fs.FS) ([]QuadletImageReference, error) {
+	return parseQuadletImageReferences(units, true, func(name string) ([]byte, error) {
+		return fs.ReadFile(files, filepath.ToSlash(name))
+	})
+}
+
 func parseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent, partial bool) ([]QuadletImageReference, error) {
+	return parseQuadletImageReferences(contents, partial, func(name string) ([]byte, error) {
+		for i := range contents {
+			if filepath.Clean(contents[i].Path) == name {
+				return contents[i].ContentsDecoded()
+			}
+		}
+		return nil, fs.ErrNotExist
+	})
+}
+
+func parseQuadletImageReferences(contents []v1beta1.ApplicationContent, partial bool, readPod func(string) ([]byte, error)) ([]QuadletImageReference, error) {
 	quadlets, firstErr := parseQuadletReferencesFromSpec(contents, partial)
 	if firstErr != nil && !partial {
 		return nil, firstErr
@@ -271,7 +290,7 @@ func parseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent, 
 		if parsed.Type != common.QuadletTypeKube {
 			continue
 		}
-		podImages, err := inlinePodImages(parsed.YamlFile, contents)
+		podImages, err := referencedPodImages(parsed.YamlFile, readPod)
 		if err != nil {
 			if !partial {
 				return nil, err
@@ -294,7 +313,7 @@ func parseQuadletImageReferencesFromSpec(contents []v1beta1.ApplicationContent, 
 	return refs, firstErr
 }
 
-func inlinePodImages(yamlFile *string, contents []v1beta1.ApplicationContent) (KubePodImageReferences, error) {
+func referencedPodImages(yamlFile *string, read func(string) ([]byte, error)) (KubePodImageReferences, error) {
 	if yamlFile == nil {
 		return KubePodImageReferences{}, fmt.Errorf("kube unit is missing %s= directive in [%s]", quadlet.KubeYamlKey, quadlet.KubeGroup)
 	}
@@ -302,19 +321,13 @@ func inlinePodImages(yamlFile *string, contents []v1beta1.ApplicationContent) (K
 	if !filepath.IsLocal(yamlPath) {
 		return KubePodImageReferences{}, fmt.Errorf("pod YAML path %q is not a valid relative path", *yamlFile)
 	}
-	for i := range contents {
-		if filepath.Clean(contents[i].Path) != yamlPath {
-			continue
-		}
-		podYAML, err := contents[i].ContentsDecoded()
-		if err != nil {
-			return KubePodImageReferences{}, fmt.Errorf("decoding pod YAML %q: %w", yamlPath, err)
-		}
-		podImages, err := ParseKubePodImageReferences(podYAML)
-		if err != nil {
-			return KubePodImageReferences{}, fmt.Errorf("extracting OCI image references from pod YAML %q: %w", yamlPath, err)
-		}
-		return podImages, nil
+	podYAML, err := read(yamlPath)
+	if err != nil {
+		return KubePodImageReferences{}, fmt.Errorf("reading pod YAML %q: %w", yamlPath, err)
 	}
-	return KubePodImageReferences{}, fmt.Errorf("pod YAML file %q not found in inline content", yamlPath)
+	podImages, err := ParseKubePodImageReferences(podYAML)
+	if err != nil {
+		return KubePodImageReferences{}, fmt.Errorf("extracting OCI image references from pod YAML %q: %w", yamlPath, err)
+	}
+	return podImages, nil
 }

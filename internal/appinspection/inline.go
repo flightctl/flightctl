@@ -23,7 +23,10 @@ func InspectCompose(contents []v1beta1.ApplicationContent) Result {
 
 // InspectQuadlet classifies images in merged units and their inline Pod YAML.
 func InspectQuadlet(contents []v1beta1.ApplicationContent) Result {
-	refs, err := appspec.ParsePartialQuadletImageReferencesFromSpec(contents)
+	return quadletResult(appspec.ParsePartialQuadletImageReferencesFromSpec(contents))
+}
+
+func quadletResult(refs []appspec.QuadletImageReference, err error) Result {
 	var result Result
 	for _, ref := range refs {
 		role := RoleWorkload

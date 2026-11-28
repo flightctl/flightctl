@@ -27,6 +27,7 @@ type Diagnostic string
 const (
 	DiagnosticParseFailed        Diagnostic = "parse_failed"
 	DiagnosticContentUnavailable Diagnostic = "content_unavailable"
+	DiagnosticBudgetExceeded     Diagnostic = "budget_exceeded"
 )
 
 type Reference struct {

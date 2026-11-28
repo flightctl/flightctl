@@ -206,7 +206,7 @@ func resolveImageManifest(
 	}
 	switch desc.MediaType {
 	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
-		manifest, err := selectPlatformManifest(ctx, repo, desc, platform)
+		manifest, err := SelectPlatformManifest(ctx, repo, desc, platform)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -525,7 +525,7 @@ func imagePayloadSize(ctx context.Context, repo *remote.Repository, desc ocispec
 	}
 	switch desc.MediaType {
 	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
-		manifest, err := selectPlatformManifest(ctx, repo, desc, platform)
+		manifest, err := SelectPlatformManifest(ctx, repo, desc, platform)
 		if err != nil {
 			return 0, err
 		}
@@ -548,7 +548,8 @@ func imagePayloadSize(ctx context.Context, repo *remote.Repository, desc ocispec
 	}
 }
 
-func selectPlatformManifest(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor, platform *ocispec.Platform) (ocispec.Descriptor, error) {
+// SelectPlatformManifest selects an OCI index member for the target platform.
+func SelectPlatformManifest(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor, platform *ocispec.Platform) (ocispec.Descriptor, error) {
 	if platform == nil || platform.OS == "" || platform.Architecture == "" {
 		manifests, err := fetchIndexManifests(ctx, repo, indexDesc)
 		if err != nil {
