@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
+	appinspectionservice "github.com/flightctl/flightctl/internal/service/appinspection"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -43,6 +44,8 @@ import (
 // It's set to 2x EventProcessingTimeout to ensure timely processing of timed out messages
 const QueueMaintenanceInterval = 2 * tasks.EventProcessingTimeout
 
+const appInspectionCleanupInterval = 10 * time.Minute
+
 type PeriodicTaskType string
 
 const (
@@ -52,6 +55,7 @@ const (
 	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
+	PeriodicTaskTypeAppInspectionCleanup   PeriodicTaskType = "application-inspection-cleanup"
 	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
@@ -72,6 +76,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
+	PeriodicTaskTypeAppInspectionCleanup:   {Interval: appInspectionCleanupInterval, SystemWide: false},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
@@ -272,6 +277,17 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	eventCleanup.Poll(taskCtx)
 }
 
+type ApplicationInspectionCleanupExecutor struct {
+	cleaner *appinspectionservice.Cleaner
+}
+
+func (e *ApplicationInspectionCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeAppInspectionCleanup)
+	if _, err := e.cleaner.Cleanup(taskCtx, orgID, time.Now()); err != nil {
+		log.WithError(err).Warn("Application inspection cleanup failed")
+	}
+}
+
 type DeltaPrepareDeadlineExecutor struct {
 	log        logrus.FieldLogger
 	deltaStore interface {
@@ -417,6 +433,7 @@ func InitializeTaskExecutors(
 	},
 	prepareSvc deltaprepare.Service,
 	tvSvc templateversionservice.Service,
+	inspectionCleaner *appinspectionservice.Cleaner,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -459,6 +476,7 @@ func InitializeTaskExecutors(
 			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
 		},
+		PeriodicTaskTypeAppInspectionCleanup: &ApplicationInspectionCleanupExecutor{cleaner: inspectionCleaner},
 		PeriodicTaskTypeDeltaPrepareDeadline: &DeltaPrepareDeadlineExecutor{
 			log:        log.WithField("pkg", "delta-prepare-deadline"),
 			deltaStore: deltaStore,

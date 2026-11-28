@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store"
+	appinspectionstore "github.com/flightctl/flightctl/internal/store/appinspection"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -162,6 +163,13 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 	if err := organizationstore.NewOrganizationStore(tx).InitialMigration(ctx); err != nil {
+		return err
+	}
+	inspectionStore, err := appinspectionstore.NewStore(tx)
+	if err != nil {
+		return err
+	}
+	if err := inspectionStore.InitialMigration(ctx); err != nil {
 		return err
 	}
 	if err := authproviderstore.NewAuthProviderStore(tx, log).InitialMigration(ctx); err != nil {
