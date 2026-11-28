@@ -220,6 +220,105 @@ func TestAnchorForeignOwner(t *testing.T) {
 	require.ErrorIs(err, errors.ErrUntrustedDirectory)
 }
 
+func TestAnchorOwnership(t *testing.T) {
+	current := Ownership{UID: uint32(os.Geteuid()), GID: uint32(os.Getegid())} //nolint:gosec // effective IDs are nonnegative
+	owner := current
+	if current.UID == 0 {
+		owner = Ownership{UID: 65534, GID: 65534}
+	}
+
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, data Anchor, root string)
+	}{
+		{
+			name: "When a directory is created it should use the requested owner and preserve existing ownership",
+			run: func(t *testing.T, data Anchor, root string) {
+				dir, err := data.OpenDir("new", DirOptions{Create: true, Owner: &owner})
+				require.NoError(t, err)
+				require.NoError(t, dir.Close())
+				dir, err = data.OpenDir("new", DirOptions{Create: true, Owner: &current})
+				require.NoError(t, err)
+				require.NoError(t, dir.Close())
+				assertOwnership(t, filepath.Join(root, "data", "new"), owner, 0o700)
+			},
+		},
+		{
+			name: "When replacing a file it should set ownership and mode before publication",
+			run: func(t *testing.T, data Anchor, root string) {
+				file := filepath.Join(root, "data", "auth.json")
+				require.NoError(t, data.ReplaceFileDurable("auth.json", []byte("first"), 0o600, WithOwner(owner)))
+				assertOwnership(t, file, owner, 0o600)
+				require.NoError(t, data.ReplaceFileDurable("auth.json", []byte("second"), 0o640))
+				assertOwnership(t, file, current, 0o640)
+			},
+		},
+		{
+			name: "When an owned directory path is a symlink it should reject it",
+			run: func(t *testing.T, data Anchor, root string) {
+				outside := sentinelDir(t, root)
+				require.NoError(t, os.Symlink(outside, filepath.Join(root, "data", "link")))
+				_, err := data.OpenDir("link", DirOptions{Create: true, Owner: &owner})
+				require.ErrorIs(t, err, errors.ErrUnsafeFileType)
+				assertOwnership(t, outside, current, 0o700)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rw, root := anchorFixture(t)
+			tc.run(t, openTrusted(t, rw, "/data"), root)
+		})
+	}
+}
+
+func assertOwnership(t *testing.T, path string, owner Ownership, mode fs.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	stat := info.Sys().(*syscall.Stat_t)
+	require.Equal(t, owner, Ownership{UID: stat.Uid, GID: stat.Gid})
+	require.Equal(t, mode, info.Mode().Perm())
+}
+
+func TestAnchorReplaceMetadataAndCleanup(t *testing.T) {
+	rw, root := anchorFixture(t)
+	const attr = "user.test-publication"
+	t.Run("When replacing a file it should publish the attribute with the new contents", func(t *testing.T) {
+		dir := openTrusted(t, rw, "/data")
+		require.NoError(t, dir.ReplaceFileDurable("auth.json", []byte("replacement"), 0o600, WithXattr(attr, []byte("marker"))))
+		value, state, err := dir.GetXattr("auth.json", attr, 64)
+		require.NoError(t, err)
+		require.Equal(t, XattrPresent, state)
+		require.Equal(t, "marker", string(value))
+	})
+	t.Run("When replacing and removing the temporary file both fail it should report both errors", func(t *testing.T) {
+		require.NoError(t, os.Mkdir(filepath.Join(root, "data", "existing"), 0o700))
+		sys := *defaultSysOps
+		sys.unlinkat = func(int, string, int) error { return unix.EIO }
+		dir := openWithSys(t, rw, "/data", &sys)
+		err := dir.ReplaceFileDurable("existing", []byte("replacement"), 0o600)
+		require.ErrorIs(t, err, unix.EISDIR)
+		require.ErrorIs(t, err, unix.EIO)
+		require.ErrorContains(t, err, "remove temporary file")
+		require.DirExists(t, filepath.Join(root, "data", "existing"))
+	})
+}
+
+func TestAnchorRemoveFile(t *testing.T) {
+	rw, root := anchorFixture(t)
+	data := openTrusted(t, rw, "/data")
+	require.NoError(t, data.WriteFileExclusive("auth.json", []byte("old"), 0o600))
+	require.NoError(t, data.RemoveFile("auth.json"))
+	require.NoFileExists(t, filepath.Join(root, "data", "auth.json"))
+	require.NoError(t, data.RemoveFile("auth.json"))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "data", "auth.json"), 0o700))
+	keep := filepath.Join(root, "data", "auth.json", "keep")
+	require.NoError(t, os.WriteFile(keep, []byte("keep"), 0o600))
+	require.Error(t, data.RemoveFile("auth.json"))
+	require.FileExists(t, keep)
+	require.ErrorIs(t, data.RemoveFile("../auth.json"), errors.ErrInvalidPath)
+}
+
 func TestAnchorOpenDir(t *testing.T) {
 	t.Run("When the directory is absent it should create it with the requested mode and open it", func(t *testing.T) {
 		require := require.New(t)

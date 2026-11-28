@@ -244,6 +244,12 @@ func (a *anchor) OpenDir(name string, opts DirOptions) (Anchor, error) {
 		if perm == 0 {
 			perm = 0o700
 		}
+		if opts.Owner != nil {
+			if err := unix.Fchown(fd, int(opts.Owner.UID), int(opts.Owner.GID)); err != nil {
+				_ = unix.Close(fd) // Preserve the ownership error.
+				return nil, fmt.Errorf("set directory owner %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+			}
+		}
 		if err := unix.Fchmod(fd, uint32(perm)); err != nil {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("set directory mode %w: %w", errors.WithElement(path.Join(a.path, name)), err)
@@ -329,6 +335,7 @@ func entryInfo(name string, st *unix.Stat_t) EntryInfo {
 		Nlink: uint64(st.Nlink), //nolint:unconvert // Stat_t widths differ by architecture
 		Size:  int64(st.Size),   //nolint:unconvert // Stat_t widths differ by architecture
 		UID:   st.Uid,
+		GID:   st.Gid,
 		Dev:   uint64(st.Dev), //nolint:unconvert // Stat_t widths differ by architecture
 		Ino:   uint64(st.Ino), //nolint:unconvert // Stat_t widths differ by architecture
 	}
@@ -659,14 +666,9 @@ func (a *anchor) createExclusive(name string) (*os.File, error) {
 // finishFile sets the final mode, syncs and closes a file this anchor created.
 func finishFile(f *os.File, perm fs.FileMode) error {
 	if err := f.Chmod(perm.Perm()); err != nil {
-		_ = f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return errors.Join(f.Sync(), f.Close())
 }
 
 func (a *anchor) CopyFrom(ctx context.Context, src Anchor, srcRel, name string, perm fs.FileMode, b CopyBounds) (FileDigest, error) {
@@ -740,7 +742,7 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error {
+func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...ReplaceOption) error {
 	if a.readOnly {
 		return fmt.Errorf("replace in %w: %w", errors.WithElement(a.path), errors.ErrReadOnlyAnchor)
 	}
@@ -765,23 +767,56 @@ func (a *anchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) 
 	if out == nil {
 		return fmt.Errorf("replace %w: no unused temporary name", errors.WithElement(path.Join(a.path, name)))
 	}
+	discard := func(err error) error {
+		if unlinkErr := a.sys.unlinkat(a.fd, tmp, 0); unlinkErr != nil && !errors.Is(unlinkErr, unix.ENOENT) {
+			return errors.Join(err, fmt.Errorf("remove temporary file %w: %w", errors.WithElement(path.Join(a.path, tmp)), unlinkErr))
+		}
+		return err
+	}
+	destination := errors.WithElement(path.Join(a.path, name))
 	if _, err := out.Write(data); err != nil {
-		_ = out.Close()
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("write %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("write %w: %w", destination, errors.Join(err, out.Close())))
+	}
+	options := replaceOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.xattrName != "" {
+		if err := unix.Fsetxattr(int(out.Fd()), options.xattrName, options.xattrValue, 0); err != nil {
+			return discard(fmt.Errorf("set file attribute %w: %w", destination, errors.Join(err, out.Close())))
+		}
+	}
+	if options.owner != nil {
+		if err := out.Chown(int(options.owner.UID), int(options.owner.GID)); err != nil {
+			return discard(fmt.Errorf("set file owner %w: %w", destination, errors.Join(err, out.Close())))
+		}
 	}
 	if err := finishFile(out, perm); err != nil {
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("finish %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("finish %w: %w", destination, err))
 	}
 	if err := unix.Renameat(a.fd, tmp, a.fd, name); err != nil {
-		_ = a.sys.unlinkat(a.fd, tmp, 0)
-		return fmt.Errorf("replace %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+		return discard(fmt.Errorf("replace %w: %w", destination, err))
 	}
 	if err := unix.Fsync(a.fd); err != nil {
 		return fmt.Errorf("sync %w: %w", errors.WithElement(a.path), err)
 	}
 	return nil
+}
+
+func (a *anchor) RemoveFile(name string) error {
+	if a.readOnly {
+		return fmt.Errorf("remove from %w: %w", errors.WithElement(a.path), errors.ErrReadOnlyAnchor)
+	}
+	if err := validName(name); err != nil {
+		return err
+	}
+	if err := a.sys.unlinkat(a.fd, name, 0); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return nil
+		}
+		return fmt.Errorf("remove file %w: %w", errors.WithElement(path.Join(a.path, name)), err)
+	}
+	return a.Sync()
 }
 
 func resolveAnchor(x Anchor) (*anchor, error) {

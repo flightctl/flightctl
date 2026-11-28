@@ -1083,6 +1083,20 @@ func (mr *MockAnchorMockRecorder) ReadOnlyMount() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadOnlyMount", reflect.TypeOf((*MockAnchor)(nil).ReadOnlyMount))
 }
 
+// RemoveFile mocks base method.
+func (m *MockAnchor) RemoveFile(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveFile", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveFile indicates an expected call of RemoveFile.
+func (mr *MockAnchorMockRecorder) RemoveFile(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveFile", reflect.TypeOf((*MockAnchor)(nil).RemoveFile), name)
+}
+
 // RemoveTree mocks base method.
 func (m *MockAnchor) RemoveTree(ctx context.Context, name string, b RemoveBounds) (RemoveResult, error) {
 	m.ctrl.T.Helper()
@@ -1113,17 +1127,22 @@ func (mr *MockAnchorMockRecorder) RenameNoReplace(oldName, newDir, newName any) 
 }
 
 // ReplaceFileDurable mocks base method.
-func (m *MockAnchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode) error {
+func (m *MockAnchor) ReplaceFileDurable(name string, data []byte, perm fs.FileMode, opts ...ReplaceOption) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceFileDurable", name, data, perm)
+	varargs := []any{name, data, perm}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ReplaceFileDurable", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReplaceFileDurable indicates an expected call of ReplaceFileDurable.
-func (mr *MockAnchorMockRecorder) ReplaceFileDurable(name, data, perm any) *gomock.Call {
+func (mr *MockAnchorMockRecorder) ReplaceFileDurable(name, data, perm any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFileDurable", reflect.TypeOf((*MockAnchor)(nil).ReplaceFileDurable), name, data, perm)
+	varargs := append([]any{name, data, perm}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFileDurable", reflect.TypeOf((*MockAnchor)(nil).ReplaceFileDurable), varargs...)
 }
 
 // Revalidate mocks base method.

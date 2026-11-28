@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/user"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -27,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
 )
 
@@ -107,13 +107,12 @@ type ApplicationSpec struct {
 }
 
 func pullAuthPathForUser(username v1beta1.Username) string {
-	u, err := user.Lookup(username.WithDefault(v1beta1.RootUsername).String())
-	// If we have an error it is because the user doesn't exist or the homedir isn't set, in which
-	// case there is no pull auth file that could be present so just ignore it.
-	if err == nil && len(u.HomeDir) > 0 {
-		return filepath.Join(u.HomeDir, consts.ContainersAuthRelativePath)
+	account, err := userutil.LookupExecutionUser(username)
+	if err != nil || account.HomeDir == "" {
+		// An unresolved home leaves authentication to the container client's default lookup.
+		return ""
 	}
-	return ""
+	return filepath.Join(account.HomeDir, consts.ContainersAuthRelativePath)
 }
 
 // containerPullOptions returns a lazy function for resolving container pull options.
@@ -125,8 +124,9 @@ func containerPullOptions(resolver dependency.PullConfigResolver, username v1bet
 	authPath := pullAuthPathForUser(username)
 	if len(authPath) > 0 {
 		return resolver.Options(dependency.PullConfigSpec{
-			Paths:    []string{authPath},
-			OptionFn: client.WithPullSecret,
+			Paths:        []string{authPath},
+			OptionFn:     client.WithPullSecret,
+			UseGenerated: true,
 		})
 	}
 	return resolver.Options()

@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/registryconfig"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -56,6 +57,7 @@ type Agent struct {
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
 	pullConfigResolver     dependency.PullConfigResolver
+	registryConfig         registryconfig.Manager
 	pruningManager         imagepruning.Manager
 	caps                   os.Capabilities
 
@@ -101,6 +103,7 @@ func NewAgent(
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
 	pullConfigResolver dependency.PullConfigResolver,
+	registryConfig registryconfig.Manager,
 	pruningManager imagepruning.Manager,
 	caps os.Capabilities,
 	criticalCh <-chan struct{},
@@ -130,6 +133,7 @@ func NewAgent(
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
 		pullConfigResolver:     pullConfigResolver,
+		registryConfig:         registryConfig,
 		pruningManager:         pruningManager,
 		caps:                   caps,
 		criticalCh:             criticalCh,
@@ -312,8 +316,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
-	defer a.pullConfigResolver.Cleanup()
-	defer a.prefetchManager.Cleanup()
+	defer a.cleanupUpdate()
 
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
@@ -589,6 +592,9 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	a.pullConfigResolver.BeforeUpdate(desired.Spec)
+	if err := a.registryConfig.BeforeUpdate(ctx, desired.Spec); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+	}
 
 	a.prefetchManager.RegisterOCICollector(a.appManager)
 	if a.specManager.ShouldApplyOSImageUpdate() {
@@ -666,6 +672,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 		}
 	}
 
+	if err := a.registryConfig.Sync(ctx, desired.Spec); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+	}
+
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
 	}
@@ -708,6 +718,10 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1beta1.Device
 func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
+
+	if err := a.registryConfig.AfterUpdate(ctx, desired); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+	}
 
 	// execute after update for lifecycle
 	if err := a.lifecycleManager.AfterUpdate(ctx, current, desired); err != nil {
@@ -810,8 +824,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = formatSyncErrorMessage(desired, syncErr)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
-		a.pullConfigResolver.Cleanup()
-		a.prefetchManager.Cleanup()
+		a.cleanupUpdate()
 		a.log.Error(msg, se.Timestamp)
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
@@ -825,6 +838,14 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 	}
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
+	}
+}
+
+func (a *Agent) cleanupUpdate() {
+	a.prefetchManager.Cleanup()
+	a.pullConfigResolver.Cleanup()
+	if err := a.registryConfig.Cleanup(); err != nil {
+		a.log.Warnf("Cleaning up staged registry configuration: %v", err)
 	}
 }
 
