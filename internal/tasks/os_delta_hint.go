@@ -792,8 +792,7 @@ func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1
 }
 
 // resolveRenderedAppDeltaHints resolves per-device hints against the agent's
-// current application image digests. RenderSpec remains device-independent;
-// RenderDevice calls this after rendering the target applications.
+// current application image digests after the target applications are rendered.
 func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, device *domain.Device, rendered *RenderedSpec) error {
 	if device == nil || len(rendered.Applications) == 0 {
 		return nil

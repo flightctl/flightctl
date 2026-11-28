@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	helmruntime "github.com/flightctl/flightctl/internal/helm"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/registryconfig"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
@@ -83,16 +84,17 @@ func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, logi
 }
 
 type DeviceRenderLogic struct {
-	log                 logrus.FieldLogger
-	deviceSvc           deviceservice.Service
-	repositorySvc       repositoryservice.Service
-	catalogSvc          catalogservice.Service
-	k8sClient           k8sclient.K8SClient
-	kvStore             kvstore.KVStore
-	cfg                 *config.Config
-	vmConverterOverride VmConverterFn
-	helmRenderer        helmImageRenderer
-	deltaLookup         generationLookup
+	log                     logrus.FieldLogger
+	deviceSvc               deviceservice.Service
+	repositorySvc           repositoryservice.Service
+	catalogSvc              catalogservice.Service
+	k8sClient               k8sclient.K8SClient
+	kvStore                 kvstore.KVStore
+	cfg                     *config.Config
+	vmConverterOverride     VmConverterFn
+	helmRenderer            helmImageRenderer
+	deltaLookup             generationLookup
+	registrySnapshotFactory registryconfig.SnapshotFactory
 }
 
 type helmImageRenderer interface {
@@ -109,6 +111,9 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Servic
 		kvStore:       kvStore,
 		cfg:           cfg,
 		helmRenderer:  helmruntime.NewRenderer(nil, log),
+		registrySnapshotFactory: func(orgID uuid.UUID, candidates []registryconfig.Candidate) (registryconfig.Composer, error) {
+			return registryconfig.NewSnapshot(orgID, candidates)
+		},
 	}
 }
 
@@ -232,6 +237,7 @@ type deviceRenderState struct {
 	log             logrus.FieldLogger
 	orgId           uuid.UUID
 	event           domain.Event
+	device          *domain.Device
 	ownerFleet      *string
 	templateVersion *string
 	vmConverter     VmConverterFn
@@ -294,6 +300,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		}
 	}
 
+	t.device = device
 	t.bindVmLauncher(device)
 
 	// Calculate hash including device spec and selected virt-launcher image.
@@ -405,9 +412,6 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	}
 
 	rendered, renderErr := t.renderSpec(ctx, spec)
-	if renderErr == nil {
-		renderErr = t.resolveRenderedAppDeltaHints(ctx, device, &rendered)
-	}
 	if errors.Is(renderErr, errIgnitionConversion) {
 		return t.setErrorStatus(ctx, renderErr)
 	}
@@ -445,7 +449,7 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	osHints := t.resolveOSDeltaHint(ctx, device, rendered)
+	osHints := rendered.osHints
 	if len(rendered.appDeltaSizes) > 0 {
 		if osHints == nil {
 			osHints = &deviceservice.RenderedOSHints{}
@@ -485,6 +489,7 @@ type RenderedSpec struct {
 	ConfigResources []byte
 
 	configFingerprints []ConfigRefFingerprint
+	osHints            *deviceservice.RenderedOSHints
 	// appDeltaSizes maps application name to its IEC-formatted control-plane
 	// delta payload size.
 	appDeltaSizes map[string]*string
@@ -492,7 +497,8 @@ type RenderedSpec struct {
 
 // RenderSpec resolves a spec for orgId without device-event state.
 func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (RenderedSpec, error) {
-	return t.newRenderState(orgId, domain.Event{}).renderSpec(ctx, spec)
+	state := t.newRenderState(orgId, domain.Event{})
+	return state.renderSpec(ctx, spec)
 }
 
 // RenderSpecForDevice resolves a spec using the VM render options selected for
@@ -544,6 +550,15 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 		return result, err
 	}
 	result.Applications = renderedApplications
+	if t.device != nil {
+		if err := t.resolveRenderedAppDeltaHints(ctx, t.device, &result); err != nil {
+			return result, err
+		}
+		result.osHints = t.resolveOSDeltaHint(ctx, t.device, result)
+	}
+	if err := t.renderRegistryConfigResources(ctx, &result, result.osHints); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

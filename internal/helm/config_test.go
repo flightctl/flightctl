@@ -21,9 +21,9 @@ func TestPrepareHelmConfig(t *testing.T) {
 	chartCA := []byte("test chart CA")
 	chartCAB64 := base64.StdEncoding.EncodeToString(chartCA)
 	config, err := json.Marshal([]domain.FileSpec{
-		{Path: helmRegistryConfig, Content: registryAuthB64, ContentEncoding: &encoding},
-		{Path: helmRepositoryConfig, Content: "repositories: []\n"},
-		{Path: filepath.Join(registryCertsDir, "registry.example", "ca.crt"), Content: chartCAB64, ContentEncoding: &encoding},
+		{Path: "/root/.config/helm/registry/config.json", Content: registryAuthB64, ContentEncoding: &encoding},
+		{Path: "/root/.config/helm/repositories.yaml", Content: "repositories: []\n"},
+		{Path: "/etc/containers/certs.d/registry.example/ca.crt", Content: chartCAB64, ContentEncoding: &encoding},
 	})
 	require.NoError(t, err)
 

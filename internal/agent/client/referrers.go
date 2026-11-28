@@ -19,6 +19,7 @@ import (
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage/pkg/homedir"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
@@ -48,8 +49,8 @@ func ListRegistryReferrers(ctx context.Context, rw fileio.ReadWriter, image stri
 	sys := &types.SystemContext{}
 	if root := rw.PathFor("/"); root != "/" {
 		sys.RootForImplicitAbsolutePaths = root
-		sys.SystemRegistriesConfPath = rw.PathFor("/etc/containers/registries.conf")
-		sys.SystemRegistriesConfDirPath = rw.PathFor("/etc/containers/registries.conf.d")
+		sys.SystemRegistriesConfPath = rw.PathFor(consts.ContainersRegistriesConfPath)
+		sys.SystemRegistriesConfDirPath = rw.PathFor(consts.ContainersRegistriesConfDir)
 	}
 	authFile := options.pullSecretPath
 	if authFile == "" && options.defaultAuth {
@@ -156,7 +157,7 @@ func registryTLSConfig(rw fileio.ReadWriter, host string, insecure bool) (*tls.C
 	if home := homedir.Get(); home != "" {
 		certDirs = append(certDirs, filepath.Join(home, ".config/containers/certs.d"))
 	}
-	certDirs = append(certDirs, "/etc/containers/certs.d", "/etc/docker/certs.d")
+	certDirs = append(certDirs, consts.ContainersCertsDir, "/etc/docker/certs.d")
 	for _, base := range certDirs {
 		dir := filepath.Join(base, host)
 		exists, err := rw.PathExists(dir, fileio.WithSkipContentCheck())

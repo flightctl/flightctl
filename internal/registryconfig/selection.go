@@ -32,7 +32,8 @@ type decision struct {
 // block inheritance; an enabled anonymous peer allows configuration but contributes
 // no credential candidate. Authenticated Read peers take precedence over ReadWrite
 // peers, and every remaining supplier identity participates in ambiguity detection.
-func choose(peers []repository) decision {
+// Authored authentication retains enabled-peer outcomes without choosing a supplier.
+func choose(peers []repository, suppressAuthentication bool) decision {
 	if len(peers) == 0 {
 		return decision{outcome: OutcomeUnmatched}
 	}
@@ -44,7 +45,7 @@ func choose(peers []repository) decision {
 			continue
 		}
 		result.outcome = OutcomeAllowed
-		if peer.spec.OciAuth == nil {
+		if suppressAuthentication || peer.spec.OciAuth == nil {
 			continue
 		}
 		read := peer.spec.AccessMode == nil || *peer.spec.AccessMode == domain.OciRepoAccessModeRead
@@ -93,18 +94,19 @@ func (s *Snapshot) Select(needs []PullNeed) ([]Selection, error) {
 	// at this granularity preserves narrow credentials while keeping compatible
 	// consumers on one supplier, regardless of application or reference order.
 	type entryKey struct {
-		destination string
-		registry    string
-		scope       string
+		destination            string
+		registry               string
+		scope                  string
+		suppressAuthentication bool
 	}
 	decisions := make(map[entryKey]decision)
 	var ambiguities []*AmbiguityError
 	for i := range results {
 		result := &results[i]
-		key := entryKey{result.Need.Destination, result.Registry, result.Scope}
+		key := entryKey{result.Need.Destination, result.Registry, result.Scope, result.Need.SuppressAuthentication}
 		selected, cached := decisions[key]
 		if !cached {
-			selected = choose(peersByNeed[i])
+			selected = choose(peersByNeed[i], result.Need.SuppressAuthentication)
 			if selected.outcome != OutcomeUnmatched {
 				decisions[key] = selected
 			}
