@@ -411,6 +411,14 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	if errors.Is(renderErr, errIgnitionConversion) {
 		return t.setErrorStatus(ctx, renderErr)
 	}
+	if renderErr == nil {
+		if err := checkConfigResourcesSupport(device, rendered.ConfigResources); err != nil {
+			if isPermanentRenderError(err) {
+				t.markPermanentRenderFailure(ctx, specHash)
+			}
+			return t.setErrorStatus(ctx, err)
+		}
+	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
 		var outcome common.RepositoryRefsOutcome
 		outcome, status = t.deviceSvc.ReplaceDeviceRepositoryRefsIfCurrent(ctx, t.orgId, *device.Metadata.Name, lo.FromPtr(device.Metadata.Generation), device.Spec)
@@ -539,6 +547,30 @@ func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceS
 	return result, nil
 }
 
+func validateConfigResourcesSupport(support *bool, candidate []domain.ConfigResource) error {
+	if !lo.FromPtr(support) && len(candidate) > 0 {
+		return errUnsupportedConfigResources
+	}
+	return nil
+}
+
+func checkConfigResourcesSupport(device *domain.Device, resources []byte) error {
+	var support *bool
+	if device.Status != nil {
+		support = device.Status.SystemInfo.ConfigResourcesSupported
+	}
+	if lo.FromPtr(support) {
+		return nil
+	}
+	var candidate []domain.ConfigResource
+	if len(resources) > 0 {
+		if err := json.Unmarshal(resources, &candidate); err != nil {
+			return fmt.Errorf("decoding rendered configuration resources: %w", err)
+		}
+	}
+	return validateConfigResourcesSupport(support, candidate)
+}
+
 func (t *deviceRenderState) markPermanentRenderFailure(ctx context.Context, specHash string) {
 	annotations := map[string]string{
 		domain.DeviceAnnotationRenderedSpecHash: specHash,
@@ -561,6 +593,9 @@ func (t *deviceRenderState) setErrorStatus(ctx context.Context, renderErr error)
 		Status:  domain.ConditionStatusFalse,
 		Reason:  "Invalid",
 		Message: renderErr.Error(),
+	}
+	if errors.Is(renderErr, errUnsupportedConfigResources) {
+		condition.Reason = domain.DeviceConditionUnsupportedConfigResourcesReason
 	}
 
 	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})

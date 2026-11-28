@@ -1904,6 +1904,9 @@ type DeviceSystemInfo struct {
 	// BootcVersion Version reported by `bootc --version`. Absent when bootc is not installed or the version command fails.
 	BootcVersion *string `json:"bootcVersion,omitempty"`
 
+	// ConfigResourcesSupported Whether the agent supports registry configuration resources. Only true permits generated registry configuration resources. Omitted when the agent does not report support.
+	ConfigResourcesSupported *bool `json:"configResourcesSupported,omitempty"`
+
 	// CustomInfo User-defined information about the device.
 	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
 
@@ -4975,6 +4978,14 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 		delete(object, "bootcVersion")
 	}
 
+	if raw, found := object["configResourcesSupported"]; found {
+		err = json.Unmarshal(raw, &a.ConfigResourcesSupported)
+		if err != nil {
+			return fmt.Errorf("error reading 'configResourcesSupported': %w", err)
+		}
+		delete(object, "configResourcesSupported")
+	}
+
 	if raw, found := object["customInfo"]; found {
 		err = json.Unmarshal(raw, &a.CustomInfo)
 		if err != nil {
@@ -5069,6 +5080,13 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 		object["bootcVersion"], err = json.Marshal(a.BootcVersion)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'bootcVersion': %w", err)
+		}
+	}
+
+	if a.ConfigResourcesSupported != nil {
+		object["configResourcesSupported"], err = json.Marshal(a.ConfigResourcesSupported)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'configResourcesSupported': %w", err)
 		}
 	}
 

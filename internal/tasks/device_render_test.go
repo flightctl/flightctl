@@ -990,6 +990,7 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 		Spec: &domain.DeviceSpec{
 			Applications: &invalidApp,
 		},
+		Status: &domain.DeviceStatus{SystemInfo: domain.DeviceSystemInfo{ConfigResourcesSupported: lo.ToPtr(true)}},
 	}
 
 	mockSvc := deviceservice.NewMockService(ctrl)

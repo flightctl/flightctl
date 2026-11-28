@@ -269,6 +269,27 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 		})
 	})
 
+	DescribeTable("When enrollment reports configResources support it should copy the reported value onto the device",
+		func(support *bool) {
+			er := CreateTestER()
+			name := lo.FromPtr(er.Metadata.Name)
+			deviceStatus := api.NewDeviceStatus()
+			deviceStatus.SystemInfo.ConfigResourcesSupported = support
+			er.Spec.DeviceStatus = &deviceStatus
+			_, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated), status.Message)
+			_, status = suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, name,
+				api.EnrollmentRequestApproval{Approved: true})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, name)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			Expect(device.Status.SystemInfo.ConfigResourcesSupported).To(Equal(support))
+		},
+		Entry("absent", (*bool)(nil)),
+		Entry("false", lo.ToPtr(false)),
+		Entry("true", lo.ToPtr(true)),
+	)
+
 	Context("createDeviceFromEnrollmentRequest with osMode capabilities", func() {
 		It("When osMode is package it should set device capabilities.osMode to package", func() {
 			er := CreateTestER()

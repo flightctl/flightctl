@@ -8127,6 +8127,12 @@ components:
             Version reported by `oci-delta --version`, or from Go module build
             information when that flag is unsupported. Absent when oci-delta is
             not installed or its version cannot be determined.
+        configResourcesSupported:
+          type: boolean
+          description: >-
+            Whether the agent supports registry configuration resources.
+            Only true permits generated registry configuration resources.
+            Omitted when the agent does not report support.
         deltaEligible:
           type: boolean
           description: >-

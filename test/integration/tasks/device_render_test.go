@@ -183,6 +183,75 @@ var _ = Describe("DeviceRender", func() {
 		ctrl.Finish()
 	})
 
+	Context("configResources capability gate", func() {
+		const resources = `[{"name":"registry:quay.io","type":"registry","registry":"quay.io","scheme":"https","skipServerVerification":false,"access":[{"scope":"","authentication":{"authType":"docker","username":"device","password":"capability-test-secret"},"consumers":[{"type":"os"}]}]}]`
+
+		DescribeTable("When a render has no candidate configResources it should publish regardless of support or previous resources",
+			func(support *bool, previousResources string, published bool) {
+				status := api.NewDeviceStatus()
+				status.SystemInfo.ConfigResourcesSupported = support
+				status.SystemInfo.AgentVersion = "unknown"
+				file := api.ConfigProviderSpec{}
+				Expect(file.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+					Name: "motd", Inline: []api.FileSpec{{Path: "/etc/motd", Content: "new configuration"}},
+				})).To(Succeed())
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: &deviceName, Labels: &map[string]string{"configResourcesSupported": "true"}},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/example/os:new"}, Config: &[]api.ConfigProviderSpec{file}},
+					Status:   &status,
+				}
+				var previous *devicestore.DeviceRendered
+				if published {
+					device.Metadata.Annotations = &map[string]string{api.DeviceAnnotationRenderedVersion: "1"}
+					previous = &devicestore.DeviceRendered{Config: `[]`, Applications: `[]`, ConfigResources: previousResources, OsImage: "quay.io/example/os:old"}
+				}
+				_, err := deviceStore.Create(ctx, orgId, device, previous)
+				Expect(err).ToNot(HaveOccurred())
+
+				repoSpec := api.RepositorySpec{}
+				Expect(repoSpec.FromGitRepoSpec(api.GitRepoSpec{Url: "https://example.com/config", Type: api.GitRepoSpecTypeGit})).To(Succeed())
+				_, err = repoStore.Create(ctx, orgId, &api.Repository{Metadata: api.ObjectMeta{Name: &repoName}, Spec: repoSpec})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(deviceStore.OverwriteRepositoryRefs(ctx, orgId, deviceName, repoName)).To(Succeed())
+
+				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, nil, kvStoreInst, nil)
+				err = logic.RenderDevice(ctx, orgId, api.Event{
+					Reason: api.EventReasonResourceUpdated, InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
+				})
+				got, getStatus := deviceSvc.GetDevice(ctx, orgId, deviceName)
+				Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
+				condition := api.FindStatusCondition(got.Status.Conditions, api.ConditionTypeDeviceSpecValid)
+				Expect(condition).ToNot(BeNil())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(condition.Status).To(Equal(api.ConditionStatusTrue))
+				Expect(condition.Reason).To(Equal("Valid"))
+				if published {
+					Expect(got.Version()).To(Equal("2"))
+				} else {
+					Expect(got.Version()).To(Equal("1"))
+				}
+				renderedDevice, getStatus := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+				Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK), getStatus.Message)
+				Expect(renderedDevice.Spec.Os.Image).To(Equal("quay.io/example/os:new"))
+				Expect(renderedDevice.Spec.Config).ToNot(BeNil())
+				Expect(*renderedDevice.Spec.Config).To(HaveLen(1))
+				Expect(lo.FromPtr(renderedDevice.Spec.ConfigResources)).To(BeEmpty())
+				refs, err := deviceStore.GetRepositoryRefs(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(refs.Items).To(BeEmpty())
+			},
+			Entry("unsupported with previous resources", lo.ToPtr(false), resources, true),
+			Entry("unreported with previous resources", (*bool)(nil), resources, true),
+			Entry("supported with previous resources", lo.ToPtr(true), resources, true),
+			Entry("unsupported first file-only render", lo.ToPtr(false), "", false),
+			Entry("unreported first file-only render", (*bool)(nil), "", false),
+			Entry("supported first file-only render", lo.ToPtr(true), "", false),
+			Entry("unsupported file-only update", lo.ToPtr(false), `[]`, true),
+			Entry("unreported file-only update", (*bool)(nil), `[]`, true),
+			Entry("supported file-only update", lo.ToPtr(true), `[]`, true),
+		)
+	})
+
 	Context("render-time path validation", func() {
 
 		Context("K8s secret derived path validation - render-time only", func() {

@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	DeviceConditionBootstrapReason    = "Bootstrapping"
-	EnrollmentCredentialRevokedReason = "EnrollmentCredentialRevoked"
+	DeviceConditionBootstrapReason                  = "Bootstrapping"
+	EnrollmentCredentialRevokedReason               = "EnrollmentCredentialRevoked"
+	DeviceConditionUnsupportedConfigResourcesReason = "UnsupportedConfigResources"
 )
 
 // Adapted from apimachinery

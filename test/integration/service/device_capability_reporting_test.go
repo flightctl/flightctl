@@ -69,6 +69,49 @@ var _ = Describe("Device capability reporting", func() {
 		return names
 	}
 
+	Context("configResources support reporting", func() {
+		DescribeTable("When a device reports configResources support it should persist the reported value",
+			func(support *bool) {
+				reportStatus("config-resources-reporter", func(status *api.DeviceStatus) {
+					status.SystemInfo.ConfigResourcesSupported = support
+				})
+				Expect(getSystemInfo("config-resources-reporter").ConfigResourcesSupported).To(Equal(support))
+			},
+			Entry("absent", (*bool)(nil)),
+			Entry("false", lo.ToPtr(false)),
+			Entry("true", lo.ToPtr(true)),
+		)
+
+		DescribeTable("When a replacement report changes configResources support it should replace a stored true",
+			func(support *bool) {
+				name := "config-resources-reporter"
+				reportStatus(name, func(status *api.DeviceStatus) {
+					status.SystemInfo.ConfigResourcesSupported = lo.ToPtr(true)
+				})
+				deviceStatus := api.NewDeviceStatus()
+				deviceStatus.SystemInfo.ConfigResourcesSupported = support
+				_, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, name, api.Device{
+					Metadata: api.ObjectMeta{Name: &name}, Status: &deviceStatus,
+				}, false)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+				Expect(getSystemInfo(name).ConfigResourcesSupported).To(Equal(support))
+			},
+			Entry("omitted clears true", (*bool)(nil)),
+			Entry("false replaces true", lo.ToPtr(false)),
+		)
+
+		It("When a status patch reports false it should preserve the explicit value", func() {
+			name := "config-resources-reporter"
+			reportStatus(name, func(status *api.DeviceStatus) {})
+			var value interface{} = false
+			_, status := suite.Device.PatchDeviceStatus(suite.Ctx, suite.OrgID, name, api.PatchRequest{
+				{Op: "add", Path: "/status/systemInfo/configResourcesSupported", Value: &value},
+			}, false)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), status.Message)
+			Expect(getSystemInfo(name).ConfigResourcesSupported).To(Equal(lo.ToPtr(false)))
+		})
+	})
+
 	Context("GPU reporting", func() {
 		It("When a device reports GPUs it should persist and return the structured list", func() {
 			reportStatus("gpu-reporter", func(status *api.DeviceStatus) {
