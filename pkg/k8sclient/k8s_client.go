@@ -20,6 +20,7 @@ const (
 
 type K8SClient interface {
 	GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error)
+	GetCurrentUser(ctx context.Context, token string) ([]byte, error)
 	PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error)
 	ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error)
 	ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error)
@@ -70,6 +71,14 @@ func (k *k8sClient) GetSecret(ctx context.Context, namespace, name string) (*cor
 		return nil, fmt.Errorf("failed to get secret %s/%s: %w", namespace, name, err)
 	}
 	return secret, nil
+}
+
+func (k *k8sClient) GetCurrentUser(ctx context.Context, token string) ([]byte, error) {
+	req := k.clientset.RESTClient().Get().AbsPath("/apis/user.openshift.io/v1/users/~")
+	if token != "" {
+		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	return req.DoRaw(ctx)
 }
 
 func (k *k8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error) {

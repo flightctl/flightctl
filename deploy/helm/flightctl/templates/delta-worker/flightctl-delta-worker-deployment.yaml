@@ -1,3 +1,4 @@
+{{- if and .Values.deltaWorker .Values.deltaWorker.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,3 +109,4 @@ spec:
         - name: tmp-dir
           emptyDir: {}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{- end }}

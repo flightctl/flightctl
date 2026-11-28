@@ -33,6 +33,12 @@ jobs:
             Makefile
             .github/workflows/lint-helm.yaml
 
+      - name: Set up Go
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Running Helm Linter
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         shell: bash
@@ -52,3 +58,19 @@ jobs:
         run: |
           set -euo pipefail
           make test-helm-catalog-collector
+
+      - name: Running Flight Control chart render tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        shell: bash
+        continue-on-error: false
+        run: |
+          set -euo pipefail
+          make test-helm-flightctl
+
+      - name: Running tenant chart render tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        shell: bash
+        continue-on-error: false
+        run: |
+          set -euo pipefail
+          make test-helm-tenant

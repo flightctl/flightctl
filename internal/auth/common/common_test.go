@@ -9,11 +9,12 @@ import (
 
 func TestBuildReportedOrganizations(t *testing.T) {
 	tests := []struct {
-		name          string
-		organizations []string
-		orgRoles      map[string][]string
-		expectedOrgs  []string
-		expectedRoles map[string][]string
+		name               string
+		organizations      []string
+		orgRoles           map[string][]string
+		expectedOrgs       []string
+		expectedRoles      map[string][]string
+		expectedSuperAdmin bool
 	}{
 		{
 			name:          "When an organization is reported twice it should appear once with its roles",
@@ -41,10 +42,35 @@ func TestBuildReportedOrganizations(t *testing.T) {
 				"sk": {v1beta1.ExternalRoleViewer},
 			},
 		},
+		{
+			name:          "When flightctl-admin is global it should set super admin and report org-admin",
+			organizations: []string{"cz"},
+			orgRoles: map[string][]string{
+				"*": {v1beta1.ExternalRoleAdmin},
+			},
+			expectedOrgs: []string{"cz"},
+			expectedRoles: map[string][]string{
+				"cz": {v1beta1.ExternalRoleOrgAdmin},
+			},
+			expectedSuperAdmin: true,
+		},
+		{
+			name:          "When flightctl-admin is organization-scoped it should not grant super admin",
+			organizations: []string{"cz"},
+			orgRoles: map[string][]string{
+				"cz": {v1beta1.ExternalRoleAdmin},
+			},
+			expectedOrgs: []string{"cz"},
+			expectedRoles: map[string][]string{
+				"cz": {},
+			},
+			expectedSuperAdmin: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := BuildReportedOrganizations(tt.organizations, tt.orgRoles, false)
+			got, superAdmin := BuildReportedOrganizations(tt.organizations, tt.orgRoles, false)
+			assert.Equal(t, tt.expectedSuperAdmin, superAdmin)
 
 			names := make([]string, 0, len(got))
 			for _, org := range got {

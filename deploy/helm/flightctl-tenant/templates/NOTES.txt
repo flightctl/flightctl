@@ -1,0 +1,14 @@
+Flight Control tenant RBAC is installed in {{ .Release.Namespace }}.
+
+Roles created:
+  flightctl-org-admin-{{ .Values.flightctlNamespace }}
+  flightctl-operator-{{ .Values.flightctlNamespace }}
+  flightctl-viewer-{{ .Values.flightctlNamespace }}
+  flightctl-installer-{{ .Values.flightctlNamespace }}
+
+To have Flight Control discover this project as an organization, label the
+project with the main Flight Control release name:
+
+  oc label namespace {{ .Release.Namespace }} io.flightctl/instance={{ .Values.flightctlReleaseName }}
+
+The main Flight Control release namespace is {{ .Values.flightctlNamespace }}.

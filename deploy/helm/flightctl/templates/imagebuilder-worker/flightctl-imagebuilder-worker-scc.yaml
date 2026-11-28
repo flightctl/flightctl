@@ -1,5 +1,6 @@
 {{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
 {{- if eq (include "flightctl.enableOpenShiftExtensions" .) "true" }}
+{{- if ne (include "flightctl.isNamespaceScoped" .) "true" }}
 ---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
@@ -35,5 +36,6 @@ volumes:
   - '*'
 users:
   - system:serviceaccount:{{ default .Release.Namespace .Values.global.internalNamespace }}:flightctl-imagebuilder-worker
+{{- end }}
 {{- end }}
 {{- end }}

@@ -3,6 +3,9 @@ package authn
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -14,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	k8sAuthenticationV1 "k8s.io/api/authentication/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func newTestOpenShiftAuth(t *testing.T, k8sClient k8sclient.K8SClient) *OpenShiftAuth {
@@ -42,11 +47,10 @@ func newTestOpenShiftAuth(t *testing.T, k8sClient k8sclient.K8SClient) *OpenShif
 	return auth
 }
 
-func tokenReviewJSON(username, uid string, groups []string) []byte {
-	review := k8sAuthenticationV1.TokenReview{
-		Status: k8sAuthenticationV1.TokenReviewStatus{
-			Authenticated: true,
-			User: k8sAuthenticationV1.UserInfo{
+func selfSubjectReviewJSON(username, uid string, groups []string) []byte {
+	review := k8sAuthenticationV1.SelfSubjectReview{
+		Status: k8sAuthenticationV1.SelfSubjectReviewStatus{
+			UserInfo: k8sAuthenticationV1.UserInfo{
 				Username: username,
 				UID:      uid,
 				Groups:   groups,
@@ -72,6 +76,20 @@ func projectListJSON(names ...string) []byte {
 		list.Items = append(list.Items, it)
 	}
 	data, _ := json.Marshal(list)
+	return data
+}
+
+func currentUserJSON(username, uid string, groups []string) []byte {
+	user := struct {
+		Metadata struct {
+			Name string `json:"name"`
+			UID  string `json:"uid"`
+		} `json:"metadata"`
+		Groups []string `json:"groups"`
+	}{Groups: groups}
+	user.Metadata.Name = username
+	user.Metadata.UID = uid
+	data, _ := json.Marshal(user)
 	return data
 }
 
@@ -102,6 +120,30 @@ func newTestOpenShiftAuthWithPrefix(t *testing.T, k8sClient k8sclient.K8SClient,
 	return auth
 }
 
+func newServiceAccountOpenShiftAuth(t *testing.T, k8sClient k8sclient.K8SClient, secretFile string) *OpenShiftAuth {
+	t.Helper()
+
+	auth, err := NewOpenShiftAuth(
+		api.ObjectMeta{Name: lo.ToPtr("test-provider")},
+		api.OpenShiftProviderSpec{
+			Enabled:                lo.ToPtr(true),
+			AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
+			TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
+			ClientId:               lo.ToPtr("system:serviceaccount:flightctl:flightctl-api"),
+			ClientType:             lo.ToPtr(api.Serviceaccount),
+			ClientSecretFile:       lo.ToPtr(secretFile),
+			ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
+			Issuer:                 lo.ToPtr("https://oauth.example.com"),
+			RoleSuffix:             lo.ToPtr("flightctl"),
+		},
+		k8sClient,
+		nil,
+		logrus.New(),
+	)
+	require.NoError(t, err)
+	return auth
+}
+
 func TestGetIdentity_OrganizationNamePrefix(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -110,8 +152,8 @@ func TestGetIdentity_OrganizationNamePrefix(t *testing.T) {
 	auth := newTestOpenShiftAuthWithPrefix(t, mock, "ocp-")
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
 	mock.EXPECT().
 		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(projectListJSON("my-project"), nil)
@@ -135,10 +177,10 @@ func TestGetIdentity_GroupRolesResolved(t *testing.T) {
 	mock := k8sclient.NewMockK8SClient(ctrl)
 	auth := newTestOpenShiftAuth(t, mock)
 
-	// TokenReview: user01 is in groups RedHat and system:authenticated
+	// SelfSubjectReview: user01 is in groups RedHat and system:authenticated
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user01", "uid-001", []string{"RedHat", "system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user01", "uid-001", []string{"RedHat", "system:authenticated"}), nil)
 
 	// ListProjects: user has access to flightctl-ext
 	mock.EXPECT().
@@ -169,10 +211,10 @@ func TestGetIdentity_NoGroupsNoRoles(t *testing.T) {
 	mock := k8sclient.NewMockK8SClient(ctrl)
 	auth := newTestOpenShiftAuth(t, mock)
 
-	// TokenReview: user04 has no custom groups
+	// SelfSubjectReview: user04 has no custom groups
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user04", "uid-004", []string{"system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user04", "uid-004", []string{"system:authenticated"}), nil)
 
 	mock.EXPECT().
 		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -199,10 +241,10 @@ func TestGetIdentity_ClusterAdminViaGroup(t *testing.T) {
 	mock := k8sclient.NewMockK8SClient(ctrl)
 	auth := newTestOpenShiftAuth(t, mock)
 
-	// TokenReview: user is in system:cluster-admins
+	// SelfSubjectReview: user is in system:cluster-admins
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("admin-user", "uid-admin", []string{"system:cluster-admins", "system:authenticated"}), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("admin-user", "uid-admin", []string{"system:cluster-admins", "system:authenticated"}), nil)
 
 	mock.EXPECT().
 		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -228,8 +270,8 @@ func TestGetIdentity_MultipleProjectsWithGroupRoles(t *testing.T) {
 	groups := []string{"RedHat", "Engineering", "system:authenticated"}
 
 	mock.EXPECT().
-		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
-		Return(tokenReviewJSON("user02", "uid-002", groups), nil)
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(selfSubjectReviewJSON("user02", "uid-002", groups), nil)
 
 	mock.EXPECT().
 		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -257,4 +299,148 @@ func TestGetIdentity_MultipleProjectsWithGroupRoles(t *testing.T) {
 	}
 	assert.Contains(t, orgMap["project-a"], "flightctl-operator")
 	assert.Contains(t, orgMap["project-b"], "flightctl-viewer")
+}
+
+func TestGetIdentity_FallsBackToCurrentUserWhenSelfSubjectReviewIsForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mock := k8sclient.NewMockK8SClient(ctrl)
+	auth := newTestOpenShiftAuth(t, mock)
+
+	groups := []string{"system:authenticated", "team-a"}
+	mock.EXPECT().
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+		Return(nil, apierrors.NewForbidden(
+			schema.GroupResource{Group: "authentication.k8s.io", Resource: "selfsubjectreviews"},
+			"",
+			errors.New("forbidden by token scope"),
+		))
+	mock.EXPECT().
+		GetCurrentUser(gomock.Any(), "test-token").
+		Return(currentUserJSON("user01", "uid-001", groups), nil)
+	mock.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(projectListJSON("flightctl-ext"), nil)
+	mock.EXPECT().
+		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user01", groups).
+		Return([]string{"flightctl-viewer-flightctl"}, nil)
+
+	identity, err := auth.GetIdentity(context.Background(), "test-token")
+	require.NoError(t, err)
+
+	assert.Equal(t, "user01", identity.GetUsername())
+	assert.Equal(t, "uid-001", identity.GetUID())
+	orgs := identity.GetOrganizations()
+	require.Len(t, orgs, 1)
+	assert.Equal(t, "flightctl-ext", orgs[0].Name)
+	assert.Contains(t, orgs[0].Roles, "flightctl-viewer")
+}
+
+func TestGetIdentity_ServiceAccountClientUsesCurrentUserEndpoint(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mock := k8sclient.NewMockK8SClient(ctrl)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenFile, []byte("client-token"), 0o600))
+	auth := newServiceAccountOpenShiftAuth(t, mock, tokenFile)
+
+	groups := []string{"system:authenticated", "team-a"}
+	mock.EXPECT().
+		GetCurrentUser(gomock.Any(), "user-token").
+		Return(currentUserJSON("user01", "uid-001", groups), nil)
+	mock.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(projectListJSON("flightctl-ext"), nil)
+	mock.EXPECT().
+		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user01", groups).
+		Return([]string{"flightctl-viewer-flightctl"}, nil)
+
+	identity, err := auth.GetIdentity(context.Background(), "user-token")
+	require.NoError(t, err)
+	assert.Equal(t, "user01", identity.GetUsername())
+	assert.Equal(t, "uid-001", identity.GetUID())
+}
+
+func TestGetIdentity_ServiceAccountClientClusterAdminViaCurrentUserGroups(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mock := k8sclient.NewMockK8SClient(ctrl)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenFile, []byte("client-token"), 0o600))
+	auth := newServiceAccountOpenShiftAuth(t, mock, tokenFile)
+
+	groups := []string{"system:cluster-admins", "system:authenticated"}
+	mock.EXPECT().
+		GetCurrentUser(gomock.Any(), "user-token").
+		Return(currentUserJSON("cluster-admin", "uid-admin", groups), nil)
+	mock.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(projectListJSON("flightctl-ext"), nil)
+	mock.EXPECT().
+		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "cluster-admin", groups).
+		Return([]string{}, nil)
+
+	identity, err := auth.GetIdentity(context.Background(), "user-token")
+	require.NoError(t, err)
+	assert.True(t, identity.IsSuperAdmin(), "system:cluster-admins from users/~ must still grant global admin")
+}
+
+func TestOpenShiftServiceAccountClient_UsesRotatingTokenFile(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenFile, []byte("client-token-1"), 0o600))
+	auth := newServiceAccountOpenShiftAuth(t, k8sclient.NewMockK8SClient(ctrl), tokenFile)
+
+	spec := auth.GetOpenShiftSpec()
+	require.NotNil(t, spec.ClientSecret)
+	require.Equal(t, "client-token-1", *spec.ClientSecret)
+
+	require.NoError(t, os.WriteFile(tokenFile, []byte("client-token-2"), 0o600))
+	spec = auth.GetOpenShiftSpec()
+	require.NotNil(t, spec.ClientSecret)
+	require.Equal(t, "client-token-2", *spec.ClientSecret)
+
+	config, err := auth.GetAuthConfig()
+	require.NoError(t, err)
+	require.NotNil(t, config.Providers)
+	providerSpec, err := (*config.Providers)[0].Spec.AsOpenShiftProviderSpec()
+	require.NoError(t, err)
+	require.Nil(t, providerSpec.ClientSecret, "client credential must not be exposed in public auth config")
+	require.NotNil(t, providerSpec.ClientType)
+	require.Equal(t, api.Serviceaccount, *providerSpec.ClientType)
+	require.NotNil(t, providerSpec.Scopes)
+	require.ElementsMatch(t, []string{"user:info", "user:check-access", "user:list-projects"}, *providerSpec.Scopes)
+}
+
+func TestOpenShiftValidateToken(t *testing.T) {
+	t.Run("When SelfSubjectReview succeeds it should accept the token", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mock := k8sclient.NewMockK8SClient(ctrl)
+		auth := newTestOpenShiftAuth(t, mock)
+		mock.EXPECT().
+			PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+			Return(selfSubjectReviewJSON("user01", "uid-001", nil), nil)
+
+		require.NoError(t, auth.ValidateToken(context.Background(), "test-token"))
+	})
+
+	t.Run("When SelfSubjectReview is rejected it should reject the token", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mock := k8sclient.NewMockK8SClient(ctrl)
+		auth := newTestOpenShiftAuth(t, mock)
+		mock.EXPECT().
+			PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/selfsubjectreviews"), gomock.Any(), gomock.Any()).
+			Return(nil, errors.New("Unauthorized"))
+
+		require.Error(t, auth.ValidateToken(context.Background(), "bad-token"))
+	})
 }

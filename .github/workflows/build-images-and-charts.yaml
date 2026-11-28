@@ -289,6 +289,18 @@ jobs:
           else
             echo "No catalog collector chart at $COLLECTOR_CHART_DIR; skipping"
           fi
+
+          # Per-project tenant RBAC bundle for namespace-scoped installs.
+          # Package it on every build so chart regressions are caught even
+          # though it is not part of the main deployment.
+          TENANT_CHART_DIR="./deploy/helm/flightctl-tenant"
+          if [ -d "$TENANT_CHART_DIR" ]; then
+            helm package "$TENANT_CHART_DIR" \
+              --version "$TAG" \
+              --app-version "v$TAG"
+          else
+            echo "No tenant chart at $TENANT_CHART_DIR; skipping"
+          fi
           echo "::endgroup::"
 
       - name: Upload helm chart artifact

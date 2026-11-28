@@ -1,6 +1,11 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  {{- if eq (include "flightctl.isOpenShiftServiceAccountClient" .) "true" }}
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirecturi.ui: "{{ include "flightctl.getUIUrl" . }}/callback"
+    serviceaccounts.openshift.io/oauth-redirecturi.cli: "http://127.0.0.1/callback"
+  {{- end }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-api

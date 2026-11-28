@@ -72,6 +72,10 @@ func (m *failingK8sClient) GetSecret(ctx context.Context, namespace, name string
 	return nil, fmt.Errorf("secret %s/%s not found", namespace, name)
 }
 
+func (m *failingK8sClient) GetCurrentUser(ctx context.Context, token string) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *failingK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
 	return nil, nil
 }
@@ -89,6 +93,10 @@ func (m *failingK8sClient) ListRoleBindingsForUser(ctx context.Context, namespac
 }
 
 func (m *mockK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockK8sClient) GetCurrentUser(ctx context.Context, token string) ([]byte, error) {
 	return nil, nil
 }
 
