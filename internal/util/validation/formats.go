@@ -154,13 +154,16 @@ func ValidateHostIPOrFQDNWithOptionalPort(name *string, path string) []error {
 		}
 	}
 
-	// Validate IPv4 if it looks like one
+	// Validate IP addresses before hostname syntax.
 	if net.ParseIP(host) != nil {
 		// Valid IP address, no further validation needed
 		return errs
 	}
 
-	// Otherwise validate as hostname/FQDN - check label lengths
+	// Validate hostname/FQDN syntax and label lengths.
+	if !HostnameOrFQDNRegexp.MatchString(host) {
+		return append(errs, field.Invalid(fieldPathFor(path), value, "must be a valid IP address or hostname"))
+	}
 	for _, label := range strings.Split(host, ".") {
 		if len(label) > dns1123LabelMaxLength {
 			errs = append(errs, field.Invalid(fieldPathFor(path), label, fmt.Sprintf("must have at most %d characters", dns1123LabelMaxLength)))
