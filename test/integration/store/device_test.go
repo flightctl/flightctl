@@ -37,7 +37,36 @@ import (
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx         context.Context
+	updateStageCases = []struct {
+		name, reason, version string
+		updated               api.DeviceUpdatedStatusType
+		conditionStatus       api.ConditionStatus
+		summary               api.DeviceSummaryStatusType
+	}{
+		{"stage-01-downloading", "Preparing", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusOnline},
+		{"stage-02-staged", "ReadyToUpdate", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusOnline},
+		{"stage-03-applying", "ApplyingUpdate", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusOnline},
+		{"stage-04-rebooting", "Rebooting", "v1.5.0", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusRebooting},
+		{"stage-05-rollback-reboot", "RollingBack", "v1.5.0", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusRebooting},
+		{"stage-06-staged", "ReadyToUpdate", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusOnline},
+		{"stage-07-old-reboot", "Rebooting", "v1.4.9", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusRebooting},
+		{"stage-08-prerelease-reboot", "Rebooting", "v1.5.0-rc1", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusRebooting},
+		{"stage-08-unknown-reboot", "Rebooting", "unknown-dirty", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusRebooting},
+		{"stage-09-disconnected", "Preparing", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusTrue, api.DeviceSummaryStatusUnknown},
+		{"stage-10-terminal", "Error", "", api.DeviceUpdatedStatusOutOfDate, api.ConditionStatusFalse, api.DeviceSummaryStatusOnline},
+		{"stage-11-false-condition", "Preparing", "", api.DeviceUpdatedStatusUpdating, api.ConditionStatusFalse, api.DeviceSummaryStatusOnline},
+	}
+	updateStageChecks = []struct {
+		stage string
+		want  []string
+	}{
+		{"Downloading", []string{"stage-01-downloading"}},
+		{"Staged", []string{"stage-02-staged", "stage-06-staged"}},
+		{"Applying", []string{"stage-03-applying"}},
+		{"Rebooting", []string{"stage-04-rebooting"}},
+		{"RollingBack", []string{"stage-05-rollback-reboot"}},
+	}
 )
 
 func TestStore(t *testing.T) {
@@ -594,6 +623,77 @@ var _ = Describe("DeviceStore create", func() {
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(3))
+		})
+
+		It("When selecting update stages it should filter the full tenant list before paging", func() {
+			for _, tc := range updateStageCases {
+				testutil.CreateTestDevice(ctx, devStore, orgId, tc.name, nil, nil, nil)
+				device, err := devStore.Get(ctx, orgId, tc.name)
+				Expect(err).ToNot(HaveOccurred())
+				device.Status.Updated.Status = tc.updated
+				device.Status.Summary.Status = tc.summary
+				device.Status.SystemInfo.AgentVersion = tc.version
+				device.Status.Conditions = []api.Condition{{
+					Type: api.ConditionTypeDeviceUpdating, Status: tc.conditionStatus, Reason: tc.reason,
+				}}
+				_, _, err = devStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+				seen := time.Now().UTC()
+				if tc.name == "stage-09-disconnected" {
+					seen = seen.Add(-api.DeviceDisconnectedTimeout - time.Minute)
+				}
+				setLastSeen(db, orgId, tc.name, seen)
+			}
+			for _, check := range updateStageChecks {
+				devices, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{UpdateStage: &check.stage})
+				Expect(err).ToNot(HaveOccurred())
+				names := make([]string, 0, len(devices.Items))
+				for _, device := range devices.Items {
+					names = append(names, lo.FromPtr(device.Metadata.Name))
+				}
+				Expect(names).To(ConsistOf(check.want))
+			}
+
+			stage := "Staged"
+			params := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 1}, UpdateStage: &stage}
+			first, err := devStore.List(ctx, orgId, params)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(first.Items).To(HaveLen(1))
+			Expect(lo.FromPtr(first.Items[0].Metadata.Name)).To(Equal("stage-02-staged"))
+			Expect(first.Metadata.Continue).ToNot(BeNil())
+			params.Continue, err = store.ParseContinueString(first.Metadata.Continue)
+			Expect(err).ToNot(HaveOccurred())
+			second, err := devStore.List(ctx, orgId, params)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(second.Items).To(HaveLen(1))
+			Expect(lo.FromPtr(second.Items[0].Metadata.Name)).To(Equal("stage-06-staged"))
+			Expect(second.Metadata.Continue).To(BeNil())
+
+			coarse, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{ListParams: store.ListParams{
+				FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status=Updating"),
+			}})
+			Expect(err).ToNot(HaveOccurred())
+			coarseNames := make([]string, 0, len(coarse.Items))
+			for _, device := range coarse.Items {
+				coarseNames = append(coarseNames, lo.FromPtr(device.Metadata.Name))
+			}
+			Expect(coarseNames).To(ContainElements("stage-01-downloading", "stage-02-staged", "stage-03-applying", "stage-04-rebooting", "stage-05-rollback-reboot"))
+
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)).To(Succeed())
+			testutil.CreateTestDevice(ctx, devStore, otherOrg, "other-tenant-staged", nil, nil, nil)
+			otherDevice, err := devStore.Get(ctx, otherOrg, "other-tenant-staged")
+			Expect(err).ToNot(HaveOccurred())
+			otherDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			otherDevice.Status.Conditions = []api.Condition{{
+				Type: api.ConditionTypeDeviceUpdating, Status: api.ConditionStatusTrue, Reason: "ReadyToUpdate",
+			}}
+			_, _, err = devStore.UpdateStatus(ctx, otherOrg, otherDevice, nil)
+			Expect(err).ToNot(HaveOccurred())
+			setLastSeen(db, otherOrg, "other-tenant-staged", time.Now().UTC())
+			tenantResult, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{UpdateStage: &stage})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tenantResult.Items).To(HaveLen(2))
 		})
 
 		It("List with status.capabilities.osMode field filter", func() {

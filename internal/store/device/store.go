@@ -50,7 +50,8 @@ func (d DeviceStatusType) Validate() error {
 // DeviceListParams extends store.ListParams with device-specific filter options.
 type DeviceListParams struct {
 	store.ListParams
-	CveID *string // Filter devices by CVE ID (join vulnerability_findings; selectors use devices.*)
+	CveID       *string // Filter devices by CVE ID (join vulnerability_findings; selectors use devices.*)
+	UpdateStage *string
 }
 
 type Store interface {
@@ -1304,6 +1305,36 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 
 	// Device model has a spec column
 	baseQuery = baseQuery.Where("spec IS NOT NULL")
+
+	if listParams.UpdateStage != nil {
+		var reason string
+		switch *listParams.UpdateStage {
+		case "Downloading":
+			reason = "Preparing"
+		case "Staged":
+			reason = "ReadyToUpdate"
+		case "Applying":
+			reason = "ApplyingUpdate"
+		case "Rebooting":
+			reason = "Rebooting"
+		case "RollingBack":
+			reason = "RollingBack"
+		default:
+			return nil, fmt.Errorf("unsupported update stage %q", *listParams.UpdateStage)
+		}
+		condition := fmt.Sprintf(`{"conditions":[{"type":"Updating","status":"True","reason":"%s"}]}`, reason)
+		baseQuery = baseQuery.Where("devices.status->'updated'->>'status' = ? AND devices.status @> ?::jsonb", "Updating", condition)
+		baseQuery = baseQuery.Where(`EXISTS (SELECT 1 FROM device_timestamps dt
+			WHERE dt.org_id = devices.org_id AND dt.name = devices.name AND dt.last_seen >= ?)`,
+			time.Now().UTC().Add(-domain.DeviceDisconnectedTimeout))
+		if *listParams.UpdateStage == "Rebooting" {
+			baseQuery = baseQuery.Where(`CASE WHEN devices.status->'systemInfo'->>'agentVersion' ~ '^v?[0-9]{1,18}\.[0-9]{1,18}\.[0-9]{1,18}(\+[0-9A-Za-z.-]+)?$'
+				THEN split_part(ltrim(devices.status->'systemInfo'->>'agentVersion', 'v'), '.', 1)::numeric > 1
+					OR (split_part(ltrim(devices.status->'systemInfo'->>'agentVersion', 'v'), '.', 1)::numeric = 1
+						AND split_part(ltrim(devices.status->'systemInfo'->>'agentVersion', 'v'), '.', 2)::numeric >= 5)
+				ELSE FALSE END`)
+		}
+	}
 
 	// Create query for fetching with pagination
 	query := baseQuery.Session(&gorm.Session{})

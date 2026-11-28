@@ -799,6 +799,50 @@ func TestListDevices(t *testing.T) {
 	require.Len(t, result.Items, 1)
 }
 
+func TestListDevicesUpdateStageSelector(t *testing.T) {
+	tests := []struct {
+		name      string
+		selector  string
+		wantCode  int32
+		wantStage *string
+	}{
+		{name: "When Downloading is selected it should accept the stage", selector: "status.updateStage=Downloading", wantCode: http.StatusOK, wantStage: lo.ToPtr("Downloading")},
+		{name: "When Staged is selected it should accept the stage", selector: "status.updateStage==Staged", wantCode: http.StatusOK, wantStage: lo.ToPtr("Staged")},
+		{name: "When Applying is selected it should accept the stage", selector: "status.updateStage=Applying", wantCode: http.StatusOK, wantStage: lo.ToPtr("Applying")},
+		{name: "When Rebooting is selected it should accept the stage", selector: "status.updateStage=Rebooting", wantCode: http.StatusOK, wantStage: lo.ToPtr("Rebooting")},
+		{name: "When Rolling back is selected it should accept the stage", selector: "status.updateStage=RollingBack", wantCode: http.StatusOK, wantStage: lo.ToPtr("RollingBack")},
+		{name: "When another field is combined it should retain it", selector: "metadata.owner=Fleet/f1,status.updateStage=Applying", wantCode: http.StatusOK, wantStage: lo.ToPtr("Applying")},
+		{name: "When stage is unknown it should reject the selector", selector: "status.updateStage=Unknown", wantCode: http.StatusBadRequest},
+		{name: "When stage has an unsupported operator it should reject the selector", selector: "status.updateStage!=Applying", wantCode: http.StatusBadRequest},
+		{name: "When stage has a set operator it should reject the selector", selector: "status.updateStage in (Applying,Staged)", wantCode: http.StatusBadRequest},
+		{name: "When stage is repeated it should reject the selector", selector: "status.updateStage=Applying,status.updateStage=Staged", wantCode: http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			_, status := svc.ListDevices(context.Background(), uuid.New(), domain.ListDevicesParams{FieldSelector: &tt.selector}, nil)
+			require.Equal(t, tt.wantCode, status.Code)
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+			require.Equal(t, tt.wantStage, st.device.lastListParams.UpdateStage)
+			if tt.wantStage != nil && tt.selector == "metadata.owner=Fleet/f1,status.updateStage=Applying" {
+				require.NotNil(t, st.device.lastListParams.FieldSelector)
+			}
+		})
+	}
+
+	t.Run("When summaryOnly is requested with a stage it should reject the filter", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		selector := "status.updateStage=Applying"
+		_, status := svc.ListDevices(context.Background(), uuid.New(), domain.ListDevicesParams{
+			FieldSelector: &selector,
+			SummaryOnly:   lo.ToPtr(true),
+		}, nil)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+	})
+}
+
 func TestListConnectivityChangedDevices(t *testing.T) {
 	_, _, svc := newTestHandler()
 	ctx := context.Background()
