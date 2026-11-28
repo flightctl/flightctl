@@ -263,6 +263,7 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1beta1.C
 	}
 
 	changed := v1beta1.SetStatusCondition(&m.device.Status.Conditions, condition)
+	changed = clearUpdateContext(m.device.Status, condition) || changed
 	if !changed {
 		return nil
 	}
@@ -433,8 +434,20 @@ func SetConfig(configStatus v1beta1.DeviceConfigStatus) UpdateStatusFn {
 func SetCondition(condition v1beta1.Condition) UpdateStatusFn {
 	return func(status *v1beta1.DeviceStatus) error {
 		v1beta1.SetStatusCondition(&status.Conditions, condition)
+		clearUpdateContext(status, condition)
 		return nil
 	}
+}
+
+func clearUpdateContext(deviceStatus *v1beta1.DeviceStatus, condition v1beta1.Condition) bool {
+	if condition.Type != v1beta1.ConditionTypeDeviceUpdating || deviceStatus.UpdateContext == nil {
+		return false
+	}
+	if condition.Status != v1beta1.ConditionStatusTrue && condition.Reason != string(v1beta1.UpdateStateUpdated) {
+		return false
+	}
+	deviceStatus.UpdateContext = nil
+	return true
 }
 
 func SetOSImage(osStatus v1beta1.DeviceOsStatus) UpdateStatusFn {

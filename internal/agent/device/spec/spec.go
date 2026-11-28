@@ -36,13 +36,14 @@ var defaultSpecPollConfig = func() poll.Config {
 	}
 }()
 
-// RollbackInfo contains the desired version, spec hash, and optional sync error
-// from the rollback spec. These identify the spec we were upgrading to when the
-// rollback was created and, when present, the reason the update failed.
+// RollbackInfo contains the failed update and reported rollback result stored
+// in rollback.json so the explanation survives a reboot.
 type RollbackInfo struct {
 	Version      string
 	SpecHash     string
 	ErrorMessage string
+	Cause        string
+	Outcome      v1beta1.DeviceUpdateContext
 }
 
 // Watcher provides a way to watch for device spec updates.
@@ -95,9 +96,11 @@ type Manager interface {
 	// sync error stored in rollback.json. These identify the spec we were
 	// upgrading to when the rollback was created.
 	GetRollbackInfo() (RollbackInfo, error)
-	// RecordRollbackError stores the sync error that caused a rollback in
-	// rollback.json so the message survives the rollback reboot.
+	// RecordRollbackError stores the sync error in rollback.json and clears any
+	// prior terminal result so a new attempt cannot inherit it.
 	RecordRollbackError(ctx context.Context, message string) error
+	// RecordRollbackResult persists the original error and terminal result in one write.
+	RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.

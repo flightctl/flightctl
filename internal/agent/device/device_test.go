@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -130,6 +131,7 @@ func TestSync(t *testing.T) {
 				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version(), desired.SpecHash()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, gomock.Any(), gomock.Any()).Return(nil).MinTimes(1)
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				// Upgrade should NOT be called when sync fails, but allow it for flexibility
 				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).AnyTimes()
@@ -644,6 +646,154 @@ func TestForwardOSReboot(t *testing.T) {
 	require.Equal(t, string(v1beta1.UpdateStateRebooting), last.reason)
 }
 
+func TestReportTerminalRollback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	manager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	manager.SetClient(management)
+	var reported *v1beta1.DeviceStatus
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).DoAndReturn(captureDeviceStatus(&reported))
+
+	err := reportTerminalRollback(context.Background(), manager, spec.RollbackInfo{
+		ErrorMessage: "failed to apply requested image",
+		Cause:        "disk write failed",
+		Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, reported)
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, *reported.UpdateContext)
+	condition := v1beta1.FindStatusCondition(reported.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	require.NotNil(t, condition)
+	require.Equal(t, v1beta1.ConditionStatusFalse, condition.Status)
+	require.Equal(t, string(v1beta1.UpdateStateError), condition.Reason)
+	require.Equal(t, "failed to apply requested image; rollback failed: disk write failed", condition.Message)
+}
+
+func TestRetryPendingRollbackResult(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	result := spec.RollbackInfo{
+		ErrorMessage: "failed to apply requested image",
+		Cause:        "rollback disk write failed",
+		Outcome:      v1beta1.DeviceUpdateContextRollbackFailed,
+	}
+	agent := &Agent{
+		statusManager:         statusManager,
+		specManager:           specManager,
+		pendingRollbackResult: &result,
+		log:                   log.NewPrefixLogger("test"),
+	}
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), result.Outcome, result.Cause, result.ErrorMessage).Return(errors.New("disk unavailable"))
+	agent.retryPendingRollbackResult(context.Background())
+	require.NotNil(t, agent.pendingRollbackResult)
+
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), result.Outcome, result.Cause, result.ErrorMessage).Return(nil)
+	var reported *v1beta1.DeviceStatus
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).DoAndReturn(captureDeviceStatus(&reported))
+	agent.retryPendingRollbackResult(context.Background())
+	require.Nil(t, agent.pendingRollbackResult)
+	require.NotNil(t, reported)
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, result.Outcome, *reported.UpdateContext)
+}
+
+func TestFailedRestoredSpecSyncReportsRollbackFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{statusManager: statusManager, specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	cause := errors.New("restored config cannot be applied")
+
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, cause.Error(), info.ErrorMessage).Return(nil)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+	require.True(t, agent.failPendingRollback(context.Background(), cause))
+
+	require.Nil(t, agent.pendingRollbackResult)
+	reported := statusManager.Get(context.Background())
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, *reported.UpdateContext)
+	condition := v1beta1.FindStatusCondition(reported.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	require.NotNil(t, condition)
+	require.Contains(t, condition.Message, info.ErrorMessage)
+	require.Contains(t, condition.Message, cause.Error())
+}
+
+func TestFailedRestoredSpecSyncWaitsForDurableResult(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	specManager := spec.NewMockManager(ctrl)
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	cause := errors.New("restored config cannot be applied")
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, cause.Error(), info.ErrorMessage).Return(errors.New("disk unavailable"))
+
+	require.True(t, agent.failPendingRollback(context.Background(), cause))
+	require.NotNil(t, agent.pendingRollbackResult)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackFailed, agent.pendingRollbackResult.Outcome)
+	require.Equal(t, cause.Error(), agent.pendingRollbackResult.Cause)
+}
+
+func TestRetryableRestoredSpecSyncKeepsRollbackPending(t *testing.T) {
+	info := spec.RollbackInfo{ErrorMessage: "requested update failed"}
+	agent := &Agent{pendingRollbackResult: &info}
+	require.False(t, agent.failPendingRollback(context.Background(), fmt.Errorf("%w: retry", errors.ErrRetryable)))
+	require.Empty(t, agent.pendingRollbackResult.Outcome)
+}
+
+func TestConfirmPendingConfigRollback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	info := spec.RollbackInfo{ErrorMessage: "config update failed"}
+	agent := &Agent{statusManager: statusManager, specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", info.ErrorMessage).Return(nil)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+
+	agent.confirmPendingRollback(context.Background(), newVersionedDevice("5"))
+	require.Nil(t, agent.pendingRollbackResult)
+	reported := statusManager.Get(context.Background())
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, *reported.UpdateContext)
+}
+
+func TestConfirmPendingOSRollbackAfterStatusQueryRecovers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	management := client.NewMockManagement(ctrl)
+	specManager := spec.NewMockManager(ctrl)
+	statusManager := status.NewManager("test-device", log.NewPrefixLogger("test"))
+	statusManager.SetClient(management)
+	info := spec.RollbackInfo{ErrorMessage: "OS update failed"}
+	agent := &Agent{statusManager: statusManager, specManager: specManager, pendingRollbackResult: &info, log: log.NewPrefixLogger("test")}
+	desired := newVersionedDeviceWithOS("5", "previous-image")
+	specManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", false, errors.New("status unavailable"))
+	agent.confirmPendingRollback(context.Background(), desired)
+	require.NotNil(t, agent.pendingRollbackResult)
+	require.Empty(t, agent.pendingRollbackResult.Outcome)
+
+	specManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("previous-image", true, nil)
+	specManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", info.ErrorMessage).Return(nil)
+	management.EXPECT().UpdateDeviceStatus(gomock.Any(), "test-device", gomock.Any()).Return(nil)
+	agent.confirmPendingRollback(context.Background(), desired)
+	require.Nil(t, agent.pendingRollbackResult)
+	reported := statusManager.Get(context.Background())
+	require.NotNil(t, reported.UpdateContext)
+	require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, *reported.UpdateContext)
+}
+
 func TestOSRollback(t *testing.T) {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -699,7 +849,7 @@ func TestOSRollback(t *testing.T) {
 			) {
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
-				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackFailed, "helm deps missing", gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)
@@ -1113,6 +1263,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 				return nil
 			},
 		)
+		mockSpecManager.EXPECT().RecordRollbackResult(gomock.Any(), v1beta1.DeviceUpdateContextRollbackCompleted, "", gomock.Any()).Return(nil)
 		mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
 				lastStatusDevice = &device
@@ -1174,6 +1325,8 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		require.NotNil(t, cond)
 		require.Equal(t, string(v1beta1.UpdateStateError), cond.Reason)
 		require.Contains(t, cond.Message, "package-mode device cannot satisfy spec with os.image")
+		require.NotNil(t, lastStatusDevice.Status.UpdateContext)
+		require.Equal(t, v1beta1.DeviceUpdateContextRollbackCompleted, *lastStatusDevice.Status.UpdateContext)
 	})
 
 	t.Run("When package-mode and not upgrading with os.image it should reject without rollback", func(t *testing.T) {
@@ -1250,6 +1403,13 @@ func captureRollbackStatus(reports *[]rollbackStatusReport) func(context.Context
 			return errors.New("Updating condition is missing")
 		}
 		*reports = append(*reports, rollbackStatusReport{device.Status.Summary.Status, condition.Status, condition.Reason})
+		return nil
+	}
+}
+
+func captureDeviceStatus(destination **v1beta1.DeviceStatus) func(context.Context, string, v1beta1.Device, ...interface{}) error {
+	return func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
+		*destination = device.Status
 		return nil
 	}
 }

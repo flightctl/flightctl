@@ -286,6 +286,20 @@ func (mr *MockManagerMockRecorder) RecordRollbackError(ctx, message any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordRollbackError", reflect.TypeOf((*MockManager)(nil).RecordRollbackError), ctx, message)
 }
 
+// RecordRollbackResult mocks base method.
+func (m *MockManager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordRollbackResult", ctx, outcome, cause, errorMessage)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordRollbackResult indicates an expected call of RecordRollbackResult.
+func (mr *MockManagerMockRecorder) RecordRollbackResult(ctx, outcome, cause, errorMessage any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordRollbackResult", reflect.TypeOf((*MockManager)(nil).RecordRollbackResult), ctx, outcome, cause, errorMessage)
+}
+
 // RenderedVersion mocks base method.
 func (m *MockManager) RenderedVersion(specType Type) string {
 	m.ctrl.T.Helper()

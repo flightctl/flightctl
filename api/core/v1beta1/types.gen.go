@@ -252,6 +252,13 @@ const (
 	DeviceSummaryStatusUnknown           DeviceSummaryStatusType = "Unknown"
 )
 
+// Defines values for DeviceUpdateContext.
+const (
+	DeviceUpdateContextRollbackCompleted DeviceUpdateContext = "RollbackCompleted"
+	DeviceUpdateContextRollbackFailed    DeviceUpdateContext = "RollbackFailed"
+	DeviceUpdateContextRollbackTimedOut  DeviceUpdateContext = "RollbackTimedOut"
+)
+
 // Defines values for DeviceUpdatedStatusType.
 const (
 	DeviceUpdatedStatusOutOfDate DeviceUpdatedStatusType = "OutOfDate"
@@ -1847,6 +1854,9 @@ type DeviceStatus struct {
 	// Systemd List of systemd unit statuses.
 	Systemd *[]SystemdUnitStatus `json:"systemd,omitempty"`
 
+	// UpdateContext Reported terminal rollback result. Present only with an Updating condition whose status is False and reason is Error.
+	UpdateContext *DeviceUpdateContext `json:"updateContext,omitempty"`
+
 	// Updated Current status of the device update.
 	Updated DeviceUpdatedStatus `json:"updated"`
 }
@@ -1923,6 +1933,9 @@ type DeviceSystemInfoSummaryStatus struct {
 	// Status Aggregate health of the system information collection.
 	Status SystemInfoSummaryStatusType `json:"status"`
 }
+
+// DeviceUpdateContext Reported terminal rollback result. Present only with an Updating condition whose status is False and reason is Error.
+type DeviceUpdateContext string
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {

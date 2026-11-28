@@ -27,6 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+var errSpecRollbackFailed = errors.New("failed spec rollback")
+
 const (
 	BootstrapComplete = "Bootstrap complete"
 )
@@ -75,6 +77,7 @@ type Bootstrap struct {
 	managementClient          client.Management
 	managementMetricsCallback client.RPCMetricsCallback
 	identityProvider          identity.Provider
+	pendingRollbackResult     *spec.RollbackInfo
 
 	// enrollmentHooksBackoff overrides the default reconnect/PATCH backoff for
 	// post-enrollment hooks. Nil means use defaultEnrollmentHooksBackoff.
@@ -84,6 +87,10 @@ type Bootstrap struct {
 	waitEnrollmentHooksReadyFn func(ctx context.Context) (*enrollmentHooksState, error)
 
 	log *log.PrefixLogger
+}
+
+func (b *Bootstrap) PendingRollbackResult() *spec.RollbackInfo {
+	return b.pendingRollbackResult
 }
 
 func NewBootstrap(
@@ -166,6 +173,24 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 			b.log.Warnf("Failed setting status: %v", updateErr)
 		}
 		b.log.Error(infoMsg)
+		rollbackInfo, infoErr := b.specManager.GetRollbackInfo()
+		if infoErr != nil {
+			b.log.Warnf("Failed to read rollback info after bootstrap failure: %v", infoErr)
+		} else if rollbackInfo.ErrorMessage != "" {
+			if rollbackInfo.Outcome == "" && errors.Is(err, errSpecRollbackFailed) {
+				rollbackInfo.Outcome = v1beta1.DeviceUpdateContextRollbackFailed
+				rollbackInfo.Cause = err.Error()
+				if recordErr := b.specManager.RecordRollbackResult(ctx, rollbackInfo.Outcome, rollbackInfo.Cause, rollbackInfo.ErrorMessage); recordErr != nil {
+					b.log.Errorf("Failed to persist rollback result: %v", recordErr)
+					rollbackInfo.Outcome = ""
+				}
+			}
+			if rollbackInfo.Outcome == v1beta1.DeviceUpdateContextRollbackFailed || rollbackInfo.Outcome == v1beta1.DeviceUpdateContextRollbackTimedOut {
+				if reportErr := reportTerminalRollback(ctx, b.statusManager, rollbackInfo); reportErr != nil {
+					b.log.Warnf("Failed to report rollback result: %v", reportErr)
+				}
+			}
+		}
 
 		return err
 	}
@@ -211,25 +236,35 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	updatingCondition := v1beta1.Condition{
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
+	var updateContext *v1beta1.DeviceUpdateContext
 
 	if b.specManager.IsUpgrading() {
 		updatingCondition.Status = v1beta1.ConditionStatusTrue
 		updatingCondition.Reason = string(v1beta1.UpdateStateApplyingUpdate)
+	} else if b.pendingRollbackResult != nil {
+		updatingCondition.Status = v1beta1.ConditionStatusTrue
+		updatingCondition.Reason = string(v1beta1.UpdateStateRollingBack)
+		updatingCondition.Message = "Rollback outcome pending: " + b.pendingRollbackResult.ErrorMessage
 	} else {
 		rollbackInfo, err := b.specManager.GetRollbackInfo()
 		if err != nil {
 			b.log.Errorf("Failed to read rollback info: %v", err)
 			updatingCondition.Status = v1beta1.ConditionStatusFalse
 			updatingCondition.Reason = string(v1beta1.UpdateStateError)
-			updatingCondition.Message = "Failed to read rollback info after update"
-		} else if rollbackInfo.ErrorMessage != "" || rollbackInfo.Version != "" {
+			updatingCondition.Message = log.Truncate("Cannot determine rollback outcome: failed to read rollback record: "+err.Error(), status.MaxMessageLength)
+		} else if rollbackInfo.Outcome != "" {
 			updatingCondition.Status = v1beta1.ConditionStatusFalse
 			updatingCondition.Reason = string(v1beta1.UpdateStateError)
-			if rollbackInfo.ErrorMessage != "" {
-				updatingCondition.Message = rollbackInfo.ErrorMessage
-			} else {
-				updatingCondition.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", rollbackInfo.Version)
-			}
+			updatingCondition.Message = rollbackResultMessage(rollbackInfo)
+			updateContext = &rollbackInfo.Outcome
+		} else if rollbackInfo.ErrorMessage != "" {
+			updatingCondition.Status = v1beta1.ConditionStatusTrue
+			updatingCondition.Reason = string(v1beta1.UpdateStateRollingBack)
+			updatingCondition.Message = "Rollback outcome pending: " + rollbackInfo.ErrorMessage
+		} else if rollbackInfo.Version != "" {
+			updatingCondition.Status = v1beta1.ConditionStatusFalse
+			updatingCondition.Reason = string(v1beta1.UpdateStateError)
+			updatingCondition.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", rollbackInfo.Version)
 		} else {
 			updatingCondition.Status = v1beta1.ConditionStatusFalse
 			updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
@@ -242,6 +277,10 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
 		}),
 		status.SetCondition(updatingCondition),
+		func(deviceStatus *v1beta1.DeviceStatus) error {
+			deviceStatus.UpdateContext = updateContext
+			return nil
+		},
 	)
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
@@ -286,6 +325,9 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 					b.log.Errorf("Failed to mark version %s as failed: %v", rollbackInfo.Version, err)
 				}
 			}
+			if err == nil && rollbackInfo.ErrorMessage != "" && rollbackInfo.Outcome == "" {
+				b.pendingRollbackResult = &rollbackInfo
+			}
 		}
 		return nil
 	}
@@ -329,9 +371,30 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	}
 
 	b.log.Warn("Starting spec rollback")
+	rollbackInfo, err := b.specManager.GetRollbackInfo()
+	if err != nil {
+		return fmt.Errorf("reading rollback error: %w", err)
+	}
+	errorPersisted := rollbackInfo.ErrorMessage != ""
+	if !errorPersisted {
+		rollbackInfo.ErrorMessage = fmt.Sprintf("Booted OS image %s instead of requested image %s", bootedOS, desiredOS)
+		if err := b.specManager.RecordRollbackError(ctx, rollbackInfo.ErrorMessage); err != nil {
+			b.log.Warnf("Could not persist rollback error before recovery: %v", err)
+		} else {
+			errorPersisted = true
+		}
+	}
 	// rollback and set the version to failed
 	if err := b.specManager.Rollback(ctx, spec.WithSetFailed()); err != nil {
-		return fmt.Errorf("failed spec rollback: %w", err)
+		return fmt.Errorf("%w: %w", errSpecRollbackFailed, err)
+	}
+	if rollbackInfo.Outcome == "" {
+		if !errorPersisted {
+			if err := b.specManager.RecordRollbackError(ctx, rollbackInfo.ErrorMessage); err != nil {
+				b.log.Warnf("Could not persist rollback error after recovery: %v", err)
+			}
+		}
+		b.pendingRollbackResult = &rollbackInfo
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")
 

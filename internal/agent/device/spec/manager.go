@@ -31,7 +31,9 @@ const (
 	annotationDesiredSpecHash = "agent/desiredSpecHash"
 	// annotationRollbackError stores the formatted sync error that triggered
 	// an OS rollback so it can be reported after reboot.
-	annotationRollbackError = "agent/rollbackError"
+	annotationRollbackError   = "agent/rollbackError"
+	annotationRollbackOutcome = "agent/rollbackOutcome"
+	annotationRollbackCause   = "agent/rollbackCause"
 )
 
 // manager is responsible for managing the rendered device spec.
@@ -354,10 +356,16 @@ func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
 		return RollbackInfo{}, nil
 	}
 	annotations := *rollback.Metadata.Annotations
+	outcome := v1beta1.DeviceUpdateContext(annotations[annotationRollbackOutcome])
+	if outcome != "" && !validRollbackOutcome(outcome) {
+		return RollbackInfo{}, fmt.Errorf("invalid persisted rollback outcome %q", outcome)
+	}
 	return RollbackInfo{
 		Version:      annotations[annotationDesiredVersion],
 		SpecHash:     annotations[annotationDesiredSpecHash],
 		ErrorMessage: annotations[annotationRollbackError],
+		Cause:        annotations[annotationRollbackCause],
+		Outcome:      outcome,
 	}, nil
 }
 
@@ -376,8 +384,38 @@ func (s *manager) RecordRollbackError(ctx context.Context, message string) error
 		annotations = rollback.Metadata.Annotations
 	}
 	(*annotations)[annotationRollbackError] = message
+	delete(*annotations, annotationRollbackOutcome)
+	delete(*annotations, annotationRollbackCause)
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
 		return fmt.Errorf("writing rollback error: %w", err)
+	}
+	return nil
+}
+
+func (s *manager) RecordRollbackResult(ctx context.Context, outcome v1beta1.DeviceUpdateContext, cause, errorMessage string) error {
+	if !validRollbackOutcome(outcome) {
+		return fmt.Errorf("invalid rollback outcome %q", outcome)
+	}
+	if errorMessage == "" {
+		return fmt.Errorf("rollback result requires the original update error")
+	}
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		return fmt.Errorf("reading rollback spec: %w", err)
+	}
+	if rollback.Metadata.Annotations == nil {
+		annotations := map[string]string{}
+		rollback.Metadata.Annotations = &annotations
+	}
+	(*rollback.Metadata.Annotations)[annotationRollbackError] = errorMessage
+	(*rollback.Metadata.Annotations)[annotationRollbackOutcome] = string(outcome)
+	if cause != "" {
+		(*rollback.Metadata.Annotations)[annotationRollbackCause] = cause
+	} else {
+		delete(*rollback.Metadata.Annotations, annotationRollbackCause)
+	}
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
+		return fmt.Errorf("writing rollback outcome: %w", err)
 	}
 	return nil
 }
@@ -667,7 +705,7 @@ func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Devi
 		}
 	}
 
-	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
+	err = writeDeviceToFile(s.deviceReadWriter, device, filePath, specType == Rollback)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", specType, err)
 	}
@@ -759,15 +797,26 @@ func readDeviceFromFile(
 	return &current, nil
 }
 
-func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string) error {
+func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string, durable bool) error {
 	deviceBytes, err := json.Marshal(device)
 	if err != nil {
 		return err
 	}
-	if err := writer.WriteFile(filePath, deviceBytes, fileio.DefaultFilePermissions); err != nil {
+	if durable {
+		err = writer.WriteFileDurable(filePath, deviceBytes, fileio.DefaultDirectoryPermissions, fileio.DefaultFilePermissions)
+	} else {
+		err = writer.WriteFile(filePath, deviceBytes, fileio.DefaultFilePermissions)
+	}
+	if err != nil {
 		return fmt.Errorf("%w: writing to %q: %w", errors.ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
+}
+
+func validRollbackOutcome(outcome v1beta1.DeviceUpdateContext) bool {
+	return outcome == v1beta1.DeviceUpdateContextRollbackCompleted ||
+		outcome == v1beta1.DeviceUpdateContextRollbackFailed ||
+		outcome == v1beta1.DeviceUpdateContextRollbackTimedOut
 }
 
 func IsUpgrading(current *v1beta1.Device, desired *v1beta1.Device) bool {

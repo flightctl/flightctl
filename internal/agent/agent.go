@@ -523,6 +523,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		backoff,
 		a.log,
 		device.WithFirmwarePolicyReceiver(firmwarePolicy, specManager.Watch()),
+		device.WithPendingRollbackResult(bootstrap.PendingRollbackResult()),
 	)
 
 	// Populate collectors registered during startup before asynchronous work begins.

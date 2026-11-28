@@ -99,7 +99,13 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 | `ActivatingConfig` | (transient, not reported) The agent is activating the new configuration without requiring a reboot. |
 | `RollingBack` | The agent has detected an error and is rolling back to the pre-update OS image and configuration. |
 | `Updated` | The agent has successfully completed the update and the device is conforming to its device spec. Note that the device's update status may still be reported as `OutOfDate` if the device spec is not yet at the same version as the fleet's device template. |
-| `Error` | The agent failed to apply the desired spec and will not retry. The device's OS image and configuration have been rolled back to the pre-update version and have been activated. |
+| `Error` | The agent failed to apply the desired spec and will not retry. When a rollback was attempted, check `status.updateContext` for its reported outcome. |
+
+The optional `device.status.updateContext` field identifies a reported terminal
+rollback result: `RollbackCompleted`, `RollbackFailed`, or `RollbackTimedOut`.
+It appears only with `Updating=False, Reason=Error`. The Updating condition's
+message explains both the failed update and the rollback result or cause.
+An absent field does not imply that rollback succeeded or timed out.
 
 The `device.status.updated.info` field contains human-readable information about the last device update transition.
 
